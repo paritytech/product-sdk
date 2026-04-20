@@ -1,0 +1,82 @@
+{
+    "targets": {
+        "acc2c3b5e912b762": {
+            "asset-hub": "wss://asset-hub-paseo-rpc.n.dwellir.com",
+            "bulletin": "https://paseo-ipfs.polkadot.io/ipfs"
+        }
+    },
+    "contracts": {
+        "acc2c3b5e912b762": {
+            "@t3rminal/bulletin-index": {
+                "version": 0,
+                "address": "0xA2E388421467E0193570Af45Bd03F0F379c47E88",
+                "abi": [
+                    {
+                        "type": "constructor",
+                        "inputs": [],
+                        "stateMutability": "nonpayable"
+                    },
+                    {
+                        "type": "event",
+                        "name": "DailyReportStored",
+                        "inputs": [
+                            { "indexed": true, "name": "shop", "type": "address" },
+                            { "indexed": true, "name": "date", "type": "string" },
+                            { "indexed": false, "name": "cid", "type": "string" },
+                            { "indexed": false, "name": "entryCount", "type": "uint256" }
+                        ]
+                    },
+                    {
+                        "type": "function",
+                        "name": "owner",
+                        "inputs": [],
+                        "outputs": [{ "name": "", "type": "address" }],
+                        "stateMutability": "view"
+                    },
+                    {
+                        "type": "function",
+                        "name": "storeDailyReport",
+                        "inputs": [
+                            { "name": "date", "type": "string" },
+                            { "name": "cid", "type": "string" },
+                            { "name": "entryCount", "type": "uint256" }
+                        ],
+                        "outputs": [],
+                        "stateMutability": "nonpayable"
+                    },
+                    {
+                        "type": "function",
+                        "name": "getAllDates",
+                        "inputs": [{ "name": "shop", "type": "address" }],
+                        "outputs": [{ "name": "", "type": "string[]" }],
+                        "stateMutability": "view"
+                    },
+                    {
+                        "type": "function",
+                        "name": "getReportCount",
+                        "inputs": [{ "name": "shop", "type": "address" }],
+                        "outputs": [{ "name": "", "type": "uint256" }],
+                        "stateMutability": "view"
+                    },
+                    {
+                        "type": "function",
+                        "name": "getCID",
+                        "inputs": [
+                            { "name": "shop", "type": "address" },
+                            { "name": "date", "type": "string" }
+                        ],
+                        "outputs": [{ "name": "", "type": "string" }],
+                        "stateMutability": "view"
+                    },
+                    {
+                        "type": "function",
+                        "name": "transferOwnership",
+                        "inputs": [{ "name": "newOwner", "type": "address" }],
+                        "outputs": [],
+                        "stateMutability": "nonpayable"
+                    }
+                ]
+            }
+        }
+    }
+}

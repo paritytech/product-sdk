@@ -75,22 +75,6 @@ export interface AccountPersistence {
     removeItem(key: string): void | Promise<void>;
 }
 
-/**
- * SignerManager provides access to the currently selected signing account.
- *
- * This interface represents the contract that a signer management implementation
- * must fulfill. Implementations may manage account selection, persistence, and
- * multi-provider coordination.
- */
-export interface SignerManager {
-    /** Get the current state snapshot. */
-    getState(): SignerState;
-    /** Subscribe to state changes. Returns unsubscribe function. */
-    subscribe(callback: (state: SignerState) => void): () => void;
-    /** Disconnect and clean up. */
-    destroy(): void;
-}
-
 /** Options for SignerManager construction. */
 export interface SignerManagerOptions {
     /** SS58 prefix for address encoding. Default: 42 */

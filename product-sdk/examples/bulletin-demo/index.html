@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>@polkadot-apps/bulletin demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 1.5rem; }
+    header { margin-bottom: 1rem; }
+    h1 { font-size: 1.4rem; color: #fff; }
+    h2 { font-size: 1rem; margin: 1.2rem 0 0.5rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+    .panel-main { min-width: 0; }
+    .panel-log { min-width: 0; position: sticky; top: 1.5rem; }
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; }
+      .panel-log { position: static; }
+    }
+
+    .meta { font-size: 0.85rem; color: #888; margin-bottom: 0.3rem; }
+    .meta span { color: #ccc; font-family: monospace; }
+
+    .action { background: #161616; padding: 0.8rem; border-radius: 6px; margin: 0.5rem 0; display: flex; gap: 0.5rem; align-items: center; }
+    .action input { background: #222; border: 1px solid #333; color: #fff; padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.9rem; flex: 1; }
+    .action button { background: #e6007a; color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+    .action input:disabled { opacity: 0.5; cursor: default; }
+    .action button:disabled { opacity: 0.5; cursor: default; }
+    .action button:hover:not(:disabled) { background: #c80068; }
+
+    #bulletin-log { background: #111; border-radius: 6px; padding: 0.6rem; max-height: calc(100vh - 6rem); overflow-y: auto; font-family: monospace; font-size: 0.8rem; line-height: 1.5; }
+    .ts { color: #555; }
+    .log-ok { color: #4caf50; }
+    .log-err { color: #f44336; }
+    .log-info { color: #888; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 data-testid="app-heading">@polkadot-apps/bulletin demo</h1>
+  </header>
+
+  <div class="layout">
+    <div class="panel-main">
+      <div class="meta">Signer: <span id="connection-status" data-testid="connection-status">disconnected</span></div>
+      <div class="meta">Provider: <span id="active-provider" data-testid="active-provider">-</span></div>
+      <div class="meta">Account: <span id="account-address" data-testid="account-address">-</span></div>
+      <div class="meta">Bulletin: <span id="bulletin-status" data-testid="bulletin-status">disconnected</span></div>
+      <div class="meta">Upload strategy: <span id="upload-strategy" data-testid="upload-strategy">-</span></div>
+      <div class="meta">Query strategy: <span id="query-strategy" data-testid="query-strategy">-</span></div>
+
+      <h2>Upload data</h2>
+      <div class="action">
+        <input id="upload-input" type="text" placeholder="Data to upload" data-testid="upload-input" value="hello from bulletin-demo" disabled />
+        <button id="btn-upload" data-testid="btn-upload" disabled>Upload</button>
+      </div>
+
+      <h2>Query by CID</h2>
+      <div class="action">
+        <input id="query-cid-input" type="text" placeholder="CID (auto-filled after upload)" data-testid="query-cid-input" disabled />
+        <button id="btn-query" data-testid="btn-query" disabled>Query</button>
+      </div>
+
+      <h2>Results</h2>
+      <div class="meta">Last CID: <span id="last-cid" data-testid="last-cid">-</span></div>
+      <div class="meta">Preimage key: <span id="last-preimage-key" data-testid="last-preimage-key">-</span></div>
+      <div class="meta">Query result: <span id="query-result" data-testid="query-result">-</span></div>
+    </div>
+
+    <div class="panel-log">
+      <h2>Bulletin Log</h2>
+      <div id="bulletin-log" data-testid="bulletin-log"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

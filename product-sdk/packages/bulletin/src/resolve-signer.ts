@@ -41,7 +41,6 @@ export async function resolveUploadStrategy(
 
     if (inContainer) {
         try {
-            // @ts-expect-error - product-sdk may not be installed
             const sdk = await import("@novasamatech/product-sdk");
             log.info("inside host container — using preimage API for bulletin upload");
             return { kind: "preimage", submit: (data) => sdk.preimageManager.submit(data) };

@@ -12,8 +12,7 @@ export async function isInsideContainer(): Promise<boolean> {
     if (typeof window === "undefined") return false;
 
     try {
-        // @ts-expect-error - product-sdk may not be installed
-        const sdk = await import("@aspect-build/aspect-product-sdk");
+        const sdk = await import("@novasamatech/product-sdk");
         return sdk.sandboxProvider.isCorrectEnvironment();
     } catch {
         return isInsideContainerSync();
@@ -28,8 +27,7 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
     if (!(await isInsideContainer())) return null;
 
     try {
-        // @ts-expect-error - product-sdk may not be installed
-        const sdk = await import("@aspect-build/aspect-product-sdk");
+        const sdk = await import("@novasamatech/product-sdk");
         return sdk.hostLocalStorage as HostLocalStorage;
     } catch {
         return null;
@@ -41,7 +39,7 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
  *
  * When running inside a Polkadot container, this wraps the chain connection via the
  * host's `createPapiProvider`, enabling shared connections and efficient routing.
- * Returns `null` when `@aspect-build/aspect-product-sdk` is unavailable (standalone environments).
+ * Returns `null` when `@novasamatech/product-sdk` is unavailable (standalone environments).
  *
  * @param genesisHash - Genesis hash of the target chain (`0x`-prefixed hex string).
  * @param fallback    - Optional fallback provider (e.g., WebSocket). Passed to the host
@@ -62,8 +60,7 @@ export async function getHostProvider(
     fallback?: JsonRpcProvider,
 ): Promise<JsonRpcProvider | null> {
     try {
-        // @ts-expect-error - product-sdk may not be installed
-        const sdk = await import("@aspect-build/aspect-product-sdk");
+        const sdk = await import("@novasamatech/product-sdk");
         return sdk.createPapiProvider(genesisHash, fallback);
     } catch {
         return null;
@@ -104,14 +101,13 @@ export function isInsideContainerSync(): boolean {
  *
  * Returns a statement store with `subscribe`, `createProof`, and `submit` methods
  * that communicate through the host's native binary protocol — bypassing JSON-RPC
- * entirely. Returns `null` when `@aspect-build/aspect-product-sdk` is unavailable.
+ * entirely. Returns `null` when `@novasamatech/product-sdk` is unavailable.
  *
  * @returns The host statement store, or `null` if unavailable.
  */
 export async function getStatementStore(): Promise<HostStatementStore | null> {
     try {
-        // @ts-expect-error - product-sdk may not be installed
-        const sdk = await import("@aspect-build/aspect-product-sdk");
+        const sdk = await import("@novasamatech/product-sdk");
         return sdk.createStatementStore() as HostStatementStore;
     } catch {
         return null;

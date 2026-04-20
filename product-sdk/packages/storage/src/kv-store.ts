@@ -89,7 +89,7 @@ function createHostBackend(
 
         async remove(key) {
             try {
-                await hostStorage.clear();
+                await hostStorage.clear(applyPrefix(key));
             } catch (e) {
                 log.warn("Host clear failed", { key, error: e });
             }

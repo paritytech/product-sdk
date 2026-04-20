@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>contracts-demo</title>
+        <style>
+            body {
+                font-family: monospace;
+                max-width: 720px;
+                margin: 2rem auto;
+                padding: 0 1rem;
+            }
+            h1 {
+                font-size: 1.2rem;
+            }
+            .row {
+                display: flex;
+                gap: 0.5rem;
+                align-items: center;
+                margin: 0.4rem 0;
+            }
+            label {
+                width: 160px;
+                flex-shrink: 0;
+            }
+            input {
+                flex: 1;
+                font-family: monospace;
+                padding: 2px 4px;
+            }
+            button {
+                padding: 4px 12px;
+                cursor: pointer;
+            }
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            #contract-log {
+                margin-top: 1rem;
+                border: 1px solid #ccc;
+                padding: 0.5rem;
+                min-height: 4rem;
+                font-size: 0.85rem;
+                white-space: pre-wrap;
+                word-break: break-all;
+            }
+            .log-ok {
+                color: green;
+            }
+            .log-err {
+                color: red;
+            }
+        </style>
+    </head>
+    <body>
+        <h1 data-testid="app-heading">@polkadot-apps/contracts demo</h1>
+
+        <div class="row">
+            <label>Status:</label>
+            <span id="connection-status" data-testid="connection-status">-</span>
+        </div>
+        <div class="row">
+            <label>Provider:</label>
+            <span id="active-provider" data-testid="active-provider">-</span>
+        </div>
+        <div class="row">
+            <label>Account:</label>
+            <span id="account-address" data-testid="account-address">-</span>
+        </div>
+
+        <hr />
+
+        <!-- Query: read contract owner — no signing required -->
+        <div class="row">
+            <button id="btn-query-owner" data-testid="btn-query-owner" disabled>Query owner()</button>
+        </div>
+
+        <!-- Tx: store a daily report — permissionless write -->
+        <div class="row">
+            <label>Report date:</label>
+            <input id="report-date-input" data-testid="report-date-input" type="text" value="2026-01-01" />
+        </div>
+        <div class="row">
+            <label>Report CID:</label>
+            <input id="report-cid-input" data-testid="report-cid-input" type="text" value="bafktest" />
+        </div>
+        <div class="row">
+            <button id="btn-store-report" data-testid="btn-store-report" disabled>storeDailyReport()</button>
+        </div>
+
+        <div id="contract-log" data-testid="contract-log"></div>
+
+        <script type="module" src="/src/main.ts"></script>
+    </body>
+</html>

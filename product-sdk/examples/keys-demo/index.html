@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>@polkadot-apps/keys demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 1.5rem; }
+    header { margin-bottom: 1rem; }
+    h1 { font-size: 1.4rem; color: #fff; }
+    h2 { font-size: 1rem; margin: 1.2rem 0 0.5rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+    .panel-main { min-width: 0; }
+    .panel-log { min-width: 0; position: sticky; top: 1.5rem; }
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; }
+      .panel-log { position: static; }
+    }
+
+    .meta { font-size: 0.85rem; color: #888; margin-bottom: 0.3rem; }
+    .meta span { color: #ccc; font-family: monospace; }
+
+    .action { background: #161616; padding: 0.8rem; border-radius: 6px; margin: 0.5rem 0; display: flex; gap: 0.5rem; align-items: center; }
+    .action input { background: #222; border: 1px solid #333; color: #fff; padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.9rem; flex: 1; }
+    .action button { background: #e6007a; color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+    .action input:disabled { opacity: 0.5; cursor: default; }
+    .action button:disabled { opacity: 0.5; cursor: default; }
+    .action button:hover:not(:disabled) { background: #c80068; }
+
+    .result { background: #161616; padding: 0.6rem 0.8rem; border-radius: 6px; margin: 0.5rem 0; font-family: monospace; font-size: 0.85rem; color: #ccc; word-break: break-all; }
+
+    #keys-log { background: #111; border-radius: 6px; padding: 0.6rem; max-height: calc(100vh - 6rem); overflow-y: auto; font-family: monospace; font-size: 0.8rem; line-height: 1.5; }
+    .ts { color: #555; }
+    .log-ok { color: #4caf50; }
+    .log-err { color: #f44336; }
+    .log-info { color: #888; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 data-testid="app-heading">@polkadot-apps/keys demo</h1>
+  </header>
+
+  <div class="layout">
+    <div class="panel-main">
+      <div class="meta">Signer: <span id="connection-status" data-testid="connection-status">disconnected</span></div>
+      <div class="meta">Provider: <span id="active-provider" data-testid="active-provider">-</span></div>
+      <div class="meta">Account: <span id="account-address" data-testid="account-address">-</span></div>
+      <div class="meta">Storage backend: <span id="storage-backend" data-testid="storage-backend">-</span></div>
+      <div class="meta">Session status: <span id="session-status" data-testid="session-status">-</span></div>
+
+      <h2>Session key operations</h2>
+      <div class="action">
+        <button id="btn-create" data-testid="btn-create" disabled>Create</button>
+        <button id="btn-get" data-testid="btn-get" disabled>Get / Load</button>
+        <button id="btn-clear" data-testid="btn-clear" disabled>Clear</button>
+      </div>
+
+      <h2>Derive from mnemonic</h2>
+      <div class="action">
+        <input id="mnemonic-input" type="text" placeholder="Enter BIP39 mnemonic..." data-testid="mnemonic-input" disabled />
+        <button id="btn-derive" data-testid="btn-derive" disabled>Derive</button>
+      </div>
+
+      <h2>Last key info</h2>
+      <div class="result">Mnemonic: <span id="last-mnemonic" data-testid="last-mnemonic">-</span></div>
+      <div class="result">SS58: <span id="last-ss58" data-testid="last-ss58">-</span></div>
+      <div class="result">H160: <span id="last-h160" data-testid="last-h160">-</span></div>
+    </div>
+
+    <div class="panel-log">
+      <h2>Keys Log</h2>
+      <div id="keys-log" data-testid="keys-log"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

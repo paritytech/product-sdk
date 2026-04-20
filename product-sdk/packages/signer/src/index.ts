@@ -1,3 +1,6 @@
+// Core manager
+export { SignerManager } from "./signer-manager.js";
+
 // Types
 export type {
     AccountPersistence,
@@ -6,7 +9,6 @@ export type {
     ProviderType,
     Result,
     SignerAccount,
-    SignerManager,
     SignerManagerOptions,
     SignerState,
 } from "./types.js";

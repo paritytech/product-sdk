@@ -28,7 +28,16 @@
         "multiformats": "^13.3.0",
         "polkadot-api": "^1.9.0"
     },
+    "peerDependencies": {
+        "@novasamatech/product-sdk": ">=0.1.0"
+    },
+    "peerDependenciesMeta": {
+        "@novasamatech/product-sdk": {
+            "optional": true
+        }
+    },
     "devDependencies": {
+        "@novasamatech/product-sdk": "catalog:",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0"
     },

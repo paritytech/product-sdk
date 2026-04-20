@@ -4,7 +4,11 @@ export interface HostLocalStorage {
     writeString(key: string, value: string): Promise<void>;
     readJSON<T>(key: string): Promise<T | null>;
     writeJSON<T>(key: string, value: T): Promise<void>;
-    clear(): Promise<void>;
+    /**
+     * Clear a specific key from storage.
+     * @param key - The key to clear
+     */
+    clear(key: string): Promise<void>;
 }
 
 /** Proof types returned from createProof (matches product-sdk SCALE-decoded types). */

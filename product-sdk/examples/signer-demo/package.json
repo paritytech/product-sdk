@@ -1,0 +1,27 @@
+{
+    "name": "@parity/product-sdk-signer-demo",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "description": "E2E demo app for @parity/product-sdk-signer — exercises connect/select/switch/signRaw/permission flows via the Host API path",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview",
+        "test:e2e": "playwright test",
+        "test:e2e:ui": "playwright test --ui",
+        "test:e2e:headed": "playwright test --headed"
+    },
+    "dependencies": {
+        "@parity/product-sdk-signer": "workspace:*",
+        "@novasamatech/host-api": "catalog:",
+        "@novasamatech/product-sdk": "catalog:",
+        "polkadot-api": "catalog:"
+    },
+    "devDependencies": {
+        "@parity/host-api-test-sdk": "catalog:",
+        "@playwright/test": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:"
+    }
+}

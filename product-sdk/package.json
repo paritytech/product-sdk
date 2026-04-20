@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter \"@parity/product-sdk-*-demo\" test:e2e",
     "lint": "pnpm -r lint",
     "clean": "pnpm -r clean",
     "format": "biome format --write .",

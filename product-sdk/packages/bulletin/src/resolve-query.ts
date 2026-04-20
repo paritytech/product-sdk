@@ -42,7 +42,6 @@ export async function resolveQueryStrategy(): Promise<QueryStrategy> {
 
     if (inContainer) {
         try {
-            // @ts-expect-error - product-sdk may not be installed
             const sdk = await import("@novasamatech/product-sdk");
             log.info("inside host container — using preimage lookup for bulletin queries");
             return {
