@@ -143,13 +143,18 @@ export interface ProductSdkModule {
 }
 
 /* @integration */
+// Dynamic import via a variable so TypeScript doesn't try to resolve the specifier.
+// These novasamatech packages are optional runtime-only deps — container-bound apps
+// provide them; standalone apps don't. Static imports should remain an error.
 async function defaultLoadSdk(): Promise<ProductSdkModule> {
-    return (await import("@novasamatech/product-sdk")) as unknown as ProductSdkModule;
+    const pkg = "@novasamatech/product-sdk";
+    return (await import(pkg)) as unknown as ProductSdkModule;
 }
 
 /* @integration */
 async function defaultLoadHostApiEnum(): Promise<HostApiEnumHelper> {
-    return (await import("@novasamatech/host-api")) as unknown as HostApiEnumHelper;
+    const pkg = "@novasamatech/host-api";
+    return (await import(pkg)) as unknown as HostApiEnumHelper;
 }
 
 /**
