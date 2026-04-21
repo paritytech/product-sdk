@@ -6,7 +6,7 @@ import { waitForAppReady } from "./helpers";
 // `test-host:${key}`. We poll for that key directly so we can reload only
 // after the postMessage round-trip has actually flushed — avoiding a
 // timing race where reload() races the persist write.
-const STORAGE_KEY = "test-host:polkadot-apps:signer:signer-demo:selectedAccount";
+const STORAGE_KEY = "test-host:product-sdk:signer:signer-demo:selectedAccount";
 
 test.describe("@polkadot-apps/signer — persistence", () => {
     test("selected account survives a page reload via hostLocalStorage", async ({
