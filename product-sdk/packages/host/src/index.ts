@@ -11,7 +11,6 @@ export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 // Re-exports from @novasamatech/product-sdk and @novasamatech/host-api
 export {
     getHostApi,
-    injectSpektrExtension,
     getPreimageManager,
     getAccountsProvider,
     // Helpers from @novasamatech/host-api

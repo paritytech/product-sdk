@@ -28,7 +28,6 @@ export {
     getStatementStore,
     // Host API
     getHostApi,
-    injectSpektrExtension,
     getPreimageManager,
     getAccountsProvider,
     // Helpers from @novasamatech/host-api

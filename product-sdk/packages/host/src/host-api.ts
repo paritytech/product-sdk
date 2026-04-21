@@ -132,33 +132,6 @@ export async function getHostApi(): Promise<HostApi | null> {
 }
 
 /**
- * Inject the Spektr wallet extension into `window.injectedWeb3`.
- *
- * This makes the host's wallet appear as a browser extension, allowing
- * compatibility with existing dApps that use the injectedWeb3 API.
- *
- * @returns Promise that resolves when injection is complete, or rejects if unavailable.
- *
- * @example
- * ```ts
- * import { injectSpektrExtension } from "@parity/product-sdk-host";
- *
- * await injectSpektrExtension();
- * // Now window.injectedWeb3["spektr"] is available
- * ```
- */
-export async function injectSpektrExtension(): Promise<void> {
-    try {
-        const sdk = await import("@novasamatech/product-sdk");
-        await sdk.injectSpektrExtension();
-        log.debug("spektr extension injected");
-    } catch (err) {
-        log.warn("failed to inject spektr extension", { error: String(err) });
-        throw err;
-    }
-}
-
-/**
  * Get the preimage manager for bulletin chain operations.
  *
  * The preimage manager handles uploading and looking up preimages (arbitrary data)
