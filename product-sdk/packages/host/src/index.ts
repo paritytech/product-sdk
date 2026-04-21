@@ -29,4 +29,7 @@ export type {
     PreimageManager,
     AccountsProvider,
     HostAccount,
+    ProductAccount,
+    ContextualAlias,
+    ResultAsync,
 } from "./truapi.js";

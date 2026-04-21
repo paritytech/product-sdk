@@ -210,15 +210,130 @@ export interface HostAccount {
 }
 
 /**
- * Accounts provider interface.
+ * A product account — an app-scoped derived account managed by the host wallet.
+ *
+ * The host derives a unique keypair for each app (identified by `dotNsIdentifier`)
+ * so apps get their own account that the user controls but is scoped to the app.
+ */
+export interface ProductAccount {
+    /** App identifier (e.g., "mark3t.dot"). */
+    dotNsIdentifier: string;
+    /** Derivation index within the app scope. Default: 0 */
+    derivationIndex: number;
+    /** Raw public key (32 bytes). */
+    publicKey: Uint8Array;
+}
+
+/**
+ * A contextual alias obtained from Ring VRF.
+ *
+ * Proves account membership in a ring without revealing which account.
+ */
+export interface ContextualAlias {
+    /** Ring context (32 bytes). */
+    context: Uint8Array;
+    /** The Ring VRF alias bytes. */
+    alias: Uint8Array;
+}
+
+/**
+ * Neverthrow-style ResultAsync returned by product-sdk methods.
+ *
+ * Use `.match(onOk, onErr)` to handle success/error cases.
+ */
+export interface ResultAsync<T, E> {
+    match: <A, B = A>(ok: (t: T) => A, err: (e: E) => B) => Promise<A | B>;
+}
+
+/**
+ * Accounts provider interface from @novasamatech/product-sdk.
+ *
+ * Provides methods for accessing host wallet accounts, product accounts,
+ * and Ring VRF operations.
  */
 export interface AccountsProvider {
     /**
-     * Subscribe to account changes.
+     * Get non-product accounts (user's external wallets connected to the host).
+     *
+     * @returns ResultAsync resolving to array of accounts.
      */
-    subscribe(callback: (accounts: HostAccount[]) => void): {
-        unsubscribe: () => void;
-    };
+    getNonProductAccounts: () => ResultAsync<HostAccount[], unknown>;
+
+    /**
+     * Get a signer for a non-product account.
+     *
+     * @param account - The product account (used for public key lookup).
+     * @returns A PolkadotSigner for signing transactions.
+     */
+    getNonProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+
+    /**
+     * Get an app-scoped product account from the host.
+     *
+     * Product accounts are derived by the host wallet for each app, identified
+     * by `dotNsIdentifier` (e.g., "mark3t.dot"). The user controls these accounts
+     * but they are scoped to the requesting app.
+     *
+     * @param dotNsIdentifier - App identifier (e.g., "mark3t.dot").
+     * @param derivationIndex - Derivation index within the app scope. Default: 0
+     * @returns ResultAsync resolving to the account.
+     */
+    getProductAccount: (
+        dotNsIdentifier: string,
+        derivationIndex?: number,
+    ) => ResultAsync<HostAccount, unknown>;
+
+    /**
+     * Get a signer for a product account.
+     *
+     * @param account - The product account.
+     * @returns A PolkadotSigner for signing transactions.
+     */
+    getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+
+    /**
+     * Get a contextual alias for a product account via Ring VRF.
+     *
+     * Aliases prove account membership in a ring without revealing which
+     * account produced the alias.
+     *
+     * @param dotNsIdentifier - App identifier.
+     * @param derivationIndex - Derivation index. Default: 0
+     * @returns ResultAsync resolving to the contextual alias.
+     */
+    getProductAccountAlias: (
+        dotNsIdentifier: string,
+        derivationIndex?: number,
+    ) => ResultAsync<ContextualAlias, unknown>;
+
+    /**
+     * Create a Ring VRF proof for anonymous operations.
+     *
+     * Proves that the signer is a member of the ring at the given location
+     * without revealing which member.
+     *
+     * @param dotNsIdentifier - App identifier.
+     * @param derivationIndex - Derivation index.
+     * @param location - Ring location on-chain.
+     * @param message - Message to sign.
+     * @returns ResultAsync resolving to the proof bytes.
+     */
+    createRingVRFProof: (
+        dotNsIdentifier: string,
+        derivationIndex: number,
+        location: unknown,
+        message: Uint8Array,
+    ) => ResultAsync<Uint8Array, unknown>;
+
+    /**
+     * Subscribe to account connection status changes.
+     *
+     * @param callback - Called with status string ("connected" | "disconnected").
+     * @returns Unsubscribe handle.
+     */
+    subscribeAccountConnectionStatus: (
+        callback: (status: string) => void,
+    ) => { unsubscribe: () => void } | (() => void);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
