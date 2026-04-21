@@ -53,9 +53,4 @@ export type {
 } from "./types.js";
 
 // Constants
-export {
-    MAX_STATEMENT_SIZE,
-    MAX_USER_TOTAL,
-    DEFAULT_TTL_SECONDS,
-    DEFAULT_POLL_INTERVAL_MS,
-} from "./types.js";
+export { MAX_STATEMENT_SIZE, MAX_USER_TOTAL, DEFAULT_TTL_SECONDS } from "./types.js";

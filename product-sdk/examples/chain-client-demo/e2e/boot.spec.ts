@@ -5,37 +5,34 @@ import { waitForAppReady } from "./helpers";
  * Smoke-test: the chain-client demo boots cleanly through the Host API.
  *
  * Verifies that:
- *   - getChainAPI("paseo") connects all three chains (assetHub, bulletin, individuality).
+ *   - createChainClient connects asset hub via host provider.
  *   - Asset Hub RPC works (block number query returns > 0).
- *   - isConnected() reports true for bulletin and individuality.
+ *   - isConnected() reports true for asset hub.
  *   - The selected account address is a Paseo SS58 address (prefix 0 -> starts with "1").
  *   - Log shows connection confirmation.
  *
  * Host API surface tested:
  *   - chain-client provider routing via host genesis hash matching
- *   - getChainAPI("paseo") -> createChainClient with preset descriptors/RPCs
+ *   - createChainClient with BYOD descriptor/RPCs
  *   - isConnected(descriptor) -> synchronous cache lookup
  */
-test.describe("@parity/product-sdk-chain-client via Host API — preset", () => {
-    test("preset connects all chains via host provider", async ({ testHost }) => {
+test.describe("@parity/product-sdk-chain-client via Host API — BYOD", () => {
+    test("BYOD connects asset hub via host provider", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 
-        // Preset status should be connected
-        await expect(frame.locator('[data-testid="preset-status"]')).toHaveText("connected");
+        // BYOD status should be connected
+        await expect(frame.locator('[data-testid="byod-status"]')).toHaveText("connected");
 
         // Asset Hub block number should be a number > 0 (proves RPC works)
         const blockText = await frame
-            .locator('[data-testid="preset-asset-hub-block"]')
+            .locator('[data-testid="byod-asset-hub-block"]')
             .textContent();
         expect(blockText).toBeTruthy();
         const blockNumber = Number(blockText!.trim());
         expect(blockNumber).toBeGreaterThan(0);
 
-        // isConnected should report true for bulletin and individuality
-        await expect(frame.locator('[data-testid="preset-bulletin-connected"]')).toHaveText("true");
-        await expect(frame.locator('[data-testid="preset-individuality-connected"]')).toHaveText(
-            "true",
-        );
+        // isConnected should report true for asset hub
+        await expect(frame.locator('[data-testid="byod-asset-hub-connected"]')).toHaveText("true");
 
         // Account address should be a valid Paseo SS58 address (prefix 0 -> starts with "1")
         const address = await frame.locator('[data-testid="account-address"]').textContent();
@@ -45,7 +42,7 @@ test.describe("@parity/product-sdk-chain-client via Host API — preset", () => 
 
         // Log should show connection confirmation
         await expect(frame.locator('[data-testid="chain-client-log"]')).toContainText(
-            "Preset connected",
+            "BYOD connected",
         );
     });
 });

@@ -137,7 +137,6 @@ export interface HostApiEnumHelper {
 /** @internal */
 export interface ProductSdkModule {
     createAccountsProvider: () => AccountsProvider;
-    injectSpektrExtension?: () => Promise<boolean>;
     /** Present from product-sdk ≥ 0.6; used to request TransactionSubmit. */
     hostApi?: HostApiPermissionBridge;
 }
@@ -183,37 +182,6 @@ export class HostProvider implements SignerProvider {
         this.loadSdk = options?.loadSdk ?? defaultLoadSdk;
         this.loadHostApiEnum = options?.loadHostApiEnum ?? defaultLoadHostApiEnum;
         this.requestTxPermission = options?.requestTransactionSubmitPermission ?? true;
-    }
-
-    /**
-     * Inject the host wallet as a Spektr extension into `window.injectedWeb3`.
-     *
-     * This is a compatibility fallback for container environments where the
-     * direct Host API connection fails. After injection, the host wallet
-     * appears as a standard browser extension and can be used via
-     * `ExtensionProvider`.
-     *
-     * The direct Host API path (via `HostProvider.connect()`) is preferred
-     * because it supports the full Host API surface (product accounts, Ring VRF,
-     * etc.). Spektr injection only provides non-product account access.
-     *
-     * @param loadSdk - Custom SDK loader for testing. Defaults to dynamic import.
-     * @returns `true` if injection succeeded, `false` otherwise.
-     */
-    static async injectSpektr(loadSdk?: () => Promise<ProductSdkModule>): Promise<boolean> {
-        try {
-            const sdk = await (loadSdk ?? defaultLoadSdk)();
-            if (!sdk.injectSpektrExtension) {
-                log.warn("product-sdk does not export injectSpektrExtension");
-                return false;
-            }
-            const result = await sdk.injectSpektrExtension();
-            log.debug("Spektr injection result", { result });
-            return result;
-        } catch (cause) {
-            log.warn("Spektr injection failed", { cause });
-            return false;
-        }
     }
 
     async connect(signal?: AbortSignal): Promise<Result<SignerAccount[], SignerError>> {
@@ -721,41 +689,6 @@ if (import.meta.vitest) {
             const unsub = provider.onAccountsChange(cb);
             expect(typeof unsub).toBe("function");
             unsub();
-        });
-    });
-
-    describe("HostProvider.injectSpektr", () => {
-        test("returns true when injection succeeds", async () => {
-            const mockSdk: ProductSdkModule = {
-                createAccountsProvider: () => ({}) as AccountsProvider,
-                injectSpektrExtension: () => Promise.resolve(true),
-            };
-            const result = await HostProvider.injectSpektr(() => Promise.resolve(mockSdk));
-            expect(result).toBe(true);
-        });
-
-        test("returns false when injection fails", async () => {
-            const mockSdk: ProductSdkModule = {
-                createAccountsProvider: () => ({}) as AccountsProvider,
-                injectSpektrExtension: () => Promise.resolve(false),
-            };
-            const result = await HostProvider.injectSpektr(() => Promise.resolve(mockSdk));
-            expect(result).toBe(false);
-        });
-
-        test("returns false when SDK load fails", async () => {
-            const result = await HostProvider.injectSpektr(() =>
-                Promise.reject(new Error("not installed")),
-            );
-            expect(result).toBe(false);
-        });
-
-        test("returns false when injectSpektrExtension not exported", async () => {
-            const mockSdk: ProductSdkModule = {
-                createAccountsProvider: () => ({}) as AccountsProvider,
-            };
-            const result = await HostProvider.injectSpektr(() => Promise.resolve(mockSdk));
-            expect(result).toBe(false);
         });
     });
 }

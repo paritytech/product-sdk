@@ -1,5 +1,4 @@
 import { createLogger } from "@parity/product-sdk-logger";
-import { DEFAULT_BULLETIN_ENDPOINT } from "@parity/product-sdk-host";
 import type { HostStatementStore } from "@parity/product-sdk-host";
 
 import { StatementConnectionError, StatementSubscriptionError } from "./errors.js";
@@ -95,210 +94,29 @@ class HostTransport implements StatementTransport {
 }
 
 // ============================================================================
-// RPC Transport — uses substrate-client + sdk-statement
-// ============================================================================
-
-/**
- * Statement transport using JSON-RPC over WebSocket.
- *
- * Uses `@polkadot-api/substrate-client` (routes subscriptions by ID, not method name)
- * with `@novasamatech/sdk-statement` for statement SCALE encoding/decoding.
- *
- * This is the fallback transport for outside-container usage (development, testing).
- */
-class RpcTransport implements StatementTransport {
-    private readonly sdk: ReturnType<
-        typeof import("@novasamatech/sdk-statement").createStatementSdk
-    >;
-    private readonly destroyClient: () => void;
-
-    private constructor(sdk: RpcTransport["sdk"], destroyClient: () => void) {
-        this.sdk = sdk;
-        this.destroyClient = destroyClient;
-    }
-
-    static async create(endpoint: string): Promise<RpcTransport> {
-        // Resolve all dynamic imports before allocating any resources.
-        // This way, if a module is missing we fail fast with no cleanup needed.
-        const [wsMod, substrateMod, sdkMod] = await Promise.all([
-            import("polkadot-api/ws-provider/web"),
-            import("@polkadot-api/substrate-client"),
-            import("@novasamatech/sdk-statement"),
-        ]);
-        const { getWsProvider } = wsMod;
-        const { createClient: createSubstrateClient } = substrateMod;
-        const { createStatementSdk } = sdkMod;
-
-        // Now allocate the WebSocket + client. Any failure from here on
-        // must call client.destroy() to avoid leaking the socket.
-        const provider = getWsProvider(endpoint);
-        const client = createSubstrateClient(provider);
-
-        try {
-            // Build request/subscribe functions from the substrate client
-            // following the lazyClient pattern from triangle-js-sdks
-            const requestFn = <Reply>(method: string, params: unknown[]) =>
-                new Promise<Reply>((resolve, reject) => {
-                    client._request<Reply, unknown>(method, params, {
-                        onSuccess: (result) => resolve(result),
-                        onError: (e) => reject(e),
-                    });
-                });
-
-            const subscribeFn = <T>(
-                method: string,
-                params: unknown[],
-                onMessage: (message: T) => void,
-                onError: (error: Error) => void,
-            ) => {
-                return client._request<string, T>(method, params, {
-                    onSuccess: (subscriptionId, followSubscription) => {
-                        followSubscription(subscriptionId, { next: onMessage, error: onError });
-                    },
-                    onError,
-                });
-            };
-
-            const sdk = createStatementSdk(requestFn, subscribeFn);
-
-            // Warm up the WebSocket connection — substrate-client's _request throws
-            // synchronously if the WS isn't ready, unlike request() which queues.
-            try {
-                await requestFn("system_name", []);
-            } catch {
-                // Non-fatal — connection may still be usable
-            }
-
-            log.info("Connected via direct RPC", { endpoint });
-            return new RpcTransport(sdk, () => client.destroy());
-        } catch (error) {
-            // Any failure during setup — destroy the client to avoid leaking the WS
-            client.destroy();
-            throw error;
-        }
-    }
-
-    subscribe(
-        filter: SdkTopicFilter,
-        onStatements: (statements: Statement[]) => void,
-        onError: (error: Error) => void,
-    ): Unsubscribable {
-        try {
-            const unsub = this.sdk.subscribeStatements(
-                filter,
-                (statement) => {
-                    // sdk-statement delivers one statement at a time — batch it
-                    onStatements([statement]);
-                },
-                (error) => {
-                    log.warn("RPC subscription error", { error: error.message });
-                    onError(new StatementSubscriptionError(error.message, { cause: error }));
-                },
-            );
-
-            log.info("RPC subscription active");
-
-            return {
-                unsubscribe: () => {
-                    unsub();
-                },
-            };
-        } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            log.warn("Failed to start RPC subscription", { error: msg });
-            onError(new StatementSubscriptionError(msg));
-            return { unsubscribe: () => {} };
-        }
-    }
-
-    async signAndSubmit(statement: Statement, credentials: ConnectionCredentials): Promise<void> {
-        if (credentials.mode !== "local") {
-            throw new StatementConnectionError(
-                "RpcTransport requires local credentials. Use { mode: 'local', signer } to connect.",
-            );
-        }
-
-        const { getStatementSigner } = await import("@novasamatech/sdk-statement");
-
-        const signer = getStatementSigner(credentials.signer.publicKey, "sr25519", (data) =>
-            credentials.signer.sign(data),
-        );
-
-        const signed = await signer.sign(statement);
-        const result = await this.sdk.submit(signed);
-
-        if (result.status === "new" || result.status === "known") {
-            log.debug("Statement submitted via RPC", { status: result.status });
-            return;
-        }
-
-        throw new Error(
-            `Statement submission failed: ${result.status}${
-                "reason" in result ? ` (${(result as { reason: string }).reason})` : ""
-            }`,
-        );
-    }
-
-    async query(filter: SdkTopicFilter): Promise<Statement[]> {
-        return this.sdk.getStatements(filter);
-    }
-
-    destroy(): void {
-        this.destroyClient();
-    }
-}
-
-// ============================================================================
 // Transport Factory
 // ============================================================================
 
 /**
  * Create a statement store transport.
  *
- * Strategy (Host API first):
- * 1. Try the Host API via `@parity/product-sdk-host` — uses the container's native
- *    statement store protocol (binary, not JSON-RPC). This is the production path.
- * 2. If the host is unavailable (not inside a container, product-sdk not installed),
- *    fall back to a direct WebSocket connection using `@polkadot-api/substrate-client`
- *    with `@novasamatech/sdk-statement`.
+ * Uses the Host API via `@parity/product-sdk-host` — the container's native
+ * statement store protocol (binary, not JSON-RPC). This is the only supported path.
  *
- * @param config - Configuration with an optional fallback `endpoint`.
- * @returns A configured {@link StatementTransport}.
- * @throws {StatementConnectionError} If no connection method is available.
+ * @throws {StatementConnectionError} If the host statement store is unavailable.
  */
-export async function createTransport(config: {
-    endpoint?: string;
-}): Promise<StatementTransport> {
-    // 1. Try Host API first (inside container)
-    try {
-        const { getStatementStore } = await import("@parity/product-sdk-host");
-        const store = await getStatementStore();
-        if (store) {
-            log.info("Using host API statement store transport");
-            return new HostTransport(store);
-        }
-    } catch (error) {
-        log.debug("Host API unavailable", {
-            error: error instanceof Error ? error.message : String(error),
-        });
+export async function createTransport(): Promise<StatementTransport> {
+    const { getStatementStore } = await import("@parity/product-sdk-host");
+    const store = await getStatementStore();
+
+    if (!store) {
+        throw new StatementConnectionError(
+            "Host statement store unavailable. Ensure you are running inside a host container (Polkadot Browser / Desktop).",
+        );
     }
 
-    // 2. Fall back to direct RPC
-    const endpoint = config.endpoint ?? DEFAULT_BULLETIN_ENDPOINT;
-    if (endpoint) {
-        try {
-            return await RpcTransport.create(endpoint);
-        } catch (error) {
-            throw new StatementConnectionError(
-                `Failed to connect to ${endpoint}: ${error instanceof Error ? error.message : String(error)}`,
-                { cause: error instanceof Error ? error : undefined },
-            );
-        }
-    }
-
-    throw new StatementConnectionError(
-        "No connection method available. Run inside a container or provide an explicit endpoint.",
-    );
+    log.info("Using host API statement store transport");
+    return new HostTransport(store);
 }
 
 // ============================================================================

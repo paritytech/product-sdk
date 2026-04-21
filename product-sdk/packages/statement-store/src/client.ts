@@ -14,7 +14,7 @@ import type {
     StatementTransport,
     Unsubscribable,
 } from "./types.js";
-import { DEFAULT_POLL_INTERVAL_MS, DEFAULT_TTL_SECONDS } from "./types.js";
+import { DEFAULT_TTL_SECONDS } from "./types.js";
 
 import type { Statement } from "@novasamatech/sdk-statement";
 import { createExpiry } from "@novasamatech/sdk-statement";
@@ -26,8 +26,9 @@ const log = createLogger("statement-store");
  * High-level client for the Polkadot Statement Store.
  *
  * Provides a simple publish/subscribe API over the ephemeral statement store,
- * handling topic management, signing (host or local), and resilient delivery
- * (subscription + polling fallback).
+ * handling topic management and signing through the host API.
+ *
+ * The SDK is designed to run exclusively inside a host container.
  *
  * @example
  * ```ts
@@ -36,9 +37,6 @@ const log = createLogger("statement-store");
  * // Inside a container (host mode)
  * const client = new StatementStoreClient({ appName: "my-app" });
  * await client.connect({ mode: "host", accountId: ["5Grw...", 42] });
- *
- * // Outside a container (local mode)
- * await client.connect({ mode: "local", signer: { publicKey, sign } });
  *
  * // Publish
  * await client.publish({ type: "presence", peerId: "abc" }, {
@@ -56,17 +54,12 @@ const log = createLogger("statement-store");
  * ```
  */
 export class StatementStoreClient {
-    private readonly config: Required<
-        Pick<
-            StatementStoreConfig,
-            "appName" | "pollIntervalMs" | "defaultTtlSeconds" | "enablePolling"
-        >
-    > & { endpoint?: string; transport?: StatementTransport };
+    private readonly config: Required<Pick<StatementStoreConfig, "appName" | "defaultTtlSeconds">> &
+        Pick<StatementStoreConfig, "transport">;
 
     private transport: StatementTransport | null = null;
     private credentials: ConnectionCredentials | null = null;
     private subscription: Unsubscribable | null = null;
-    private pollTimer: ReturnType<typeof setInterval> | null = null;
     private callbacks: Array<(statement: ReceivedStatement<unknown>) => void> = [];
     private connected = false;
     private connectPromise: Promise<void> | null = null;
@@ -88,10 +81,7 @@ export class StatementStoreClient {
     constructor(config: StatementStoreConfig) {
         this.config = {
             appName: config.appName,
-            endpoint: config.endpoint,
-            pollIntervalMs: config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
             defaultTtlSeconds: config.defaultTtlSeconds ?? DEFAULT_TTL_SECONDS,
-            enablePolling: config.enablePolling ?? true,
             transport: config.transport,
         };
         this.appTopicHex = topicToHex(createTopic(config.appName));
@@ -132,8 +122,7 @@ export class StatementStoreClient {
     /* @integration */
     private async doConnect(credentials: ConnectionCredentials): Promise<void> {
         this.credentials = credentials;
-        const transport =
-            this.config.transport ?? (await createTransport({ endpoint: this.config.endpoint }));
+        const transport = this.config.transport ?? (await createTransport());
 
         // destroy() may have been called while we were awaiting createTransport().
         // If so, clean up the newly-created transport (if we own it) instead of leaking.
@@ -150,16 +139,6 @@ export class StatementStoreClient {
             log.info("Connected", { appName: this.config.appName });
 
             this.startSubscription();
-
-            // Start polling fallback (only if transport supports query)
-            if (
-                this.config.enablePolling &&
-                this.config.pollIntervalMs > 0 &&
-                this.transport.query
-            ) {
-                this.startPolling();
-            }
-
             this.connected = true;
         } catch (error) {
             this.destroy();
@@ -250,32 +229,6 @@ export class StatementStoreClient {
         };
     }
 
-    /**
-     * Query existing statements from the store.
-     *
-     * Only available when the transport supports queries (RPC mode).
-     * In host mode, the subscription replays existing statements automatically.
-     */
-    async query<T>(options?: { topic2?: string }): Promise<ReceivedStatement<T>[]> {
-        if (!this.transport) {
-            throw new StatementConnectionError("Not connected. Call connect() first.");
-        }
-        if (!this.transport.query) {
-            return []; // Host mode — subscription delivers initial state
-        }
-
-        const filter = this.buildFilter(options?.topic2);
-        const statements = await this.transport.query(filter);
-        const results: ReceivedStatement<T>[] = [];
-
-        for (const stmt of statements) {
-            const parsed = this.parseStatement<T>(stmt);
-            if (parsed) results.push(parsed);
-        }
-
-        return results;
-    }
-
     /** Whether the client is connected and ready to publish/subscribe. */
     isConnected(): boolean {
         return this.connected;
@@ -294,15 +247,13 @@ export class StatementStoreClient {
     }
 
     /**
-     * Destroy the client, stopping polling, unsubscribing, and closing the transport.
+     * Destroy the client, unsubscribing and closing the transport.
      *
      * Safe to call multiple times. After destruction, the client cannot be reused.
      */
     destroy(): void {
         // Signal to any in-flight doConnect() that cleanup should happen on its side.
         this.destroyed = true;
-
-        this.stopPolling();
 
         if (this.subscription) {
             this.subscription.unsubscribe();
@@ -341,53 +292,11 @@ export class StatementStoreClient {
                 }
             },
             (error) => {
-                log.warn("Subscription unavailable, relying on polling", {
+                log.warn("Subscription error", {
                     error: error.message,
                 });
             },
         );
-    }
-
-    /* @integration */
-    private startPolling(): void {
-        this.pollTimer = setInterval(() => {
-            this.poll().catch((error) => {
-                log.warn("Poll failed", {
-                    error: error instanceof Error ? error.message : String(error),
-                });
-            });
-        }, this.config.pollIntervalMs);
-    }
-
-    private stopPolling(): void {
-        if (this.pollTimer) {
-            clearInterval(this.pollTimer);
-            this.pollTimer = null;
-        }
-    }
-
-    /* @integration */
-    private async poll(): Promise<void> {
-        if (!this.transport?.query) return;
-
-        this.pruneSeenMap();
-
-        const filter = this.buildFilter();
-        const statements = await this.transport.query(filter);
-
-        let newCount = 0;
-        for (const stmt of statements) {
-            if (this.handleStatementReceived(stmt)) {
-                newCount++;
-            }
-        }
-
-        if (newCount > 0) {
-            log.debug("Poll found new statements", {
-                total: statements.length,
-                new: newCount,
-            });
-        }
     }
 
     /** Remove entries from the seen map whose expiry timestamp is in the past. */
@@ -406,6 +315,8 @@ export class StatementStoreClient {
      * Returns true if the statement was new and delivered.
      */
     private handleStatementReceived(stmt: Statement): boolean {
+        this.pruneSeenMap();
+
         const parsed = this.parseStatement<unknown>(stmt);
         if (!parsed) return false;
 

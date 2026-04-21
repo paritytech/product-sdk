@@ -10,7 +10,6 @@ export type {
     ChainClient,
     ChainClientConfig,
     ChainMeta,
-    ConnectionMode,
     ChainEntry,
 } from "./types.js";
 

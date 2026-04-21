@@ -3,15 +3,15 @@ import type { ChainDefinition, PolkadotClient, TypedApi } from "polkadot-api";
 /** Supported chain environments for the Polkadot ecosystem. */
 export type Environment = "polkadot" | "kusama" | "paseo" | "local" | "westend";
 
-/** Fallback strategy override. Controls which standalone provider is built. */
-export type ConnectionMode = "rpc" | "lightclient";
-
-/** Connection metadata for a chain, keyed by genesis hash in the registry. */
+/**
+ * Connection metadata for a chain.
+ *
+ * Note: The SDK is designed to run inside a host container. The `rpcs` field
+ * is kept for compatibility but connections are routed through the host provider.
+ */
 export interface ChainMeta {
+    /** RPC endpoints (used as hint for host provider). */
     rpcs?: readonly string[];
-    relayChainSpec?: string;
-    paraChainSpec?: string;
-    mode?: ConnectionMode;
 }
 
 /**
@@ -44,8 +44,8 @@ export interface ChainClientConfig<
     chains: TChains;
     /** RPC endpoints per chain name. Must have an entry for each key in `chains`. */
     rpcs: { [K in keyof TChains]: readonly string[] };
-    /** Optional per-chain connection metadata (lightclient specs, mode overrides). */
-    meta?: { [K in keyof TChains]?: Omit<ChainMeta, "rpcs"> };
+    /** Optional per-chain connection metadata. */
+    meta?: { [K in keyof TChains]?: ChainMeta };
 }
 
 /**

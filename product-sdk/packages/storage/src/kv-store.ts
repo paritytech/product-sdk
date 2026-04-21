@@ -1,4 +1,4 @@
-import { isInsideContainer, getHostLocalStorage } from "@parity/product-sdk-host";
+import { getHostLocalStorage } from "@parity/product-sdk-host";
 import type { HostLocalStorage } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 
@@ -8,59 +8,6 @@ const log = createLogger("storage");
 
 function prefixer(prefix?: string): (key: string) => string {
     return prefix ? (key) => `${prefix}:${key}` : (key) => key;
-}
-
-function createLocalStorageBackend(applyPrefix: (key: string) => string): KvStore {
-    const available = typeof globalThis.localStorage !== "undefined";
-
-    if (!available) {
-        log.debug("No localStorage available (SSR/Node)");
-    }
-
-    return {
-        async get(key) {
-            if (!available) return null;
-            try {
-                return globalThis.localStorage.getItem(applyPrefix(key));
-            } catch (e) {
-                log.warn("localStorage.getItem failed", { key, error: e });
-                return null;
-            }
-        },
-
-        async set(key, value) {
-            if (!available) return;
-            try {
-                globalThis.localStorage.setItem(applyPrefix(key), value);
-            } catch (e) {
-                log.warn("localStorage.setItem failed", { key, error: e });
-            }
-        },
-
-        async remove(key) {
-            if (!available) return;
-            try {
-                globalThis.localStorage.removeItem(applyPrefix(key));
-            } catch (e) {
-                log.warn("localStorage.removeItem failed", { key, error: e });
-            }
-        },
-
-        async getJSON<T>(key: string): Promise<T | null> {
-            const raw = await this.get(key);
-            if (raw === null) return null;
-            try {
-                return JSON.parse(raw) as T;
-            } catch (e) {
-                log.warn("JSON parse failed for key", { key, error: e });
-                return null;
-            }
-        },
-
-        async setJSON(key, value) {
-            await this.set(key, JSON.stringify(value));
-        },
-    };
 }
 
 function createHostBackend(
@@ -115,6 +62,14 @@ function createHostBackend(
     };
 }
 
+/**
+ * Create a key-value store.
+ *
+ * Uses the host localStorage when inside a container. The SDK is designed
+ * to run exclusively inside a host container.
+ *
+ * @throws {Error} If host storage is unavailable (not inside a container).
+ */
 export async function createKvStore(options?: KvStoreOptions): Promise<KvStore> {
     const applyPrefix = prefixer(options?.prefix);
 
@@ -123,50 +78,23 @@ export async function createKvStore(options?: KvStoreOptions): Promise<KvStore> 
         return createHostBackend(options.hostLocalStorage, applyPrefix);
     }
 
-    // Auto-detect container environment
-    if (await isInsideContainer()) {
-        const hostStorage = await getHostLocalStorage();
-        if (hostStorage) {
-            return createHostBackend(hostStorage, applyPrefix);
-        }
-        log.warn(
-            "Inside container but failed to obtain host localStorage, falling back to browser",
+    // Auto-detect host storage
+    const hostStorage = await getHostLocalStorage();
+    if (!hostStorage) {
+        throw new Error(
+            "Host storage unavailable. Ensure you are running inside a host container (Polkadot Browser / Desktop).",
         );
     }
 
-    return createLocalStorageBackend(applyPrefix);
+    return createHostBackend(hostStorage, applyPrefix);
 }
 
 if (import.meta.vitest) {
-    const { test, expect, describe, beforeEach, afterEach, vi } = import.meta.vitest;
+    const { test, expect, describe, beforeEach, vi } = import.meta.vitest;
     const { configure } = await import("@parity/product-sdk-logger");
 
     // Silence logger during tests
     beforeEach(() => configure({ handler: () => {} }));
-
-    function shimLocalStorage(): {
-        store: Record<string, string>;
-        cleanup: () => void;
-    } {
-        const store: Record<string, string> = {};
-        // @ts-expect-error — shimming localStorage for test
-        globalThis.localStorage = {
-            getItem: (k: string) => store[k] ?? null,
-            setItem: (k: string, v: string) => {
-                store[k] = v;
-            },
-            removeItem: (k: string) => {
-                delete store[k];
-            },
-        };
-        return {
-            store,
-            cleanup: () => {
-                // @ts-expect-error — remove shim
-                globalThis.localStorage = undefined;
-            },
-        };
-    }
 
     function mockHostStorage(): HostLocalStorage & { data: Map<string, unknown> } {
         const data = new Map<string, unknown>();
@@ -189,102 +117,6 @@ if (import.meta.vitest) {
             },
         };
     }
-
-    describe("localStorage backend", () => {
-        let cleanup: () => void;
-        let store: Record<string, string>;
-
-        beforeEach(() => {
-            const shim = shimLocalStorage();
-            store = shim.store;
-            cleanup = shim.cleanup;
-        });
-        afterEach(() => cleanup());
-
-        test("get/set round-trip", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            await kv.set("key", "value");
-            expect(await kv.get("key")).toBe("value");
-        });
-
-        test("get returns null for missing key", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            expect(await kv.get("missing")).toBeNull();
-        });
-
-        test("remove deletes key", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            await kv.set("key", "value");
-            await kv.remove("key");
-            expect(await kv.get("key")).toBeNull();
-        });
-
-        test("getJSON/setJSON round-trip", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            await kv.setJSON("obj", { a: 1, b: "two" });
-            expect(await kv.getJSON("obj")).toEqual({ a: 1, b: "two" });
-        });
-
-        test("getJSON returns null on corrupted JSON", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            store.bad = "not-json{{{";
-            expect(await kv.getJSON("bad")).toBeNull();
-        });
-
-        test("getJSON returns null for missing key", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            expect(await kv.getJSON("nope")).toBeNull();
-        });
-
-        test("get returns null when localStorage throws", async () => {
-            globalThis.localStorage.getItem = () => {
-                throw new Error("SecurityError");
-            };
-            const kv = createLocalStorageBackend((k) => k);
-            expect(await kv.get("key")).toBeNull();
-        });
-
-        test("set silently catches when localStorage throws", async () => {
-            globalThis.localStorage.setItem = () => {
-                throw new Error("QuotaExceededError");
-            };
-            const kv = createLocalStorageBackend((k) => k);
-            await expect(kv.set("key", "val")).resolves.toBeUndefined();
-        });
-
-        test("remove silently catches when localStorage throws", async () => {
-            globalThis.localStorage.removeItem = () => {
-                throw new Error("SecurityError");
-            };
-            const kv = createLocalStorageBackend((k) => k);
-            await expect(kv.remove("key")).resolves.toBeUndefined();
-        });
-    });
-
-    describe("prefix", () => {
-        let cleanup: () => void;
-        let store: Record<string, string>;
-
-        beforeEach(() => {
-            const shim = shimLocalStorage();
-            store = shim.store;
-            cleanup = shim.cleanup;
-        });
-        afterEach(() => cleanup());
-
-        test("keys are prefixed", async () => {
-            const kv = createLocalStorageBackend(prefixer("myapp"));
-            await kv.set("theme", "dark");
-            expect(store["myapp:theme"]).toBe("dark");
-            expect(await kv.get("theme")).toBe("dark");
-        });
-
-        test("no prefix means keys used as-is", async () => {
-            const kv = createLocalStorageBackend(prefixer());
-            await kv.set("theme", "dark");
-            expect(store.theme).toBe("dark");
-        });
-    });
 
     describe("host backend", () => {
         test("routes through host storage", async () => {
@@ -367,23 +199,6 @@ if (import.meta.vitest) {
         });
     });
 
-    describe("SSR (no localStorage)", () => {
-        test("get returns null", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            expect(await kv.get("anything")).toBeNull();
-        });
-
-        test("set is a no-op", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            await expect(kv.set("key", "value")).resolves.toBeUndefined();
-        });
-
-        test("getJSON returns null", async () => {
-            const kv = createLocalStorageBackend((k) => k);
-            expect(await kv.getJSON("anything")).toBeNull();
-        });
-    });
-
     describe("createKvStore", () => {
         test("uses explicit hostLocalStorage when provided", async () => {
             const host = mockHostStorage();
@@ -392,21 +207,21 @@ if (import.meta.vitest) {
             expect(host.data.get("test:k")).toBe("v");
         });
 
-        test("falls back to localStorage outside container", async () => {
-            const { store, cleanup } = shimLocalStorage();
+        test("throws when host storage unavailable", async () => {
+            const hostMod = await import("@parity/product-sdk-host");
+            vi.spyOn(hostMod, "getHostLocalStorage").mockResolvedValue(null);
             try {
-                const kv = await createKvStore({ prefix: "app" });
-                await kv.set("x", "1");
-                expect(store["app:x"]).toBe("1");
+                await expect(createKvStore({ prefix: "app" })).rejects.toThrow(
+                    /Host storage unavailable/,
+                );
             } finally {
-                cleanup();
+                vi.restoreAllMocks();
             }
         });
 
-        test("auto-detects host storage when inside container", async () => {
+        test("auto-detects host storage when available", async () => {
             const host = mockHostStorage();
             const hostMod = await import("@parity/product-sdk-host");
-            vi.spyOn(hostMod, "isInsideContainer").mockResolvedValue(true);
             vi.spyOn(hostMod, "getHostLocalStorage").mockResolvedValue(host);
             try {
                 const kv = await createKvStore({ prefix: "auto" });
@@ -414,21 +229,6 @@ if (import.meta.vitest) {
                 expect(host.data.get("auto:k")).toBe("v");
             } finally {
                 vi.restoreAllMocks();
-            }
-        });
-
-        test("falls back to localStorage when inside container but host storage unavailable", async () => {
-            const { store, cleanup } = shimLocalStorage();
-            const hostMod = await import("@parity/product-sdk-host");
-            vi.spyOn(hostMod, "isInsideContainer").mockResolvedValue(true);
-            vi.spyOn(hostMod, "getHostLocalStorage").mockResolvedValue(null);
-            try {
-                const kv = await createKvStore({ prefix: "fb" });
-                await kv.set("x", "1");
-                expect(store["fb:x"]).toBe("1");
-            } finally {
-                vi.restoreAllMocks();
-                cleanup();
             }
         });
     });

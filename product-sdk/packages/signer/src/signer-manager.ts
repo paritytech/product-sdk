@@ -10,10 +10,8 @@ import {
     SigningFailedError,
     type SignerError,
 } from "./errors.js";
-import { isInsideContainerSync, getHostLocalStorage } from "@parity/product-sdk-host";
+import { getHostLocalStorage } from "@parity/product-sdk-host";
 import { DevProvider } from "./providers/dev.js";
-import { ExtensionProvider } from "./providers/extension.js";
-import type { ExtensionApi } from "./providers/extension.js";
 import { HostProvider } from "./providers/host.js";
 import type { ContextualAlias, ProductAccount, RingLocation } from "./providers/host.js";
 import type { SignerProvider } from "./providers/types.js";
@@ -32,7 +30,6 @@ import { err, ok } from "./types.js";
 const log = createLogger("signer");
 
 const DEFAULT_HOST_TIMEOUT = 10_000;
-const DEFAULT_EXTENSION_TIMEOUT = 1_000;
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_SS58_PREFIX = 42;
 const DEFAULT_DAPP_NAME = "product-sdk";
@@ -50,35 +47,21 @@ function persistenceStorageKey(dappName: string): string {
 /**
  * Auto-detect the best available persistence adapter.
  *
- * Prefers hostLocalStorage (product-sdk) when inside a container because
- * sandboxed iframes may not share localStorage with the host application.
- * Falls back to browser localStorage in standalone environments.
+ * Uses hostLocalStorage from the host container. Returns null if unavailable.
  */
 async function detectPersistence(): Promise<AccountPersistence | null> {
-    // Try host storage first (container environment)
-    if (isInsideContainerSync()) {
-        try {
-            const hostStorage = await getHostLocalStorage();
-            if (hostStorage) {
-                log.debug("using hostLocalStorage for persistence");
-                return {
-                    getItem: (key) => hostStorage.readString(key),
-                    setItem: (key, value) => hostStorage.writeString(key, value),
-                    removeItem: (key) => hostStorage.writeString(key, ""),
-                };
-            }
-        } catch {
-            // host storage not available — fall through to localStorage
-        }
-    }
-
-    // Fall back to browser localStorage
     try {
-        if (typeof globalThis.localStorage !== "undefined") {
-            return globalThis.localStorage;
+        const hostStorage = await getHostLocalStorage();
+        if (hostStorage) {
+            log.debug("using hostLocalStorage for persistence");
+            return {
+                getItem: (key) => hostStorage.readString(key),
+                setItem: (key, value) => hostStorage.writeString(key, value),
+                removeItem: (key) => hostStorage.writeString(key, ""),
+            };
         }
     } catch {
-        // localStorage may throw in some environments (e.g. sandboxed iframes)
+        // host storage not available
     }
     return null;
 }
@@ -127,7 +110,6 @@ export class SignerManager {
 
     private readonly ss58Prefix: number;
     private readonly hostTimeout: number;
-    private readonly extensionTimeout: number;
     private readonly maxRetries: number;
     private readonly providerFactory: ((type: ProviderType) => SignerProvider) | undefined;
     private readonly dappName: string;
@@ -137,7 +119,6 @@ export class SignerManager {
     constructor(options?: SignerManagerOptions) {
         this.ss58Prefix = options?.ss58Prefix ?? DEFAULT_SS58_PREFIX;
         this.hostTimeout = options?.hostTimeout ?? DEFAULT_HOST_TIMEOUT;
-        this.extensionTimeout = options?.extensionTimeout ?? DEFAULT_EXTENSION_TIMEOUT;
         this.maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
         this.providerFactory = options?.createProvider;
         this.dappName = options?.dappName ?? DEFAULT_DAPP_NAME;
@@ -176,18 +157,12 @@ export class SignerManager {
     /**
      * Connect to a provider.
      *
-     * If no provider type is specified, runs environment-aware auto-detection:
+     * If no provider type is specified, connects to the Host API.
+     * The SDK is designed to run exclusively inside a host container.
      *
-     * **Inside a container** (iframe/webview):
-     * 1. Try direct Host API connection (preferred, idiomatic path)
-     * 2. If host fails, try Spektr extension injection as fallback
-     * 3. If both fail, return error — no further fallback
-     *
-     * **Outside a container** (standalone browser):
-     * 1. Try browser extensions directly
-     * 2. If fails, return error — no host attempt
-     *
-     * When connecting to a specific provider, it is used directly.
+     * When connecting to a specific provider type:
+     * - `"host"`: Connect to the Host API (default, recommended)
+     * - `"dev"`: Connect using dev accounts (for testing)
      */
     async connect(providerType?: ProviderType): Promise<Result<SignerAccount[], SignerError>> {
         if (this.isDestroyed) {
@@ -205,16 +180,9 @@ export class SignerManager {
 
         this.setState({ status: "connecting", error: null });
 
-        if (providerType) {
-            // When explicitly requesting extension inside a container, inject
-            // Spektr first so the host wallet appears as a browser extension.
-            if (providerType === "extension" && isInsideContainerSync()) {
-                await HostProvider.injectSpektr();
-            }
-            return this.connectToProvider(providerType, signal);
-        }
-
-        return this.autoDetect(signal);
+        // Default to host provider - the SDK is designed for container-only usage
+        const targetProvider = providerType ?? "host";
+        return this.connectToProvider(targetProvider, signal);
     }
 
     /** Disconnect from the current provider and reset state. */
@@ -364,21 +332,6 @@ export class SignerManager {
     }
 
     /**
-     * List available browser extensions.
-     *
-     * Async because extensions inject into `window.injectedWeb3` asynchronously
-     * after page load. Uses the same injection wait as the extension provider.
-     */
-    async getAvailableExtensions(): Promise<string[]> {
-        try {
-            const api = await this.loadExtensionApi();
-            return api.getInjectedExtensions();
-        } catch {
-            return [];
-        }
-    }
-
-    /**
      * Destroy the manager and release all resources.
      * After calling destroy(), the manager is unusable.
      */
@@ -394,88 +347,6 @@ export class SignerManager {
     }
 
     // ── Private ──────────────────────────────────────────────────────
-
-    /**
-     * Environment-aware auto-detection.
-     *
-     * Inside a container: direct Host API is the preferred, idiomatic path.
-     * If that fails, Spektr extension injection is tried as a fallback.
-     * Outside a container: browser extensions are the only viable path.
-     */
-    private async autoDetect(signal?: AbortSignal): Promise<Result<SignerAccount[], SignerError>> {
-        const inContainer = isInsideContainerSync();
-        log.info("auto-detecting provider", { inContainer });
-
-        if (inContainer) {
-            return this.autoDetectContainer(signal);
-        }
-
-        return this.autoDetectStandalone(signal);
-    }
-
-    /**
-     * Container path: Host API (preferred) → Spektr injection (fallback) → error.
-     *
-     * The direct Host API is the idiomatic path for container environments.
-     * Spektr injection is a compatibility fallback that makes the host wallet
-     * appear as a browser extension via `window.injectedWeb3`.
-     */
-    private async autoDetectContainer(
-        signal?: AbortSignal,
-    ): Promise<Result<SignerAccount[], SignerError>> {
-        // Apply hostTimeout to the host connection attempt
-        const hostSignal = signal
-            ? AbortSignal.any([signal, AbortSignal.timeout(this.hostTimeout)])
-            : AbortSignal.timeout(this.hostTimeout);
-
-        const hostResult = await this.connectToProvider("host", hostSignal);
-        if (hostResult.ok) {
-            return hostResult;
-        }
-
-        log.info("direct host connection failed, trying Spektr injection fallback", {
-            error: hostResult.error,
-        });
-
-        // Spektr injection fallback: inject host wallet as browser extension
-        const injected = await HostProvider.injectSpektr();
-        if (injected) {
-            log.info("Spektr injected, connecting via extension provider");
-            const extResult = await this.connectToProvider("extension", signal);
-            if (extResult.ok) {
-                return extResult;
-            }
-            log.warn("Spektr injection succeeded but extension connection failed", {
-                error: extResult.error,
-            });
-        } else {
-            log.warn("Spektr injection failed");
-        }
-
-        // All container paths failed
-        this.setState({
-            status: "disconnected",
-            error: hostResult.error,
-        });
-        return hostResult;
-    }
-
-    /** Standalone path: browser extensions only. */
-    private async autoDetectStandalone(
-        signal?: AbortSignal,
-    ): Promise<Result<SignerAccount[], SignerError>> {
-        const extResult = await this.connectToProvider("extension", signal);
-        if (extResult.ok) {
-            return extResult;
-        }
-
-        log.warn("no browser extensions available");
-        this.setState({
-            status: "disconnected",
-            error: extResult.error,
-        });
-        return extResult;
-    }
 
     private async connectToProvider(
         type: ProviderType,
@@ -545,15 +416,14 @@ export class SignerManager {
                     maxRetries: this.maxRetries,
                     retryDelay: 500,
                 });
-            case "extension":
-                return new ExtensionProvider({
-                    injectionWait: this.extensionTimeout,
-                    dappName: this.dappName,
-                });
             case "dev":
                 return new DevProvider({
                     ss58Prefix: this.ss58Prefix,
                 });
+            default:
+                throw new Error(
+                    `Unsupported provider type: ${type}. The SDK only supports "host" and "dev" providers.`,
+                );
         }
     }
 
@@ -634,17 +504,13 @@ export class SignerManager {
                 signal,
             },
         )
-            .then(async (result) => {
+            .then((result) => {
                 if (!result.ok && !signal.aborted) {
-                    log.warn("reconnect to original provider failed, trying auto-detect");
-                    const fallback = await this.autoDetect();
-                    if (!fallback.ok) {
-                        log.error("all reconnect attempts failed", { error: fallback.error });
-                        this.setState({
-                            status: "disconnected",
-                            error: new HostDisconnectedError("Reconnect failed after all retries"),
-                        });
-                    }
+                    log.error("reconnect failed after all retries", { error: result.error });
+                    this.setState({
+                        status: "disconnected",
+                        error: new HostDisconnectedError("Reconnect failed after all retries"),
+                    });
                 }
             })
             .catch((cause) => {
@@ -715,13 +581,6 @@ export class SignerManager {
             log.debug("failed to load persisted account");
             return null;
         }
-    }
-
-    private async loadExtensionApi(): Promise<ExtensionApi> {
-        const { getInjectedExtensions, connectInjectedExtension } = await import(
-            "polkadot-api/pjs-signer"
-        );
-        return { getInjectedExtensions, connectInjectedExtension };
     }
 
     private setState(patch: Partial<SignerState>): void {

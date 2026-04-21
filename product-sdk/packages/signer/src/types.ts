@@ -7,8 +7,13 @@ import type { SignerError } from "./errors.js";
 /** Connection status for a signer provider. */
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
-/** Identifies the source of an account. */
-export type ProviderType = "host" | "extension" | "dev";
+/**
+ * Identifies the source of an account.
+ *
+ * - `"host"`: Host API provider (Polkadot Desktop / Mobile) — the primary provider
+ * - `"dev"`: Development accounts (Alice, Bob, etc.) — for testing only
+ */
+export type ProviderType = "host" | "dev";
 
 /** A signing-capable account from any provider. */
 export interface SignerAccount {
@@ -80,14 +85,11 @@ export interface SignerManagerOptions {
     /** SS58 prefix for address encoding. Default: 42 */
     ss58Prefix?: number;
     /**
-     * Maximum time in ms to wait for the Host API when inside a container.
+     * Maximum time in ms to wait for the Host API.
      * Applied as an AbortSignal timeout on the host provider connection.
-     * Only used during auto-detection inside containers.
      * Default: 10_000
      */
     hostTimeout?: number;
-    /** Timeout in ms for extension injection delay. Default: 1_000 */
-    extensionTimeout?: number;
     /** Maximum retry attempts for provider connection. Default: 3 */
     maxRetries?: number;
     /** Custom provider factory. Override to inject test doubles or custom providers. */
@@ -99,7 +101,7 @@ export interface SignerManagerOptions {
     dappName?: string;
     /**
      * Storage adapter for persisting selected account.
-     * Defaults to `globalThis.localStorage` in browser, no-op in Node.
+     * Uses host localStorage when inside a container.
      * Set to `null` to disable persistence entirely.
      */
     persistence?: AccountPersistence | null;

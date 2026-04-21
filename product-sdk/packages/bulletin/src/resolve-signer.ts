@@ -1,6 +1,4 @@
-import { isInsideContainer } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
-import { createDevSigner } from "@parity/product-sdk-tx";
 import type { PolkadotSigner } from "polkadot-api";
 
 const log = createLogger("bulletin");
@@ -19,15 +17,13 @@ export type UploadStrategy =
  * Determine the upload strategy for the Bulletin Chain.
  *
  * Resolution order:
- * 1. If an explicit signer is provided, use it directly (backwards-compatible path).
- * 2. If running inside a host container (Polkadot Desktop / Mobile) and
- *    `@novasamatech/product-sdk` is available, use the host preimage API —
- *    the host signs and submits the transaction automatically.
- * 3. Otherwise fall back to Alice's dev signer (pre-funded on test chains).
+ * 1. If an explicit signer is provided, use it directly.
+ * 2. Otherwise, use the host preimage API (the SDK is designed to run inside a container).
  *
  * @param explicitSigner - Optional signer provided by the caller. When present,
- *                         skips auto-detection entirely.
+ *                         skips host auto-detection entirely.
  * @returns The resolved upload strategy.
+ * @throws {Error} If no signer is provided and the host preimage API is unavailable.
  */
 export async function resolveUploadStrategy(
     explicitSigner?: PolkadotSigner,
@@ -37,23 +33,17 @@ export async function resolveUploadStrategy(
         return { kind: "signer", signer: explicitSigner };
     }
 
-    const inContainer = await isInsideContainer();
-
-    if (inContainer) {
-        try {
-            const sdk = await import("@novasamatech/product-sdk");
-            log.info("inside host container — using preimage API for bulletin upload");
-            return { kind: "preimage", submit: (data) => sdk.preimageManager.submit(data) };
-        } catch {
-            log.warn(
-                "inside host container but @novasamatech/product-sdk is unavailable, " +
-                    "falling back to dev signer",
-            );
-        }
+    // Use the host preimage API (inside container)
+    try {
+        const sdk = await import("@novasamatech/product-sdk");
+        log.info("using host preimage API for bulletin upload");
+        return { kind: "preimage", submit: (data) => sdk.preimageManager.submit(data) };
+    } catch {
+        throw new Error(
+            "Host preimage API unavailable. Ensure you are running inside a host container (Polkadot Browser / Desktop), " +
+                "or provide an explicit signer.",
+        );
     }
-
-    log.info("using dev signer (Alice) for bulletin upload");
-    return { kind: "signer", signer: createDevSigner("Alice") };
 }
 
 if (import.meta.vitest) {
@@ -69,43 +59,28 @@ if (import.meta.vitest) {
             }
         });
 
-        test("falls back to dev signer outside container (Node env, no window)", async () => {
-            const strategy = await resolveUploadStrategy();
-            expect(strategy.kind).toBe("signer");
-            if (strategy.kind === "signer") {
-                expect(strategy.signer).toBeDefined();
-                expect(strategy.signer.publicKey).toBeInstanceOf(Uint8Array);
-            }
-        });
-
-        test("returns preimage strategy when inside container with SDK", async () => {
-            const fakeWindow = { top: null, __HOST_WEBVIEW_MARK__: true };
-            vi.stubGlobal("window", fakeWindow);
+        test("returns preimage strategy when SDK available", async () => {
             vi.doMock("@novasamatech/product-sdk", () => ({
                 preimageManager: { submit: async (_data: Uint8Array) => "0xdeadbeef" },
-                sandboxProvider: { isCorrectEnvironment: () => true },
             }));
             try {
                 const strategy = await resolveUploadStrategy();
                 expect(strategy.kind).toBe("preimage");
             } finally {
                 vi.doUnmock("@novasamatech/product-sdk");
-                vi.unstubAllGlobals();
             }
         });
 
-        test("falls back to dev signer when inside container but SDK unavailable", async () => {
-            const fakeWindow = { top: null, __HOST_WEBVIEW_MARK__: true };
-            vi.stubGlobal("window", fakeWindow);
+        test("throws when SDK unavailable and no explicit signer", async () => {
             vi.doMock("@novasamatech/product-sdk", () => {
                 throw new Error("module not found");
             });
             try {
-                const strategy = await resolveUploadStrategy();
-                expect(strategy.kind).toBe("signer");
+                await expect(resolveUploadStrategy()).rejects.toThrow(
+                    /Host preimage API unavailable/,
+                );
             } finally {
                 vi.doUnmock("@novasamatech/product-sdk");
-                vi.unstubAllGlobals();
             }
         });
     });

@@ -20,15 +20,12 @@ export {
     HostUnavailableError,
     HostRejectedError,
     HostDisconnectedError,
-    ExtensionNotFoundError,
-    ExtensionRejectedError,
     SigningFailedError,
     NoAccountsError,
     TimeoutError,
     AccountNotFoundError,
     DestroyedError,
     isHostError,
-    isExtensionError,
 } from "./errors.js";
 
 // Utilities
@@ -40,8 +37,6 @@ export type { RetryOptions } from "./retry.js";
 export type { SignerProvider, Unsubscribe } from "./providers/types.js";
 export { DevProvider } from "./providers/dev.js";
 export type { DevProviderOptions, DevAccountName, DevKeyType } from "./providers/dev.js";
-export { ExtensionProvider } from "./providers/extension.js";
-export type { ExtensionProviderOptions, ExtensionApi } from "./providers/extension.js";
 export { HostProvider } from "./providers/host.js";
 export type {
     HostProviderOptions,

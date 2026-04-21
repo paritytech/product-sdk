@@ -1,28 +1,23 @@
 /**
  * Entry point for the @parity/product-sdk-chain-client E2E demo.
  *
- * Wires up SignerManager (for account discovery) + preset/BYOD chain connections,
+ * Wires up SignerManager (for account discovery) + chain connections,
  * exposing a minimal UI that the Playwright suite drives via data-testid selectors.
  *
  * Flow inside the host-api-test-sdk test host:
  *   1. SignerManager.connect() auto-detects -> HostProvider (product-sdk)
  *   2. Host responds with Bob's non-product account
- *   3. Preset: getChainAPI("paseo") connects assetHub + bulletin + individuality
- *   4. BYOD: createChainClient({ chains: { bulletin }, rpcs: {...} }) connects bulletin
- *   5. isConnected(descriptor) verifies connection state for each chain
- *   6. Controls allow refresh and destroy operations
+ *   3. BYOD: createChainClient({ chains: { assetHub }, rpcs: {...} }) connects via host
+ *   4. isConnected(descriptor) verifies connection state
+ *   5. Controls allow refresh and destroy operations
+ *
+ * Note: The SDK is designed for container-only usage. The test host mock provides
+ * chain connections via the host API - no fallback to direct WebSocket.
  */
 
-import {
-    getChainAPI,
-    createChainClient,
-    isConnected,
-    destroyAll,
-} from "@parity/product-sdk-chain-client";
-import type { ChainClient, PresetChains } from "@parity/product-sdk-chain-client";
+import { createChainClient, isConnected, destroyAll } from "@parity/product-sdk-chain-client";
+import type { ChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-import { bulletin } from "@parity/product-sdk-descriptors/bulletin";
-import { individuality } from "@parity/product-sdk-descriptors/individuality";
 import { SignerManager } from "@parity/product-sdk-signer";
 
 import { appendLog, getEl } from "./ui.js";
@@ -31,19 +26,16 @@ import { appendLog, getEl } from "./ui.js";
 const $connectionStatus = getEl<HTMLSpanElement>("connection-status");
 const $activeProvider = getEl<HTMLSpanElement>("active-provider");
 const $accountAddress = getEl<HTMLSpanElement>("account-address");
-const $presetStatus = getEl<HTMLSpanElement>("preset-status");
-const $presetAssetHubBlock = getEl<HTMLSpanElement>("preset-asset-hub-block");
-const $presetBulletinConnected = getEl<HTMLSpanElement>("preset-bulletin-connected");
-const $presetIndividualityConnected = getEl<HTMLSpanElement>("preset-individuality-connected");
 const $byodStatus = getEl<HTMLSpanElement>("byod-status");
-const $byodBulletinBlock = getEl<HTMLSpanElement>("byod-bulletin-block");
-const $btnRefreshPreset = getEl<HTMLButtonElement>("btn-refresh-preset");
-const $btnDestroyPreset = getEl<HTMLButtonElement>("btn-destroy-preset");
+const $byodAssetHubBlock = getEl<HTMLSpanElement>("byod-asset-hub-block");
+const $byodAssetHubConnected = getEl<HTMLSpanElement>("byod-asset-hub-connected");
+const $btnRefresh = getEl<HTMLButtonElement>("btn-refresh");
+const $btnDestroy = getEl<HTMLButtonElement>("btn-destroy");
 const $log = getEl<HTMLElement>("chain-client-log");
 
 function setControlsEnabled(enabled: boolean): void {
-    $btnRefreshPreset.disabled = !enabled;
-    $btnDestroyPreset.disabled = !enabled;
+    $btnRefresh.disabled = !enabled;
+    $btnDestroy.disabled = !enabled;
 }
 
 function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void {
@@ -51,8 +43,7 @@ function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void
 }
 
 function updateIsConnectedDisplay(): void {
-    $presetBulletinConnected.textContent = String(isConnected(bulletin));
-    $presetIndividualityConnected.textContent = String(isConnected(individuality));
+    $byodAssetHubConnected.textContent = String(isConnected(paseo_asset_hub));
 }
 
 // -- App state ------------------------------------------------------------
@@ -60,8 +51,7 @@ const SS58_PREFIX = 0; // Paseo — addresses start with "1"
 const APP_NAME = "chain-client-demo";
 
 const manager = new SignerManager({ ss58Prefix: SS58_PREFIX, dappName: APP_NAME });
-let presetClient: ChainClient<PresetChains<"paseo">> | null = null;
-let byodClient: ChainClient<{ bulletin: typeof bulletin }> | null = null;
+let byodClient: ChainClient<{ assetHub: typeof paseo_asset_hub }> | null = null;
 
 // -- UI subscriptions -----------------------------------------------------
 manager.subscribe((state) => {
@@ -71,14 +61,14 @@ manager.subscribe((state) => {
 });
 
 // -- Actions --------------------------------------------------------------
-$btnRefreshPreset.addEventListener("click", async () => {
-    if (!presetClient) return;
+$btnRefresh.addEventListener("click", async () => {
+    if (!byodClient) return;
     setControlsEnabled(false);
-    log("Refreshing preset asset hub block number...");
+    log("Refreshing asset hub block number...");
 
     try {
-        const blockNumber = await presetClient.assetHub.query.System.Number.getValue();
-        $presetAssetHubBlock.textContent = String(blockNumber);
+        const blockNumber = await byodClient.assetHub.query.System.Number.getValue();
+        $byodAssetHubBlock.textContent = String(blockNumber);
         log(`Asset Hub block: ${blockNumber}`, "ok");
     } catch (err) {
         log(`Refresh failed: ${(err as Error).message}`, "err");
@@ -87,18 +77,18 @@ $btnRefreshPreset.addEventListener("click", async () => {
     }
 });
 
-$btnDestroyPreset.addEventListener("click", () => {
-    if (!presetClient) return;
+$btnDestroy.addEventListener("click", () => {
+    if (!byodClient) return;
     setControlsEnabled(false);
-    log("Destroying preset client...");
+    log("Destroying client...");
 
     try {
-        presetClient.destroy();
+        byodClient.destroy();
         destroyAll();
-        presetClient = null;
-        $presetStatus.textContent = "destroyed";
+        byodClient = null;
+        $byodStatus.textContent = "destroyed";
         updateIsConnectedDisplay();
-        log("Preset client destroyed — isConnected checks updated", "ok");
+        log("Client destroyed — isConnected checks updated", "ok");
     } catch (err) {
         log(`Destroy failed: ${(err as Error).message}`, "err");
         setControlsEnabled(true);
@@ -129,42 +119,23 @@ async function init() {
     const address = accounts[0].address;
     log(`Signer ready: ${address}`, "ok");
 
-    // Step 2: Preset — connect all chains via getChainAPI("paseo")
-    log("Connecting preset (paseo)...");
-    try {
-        presetClient = await getChainAPI("paseo");
-        log("Preset connected", "ok");
-
-        // Query asset hub block number
-        const blockNumber = await presetClient.assetHub.query.System.Number.getValue();
-        $presetAssetHubBlock.textContent = String(blockNumber);
-        log(`Preset Asset Hub block: ${blockNumber}`, "ok");
-
-        // Check isConnected for each chain
-        updateIsConnectedDisplay();
-        log(`isConnected(paseo_asset_hub) = ${isConnected(paseo_asset_hub)}`, "info");
-        log(`isConnected(bulletin) = ${isConnected(bulletin)}`, "info");
-        log(`isConnected(individuality) = ${isConnected(individuality)}`, "info");
-
-        $presetStatus.textContent = "connected";
-    } catch (err) {
-        $presetStatus.textContent = "error";
-        log(`Preset connection failed: ${(err as Error).message}`, "err");
-    }
-
-    // Step 3: BYOD — connect single chain (bulletin)
-    log("Connecting BYOD (bulletin)...");
+    // Step 2: BYOD — connect single chain (asset hub) via host provider
+    log("Connecting BYOD (asset hub)...");
     try {
         byodClient = await createChainClient({
-            chains: { bulletin },
-            rpcs: { bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"] },
+            chains: { assetHub: paseo_asset_hub },
+            rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
         });
         log("BYOD connected", "ok");
 
-        // Query bulletin block number
-        const blockNumber = await byodClient.bulletin.query.System.Number.getValue();
-        $byodBulletinBlock.textContent = String(blockNumber);
-        log(`BYOD Bulletin block: ${blockNumber}`, "ok");
+        // Query asset hub block number
+        const blockNumber = await byodClient.assetHub.query.System.Number.getValue();
+        $byodAssetHubBlock.textContent = String(blockNumber);
+        log(`Asset Hub block: ${blockNumber}`, "ok");
+
+        // Check isConnected
+        updateIsConnectedDisplay();
+        log(`isConnected(paseo_asset_hub) = ${isConnected(paseo_asset_hub)}`, "info");
 
         $byodStatus.textContent = "connected";
     } catch (err) {
@@ -172,7 +143,7 @@ async function init() {
         log(`BYOD connection failed: ${(err as Error).message}`, "err");
     }
 
-    // Step 4: Enable controls
+    // Step 3: Enable controls
     setControlsEnabled(true);
     log("Ready", "ok");
 }
@@ -182,26 +153,18 @@ declare global {
     interface Window {
         __CHAIN_CLIENT__: {
             isConnected: typeof isConnected;
-            presetClient: typeof presetClient;
             byodClient: typeof byodClient;
             paseo_asset_hub: typeof paseo_asset_hub;
-            bulletin: typeof bulletin;
-            individuality: typeof individuality;
         };
     }
 }
 
 window.__CHAIN_CLIENT__ = {
     isConnected,
-    get presetClient() {
-        return presetClient;
-    },
     get byodClient() {
         return byodClient;
     },
     paseo_asset_hub,
-    bulletin,
-    individuality,
 };
 
 init().catch((err) => log(`Unhandled init error: ${(err as Error).message}`, "err"));

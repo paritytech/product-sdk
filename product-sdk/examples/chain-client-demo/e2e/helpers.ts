@@ -8,8 +8,7 @@ import { expect, type FrameLocator } from "@playwright/test";
  *   1. Host connection established
  *   2. Signer connected ("connected")
  *   3. Account address resolved (not "-")
- *   4. Preset status = "connected"
- *   5. BYOD status = "connected"
+ *   4. BYOD status = "connected"
  */
 export async function waitForAppReady(
     testHost: TestHost,
@@ -27,10 +26,7 @@ export async function waitForAppReady(
     });
     await expect(frame.locator('[data-testid="account-address"]')).not.toHaveText("-", { timeout });
 
-    // Both preset and BYOD should be connected
-    await expect(frame.locator('[data-testid="preset-status"]')).toHaveText("connected", {
-        timeout,
-    });
+    // BYOD should be connected
     await expect(frame.locator('[data-testid="byod-status"]')).toHaveText("connected", {
         timeout,
     });

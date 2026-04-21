@@ -27,9 +27,6 @@ export const MAX_USER_TOTAL = 1024;
 /** Default time-to-live for published statements in seconds. */
 export const DEFAULT_TTL_SECONDS = 30;
 
-/** Default polling interval in milliseconds for the fallback poller. */
-export const DEFAULT_POLL_INTERVAL_MS = 10_000;
-
 // ============================================================================
 // Branded Types
 // ============================================================================
@@ -108,9 +105,8 @@ export type ConnectionCredentials =
 /**
  * Configuration for {@link StatementStoreClient}.
  *
- * Inside a container, the client automatically uses the Host API's native
- * statement store protocol (no endpoint needed). The `endpoint` is a fallback
- * for outside-container usage (development, testing).
+ * The client uses the Host API's native statement store protocol.
+ * The SDK is designed to run exclusively inside a host container.
  */
 export interface StatementStoreConfig {
     /**
@@ -124,28 +120,6 @@ export interface StatementStoreConfig {
     appName: string;
 
     /**
-     * Fallback WebSocket endpoint for the statement store node.
-     *
-     * The client always tries the Host API first (inside a container).
-     * This endpoint is only used as a fallback when the host is unavailable.
-     * Defaults to the paseo bulletin RPC from `@parity/product-sdk-host`.
-     *
-     * @example "wss://paseo-bulletin-rpc.polkadot.io"
-     */
-    endpoint?: string;
-
-    /**
-     * Polling interval in milliseconds for the fallback poller.
-     *
-     * The client uses both subscriptions (real-time) and polling (fallback)
-     * to ensure no statements are missed. Set to 0 to disable polling.
-     * Polling is only active when the transport supports queries (RPC mode).
-     *
-     * @default 10_000
-     */
-    pollIntervalMs?: number;
-
-    /**
      * Default time-to-live for published statements in seconds.
      *
      * Statements automatically expire after this duration.
@@ -156,21 +130,10 @@ export interface StatementStoreConfig {
     defaultTtlSeconds?: number;
 
     /**
-     * Whether to enable the polling fallback.
-     *
-     * When true (default), the client polls for statements periodically
-     * in addition to the real-time subscription. Only active when the
-     * transport supports queries (RPC mode, not host mode).
-     *
-     * @default true
-     */
-    enablePolling?: boolean;
-
-    /**
      * Provide a custom transport instead of auto-detection.
      *
-     * When set, the client skips host/RPC auto-detection and uses this
-     * transport directly. Useful for testing or advanced BYOD setups.
+     * When set, the client uses this transport directly.
+     * Useful for testing or advanced BYOD setups.
      */
     transport?: StatementTransport;
 }

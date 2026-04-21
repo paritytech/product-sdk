@@ -5,6 +5,9 @@ import type { HostLocalStorage, HostStatementStore } from "./types.js";
 /**
  * Detect if running inside a Host container (Polkadot Browser / Polkadot Desktop).
  *
+ * The SDK is designed to run exclusively inside a host container. This function
+ * is primarily useful for early validation or informational purposes.
+ *
  * Uses product-sdk's sandboxProvider as primary detection.
  * Falls back to manual signal checks when product-sdk is not installed.
  */
@@ -39,21 +42,11 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
  *
  * When running inside a Polkadot container, this wraps the chain connection via the
  * host's `createPapiProvider`, enabling shared connections and efficient routing.
- * Returns `null` when `@novasamatech/product-sdk` is unavailable (standalone environments).
+ * Returns `null` when `@novasamatech/product-sdk` is unavailable.
  *
  * @param genesisHash - Genesis hash of the target chain (`0x`-prefixed hex string).
- * @param fallback    - Optional fallback provider (e.g., WebSocket). Passed to the host
- *   provider, which uses it when the host doesn't support the requested chain.
- * @returns A host-routed `JsonRpcProvider`, or `null` if product-sdk is unavailable.
- *
- * @example
- * ```ts
- * import { getHostProvider } from "@parity/product-sdk-host";
- * import { getWsProvider } from "polkadot-api/ws-provider/web";
- *
- * const ws = getWsProvider("wss://rpc.example.com");
- * const provider = await getHostProvider("0xabc...", ws) ?? ws;
- * ```
+ * @param fallback    - Optional fallback provider passed to the host provider.
+ * @returns A host-routed `JsonRpcProvider`, or `null` if unavailable.
  */
 export async function getHostProvider(
     genesisHash: `0x${string}`,
