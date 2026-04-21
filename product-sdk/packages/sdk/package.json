@@ -36,6 +36,10 @@
             "import": "./dist/crypto/index.js",
             "types": "./dist/crypto/index.d.ts"
         },
+        "./host": {
+            "import": "./dist/host/index.js",
+            "types": "./dist/host/index.d.ts"
+        },
         "./identity": {
             "import": "./dist/identity/index.js",
             "types": "./dist/identity/index.d.ts"

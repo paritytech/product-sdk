@@ -24,15 +24,20 @@
         "polkadot-api": "^1.9.0"
     },
     "peerDependencies": {
-        "@novasamatech/product-sdk": ">=0.1.0"
+        "@novasamatech/product-sdk": ">=0.1.0",
+        "@novasamatech/host-api": ">=0.6.0"
     },
     "peerDependenciesMeta": {
         "@novasamatech/product-sdk": {
+            "optional": true
+        },
+        "@novasamatech/host-api": {
             "optional": true
         }
     },
     "devDependencies": {
         "@novasamatech/product-sdk": "catalog:",
+        "@novasamatech/host-api": "catalog:",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0"
     },

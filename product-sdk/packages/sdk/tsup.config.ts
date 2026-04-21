@@ -9,6 +9,7 @@ export default defineConfig({
         "contracts/index": "src/contracts/index.ts",
         "core/index": "src/core/index.ts",
         "crypto/index": "src/crypto/index.ts",
+        "host/index": "src/host/index.ts",
         "identity/index": "src/identity/index.ts",
         "react/index": "src/react/index.ts",
         "storage/index": "src/storage/index.ts",

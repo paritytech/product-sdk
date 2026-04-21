@@ -10,7 +10,7 @@ import {
     SigningFailedError,
     type SignerError,
 } from "./errors.js";
-import { isInsideContainerSync } from "@parity/product-sdk-host";
+import { isInsideContainerSync, getHostLocalStorage } from "@parity/product-sdk-host";
 import { DevProvider } from "./providers/dev.js";
 import { ExtensionProvider } from "./providers/extension.js";
 import type { ExtensionApi } from "./providers/extension.js";
@@ -58,17 +58,17 @@ async function detectPersistence(): Promise<AccountPersistence | null> {
     // Try host storage first (container environment)
     if (isInsideContainerSync()) {
         try {
-            const sdk = await import("@novasamatech/product-sdk");
-            if (sdk.hostLocalStorage) {
+            const hostStorage = await getHostLocalStorage();
+            if (hostStorage) {
                 log.debug("using hostLocalStorage for persistence");
                 return {
-                    getItem: (key) => sdk.hostLocalStorage.readString(key),
-                    setItem: (key, value) => sdk.hostLocalStorage.writeString(key, value),
-                    removeItem: (key) => sdk.hostLocalStorage.writeString(key, ""),
+                    getItem: (key) => hostStorage.readString(key),
+                    setItem: (key, value) => hostStorage.writeString(key, value),
+                    removeItem: (key) => hostStorage.writeString(key, ""),
                 };
             }
         } catch {
-            // product-sdk not available — fall through to localStorage
+            // host storage not available — fall through to localStorage
         }
     }
 

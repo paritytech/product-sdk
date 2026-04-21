@@ -10,7 +10,7 @@ export default defineConfig({
     define: {
         "import.meta.vitest": "undefined",
     },
-    // Mark product-sdk as external since it's an optional peer dependency
-    // that's dynamically imported
-    external: ["@novasamatech/product-sdk"],
+    // Mark novasama packages as external since they're optional peer dependencies
+    // that are dynamically imported or re-exported
+    external: ["@novasamatech/product-sdk", "@novasamatech/host-api"],
 });
