@@ -5,11 +5,11 @@
  *
  * @example
  * ```ts
- * import { getHostApi, enumValue, isInsideContainer } from '@parity/product-sdk/host';
+ * import { getTruApi, enumValue, isInsideContainer } from '@parity/product-sdk/host';
  *
  * if (await isInsideContainer()) {
- *   const hostApi = await getHostApi();
- *   await hostApi.navigateTo('polkadot://settings');
+ *   const truApi = await getTruApi();
+ *   await truApi.navigateTo('polkadot://settings');
  * }
  * ```
  *
@@ -26,8 +26,8 @@ export {
     getHostProvider,
     // Statement store
     getStatementStore,
-    // Host API
-    getHostApi,
+    // TruAPI
+    getTruApi,
     getPreimageManager,
     getAccountsProvider,
     // Helpers from @novasamatech/host-api
@@ -49,7 +49,7 @@ export type {
     HostLocalStorage,
     HostStatementStore,
     StatementProof,
-    HostApi,
+    TruApi,
     HexString,
     PreimageManager,
     AccountsProvider,

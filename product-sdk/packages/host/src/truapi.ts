@@ -1,8 +1,8 @@
 /**
- * Re-exports from @novasamatech/product-sdk and @novasamatech/host-api.
+ * TruAPI - the protocol for communicating between apps and the Polkadot host container.
  *
- * This module centralizes access to the novasama host APIs, allowing other
- * @parity/product-sdk-* packages to import from here rather than depending
+ * This module centralizes access to @novasamatech/product-sdk and @novasamatech/host-api,
+ * allowing other @parity/product-sdk-* packages to import from here rather than depending
  * directly on novasama packages.
  *
  * @module
@@ -18,15 +18,15 @@ const log = createLogger("host");
 
 export {
     /**
-     * Construct an enum variant for host API calls.
+     * Construct an enum variant for TruAPI calls.
      *
      * @example
      * ```ts
-     * import { enumValue, getHostApi } from "@parity/product-sdk-host";
+     * import { enumValue, getTruApi } from "@parity/product-sdk-host";
      *
-     * const hostApi = await getHostApi();
-     * if (hostApi) {
-     *   await hostApi.permission([enumValue("ChainSubmit")]);
+     * const truApi = await getTruApi();
+     * if (truApi) {
+     *   await truApi.permission([enumValue("ChainSubmit")]);
      * }
      * ```
      */
@@ -64,11 +64,11 @@ export {
 export type { HexString } from "@novasamatech/host-api";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Host API accessor
+// TruAPI accessor
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The HostApi type - provides low-level methods for communicating with the host.
+ * The TruApi type - provides low-level methods for communicating with the host.
  *
  * Methods include:
  * - `navigateTo(url)` — Navigate to a URL within the host
@@ -80,13 +80,13 @@ export type { HexString } from "@novasamatech/host-api";
  * - And many more...
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type HostApi = any;
+export type TruApi = any;
 
-/** Cached hostApi instance */
-let cachedHostApi: HostApi | null = null;
+/** Cached TruApi instance */
+let cachedTruApi: TruApi | null = null;
 
 /**
- * Get the host API instance for direct low-level access.
+ * Get the TruAPI instance for direct low-level access.
  *
  * Returns the `hostApi` object from `@novasamatech/product-sdk` which provides
  * methods for communicating directly with the host container. Returns `null`
@@ -98,35 +98,35 @@ let cachedHostApi: HostApi | null = null;
  *
  * @example
  * ```ts
- * import { getHostApi, enumValue } from "@parity/product-sdk-host";
+ * import { getTruApi, enumValue } from "@parity/product-sdk-host";
  *
- * const hostApi = await getHostApi();
- * if (hostApi) {
+ * const truApi = await getTruApi();
+ * if (truApi) {
  *   // Request permission
- *   const result = await hostApi.permission([enumValue("ChainSubmit")]);
+ *   const result = await truApi.permission([enumValue("ChainSubmit")]);
  *
  *   // Navigate to a URL
- *   await hostApi.navigateTo("polkadot://settings");
+ *   await truApi.navigateTo("polkadot://settings");
  *
  *   // Subscribe to theme changes
- *   const sub = hostApi.themeSubscribe(undefined, (theme) => {
+ *   const sub = truApi.themeSubscribe(undefined, (theme) => {
  *     console.log("Theme changed:", theme);
  *   });
  * }
  * ```
  *
- * @returns The host API instance, or `null` if unavailable.
+ * @returns The TruAPI instance, or `null` if unavailable.
  */
-export async function getHostApi(): Promise<HostApi | null> {
-    if (cachedHostApi) return cachedHostApi;
+export async function getTruApi(): Promise<TruApi | null> {
+    if (cachedTruApi) return cachedTruApi;
 
     try {
         const sdk = await import("@novasamatech/product-sdk");
-        cachedHostApi = sdk.hostApi;
-        log.debug("host API loaded");
-        return cachedHostApi;
+        cachedTruApi = sdk.hostApi;
+        log.debug("TruAPI loaded");
+        return cachedTruApi;
     } catch {
-        log.debug("host API unavailable (not in container or SDK not installed)");
+        log.debug("TruAPI unavailable (not in container or SDK not installed)");
         return null;
     }
 }
@@ -228,10 +228,10 @@ export interface AccountsProvider {
 if (import.meta.vitest) {
     const { test, expect } = import.meta.vitest;
 
-    test("getHostApi returns hostApi when SDK is available", async () => {
+    test("getTruApi returns TruApi when SDK is available", async () => {
         // Reset cache for test
-        cachedHostApi = null;
-        const api = await getHostApi();
+        cachedTruApi = null;
+        const api = await getTruApi();
         // In dev/test mode, product-sdk is installed
         expect(api === null || typeof api === "object").toBe(true);
     });
@@ -250,7 +250,7 @@ if (import.meta.vitest) {
     });
 
     test("enumValue is exported", async () => {
-        const { enumValue } = await import("./host-api.js");
+        const { enumValue } = await import("./truapi.js");
         expect(typeof enumValue).toBe("function");
     });
 }

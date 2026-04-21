@@ -8,9 +8,9 @@ export {
 export type { HostLocalStorage, HostStatementStore, StatementProof } from "./types.js";
 export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 
-// Re-exports from @novasamatech/product-sdk and @novasamatech/host-api
+// TruAPI - re-exports from @novasamatech/product-sdk and @novasamatech/host-api
 export {
-    getHostApi,
+    getTruApi,
     getPreimageManager,
     getAccountsProvider,
     // Helpers from @novasamatech/host-api
@@ -22,11 +22,11 @@ export {
     resultErr,
     toHex,
     fromHex,
-} from "./host-api.js";
+} from "./truapi.js";
 export type {
-    HostApi,
+    TruApi,
     HexString,
     PreimageManager,
     AccountsProvider,
     HostAccount,
-} from "./host-api.js";
+} from "./truapi.js";
