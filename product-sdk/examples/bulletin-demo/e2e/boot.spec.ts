@@ -15,7 +15,7 @@ import { waitForAppReady } from "./helpers";
  *   - resolveUploadStrategy() → preimage kind
  *   - resolveQueryStrategy() → host-lookup kind
  */
-test.describe("@polkadot-apps/bulletin via Host API — boot", () => {
+test.describe("@parity/product-sdk-bulletin via Host API — boot", () => {
     test("app connects and resolves host strategies", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

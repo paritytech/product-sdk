@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-test.describe("@polkadot-apps/signer — permission rejection", () => {
+test.describe("@parity/product-sdk-signer — permission rejection", () => {
     // workers:1 means this test's permission state would leak into later
     // specs if we don't reset. approve-all + explicit grant restores the
     // default the fixture would provide at startup.

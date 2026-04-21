@@ -13,7 +13,7 @@ import { waitForAppReady } from "./helpers";
  *   - getStatementStore() → HostTransport creation
  *   - store.subscribe() is called during connect (subscription setup)
  */
-test.describe("@polkadot-apps/statement-store via Host API — boot", () => {
+test.describe("@parity/product-sdk-statement-store via Host API — boot", () => {
     test("app connects and StatementStoreClient initialises via Host API", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

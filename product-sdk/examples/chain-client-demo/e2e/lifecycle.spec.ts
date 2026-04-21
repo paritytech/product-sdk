@@ -15,7 +15,7 @@ import { waitForAppReady } from "./helpers";
  *   - destroyAll() -> clears cache + resets smoldot
  *   - isConnected(descriptor) -> returns false after cache cleared
  */
-test.describe("@polkadot-apps/chain-client via Host API — lifecycle", () => {
+test.describe("@parity/product-sdk-chain-client via Host API — lifecycle", () => {
     test("destroy cleans up client connections", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

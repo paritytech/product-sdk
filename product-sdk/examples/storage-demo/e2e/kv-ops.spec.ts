@@ -18,7 +18,7 @@ import { waitForAppReady } from "./helpers";
  *   - hostStorage.readJSON(key)
  *   - hostStorage.clear(key)
  */
-test.describe("@polkadot-apps/storage via Host API — KvStore operations", () => {
+test.describe("@parity/product-sdk-storage via Host API — KvStore operations", () => {
     test("set + get round-trip", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

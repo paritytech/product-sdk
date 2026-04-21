@@ -12,7 +12,7 @@ import { waitForAppReady } from "./helpers";
  * Surface tested:
  *   - computeCid(), cidToPreimageKey() — verified against real host preimage keys
  */
-test.describe("@polkadot-apps/bulletin via Host API — CID", () => {
+test.describe("@parity/product-sdk-bulletin via Host API — CID", () => {
     test("computeCid produces valid CIDv1 string", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

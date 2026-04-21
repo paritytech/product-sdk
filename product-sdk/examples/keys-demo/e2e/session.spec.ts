@@ -15,7 +15,7 @@ import { waitForAppReady } from "./helpers";
  *   - KvStore.get(key) via product-sdk hostLocalStorage
  *   - KvStore.remove(key) via product-sdk hostLocalStorage
  */
-test.describe("@polkadot-apps/keys via Host API — session key lifecycle", () => {
+test.describe("@parity/product-sdk-keys via Host API — session key lifecycle", () => {
     test("create generates mnemonic and derived addresses", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

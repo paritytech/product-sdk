@@ -18,7 +18,7 @@ const ALT_MNEMONIC =
  *   - None directly (fromMnemonic is pure/synchronous), but the test host
  *     environment is still required for the app to boot.
  */
-test.describe("@polkadot-apps/keys via Host API — derivation", () => {
+test.describe("@parity/product-sdk-keys via Host API — derivation", () => {
     test("deterministic derivation from known mnemonic", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

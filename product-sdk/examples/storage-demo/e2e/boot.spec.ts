@@ -13,7 +13,7 @@ import { waitForAppReady } from "./helpers";
  *   - isInsideContainer() → true
  *   - getHostLocalStorage() → host localStorage bridge
  */
-test.describe("@polkadot-apps/storage via Host API — boot", () => {
+test.describe("@parity/product-sdk-storage via Host API — boot", () => {
     test("KvStore auto-detects host backend inside container", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

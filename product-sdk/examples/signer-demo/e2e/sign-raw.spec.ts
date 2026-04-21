@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-test.describe("@polkadot-apps/signer — signRaw", () => {
+test.describe("@parity/product-sdk-signer — signRaw", () => {
     test("returns a hex signature and the host receives a raw sign request", async ({
         testHost,
     }) => {

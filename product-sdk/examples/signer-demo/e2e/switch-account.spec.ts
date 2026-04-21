@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-test.describe("@polkadot-apps/signer — testHost.switchAccount", () => {
+test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
     test("account swap propagates through SignerManager.subscribe", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

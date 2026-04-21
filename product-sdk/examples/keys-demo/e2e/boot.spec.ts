@@ -14,7 +14,7 @@ import { waitForAppReady } from "./helpers";
  *   - createKvStore() -> host-backed KvStore via product-sdk hostLocalStorage
  *   - SessionKeyManager({ store }) -> ready state
  */
-test.describe("@polkadot-apps/keys via Host API — boot", () => {
+test.describe("@parity/product-sdk-keys via Host API — boot", () => {
     test("SessionKeyManager initialises with host-backed storage", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

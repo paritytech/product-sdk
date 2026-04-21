@@ -12,7 +12,7 @@ import { waitForAppReady } from "./helpers";
  * Host API surface tested:
  *   - preimageManager.submit(data: Uint8Array): Promise<string>
  */
-test.describe("@polkadot-apps/bulletin via Host API — upload", () => {
+test.describe("@parity/product-sdk-bulletin via Host API — upload", () => {
     test("upload stores preimage on host", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearPreimages();

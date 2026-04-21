@@ -11,7 +11,7 @@ import { waitForAppReady } from "./helpers";
  * `TxDispatchError` carrying a formatted cause. The demo's catch block
  * logs it as "bad-tx rejected: TxDispatchError: ...".
  */
-test.describe("@polkadot-apps/tx via Host API — dispatch error", () => {
+test.describe("@parity/product-sdk-tx via Host API — dispatch error", () => {
     test("root-only call surfaces TxDispatchError after block inclusion", async ({
         testHost,
     }) => {

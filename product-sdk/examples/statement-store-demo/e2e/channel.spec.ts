@@ -16,7 +16,7 @@ import { waitForAppReady } from "./helpers";
  *   - store.subscribe() — channel echoes arrive via subscription
  *   - Full type conversion round-trip through host ↔ sdk bridge
  */
-test.describe("@polkadot-apps/statement-store via Host API — ChannelStore", () => {
+test.describe("@parity/product-sdk-statement-store via Host API — ChannelStore", () => {
     test("channel write round-trip updates channel value", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearStatements();

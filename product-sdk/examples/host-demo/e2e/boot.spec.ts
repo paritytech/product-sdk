@@ -16,7 +16,7 @@ import { waitForAppReady } from "./helpers";
  *   - isInsideContainerSync() -> iframe/webview heuristic
  *   - getHostLocalStorage() -> product-sdk hostLocalStorage
  */
-test.describe("@polkadot-apps/host via Host API — boot", () => {
+test.describe("@parity/product-sdk-host via Host API — boot", () => {
     test("container detection and host storage initialise via Host API", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

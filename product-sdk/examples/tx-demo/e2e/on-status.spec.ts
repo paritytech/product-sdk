@@ -12,7 +12,7 @@ import { waitForAppReady } from "./helpers";
  * emit `in-block` before `signed` would fail this spec. We keep the
  * assertion structural (substring indices) rather than flaky-timing-based.
  */
-test.describe("@polkadot-apps/tx via Host API — onStatus ordering", () => {
+test.describe("@parity/product-sdk-tx via Host API — onStatus ordering", () => {
     test("signing → broadcasting → in-block transitions fire in order", async ({
         testHost,
     }) => {

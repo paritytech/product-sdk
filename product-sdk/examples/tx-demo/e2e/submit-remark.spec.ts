@@ -1,7 +1,7 @@
 import { test, expect, SS58_PREFIX } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-test.describe("@polkadot-apps/tx via Host API", () => {
+test.describe("@parity/product-sdk-tx via Host API", () => {
     test("app boots and exposes Bob's account with the Paseo Asset Hub prefix", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

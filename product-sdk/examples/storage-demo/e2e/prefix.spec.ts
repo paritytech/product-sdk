@@ -13,7 +13,7 @@ import { waitForAppReady } from "./helpers";
  *   - hostStorage.readString("demo:key") — prefixed key retrieval
  *   - Key isolation between prefixed and unprefixed stores
  */
-test.describe("@polkadot-apps/storage via Host API — prefix namespacing", () => {
+test.describe("@parity/product-sdk-storage via Host API — prefix namespacing", () => {
     test("prefixed store uses prefix:key format", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

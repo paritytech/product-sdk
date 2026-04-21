@@ -15,7 +15,7 @@ import { waitForAppReady } from "./helpers";
  *   - Type conversion: hostSignedStatementToSdk() (Uint8Array → hex)
  *   - Type conversion: extractTopicBytes() (hex → Uint8Array for host subscription)
  */
-test.describe("@polkadot-apps/statement-store via Host API — subscribe", () => {
+test.describe("@parity/product-sdk-statement-store via Host API — subscribe", () => {
     test("injected statement arrives via subscription", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearStatements();

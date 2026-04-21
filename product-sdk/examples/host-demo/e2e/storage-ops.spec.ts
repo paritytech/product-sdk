@@ -17,7 +17,7 @@ import { waitForAppReady } from "./helpers";
  *   - product-sdk hostLocalStorage.readJSON(key)
  *   - product-sdk hostLocalStorage.clear(key)
  */
-test.describe("@polkadot-apps/host via Host API — localStorage operations", () => {
+test.describe("@parity/product-sdk-host via Host API — localStorage operations", () => {
     test("writeString + readString round-trip", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

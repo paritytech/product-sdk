@@ -2,7 +2,7 @@ import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
 /**
- * Covers signing rejection in `@polkadot-apps/contracts`.
+ * Covers signing rejection in `@parity/product-sdk-contracts`.
  *
  * When the host denies the `TransactionSubmit` permission, `contract.tx()`
  * must reject with a `TxSigningRejectedError` (surfaced via `submitAndWatch`
@@ -11,7 +11,7 @@ import { waitForAppReady } from "./helpers";
  * Mirrors the tx-demo signing-rejected spec — proves the rejection propagates
  * correctly through the contracts → tx → signer stack.
  */
-test.describe("@polkadot-apps/contracts via Host API — signing rejection", () => {
+test.describe("@parity/product-sdk-contracts via Host API — signing rejection", () => {
     test.afterEach(async ({ testHost }) => {
         await testHost.setPermissionBehavior("approve-all");
         await testHost.grantPermission("TransactionSubmit");

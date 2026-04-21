@@ -8,7 +8,7 @@ import { waitForAppReady } from "./helpers";
 // timing race where reload() races the persist write.
 const STORAGE_KEY = "test-host:product-sdk:signer:signer-demo:selectedAccount";
 
-test.describe("@polkadot-apps/signer — persistence", () => {
+test.describe("@parity/product-sdk-signer — persistence", () => {
     test("selected account survives a page reload via hostLocalStorage", async ({
         testHost,
         page,

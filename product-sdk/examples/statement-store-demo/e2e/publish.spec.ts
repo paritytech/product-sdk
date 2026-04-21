@@ -14,7 +14,7 @@ import { waitForAppReady } from "./helpers";
  *   - store.submit(signedStatement)
  *   - Type conversion: sdkStatementToHost() (hex → Uint8Array)
  */
-test.describe("@polkadot-apps/statement-store via Host API — publish", () => {
+test.describe("@parity/product-sdk-statement-store via Host API — publish", () => {
     test("publish succeeds via host signing and appears in submission log", async ({
         testHost,
     }) => {

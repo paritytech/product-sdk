@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-test.describe("@polkadot-apps/signer — disconnect + reconnect", () => {
+test.describe("@parity/product-sdk-signer — disconnect + reconnect", () => {
     test("disconnect resets state; manual reconnect restores account + provider", async ({
         testHost,
     }) => {

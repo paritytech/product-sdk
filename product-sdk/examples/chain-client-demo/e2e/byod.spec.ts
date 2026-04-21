@@ -13,7 +13,7 @@ import { waitForAppReady } from "./helpers";
  *   - createChainClient({ chains, rpcs }) -> direct WebSocket (bulletin not in host config)
  *   - Independent client instances don't interfere with each other
  */
-test.describe("@polkadot-apps/chain-client via Host API — BYOD", () => {
+test.describe("@parity/product-sdk-chain-client via Host API — BYOD", () => {
     test("BYOD single-chain connection works", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-test.describe("@polkadot-apps/signer — getProductAccount", () => {
+test.describe("@parity/product-sdk-signer — getProductAccount", () => {
     test("returns an app-scoped address mapped via productAccounts", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

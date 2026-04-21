@@ -13,7 +13,7 @@ import { waitForAppReady } from "./helpers";
  * Host API surface tested:
  *   - preimageManager.lookup(key, callback) → subscription-based API
  */
-test.describe("@polkadot-apps/bulletin via Host API — query", () => {
+test.describe("@parity/product-sdk-bulletin via Host API — query", () => {
     test("seeded preimage is found via host lookup", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearPreimages();

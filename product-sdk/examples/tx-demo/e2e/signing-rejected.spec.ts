@@ -8,7 +8,7 @@ import { waitForAppReady } from "./helpers";
  * (classified via `isSigningRejection`). The demo's catch block logs
  * that as "remark failed: …" — we assert on that surface.
  */
-test.describe("@polkadot-apps/tx via Host API — signing rejection", () => {
+test.describe("@parity/product-sdk-tx via Host API — signing rejection", () => {
     // workers:1: state leaks across tests. Restore default approve-all +
     // grant the permission back so subsequent specs in this run still sign.
     test.afterEach(async ({ testHost }) => {

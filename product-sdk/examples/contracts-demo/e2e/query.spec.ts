@@ -3,7 +3,7 @@ import { waitForAppReady } from "./helpers";
 
 /**
  * Covers `contract.method.query()` — the dry-run (read-only) path in
- * `@polkadot-apps/contracts`.
+ * `@parity/product-sdk-contracts`.
  *
  * `owner()` on the t3rminal bulletin-index contract is a zero-arg view
  * function that returns the deployer's H160 address. It exercises:
@@ -14,7 +14,7 @@ import { waitForAppReady } from "./helpers";
  * The owner address is stable (deployer set at construction), so the
  * assertion is a simple non-null, non-error check.
  */
-test.describe("@polkadot-apps/contracts via Host API — query", () => {
+test.describe("@parity/product-sdk-contracts via Host API — query", () => {
     test("owner() dry-run returns a hex address without signing", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearSigningLog();

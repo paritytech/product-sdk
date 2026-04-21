@@ -10,7 +10,7 @@ import { waitForAppReady } from "./helpers";
  *   - ContractManager.fromClient() initialises successfully.
  *   - The selected account address is a Paseo SS58 address (prefix 0 → starts with "1").
  */
-test.describe("@polkadot-apps/contracts via Host API — boot", () => {
+test.describe("@parity/product-sdk-contracts via Host API — boot", () => {
     test("app connects and ContractManager initialises via Host API", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

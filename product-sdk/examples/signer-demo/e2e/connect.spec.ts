@@ -1,7 +1,7 @@
 import { test, expect, SS58_PREFIX } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-test.describe("@polkadot-apps/signer — connect + subscribe", () => {
+test.describe("@parity/product-sdk-signer — connect + subscribe", () => {
     test("boots through Host API, lists accounts, selects the first one", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

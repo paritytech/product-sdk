@@ -16,7 +16,7 @@ import { waitForAppReady } from "./helpers";
  *   - getChainAPI("paseo") -> createChainClient with preset descriptors/RPCs
  *   - isConnected(descriptor) -> synchronous cache lookup
  */
-test.describe("@polkadot-apps/chain-client via Host API — preset", () => {
+test.describe("@parity/product-sdk-chain-client via Host API — preset", () => {
     test("preset connects all chains via host provider", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

@@ -3,7 +3,7 @@ import { waitForAppReady } from "./helpers";
 
 /**
  * Covers `contract.method.tx()` — the signed-transaction path in
- * `@polkadot-apps/contracts`.
+ * `@parity/product-sdk-contracts`.
  *
  * `storeDailyReport(date, cid, entryCount)` on the t3rminal bulletin-index
  * contract is permissionless: any caller stores a report indexed by
@@ -18,7 +18,7 @@ import { waitForAppReady } from "./helpers";
  *   - Exactly one payload was signed by the host signer.
  *   - The button re-enables after completion.
  */
-test.describe("@polkadot-apps/contracts via Host API — submit", () => {
+test.describe("@parity/product-sdk-contracts via Host API — submit", () => {
     test("storeDailyReport tx lands in best block via host signing", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearSigningLog();

@@ -10,7 +10,7 @@ import { waitForAppReady } from "./helpers";
  * the promise has resolved. Paseo AH finality typically lands in
  * 20–60 s — the 120 s timeout gives comfortable headroom.
  */
-test.describe("@polkadot-apps/tx via Host API — finalized", () => {
+test.describe("@parity/product-sdk-tx via Host API — finalized", () => {
     test("waitFor=finalized resolves only after finalization", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearSigningLog();
