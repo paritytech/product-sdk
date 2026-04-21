@@ -1,21 +1,6 @@
 /**
  * @parity/product-sdk/contracts
  *
- * Smart contract interaction utilities.
- * Supports ink! contracts on Asset Hub and other parachains.
+ * Re-exports from @parity/product-sdk-contracts.
  */
-
-export { Contract } from "./contract.js";
-export type {
-    ContractMetadata,
-    ContractMessage,
-    ContractConstructor,
-    ContractEventDef,
-    ContractArg,
-    ContractType,
-    CallOptions,
-    CallResult,
-    DryRunResult,
-    ContractEvent,
-    DeployResult,
-} from "./types.js";
+export * from "@parity/product-sdk-contracts";

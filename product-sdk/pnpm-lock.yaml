@@ -562,15 +562,6 @@ importers:
 
   packages/sdk:
     dependencies:
-      '@noble/ciphers':
-        specifier: ^1.2.1
-        version: 1.3.0
-      '@noble/curves':
-        specifier: ^1.8.0
-        version: 1.9.7
-      '@noble/hashes':
-        specifier: ^1.7.1
-        version: 1.8.0
       '@parity/product-sdk-address':
         specifier: workspace:*
         version: link:../address
@@ -580,6 +571,9 @@ importers:
       '@parity/product-sdk-chain-client':
         specifier: workspace:*
         version: link:../chain-client
+      '@parity/product-sdk-contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@parity/product-sdk-crypto':
         specifier: workspace:*
         version: link:../crypto
@@ -601,12 +595,6 @@ importers:
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
-      '@polkadot-api/substrate-bindings':
-        specifier: ^0.12.0
-        version: 0.12.0
-      polkadot-api:
-        specifier: ^1.9.0
-        version: 1.23.3(postcss@8.5.10)(rxjs@7.8.2)
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

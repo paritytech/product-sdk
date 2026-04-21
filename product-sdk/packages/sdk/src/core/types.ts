@@ -2,8 +2,9 @@
  * Core types for @parity/product-sdk
  */
 
-/** Log levels for SDK logging */
-export type LogLevel = "error" | "warn" | "info" | "debug";
+import type { LogLevel } from "@parity/product-sdk-logger";
+
+export type { LogLevel };
 
 /** Configuration for createApp */
 export interface AppConfig {

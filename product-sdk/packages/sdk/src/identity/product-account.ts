@@ -4,10 +4,9 @@
  * Derives product-scoped accounts from a parent account
  */
 
-import { createLogger } from "../core/logger.js";
-import { hash } from "../crypto/hashing.js";
-import { ss58Encode, ss58Decode } from "../address/ss58.js";
-import { deriveH160 } from "../address/h160.js";
+import { createLogger } from "@parity/product-sdk-logger";
+import { blake2b256 } from "@parity/product-sdk-crypto";
+import { ss58Encode, ss58Decode, deriveH160 } from "@parity/product-sdk-address";
 import type { ProductAccountInfo, AnonymousAliasInfo, RingLocation } from "./types.js";
 
 const log = createLogger("identity");
@@ -45,7 +44,7 @@ export function deriveProductAccount(
     combined.set(parentPublicKey, 0);
     combined.set(productNameBytes, parentPublicKey.length);
 
-    const productPublicKey = hash(combined, "blake2b-256");
+    const productPublicKey = blake2b256(combined);
     const address = ss58Encode(productPublicKey, ss58Prefix);
     const h160Address = deriveH160(productPublicKey);
 

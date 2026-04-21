@@ -1,11 +1,6 @@
 /**
  * @parity/product-sdk/storage
  *
- * Key-value storage utilities.
- * Uses localStorage in standalone mode, TruAPI hostLocalStorage in container mode.
- *
- * Credit: Based on polkadot-apps/packages/storage
+ * Re-exports from @parity/product-sdk-storage.
  */
-
-export { createKvStore } from "./kv-store.js";
-export type { KvStore, KvStoreOptions, HostLocalStorage } from "./types.js";
+export * from "@parity/product-sdk-storage";

@@ -4,7 +4,7 @@
  * Provides name resolution for .dot domains
  */
 
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@parity/product-sdk-logger";
 import type { DotNsRecord } from "./types.js";
 
 const log = createLogger("identity");

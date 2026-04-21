@@ -1,22 +1,9 @@
 /**
  * @parity/product-sdk/wallet
  *
- * Wallet connection and signing utilities.
- * Supports both container mode (TruAPI) and standalone mode (browser extensions).
+ * Re-exports from @parity/product-sdk-signer.
  *
- * Credit: Based on polkadot-apps/packages/signer
+ * Note: The leaf package is named "signer" but exposed here as "wallet"
+ * for backwards compatibility with the umbrella API.
  */
-
-export { WalletManager } from "./wallet.js";
-export type { WalletSubscriber, Unsubscribe } from "./wallet.js";
-export type {
-    ConnectionStatus,
-    ProviderType,
-    WalletAccount,
-    WalletState,
-    WalletError,
-    WalletErrorType,
-    WalletOptions,
-    ProductAccount,
-    RingLocation,
-} from "./types.js";
+export * from "@parity/product-sdk-signer";

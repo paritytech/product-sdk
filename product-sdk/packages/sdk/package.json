@@ -66,18 +66,14 @@
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-bulletin": "workspace:*",
         "@parity/product-sdk-chain-client": "workspace:*",
+        "@parity/product-sdk-contracts": "workspace:*",
         "@parity/product-sdk-crypto": "workspace:*",
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-storage": "workspace:*",
-        "@parity/product-sdk-tx": "workspace:*",
-        "@noble/ciphers": "^1.2.1",
-        "@noble/curves": "^1.8.0",
-        "@noble/hashes": "^1.7.1",
-        "@polkadot-api/substrate-bindings": "^0.12.0",
-        "polkadot-api": "^1.9.0"
+        "@parity/product-sdk-tx": "workspace:*"
     },
     "peerDependencies": {
         "react": "^18.0.0 || ^19.0.0"

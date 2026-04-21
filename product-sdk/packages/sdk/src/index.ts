@@ -38,5 +38,9 @@ export type {
 } from "./core/types.js";
 export type { LogEntry, LogHandler, LoggerConfig, Logger } from "./core/logger.js";
 
-// Chain descriptors
-export { chains } from "./chain/chains.js";
+// Re-export common utilities from leaf packages
+export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-host";
+export { createChainClient } from "@parity/product-sdk-chain-client";
+export { SignerManager } from "@parity/product-sdk-signer";
+export { createKvStore } from "@parity/product-sdk-storage";
+export { BulletinClient, computeCid } from "@parity/product-sdk-bulletin";
