@@ -45,16 +45,12 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
  * Returns `null` when `@novasamatech/product-sdk` is unavailable.
  *
  * @param genesisHash - Genesis hash of the target chain (`0x`-prefixed hex string).
- * @param fallback    - Optional fallback provider passed to the host provider.
  * @returns A host-routed `JsonRpcProvider`, or `null` if unavailable.
  */
-export async function getHostProvider(
-    genesisHash: `0x${string}`,
-    fallback?: JsonRpcProvider,
-): Promise<JsonRpcProvider | null> {
+export async function getHostProvider(genesisHash: `0x${string}`): Promise<JsonRpcProvider | null> {
     try {
         const sdk = await import("@novasamatech/product-sdk");
-        return sdk.createPapiProvider(genesisHash, fallback);
+        return sdk.createPapiProvider(genesisHash);
     } catch {
         return null;
     }

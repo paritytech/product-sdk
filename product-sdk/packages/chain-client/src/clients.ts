@@ -1,8 +1,8 @@
 import type { ChainDefinition, PolkadotClient } from "polkadot-api";
 import { createClient } from "polkadot-api";
-import { createProvider, resetSmoldot } from "./providers.js";
+import { createProvider } from "./providers.js";
 import { getClientCache, clearClientCache } from "./hmr.js";
-import type { ChainEntry, ChainClientConfig, ChainClient, ChainMeta } from "./types.js";
+import type { ChainEntry, ChainClientConfig, ChainClient } from "./types.js";
 
 // Cache keys are scoped by a fingerprint of the config so that two
 // `createChainClient` calls with different chain sets don't collide.
@@ -105,10 +105,7 @@ async function initChainClient<const TChains extends Record<string, ChainDefinit
             if (!genesis) {
                 throw new Error(`Descriptor for chain "${name}" has no genesis hash.`);
             }
-            const chainRpcs = config.rpcs[name] as readonly string[];
-            const meta: ChainMeta = { rpcs: [...chainRpcs], ...config.meta?.[name] };
-
-            const provider = await createProvider(genesis, meta);
+            const provider = await createProvider(genesis);
             const client = createClient(provider);
 
             // Populate HMR cache so getClient() and isConnected() work
@@ -157,13 +154,11 @@ async function initChainClient<const TChains extends Record<string, ChainDefinit
 /**
  * Destroy all chain client instances and reset internal caches.
  *
- * Tears down every connection created by {@link createChainClient},
- * including the smoldot light-client worker.
+ * Tears down every connection created by {@link createChainClient}.
  */
 export function destroyAll(): void {
     clearClientCache();
     clientInstances.clear();
-    resetSmoldot();
 }
 
 /**

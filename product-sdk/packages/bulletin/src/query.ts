@@ -7,15 +7,13 @@ import type { QueryOptions } from "./types.js";
 const log = createLogger("bulletin");
 
 /**
- * Fetch raw bytes for a CID, auto-resolving the query path.
+ * Fetch raw bytes for a CID using the host preimage lookup.
  *
- * - **Inside a host container**: uses the host preimage lookup (local cache +
- *   managed IPFS polling).
- * - **Standalone**: direct IPFS gateway HTTP fetch.
+ * Uses local cache + managed IPFS polling via the host container.
  *
  * @param cid     - CIDv1 string to fetch.
- * @param gateway - IPFS gateway base URL (used for the gateway fallback path).
- * @param options - Query options (timeoutMs for gateway, lookupTimeoutMs for host).
+ * @param gateway - IPFS gateway base URL (fallback).
+ * @param options - Query options (timeoutMs, lookupTimeoutMs for host).
  * @returns Raw bytes of the content.
  */
 export async function queryBytes(

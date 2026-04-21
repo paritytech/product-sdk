@@ -1,6 +1,5 @@
 import { getHostProvider } from "@parity/product-sdk-host";
 import type { JsonRpcProvider } from "polkadot-api/ws-provider/web";
-import type { ChainMeta } from "./types.js";
 
 /**
  * Create a PAPI-compatible JSON-RPC provider for a chain.
@@ -10,10 +9,7 @@ import type { ChainMeta } from "./types.js";
  *
  * @throws {Error} If the host provider is unavailable (not inside a container).
  */
-export async function createProvider(
-    genesisHash: string,
-    _meta: ChainMeta,
-): Promise<JsonRpcProvider> {
+export async function createProvider(genesisHash: string): Promise<JsonRpcProvider> {
     const hostProvider = await getHostProvider(genesisHash as `0x${string}`);
     if (!hostProvider) {
         throw new Error(
@@ -21,11 +17,6 @@ export async function createProvider(
         );
     }
     return hostProvider;
-}
-
-/** No-op for compatibility. Smoldot is not used in container-only mode. */
-export function resetSmoldot(): void {
-    // No-op — smoldot is not used
 }
 
 if (import.meta.vitest) {
@@ -53,7 +44,7 @@ if (import.meta.vitest) {
     });
 
     test("returns host provider when available", async () => {
-        const result = await createProvider("0xabc", { rpcs: ["wss://rpc.example.com"] });
+        const result = await createProvider("0xabc");
         expect(result).toBe(state.fakeProvider);
         expect(state.hostProviderCalls.length).toBe(1);
         expect(state.hostProviderCalls[0][0]).toBe("0xabc");
@@ -61,12 +52,6 @@ if (import.meta.vitest) {
 
     test("throws when host provider unavailable", async () => {
         state.hostProviderAvailable = false;
-        await expect(createProvider("0xabc", { rpcs: ["wss://rpc.example.com"] })).rejects.toThrow(
-            /Host provider unavailable/,
-        );
-    });
-
-    test("resetSmoldot is a no-op", () => {
-        expect(() => resetSmoldot()).not.toThrow();
+        await expect(createProvider("0xabc")).rejects.toThrow(/Host provider unavailable/);
     });
 }

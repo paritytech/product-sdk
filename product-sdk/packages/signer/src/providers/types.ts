@@ -8,7 +8,7 @@ export type Unsubscribe = () => void;
  * Interface that all signer providers must implement.
  *
  * Providers are responsible for discovering accounts and creating signers
- * from a specific source (Host API, browser extensions, dev accounts).
+ * from a specific source (Host API or dev accounts).
  */
 export interface SignerProvider {
     /** Unique identifier for this provider type. */

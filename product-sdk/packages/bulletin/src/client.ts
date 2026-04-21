@@ -31,19 +31,14 @@ import type {
  * Bundles a typed Bulletin API (from chain-client) and an IPFS gateway URL
  * so callers don't need to re-pass them on every call.
  *
- * Both upload and query paths auto-resolve based on the environment:
- * - **Uploads** — inside a host container the host preimage API signs and
- *   submits automatically; standalone falls back to a dev signer.
- * - **Queries** (`fetchBytes`/`fetchJson`) — inside a host container the
- *   host preimage lookup (with caching) is used; standalone falls back to
- *   direct IPFS gateway HTTP fetch.
+ * Both upload and query paths use the host container APIs:
+ * - **Uploads** — the host preimage API signs and submits automatically.
+ * - **Queries** (`fetchBytes`/`fetchJson`) — uses host preimage lookup with caching.
  *
  * @example
  * ```ts
  * const bulletin = await BulletinClient.create("paseo");
- * // Auto-resolved signer (preimage in host, dev signer standalone):
  * const result = await bulletin.upload(fileBytes);
- * // Auto-resolved query (host lookup in container, gateway standalone):
  * const metadata = await bulletin.fetchJson<Metadata>(result.cid);
  * ```
  */
@@ -98,7 +93,7 @@ export class BulletinClient {
      * Upload data to the Bulletin Chain.
      *
      * @param data   - Raw bytes to store.
-     * @param signer - Optional signer. When omitted, auto-resolved (preimage in host, dev signer standalone).
+     * @param signer - Optional signer. When omitted, uses the host preimage API.
      * @param options - Upload options (timeout, waitFor, status callback).
      */
     async upload(
@@ -127,8 +122,7 @@ export class BulletinClient {
     /**
      * Fetch raw bytes by CID.
      *
-     * Auto-resolves query path: host preimage lookup inside a container,
-     * direct IPFS gateway fetch standalone.
+     * Uses host preimage lookup with caching.
      */
     async fetchBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
         const strategy = await this.resolveQuery();

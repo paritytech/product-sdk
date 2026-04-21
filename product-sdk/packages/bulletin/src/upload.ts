@@ -21,17 +21,14 @@ const log = createLogger("bulletin");
  * Upload data to the Bulletin Chain.
  *
  * When a signer is provided, submits a `TransactionStorage.store` transaction
- * directly. When omitted, the upload strategy is auto-resolved:
+ * directly. When omitted, uses the host preimage API — the host signs and
+ * submits automatically.
  *
- * - **Inside a host container** (Polkadot Desktop / Mobile): uses the host
- *   preimage API — the host signs and submits automatically.
- * - **Standalone**: uses Alice's dev signer (pre-funded on test chains).
- *
- * Computes the CIDv1 (blake2b-256, raw codec) locally in both cases.
+ * Computes the CIDv1 (blake2b-256, raw codec) locally.
  *
  * @param api    - Typed Bulletin Chain API.
  * @param data   - Raw bytes to store.
- * @param signer - Optional signer. When omitted, auto-resolved.
+ * @param signer - Optional signer. When omitted, uses host preimage API.
  * @param options - Upload options (gateway, timeout, waitFor, status callback).
  * @returns Upload result with CID and either blockHash or preimageKey.
  */

@@ -18,7 +18,6 @@ import { configure, createLogger } from "@parity/product-sdk-logger";
 import { createKvStore } from "@parity/product-sdk-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
 import { BulletinClient, computeCid } from "@parity/product-sdk-bulletin";
-import { isInsideContainer } from "@parity/product-sdk-host";
 
 const log = createLogger("app");
 
@@ -69,10 +68,6 @@ export async function createApp(config: AppConfig): Promise<App> {
     }
 
     log.info("Creating Product SDK app", { name: config.name });
-
-    // Detect runtime environment
-    const inContainer = await isInsideContainer();
-    log.debug("Environment detection", { inContainer });
 
     // Initialize storage (container-only - will throw if not in container)
     const kvStore = await createKvStore({ prefix: config.name });
@@ -141,7 +136,6 @@ export async function createApp(config: AppConfig): Promise<App> {
 
     log.info("Product SDK app created", {
         name: config.name,
-        mode: inContainer ? "container" : "standalone",
         bulletin: bulletinEnabled ? bulletinEnvironment : "disabled",
     });
 

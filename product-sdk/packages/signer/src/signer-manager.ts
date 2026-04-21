@@ -79,19 +79,19 @@ function initialState(): SignerState {
 /**
  * Core orchestrator for signer management.
  *
- * Manages account discovery and signer creation across multiple providers
- * (Host API, browser extensions, dev accounts). Framework-agnostic —
- * use the subscribe() pattern to integrate with React, Vue, or any framework.
+ * Manages account discovery and signer creation via the Host API.
+ * Framework-agnostic — use the subscribe() pattern to integrate with
+ * React, Vue, or any framework.
  *
  * @example
  * ```ts
  * const manager = new SignerManager();
  * manager.subscribe(state => console.log(state.status));
  *
- * // Auto-detect: tries Host API first, then browser extensions
+ * // Connect to the host provider
  * await manager.connect();
  *
- * // Or connect to a specific provider
+ * // Or use dev accounts for testing
  * await manager.connect("dev");
  *
  * // Select account and get signer

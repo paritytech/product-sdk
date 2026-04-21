@@ -6,12 +6,7 @@ export { getChainAPI } from "./presets.js";
 export type { Environment, PresetChains } from "./presets.js";
 
 // Types
-export type {
-    ChainClient,
-    ChainClientConfig,
-    ChainMeta,
-    ChainEntry,
-} from "./types.js";
+export type { ChainClient, ChainClientConfig, ChainEntry } from "./types.js";
 
 // Re-export from host
 export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-host";

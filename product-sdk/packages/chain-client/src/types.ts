@@ -4,21 +4,13 @@ import type { ChainDefinition, PolkadotClient, TypedApi } from "polkadot-api";
 export type Environment = "polkadot" | "kusama" | "paseo" | "local" | "westend";
 
 /**
- * Connection metadata for a chain.
- *
- * Note: The SDK is designed to run inside a host container. The `rpcs` field
- * is kept for compatibility but connections are routed through the host provider.
- */
-export interface ChainMeta {
-    /** RPC endpoints (used as hint for host provider). */
-    rpcs?: readonly string[];
-}
-
-/**
  * Configuration for {@link createChainClient}.
  *
  * Provide named chain descriptors and their RPC endpoints.
  * TypeScript enforces that `rpcs` has the same keys as `chains`.
+ *
+ * Note: The SDK routes all connections through the host provider. The `rpcs`
+ * field is currently unused but kept for API compatibility.
  *
  * @typeParam TChains - Record mapping user-chosen chain names to PAPI descriptors.
  *
@@ -42,10 +34,8 @@ export interface ChainClientConfig<
 > {
     /** Named chain descriptors (PAPI `ChainDefinition` objects). */
     chains: TChains;
-    /** RPC endpoints per chain name. Must have an entry for each key in `chains`. */
+    /** RPC endpoints per chain name (currently unused - connections route through host). */
     rpcs: { [K in keyof TChains]: readonly string[] };
-    /** Optional per-chain connection metadata. */
-    meta?: { [K in keyof TChains]?: ChainMeta };
 }
 
 /**

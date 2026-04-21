@@ -212,9 +212,7 @@ export interface Unsubscribable {
 /**
  * Low-level transport interface for statement store communication.
  *
- * Two built-in implementations:
- * - **HostTransport** — uses the Host API's native binary protocol (inside containers).
- * - **RpcTransport** — uses `@novasamatech/sdk-statement` over `@polkadot-api/substrate-client` (outside containers).
+ * Uses **HostTransport** — the Host API's native binary protocol.
  *
  * Most consumers should use {@link StatementStoreClient} instead of this interface directly.
  */
@@ -247,8 +245,7 @@ export interface StatementTransport {
     /**
      * Query existing statements from the store.
      *
-     * Only available on RpcTransport (the host API subscription replays initial state).
-     * Returns undefined on HostTransport.
+     * Note: The host API subscription replays initial state, so this may not be needed.
      */
     query?(filter: SdkTopicFilter): Promise<Statement[]>;
 
