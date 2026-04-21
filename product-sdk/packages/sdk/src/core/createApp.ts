@@ -32,9 +32,22 @@ const log = createLogger("app");
  * ```ts
  * import { createApp } from '@parity/product-sdk';
  *
+ * // Default: bulletin enabled with paseo environment
  * const app = await createApp({
  *   name: 'my-app',
  *   logLevel: 'info',
+ * });
+ *
+ * // Custom bulletin environment
+ * const prodApp = await createApp({
+ *   name: 'my-app',
+ *   bulletin: { environment: 'polkadot' },
+ * });
+ *
+ * // Disable bulletin entirely
+ * const noBulletinApp = await createApp({
+ *   name: 'my-app',
+ *   bulletin: false,
  * });
  *
  * // Connect wallet
@@ -43,8 +56,10 @@ const log = createLogger("app");
  * // Use storage
  * await app.storage.set('key', 'value');
  *
- * // Get chain client
- * const client = app.chain.getClient(chains.assetHub);
+ * // Use bulletin (check for null if it might be disabled)
+ * if (app.bulletin) {
+ *   const cid = await app.bulletin.upload('hello world');
+ * }
  * ```
  */
 export async function createApp(config: AppConfig): Promise<App> {
@@ -67,8 +82,19 @@ export async function createApp(config: AppConfig): Promise<App> {
         dappName: config.name,
     });
 
-    // Initialize bulletin client (default to paseo for now)
-    const bulletinClient = await BulletinClient.create("paseo");
+    // Initialize bulletin client (configurable, defaults to paseo)
+    const bulletinEnabled = config.bulletin !== false;
+    const bulletinEnvironment =
+        typeof config.bulletin === "object" ? config.bulletin.environment : "paseo";
+    const bulletinClient = bulletinEnabled
+        ? await BulletinClient.create(bulletinEnvironment)
+        : null;
+
+    if (bulletinEnabled) {
+        log.debug("Bulletin client initialized", { environment: bulletinEnvironment });
+    } else {
+        log.debug("Bulletin client disabled");
+    }
 
     // Create storage API adapter
     const storageApi: StorageApi = {
@@ -97,23 +123,26 @@ export async function createApp(config: AppConfig): Promise<App> {
         },
     };
 
-    // Create bulletin API adapter
-    const bulletinApi: BulletinApi = {
-        upload: async (data) => {
-            const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-            const result = await bulletinClient.upload(bytes);
-            return result.cid;
-        },
-        fetch: (cid) => bulletinClient.fetchBytes(cid),
-        computeCid: (data) => {
-            const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-            return computeCid(bytes);
-        },
-    };
+    // Create bulletin API adapter (null if disabled)
+    const bulletinApi: BulletinApi | null = bulletinClient
+        ? {
+              upload: async (data) => {
+                  const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+                  const result = await bulletinClient.upload(bytes);
+                  return result.cid;
+              },
+              fetch: (cid) => bulletinClient.fetchBytes(cid),
+              computeCid: (data) => {
+                  const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+                  return computeCid(bytes);
+              },
+          }
+        : null;
 
     log.info("Product SDK app created", {
         name: config.name,
         mode: inContainer ? "container" : "standalone",
+        bulletin: bulletinEnabled ? bulletinEnvironment : "disabled",
     });
 
     return {

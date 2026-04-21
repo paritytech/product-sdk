@@ -3,8 +3,15 @@
  */
 
 import type { LogLevel } from "@parity/product-sdk-logger";
+import type { Environment as BulletinEnvironment } from "@parity/product-sdk-bulletin";
 
 export type { LogLevel };
+
+/** Bulletin configuration options */
+export interface BulletinConfig {
+    /** Bulletin environment to connect to */
+    environment: BulletinEnvironment;
+}
 
 /** Configuration for createApp */
 export interface AppConfig {
@@ -12,6 +19,12 @@ export interface AppConfig {
     name: string;
     /** Log level for SDK operations (default: 'info') */
     logLevel?: LogLevel;
+    /**
+     * Bulletin Chain configuration.
+     * - Omit or pass config object to enable (default: { environment: "paseo" })
+     * - Pass `false` to disable bulletin initialization
+     */
+    bulletin?: BulletinConfig | false;
 }
 
 /** Wallet API exposed by the SDK */
@@ -78,8 +91,8 @@ export interface App {
     storage: StorageApi;
     /** Chain interaction operations */
     chain: ChainApi;
-    /** Bulletin Chain operations */
-    bulletin: BulletinApi;
+    /** Bulletin Chain operations (null if disabled via config) */
+    bulletin: BulletinApi | null;
     /** Get app configuration */
     getAppInfo(): AppConfig;
 }
