@@ -2,19 +2,13 @@
 
 Documentation site for `@parity/product-sdk`. Built with [Nextra 4](https://nextra.site) on Next.js 15, styled with the `polkadot-design-system` tokens.
 
+Lives at the repo root (a sibling of `product-sdk/` and `repos/`) and runs as a standalone project — it is not part of the `product-sdk/` pnpm workspace.
+
 ## Run locally
 
-From the monorepo root:
-
 ```bash
+cd docs
 pnpm install
-pnpm --filter @parity/product-sdk-docs dev
-```
-
-Or from this directory:
-
-```bash
-cd product-sdk/docs
 pnpm dev
 ```
 
@@ -23,11 +17,11 @@ Open http://localhost:3000.
 ## Build
 
 ```bash
-pnpm --filter @parity/product-sdk-docs build
-pnpm --filter @parity/product-sdk-docs start
+pnpm build   # prerender all routes
+pnpm start   # serve the production build locally
 ```
 
-Output is a static export — 13 prerendered routes. `start` serves `.next/` locally for smoke-testing the production build.
+Output is static — 13 prerendered routes.
 
 ## Editing content
 
