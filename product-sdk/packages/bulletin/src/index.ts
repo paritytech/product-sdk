@@ -7,6 +7,16 @@ export {
     HashAlgorithm,
     CidCodec,
 } from "./cid.js";
+export {
+    BulletinError,
+    BulletinHostUnavailableError,
+    BulletinLookupTimeoutError,
+    BulletinLookupInterruptedError,
+    BulletinAuthorizationError,
+    BulletinGatewayUnavailableError,
+    BulletinGatewayFetchError,
+    BulletinCidError,
+} from "./errors.js";
 export { getGateway, gatewayUrl, cidExists, fetchBytes, fetchJson } from "./gateway.js";
 export { resolveQueryStrategy } from "./resolve-query.js";
 export { queryBytes, queryJson } from "./query.js";

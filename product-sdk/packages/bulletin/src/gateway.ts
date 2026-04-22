@@ -1,3 +1,4 @@
+import { BulletinGatewayFetchError, BulletinGatewayUnavailableError } from "./errors.js";
 import type { Environment, FetchOptions } from "./types.js";
 
 /** Add entries here as bulletin gateways go live on each network. */
@@ -7,11 +8,14 @@ const GATEWAYS: Partial<Record<Environment, string>> = {
 
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
-/** Get the IPFS gateway URL for an environment. Throws if the network is not yet available. */
+/**
+ * Get the IPFS gateway URL for an environment.
+ * @throws {BulletinGatewayUnavailableError} If the network doesn't have a live gateway yet.
+ */
 export function getGateway(env: Environment): string {
     const gw = GATEWAYS[env];
     if (!gw) {
-        throw new Error(`Bulletin gateway for "${env}" is not yet available`);
+        throw new BulletinGatewayUnavailableError(env);
     }
     return gw;
 }
@@ -43,7 +47,10 @@ export async function cidExists(
     }
 }
 
-/** Fetch raw bytes from the gateway. */
+/**
+ * Fetch raw bytes from the gateway.
+ * @throws {BulletinGatewayFetchError} If the gateway returns a non-OK response.
+ */
 export async function fetchBytes(
     cid: string,
     gateway: string,
@@ -56,7 +63,7 @@ export async function fetchBytes(
     try {
         const response = await fetch(gatewayUrl(cid, gateway), { signal: controller.signal });
         if (!response.ok) {
-            throw new Error(`Gateway returned ${response.status}: ${response.statusText}`);
+            throw new BulletinGatewayFetchError(cid, response.status, response.statusText);
         }
         return new Uint8Array(await response.arrayBuffer());
     } finally {
@@ -88,9 +95,9 @@ if (import.meta.vitest) {
             expect(gw).toMatch(/\/ipfs\/$/);
         });
 
-        test("throws for environments without a live gateway", () => {
-            expect(() => getGateway("polkadot")).toThrow("not yet available");
-            expect(() => getGateway("kusama")).toThrow("not yet available");
+        test("throws BulletinGatewayUnavailableError for environments without a live gateway", () => {
+            expect(() => getGateway("polkadot")).toThrow(BulletinGatewayUnavailableError);
+            expect(() => getGateway("kusama")).toThrow(BulletinGatewayUnavailableError);
         });
     });
 
@@ -148,7 +155,7 @@ if (import.meta.vitest) {
             expect(result).toEqual(payload);
         });
 
-        test("throws on non-ok response", async () => {
+        test("throws BulletinGatewayFetchError on non-ok response", async () => {
             vi.stubGlobal(
                 "fetch",
                 vi.fn().mockResolvedValue({
@@ -157,7 +164,10 @@ if (import.meta.vitest) {
                     statusText: "Internal Server Error",
                 }),
             );
-            await expect(fetchBytes("bafyabc", "https://gw/ipfs/")).rejects.toThrow("500");
+            const err = await fetchBytes("bafyabc", "https://gw/ipfs/").catch((e) => e);
+            expect(err).toBeInstanceOf(BulletinGatewayFetchError);
+            expect(err.cid).toBe("bafyabc");
+            expect(err.status).toBe(500);
         });
 
         test("throws on timeout", async () => {

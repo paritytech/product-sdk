@@ -1,6 +1,7 @@
 import { createLogger } from "@parity/product-sdk-logger";
 import { Enum } from "polkadot-api";
 
+import { BulletinAuthorizationError } from "./errors.js";
 import type { AuthorizationStatus, BulletinApi } from "./types.js";
 
 const log = createLogger("bulletin");
@@ -54,7 +55,7 @@ export async function checkAuthorization(
         );
     } catch (error) {
         log.error("checkAuthorization: query failed", { address, error });
-        throw new Error(`Failed to check authorization for ${address}`, { cause: error });
+        throw new BulletinAuthorizationError(address, error);
     }
 
     if (!auth) {
@@ -150,7 +151,7 @@ if (import.meta.vitest) {
             expect(status.expiration).toBe(12345);
         });
 
-        test("throws with contextual error when query fails", async () => {
+        test("throws BulletinAuthorizationError when query fails", async () => {
             const api = {
                 query: {
                     TransactionStorage: {
@@ -162,9 +163,9 @@ if (import.meta.vitest) {
             } as unknown as BulletinApi;
 
             const err = await checkAuthorization(api, "5GrwvaEF...").catch((e: unknown) => e);
-            expect(err).toBeInstanceOf(Error);
-            const error = err as Error;
-            expect(error.message).toBe("Failed to check authorization for 5GrwvaEF...");
+            expect(err).toBeInstanceOf(BulletinAuthorizationError);
+            const error = err as BulletinAuthorizationError;
+            expect(error.address).toBe("5GrwvaEF...");
             expect(error.cause).toBeInstanceOf(Error);
             expect((error.cause as Error).message).toBe("RPC connection lost");
         });
