@@ -1,0 +1,129 @@
+name: "product-sdk: Release"
+
+on:
+    workflow_run:
+        workflows: ["product-sdk: CI"]
+        types: [completed]
+        branches: [main]
+
+permissions:
+    contents: write
+
+defaults:
+    run:
+        working-directory: product-sdk
+
+jobs:
+    release:
+        if: github.event.workflow_run.conclusion == 'success'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            # Skip if the triggering commit was a version bump by the bot
+            - name: Check if bot commit
+              id: bot
+              run: |
+                  author=$(git log -1 --format='%an')
+                  if [ "$author" = "github-actions[bot]" ]; then
+                    echo "skip=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "skip=false" >> $GITHUB_OUTPUT
+                  fi
+
+            # Check for pending changesets before doing anything expensive
+            - name: Check for changesets
+              id: changesets
+              run: |
+                  if ls .changeset/*.md 2>/dev/null | grep -qv README.md; then
+                    echo "found=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "found=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  registry-url: "https://registry.npmjs.org"
+                  cache: "pnpm"
+                  cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+            - if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              run: pnpm install --frozen-lockfile
+
+            # Version packages (consumes changesets, bumps versions)
+            - name: Version packages
+              if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              run: pnpm changeset version
+
+            # Build all publishable packages
+            - name: Build packages
+              if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              run: pnpm build
+
+            # Format everything right before committing
+            - name: Format
+              if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              run: pnpm format
+
+            # Commit version bumps
+            - name: Commit version changes
+              if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add -A
+                  git diff --cached --quiet || git commit -m "chore: version packages"
+                  git pull --rebase
+                  git push
+
+            # Create git tags for versioned packages
+            - name: Create and push tags
+              if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              run: |
+                  for pkg in packages/*/package.json; do
+                    name=$(jq -r '.name' "$pkg")
+                    version=$(jq -r '.version' "$pkg")
+                    tag="${name}@${version}"
+                    if ! git tag -l "$tag" | grep -q .; then
+                      git tag "$tag"
+                    fi
+                  done
+                  git push --tags
+
+            # Pack all workspace packages for publishing
+            - name: Pack packages
+              if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              run: |
+                  mkdir -p artifacts
+                  for dir in packages/*/; do
+                    if [ -f "$dir/package.json" ]; then
+                      (cd "$dir" && pnpm pack --pack-destination ../../artifacts/)
+                    fi
+                  done
+
+            - name: Upload package artifacts
+              if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: packages
+                  path: product-sdk/artifacts/*.tgz
+
+            # Dispatch to npm_publish_automation for publishing
+            - name: Publish via npm_publish_automation
+              if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              uses: octokit/request-action@v2.x
+              with:
+                  route: POST /repos/paritytech/npm_publish_automation/actions/workflows/publish.yml/dispatches
+                  ref: main
+                  inputs: '${{ format(''{{ "repo": "{0}", "run_id": "{1}" }}'', github.repository, github.run_id) }}'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.NPM_PUBLISH_AUTOMATION_TOKEN }}
