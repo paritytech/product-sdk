@@ -15,10 +15,7 @@ const log = createLogger("bulletin");
  * @returns Raw bytes of the content.
  * @throws {Error} If the host preimage API is unavailable.
  */
-export async function queryBytes(
-    cid: string,
-    options?: QueryOptions,
-): Promise<Uint8Array> {
+export async function queryBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
     const strategy = await resolveQueryStrategy();
     return executeQuery(strategy, cid, options);
 }
@@ -33,10 +30,7 @@ export async function queryBytes(
  * @returns Parsed JSON value.
  * @throws {Error} If the host preimage API is unavailable.
  */
-export async function queryJson<T>(
-    cid: string,
-    options?: QueryOptions,
-): Promise<T> {
+export async function queryJson<T>(cid: string, options?: QueryOptions): Promise<T> {
     const bytes = await queryBytes(cid, options);
     return JSON.parse(new TextDecoder().decode(bytes)) as T;
 }
