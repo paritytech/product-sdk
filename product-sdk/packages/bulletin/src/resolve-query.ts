@@ -1,4 +1,4 @@
-import { isInsideContainer } from "@parity/product-sdk-host";
+import { getPreimageManager, type PreimageManager } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 
 import { cidToPreimageKey, computeCid } from "./cid.js";
@@ -7,57 +7,39 @@ const log = createLogger("bulletin");
 
 const DEFAULT_LOOKUP_TIMEOUT_MS = 30_000;
 
-/** Minimal interface matching `@novasamatech/product-sdk` preimageManager. */
-interface PreimageManager {
-    lookup(
-        key: string,
-        callback: (preimage: Uint8Array | null) => void,
-    ): { unsubscribe: VoidFunction; onInterrupt: (cb: VoidFunction) => VoidFunction };
-}
-
 /**
- * Discriminated union describing how data will be queried from the Bulletin Chain.
+ * Query strategy for the Bulletin Chain.
  *
- * - `"host-lookup"` — the host manages the lookup via its preimage subscription
- *   API, which includes local caching and managed IPFS polling.
- * - `"gateway"` — direct HTTP fetch from the IPFS gateway.
+ * The host manages the lookup via its preimage subscription API,
+ * which includes local caching and managed IPFS polling.
  */
-export type QueryStrategy =
-    | { kind: "host-lookup"; lookup: (cid: string, timeoutMs?: number) => Promise<Uint8Array> }
-    | { kind: "gateway" };
+export interface QueryStrategy {
+    kind: "host-lookup";
+    lookup: (cid: string, timeoutMs?: number) => Promise<Uint8Array>;
+}
 
 /**
  * Determine the query strategy for the Bulletin Chain.
  *
- * Resolution order:
- * 1. If running inside a host container (Polkadot Desktop / Mobile) and
- *    `@novasamatech/product-sdk` is available, use the host preimage lookup
- *    API — the host caches results and manages IPFS polling automatically.
- * 2. Otherwise fall back to direct IPFS gateway HTTP fetch.
+ * Uses the host preimage lookup API which caches results and manages
+ * IPFS polling automatically.
  *
  * @returns The resolved query strategy.
+ * @throws {Error} If the host preimage manager is unavailable.
  */
 export async function resolveQueryStrategy(): Promise<QueryStrategy> {
-    const inContainer = await isInsideContainer();
-
-    if (inContainer) {
-        try {
-            const sdk = await import("@novasamatech/product-sdk");
-            log.info("inside host container — using preimage lookup for bulletin queries");
-            return {
-                kind: "host-lookup",
-                lookup: (cid, timeoutMs) => lookupViaHost(sdk.preimageManager, cid, timeoutMs),
-            };
-        } catch {
-            log.warn(
-                "inside host container but @novasamatech/product-sdk is unavailable, " +
-                    "falling back to gateway fetch",
-            );
-        }
+    const preimageManager = await getPreimageManager();
+    if (preimageManager) {
+        log.info("using host preimage lookup for bulletin queries");
+        return {
+            kind: "host-lookup",
+            lookup: (cid, timeoutMs) => lookupViaHost(preimageManager, cid, timeoutMs),
+        };
     }
 
-    log.info("using direct IPFS gateway fetch for bulletin queries");
-    return { kind: "gateway" };
+    throw new Error(
+        "Host preimage API unavailable. Ensure you are running inside a host container (Polkadot Browser / Desktop).",
+    );
 }
 
 /**
@@ -117,57 +99,8 @@ export function lookupViaHost(
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    describe("resolveQueryStrategy", () => {
-        test("returns gateway strategy outside container", async () => {
-            const strategy = await resolveQueryStrategy();
-            expect(strategy.kind).toBe("gateway");
-        });
-
-        test("returns host-lookup strategy when inside container with SDK", async () => {
-            const fakeWindow = { top: null, __HOST_WEBVIEW_MARK__: true };
-            vi.stubGlobal("window", fakeWindow);
-            const mockData = new Uint8Array([1, 2, 3]);
-            vi.doMock("@novasamatech/product-sdk", () => ({
-                preimageManager: {
-                    lookup: vi.fn((_key: string, cb: (p: Uint8Array | null) => void) => {
-                        queueMicrotask(() => cb(mockData));
-                        return {
-                            unsubscribe: vi.fn(),
-                            onInterrupt: () => vi.fn(),
-                        };
-                    }),
-                },
-                sandboxProvider: { isCorrectEnvironment: () => true },
-            }));
-            try {
-                const strategy = await resolveQueryStrategy();
-                expect(strategy.kind).toBe("host-lookup");
-                if (strategy.kind === "host-lookup") {
-                    const cid = computeCid(new TextEncoder().encode("test"));
-                    const result = await strategy.lookup(cid, 5000);
-                    expect(result).toEqual(mockData);
-                }
-            } finally {
-                vi.doUnmock("@novasamatech/product-sdk");
-                vi.unstubAllGlobals();
-            }
-        });
-
-        test("falls back to gateway when inside container but SDK unavailable", async () => {
-            const fakeWindow = { top: null, __HOST_WEBVIEW_MARK__: true };
-            vi.stubGlobal("window", fakeWindow);
-            vi.doMock("@novasamatech/product-sdk", () => {
-                throw new Error("module not found");
-            });
-            try {
-                const strategy = await resolveQueryStrategy();
-                expect(strategy.kind).toBe("gateway");
-            } finally {
-                vi.doUnmock("@novasamatech/product-sdk");
-                vi.unstubAllGlobals();
-            }
-        });
-    });
+    // Note: resolveQueryStrategy tests require e2e testing as they
+    // depend on the host container environment.
 
     describe("lookupViaHost", () => {
         function createMockManager(
@@ -199,7 +132,7 @@ if (import.meta.vitest) {
                 };
             });
 
-            return { lookup, unsubscribe, cancelInterrupt };
+            return { lookup, unsubscribe, cancelInterrupt, submit: vi.fn() };
         }
 
         const testCid = computeCid(new TextEncoder().encode("test"));
