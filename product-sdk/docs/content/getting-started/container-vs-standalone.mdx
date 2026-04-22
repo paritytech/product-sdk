@@ -1,0 +1,55 @@
+---
+title: Runtime Environment
+description: Where the SDK runs, what the host provides, and how local development works.
+---
+
+# Runtime Environment
+
+The Product SDK is designed to run **inside a Nova Wallet host** — Polkadot Desktop or Polkadot Mobile. `createApp` opens host storage, binds to host accounts, and routes bulletin interactions through the host's preimage path when available.
+
+Outside a host, `createKvStore()` throws:
+
+```
+Host storage unavailable. Ensure you are running inside a host container
+(Polkadot Browser / Desktop).
+```
+
+There is no browser-localStorage fallback and no browser-extension signer path in the umbrella. If you need to run in a plain browser tab, you are using the wrong entry point — use the leaf packages directly and supply your own chain client, storage, and signer provider.
+
+## Local development
+
+Use [`@parity/host-api-test-sdk`](https://github.com/paritytech/host-api-test-sdk) to embed a test host in a Vite or Next.js dev server. It exposes the same host API surface the SDK expects, so `createApp` works unmodified and you get Alice/Bob accounts for signing.
+
+The `examples/` directory in the monorepo contains nine demo apps (`host-demo`, `signer-demo`, `storage-demo`, `tx-demo`, `bulletin-demo`, …) driven by Playwright inside the test host.
+
+## Detecting the host at runtime
+
+Two helpers are re-exported from `@parity/product-sdk`:
+
+```ts
+import { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk";
+
+await isInsideContainer();  // async — waits for the host bridge
+isInsideContainerSync();    // sync — iframe heuristic
+```
+
+You rarely need to call these directly. They are useful for:
+
+- Gating host-only UI (e.g. "Open in Polkadot Mobile" link outside the host)
+- Early failure in app bootstrap if you want to show a friendlier error than the one `createKvStore` throws
+
+## Dev accounts for tests
+
+`SignerManager` accepts a provider type on `connect()`:
+
+```ts
+import { SignerManager } from "@parity/product-sdk-signer";
+
+const manager = new SignerManager({ dappName: "my-app" });
+
+// Inside a host: HostProvider is used automatically.
+// In tests: pass "dev" to use deterministic Alice/Bob/Charlie accounts.
+const result = await manager.connect("dev");
+```
+
+`createApp` does not expose a provider-type override. Use `SignerManager` directly when you need dev accounts.

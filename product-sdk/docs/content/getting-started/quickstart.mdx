@@ -1,0 +1,36 @@
+---
+title: Quickstart
+description: Create an app, connect a wallet, and read storage in under 20 lines.
+---
+
+# Quickstart
+
+Create an app, connect the host wallet, and read from storage.
+
+```ts filename="app.ts"
+import { createApp } from "@parity/product-sdk";
+
+const app = await createApp({
+  name: "my-app",
+  logLevel: "info",
+});
+
+// Connect to host-provided accounts.
+const { accounts } = await app.wallet.connect();
+
+console.log("Connected accounts:", accounts);
+
+// Persist a value. Namespaced under the app name in host storage.
+await app.storage.set("lastVisit", new Date().toISOString());
+
+const lastVisit = await app.storage.get("lastVisit");
+console.log("Last visit:", lastVisit);
+```
+
+`createApp` must run inside a Nova Wallet host (Polkadot Desktop / Mobile) or the `@parity/host-api-test-sdk` for local development — it throws `Host storage unavailable` otherwise. See [Runtime Environment](/getting-started/container-vs-standalone).
+
+## What to read next
+
+- [App Lifecycle](/core-concepts/app-lifecycle) — what `createApp` constructs and how the sub-APIs relate
+- [Container vs Standalone](/getting-started/container-vs-standalone) — when you need to care about the runtime
+- [`createApp` reference](/api/sdk/create-app) — full parameter and return documentation

@@ -1,0 +1,38 @@
+---
+title: App Lifecycle
+description: What createApp constructs and how the sub-APIs relate.
+---
+
+# App Lifecycle
+
+`createApp` is async. It returns a `Promise<App>` with four sub-APIs wired to the detected runtime. Initialization work runs before the promise resolves — storage is opened and the Bulletin client is constructed — but `wallet.connect()` is always user-triggered.
+
+## Shape
+
+```ts
+interface App {
+  wallet: WalletApi;            // accounts, signing, connect/disconnect
+  storage: StorageApi;          // get/set/getJSON/setJSON, namespaced by name
+  chain: ChainApi;              // typed PAPI clients via getClient
+  bulletin: BulletinApi | null; // null when disabled via config.bulletin: false
+  getAppInfo(): AppConfig;      // returns the config the app was built with
+}
+```
+
+## Initialization order
+
+1. **Log level** applied if `config.logLevel` is set — via `configure({ level })`.
+2. **Host storage opened** — `createKvStore({ prefix: config.name })` is awaited. **Requires a host**. Throws `Host storage unavailable` outside a Nova Wallet container or the `host-api-test-sdk`.
+3. **SignerManager constructed** — no provider calls yet; `wallet.connect()` triggers host-provider discovery.
+4. **Bulletin client created** — unless `config.bulletin` is `false`. Defaults to `{ environment: "paseo" }`.
+5. **Return** — the `App` object resolves from the promise.
+
+First wallet interaction happens on `wallet.connect()`. First bulletin network call happens on `bulletin.upload()` or `bulletin.fetch()`.
+
+## Teardown
+
+There is no `app.destroy()`. To release chain clients explicitly, call `destroyAll()` from `@parity/product-sdk-chain-client`. Host resources and wallet connections are managed by the host.
+
+## Multiple apps
+
+Calling `createApp` twice returns two independent `App` instances. They share the underlying container detection cache but nothing else. Use this for test isolation or multi-tenant surfaces; avoid it in production application code.

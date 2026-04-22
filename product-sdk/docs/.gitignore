@@ -1,0 +1,9 @@
+# Next.js
+.next/
+out/
+next-env.d.ts
+
+# Build/debug artifacts
+*.tsbuildinfo
+.turbo/
+.vercel/

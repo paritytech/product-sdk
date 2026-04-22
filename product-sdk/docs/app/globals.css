@@ -1,0 +1,191 @@
+@import "tailwindcss";
+@import "nextra-theme-docs/style.css";
+
+/* ──────────────────────────────────────────────────────────────
+   Design tokens from polkadot-design-system (Figma source of truth).
+   Light mode: :root, Dark mode: add .dark class to <html>.
+   Never use dark: prefix for colors — semantic vars handle mode switching.
+   ────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Primitive color scale (neutral) */
+  --color-neutral-white: #ffffff;
+  --color-neutral-50: #fafafa;
+  --color-neutral-100: #f5f5f5;
+  --color-neutral-150: #ebebeb;
+  --color-neutral-200: #e5e5e5;
+  --color-neutral-300: #d4d4d4;
+  --color-neutral-400: #a3a3a3;
+  --color-neutral-500: #737373;
+  --color-neutral-600: #525252;
+  --color-neutral-700: #404040;
+  --color-neutral-800: #262626;
+  --color-neutral-850: #1f1f1f;
+  --color-neutral-900: #171717;
+  --color-neutral-950: #0a0a0a;
+  --color-neutral-black: #000000;
+
+  /* fg */
+  --fg-primary: var(--color-neutral-950);
+  --fg-primary-inverted: var(--color-neutral-100);
+  --fg-secondary: var(--color-neutral-600);
+  --fg-secondary-hover: var(--color-neutral-black);
+  --fg-tertiary: var(--color-neutral-500);
+  --fg-static-white: var(--color-neutral-white);
+  --fg-link: #2563eb;
+  --fg-link-hover: #3b82f6;
+  --fg-error: #dc2626;
+  --fg-warning: #d97706;
+  --fg-success: #16a34a;
+
+  /* bg */
+  --bg-surface-main: var(--color-neutral-50);
+  --bg-surface-container: var(--color-neutral-white);
+  --bg-surface-nested: var(--color-neutral-50);
+  --bg-surface-overlay: rgba(0, 0, 0, 0.48);
+  --bg-selection-container-hover: var(--color-neutral-50);
+  --bg-selection-container-active: var(--color-neutral-100);
+  --bg-action-primary: var(--color-neutral-black);
+  --bg-action-primary-hover: var(--color-neutral-850);
+  --bg-action-secondary: var(--color-neutral-100);
+  --bg-action-secondary-hover: var(--color-neutral-150);
+  --bg-status-error: #ef4444;
+  --bg-status-warning: #f59e0b;
+  --bg-accent: #3b82f6;
+
+  /* border */
+  --border-default: var(--color-neutral-100);
+  --border-divider: var(--color-neutral-100);
+  --border-divider-tint: var(--color-neutral-150);
+  --border-indicator: var(--color-neutral-300);
+
+  /* focus */
+  --focus-ring: #000000;
+  --focus-error: #dc2626;
+
+  /* shadows */
+  --shadow-1: 0 4px 24px -4px rgba(0, 0, 0, 0.16);
+  --shadow-2: 0 8px 32px -4px rgba(0, 0, 0, 0.24);
+  --shadow-3: 0 12px 48px -8px rgba(0, 0, 0, 0.24);
+
+  /* radius */
+  --radius-container: 16px;
+  --radius-nested: 12px;
+  --radius-small: 8px;
+}
+
+.dark {
+  --fg-primary: var(--color-neutral-100);
+  --fg-primary-inverted: var(--color-neutral-950);
+  --fg-secondary: var(--color-neutral-400);
+  --fg-secondary-hover: var(--color-neutral-150);
+  --fg-tertiary: var(--color-neutral-600);
+  --fg-link: #3b82f6;
+  --fg-link-hover: #60a5fa;
+  --fg-error: #ef4444;
+  --fg-warning: #f59e0b;
+  --fg-success: #22c55e;
+
+  --bg-surface-main: var(--color-neutral-950);
+  --bg-surface-container: var(--color-neutral-900);
+  --bg-surface-nested: var(--color-neutral-850);
+  --bg-selection-container-hover: var(--color-neutral-850);
+  --bg-selection-container-active: var(--color-neutral-800);
+  --bg-action-primary: var(--color-neutral-150);
+  --bg-action-primary-hover: var(--color-neutral-200);
+  --bg-action-secondary: var(--color-neutral-800);
+  --bg-action-secondary-hover: var(--color-neutral-500);
+
+  --border-default: var(--color-neutral-800);
+  --border-divider: var(--color-neutral-800);
+  --border-divider-tint: var(--color-neutral-700);
+  --border-indicator: var(--color-neutral-400);
+
+  --focus-ring: #ffffff;
+
+  --shadow-1: 0 4px 24px -4px rgba(0, 0, 0, 0.24);
+  --shadow-2: 0 8px 32px -4px rgba(0, 0, 0, 0.48);
+  --shadow-3: 0 12px 48px -8px rgba(0, 0, 0, 0.48);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Tailwind v4 @theme — map semantic tokens to utility classes.
+   Using `inline` so CSS vars still swap on .dark at runtime.
+   ────────────────────────────────────────────────────────────── */
+
+@theme inline {
+  --color-primary: var(--fg-primary);
+  --color-primary-inverted: var(--fg-primary-inverted);
+  --color-secondary: var(--fg-secondary);
+  --color-secondary-hover: var(--fg-secondary-hover);
+  --color-tertiary: var(--fg-tertiary);
+  --color-static-white: var(--fg-static-white);
+  --color-link: var(--fg-link);
+  --color-link-hover: var(--fg-link-hover);
+  --color-error: var(--fg-error);
+  --color-warning: var(--fg-warning);
+  --color-success: var(--fg-success);
+
+  --color-surface-main: var(--bg-surface-main);
+  --color-surface-container: var(--bg-surface-container);
+  --color-surface-nested: var(--bg-surface-nested);
+  --color-surface-overlay: var(--bg-surface-overlay);
+  --color-selection-container-hover: var(--bg-selection-container-hover);
+  --color-selection-container-active: var(--bg-selection-container-active);
+  --color-action-primary: var(--bg-action-primary);
+  --color-action-primary-hover: var(--bg-action-primary-hover);
+  --color-action-secondary: var(--bg-action-secondary);
+  --color-action-secondary-hover: var(--bg-action-secondary-hover);
+  --color-status-error: var(--bg-status-error);
+  --color-status-warning: var(--bg-status-warning);
+  --color-accent: var(--bg-accent);
+
+  --color-divider: var(--border-divider);
+  --color-divider-tint: var(--border-divider-tint);
+  --color-indicator: var(--border-indicator);
+
+  --radius-container: 16px;
+  --radius-nested: 12px;
+  --radius-small: 8px;
+
+  --shadow-1: var(--shadow-1);
+  --shadow-2: var(--shadow-2);
+  --shadow-3: var(--shadow-3);
+
+  --font-sans: var(--font-inter), Inter, system-ui, sans-serif;
+  --font-display: var(--font-dm-serif), "DM Serif Display", serif;
+}
+
+/* Default border color — matches skill's borderColor.DEFAULT convention. */
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--border-default);
+  }
+}
+
+/* Global focus ring. Skill mandates outline, not Tailwind ring. */
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Nextra theme overrides — adopt semantic tokens so sidebar,
+   navbar, and callouts inherit the design system automatically.
+   ────────────────────────────────────────────────────────────── */
+
+html,
+body {
+  background: var(--bg-surface-main);
+  color: var(--fg-primary);
+}
+
+/* Nextra uses its own variables for chrome. Remap them to ours. */
+:root {
+  --nextra-primary-hue: 0deg;
+  --nextra-primary-saturation: 0%;
+  --nextra-navbar-height: 64px;
+}

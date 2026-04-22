@@ -1,0 +1,25 @@
+---
+title: Product SDK
+description: TypeScript SDK for building products in the Polkadot ecosystem.
+---
+
+import { Hero } from "./_components/hero";
+import { FeatureGrid } from "./_components/feature-grid";
+
+<Hero />
+
+## Install
+
+```bash
+pnpm add @parity/product-sdk
+```
+
+## What you get
+
+<FeatureGrid />
+
+## Runtime
+
+The SDK runs inside a Nova Wallet host — Polkadot Desktop or Polkadot Mobile. `createApp` opens host storage and wires the Host signer provider. For local development, the [`@parity/host-api-test-sdk`](https://github.com/paritytech/host-api-test-sdk) provides a browser-based test host the SDK connects to identically.
+
+See [Runtime Environment](/getting-started/container-vs-standalone).

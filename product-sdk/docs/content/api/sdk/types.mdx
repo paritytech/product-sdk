@@ -1,0 +1,166 @@
+---
+title: Types
+description: Type definitions exported from @parity/product-sdk.
+---
+
+# Types
+
+Type definitions exported from `@parity/product-sdk`.
+
+## `AppConfig`
+
+```ts
+interface AppConfig {
+  name: string;
+  logLevel?: LogLevel;
+  bulletin?: BulletinConfig | false;
+}
+
+interface BulletinConfig {
+  environment: "paseo" | "polkadot";
+}
+```
+
+Passed to [`createApp`](/api/sdk/create-app).
+
+## `App`
+
+```ts
+interface App {
+  wallet: WalletApi;
+  storage: StorageApi;
+  chain: ChainApi;
+  bulletin: BulletinApi | null;
+  getAppInfo(): AppConfig;
+}
+```
+
+Returned by [`createApp`](/api/sdk/create-app).
+
+## `WalletApi`
+
+```ts
+interface WalletApi {
+  connect(): Promise<{ accounts: Account[] }>;
+  disconnect(): Promise<void>;
+  getAccounts(): Account[];
+  getSelectedAccount(): Account | null;
+  selectAccount(address: string): void;
+  signMessage(message: string | Uint8Array): Promise<Uint8Array>;
+  onAccountChange(callback: (account: Account | null) => void): () => void;
+  getProductAccount(): Account | null;
+  getAnonymousAlias(): string | null;
+  createProof(message: Uint8Array): Promise<Uint8Array>;
+}
+```
+
+`onAccountChange` returns an unsubscribe function.
+
+`getProductAccount`, `getAnonymousAlias`, and `createProof` require the Nova Wallet container. Use `SignerManager` from `@parity/product-sdk-signer` directly for full access to product accounts and Ring VRF proofs.
+
+## `StorageApi`
+
+```ts
+interface StorageApi {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  getJSON<T = unknown>(key: string): Promise<T | null>;
+  setJSON<T = unknown>(key: string, value: T): Promise<void>;
+  remove(key: string): Promise<void>;
+  clear(): Promise<void>;
+}
+```
+
+Keys are namespaced under `config.name`. `clear()` is a no-op in container mode.
+
+## `ChainApi`
+
+```ts
+interface ChainApi {
+  getClient<T>(chain: ChainDescriptor<T>): T;
+}
+```
+
+## `BulletinApi`
+
+```ts
+interface BulletinApi {
+  upload(data: string | Uint8Array): Promise<string>;
+  fetch(cid: string): Promise<Uint8Array>;
+  computeCid(data: string | Uint8Array): string;
+}
+```
+
+`upload` returns the resulting CID. `computeCid` produces the CID offline — no network call.
+
+## `Account`
+
+```ts
+interface Account {
+  address: string;  // SS58 format
+  name?: string;
+  source: string;   // Extension name, "host", "dev", etc.
+}
+```
+
+## `ChainDescriptor`
+
+```ts
+interface ChainDescriptor<T = unknown> {
+  id: string;
+  name: string;
+  endpoints: string[];
+  _type?: T;
+}
+```
+
+`_type` is a phantom type marker used for PAPI client inference; do not set it manually.
+
+## `LogLevel`
+
+```ts
+type LogLevel = "error" | "warn" | "info" | "debug";
+```
+
+## `LogEntry`
+
+```ts
+interface LogEntry {
+  level: LogLevel;
+  namespace: string;
+  message: string;
+  data?: unknown;
+  timestamp: number;  // Unix ms from Date.now()
+}
+```
+
+## `LogHandler`
+
+```ts
+type LogHandler = (entry: LogEntry) => void;
+```
+
+## `LoggerConfig`
+
+```ts
+interface LoggerConfig {
+  level?: LogLevel;
+  namespaces?: string[];
+  handler?: LogHandler;
+}
+```
+
+Passed to [`configure`](/api/sdk/configure).
+
+## `Logger`
+
+```ts
+interface Logger {
+  error(message: string, data?: unknown): void;
+  warn(message: string, data?: unknown): void;
+  info(message: string, data?: unknown): void;
+  debug(message: string, data?: unknown): void;
+}
+```
+
+Returned by [`createLogger`](/api/sdk/create-logger).

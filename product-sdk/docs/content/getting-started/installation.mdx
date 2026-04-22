@@ -1,0 +1,52 @@
+---
+title: Installation
+description: Install the umbrella package or individual SDK modules.
+---
+
+# Installation
+
+## Umbrella package
+
+Install the unified entry point:
+
+```bash
+pnpm add @parity/product-sdk
+```
+
+This re-exports every module and provides `createApp()`. For most applications, this is all you need.
+
+## Individual packages
+
+Install only what you use:
+
+```bash
+pnpm add @parity/product-sdk-chain-client @parity/product-sdk-tx
+```
+
+| Package | Role |
+|---------|------|
+| `@parity/product-sdk-chain-client` | Multi-chain PAPI client |
+| `@parity/product-sdk-tx` | Transaction submission and batching |
+| `@parity/product-sdk-signer` | Multi-provider signer manager |
+| `@parity/product-sdk-contracts` | Typed Asset Hub contract calls |
+| `@parity/product-sdk-bulletin` | Bulletin Chain upload and retrieval |
+| `@parity/product-sdk-statement-store` | Statement Store publish/subscribe |
+| `@parity/product-sdk-keys` | Hierarchical key derivation |
+| `@parity/product-sdk-storage` | Key-value storage abstraction |
+| `@parity/product-sdk-host` | Container detection and host APIs |
+| `@parity/product-sdk-address` | SS58/H160 encoding and conversion |
+| `@parity/product-sdk-crypto` | Cryptographic primitives |
+| `@parity/product-sdk-descriptors` | PAPI chain descriptors |
+| `@parity/product-sdk-logger` | Structured logging |
+| `@parity/product-sdk-utils` | Encoding and balance formatting |
+
+## Requirements
+
+- **Node.js** ≥ 20
+- **Module format** ESM only — the SDK does not ship CommonJS builds
+- **TypeScript** ≥ 5.0 if consuming types (strict mode supported)
+- **Runtime host** — `@parity/product-sdk` (the umbrella) requires a Nova Wallet host (Polkadot Desktop / Mobile) or the [`@parity/host-api-test-sdk`](https://github.com/paritytech/host-api-test-sdk) for local development. See [Runtime Environment](/getting-started/container-vs-standalone).
+
+## Next step
+
+Continue to the [Quickstart](/getting-started/quickstart).
