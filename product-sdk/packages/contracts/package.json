@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-contracts",
     "description": "Typed contract interactions on Polkadot Asset Hub",
-    "version": "0.1.0-beta.1",
+    "version": "0.1.0",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",

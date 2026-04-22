@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-chain-client",
-    "version": "0.1.0-beta.1",
+    "version": "0.1.0",
     "description": "Multi-chain Polkadot API client with typed access to Asset Hub, Bulletin, and other chains",
     "type": "module",
     "sideEffects": false,
