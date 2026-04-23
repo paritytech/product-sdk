@@ -7,5 +7,15 @@
     "access": "public",
     "baseBranch": "main",
     "updateInternalDependencies": "patch",
-    "ignore": []
+    "ignore": [
+        "@parity/product-sdk-bulletin-demo",
+        "@parity/product-sdk-chain-client-demo",
+        "@parity/product-sdk-contracts-demo",
+        "@parity/product-sdk-host-demo",
+        "@parity/product-sdk-keys-demo",
+        "@parity/product-sdk-signer-demo",
+        "@parity/product-sdk-statement-store-demo",
+        "@parity/product-sdk-storage-demo",
+        "@parity/product-sdk-tx-demo"
+    ]
 }

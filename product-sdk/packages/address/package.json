@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-address",
-    "version": "0.1.0",
+    "version": "0.0.0",
     "description": "Substrate and EVM address utilities — SS58/H160 encoding, validation, and conversion",
     "type": "module",
     "sideEffects": false,

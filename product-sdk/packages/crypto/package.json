@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-crypto",
-    "version": "0.1.0",
+    "version": "0.0.0",
     "description": "Cryptographic primitives — symmetric encryption, key derivation, and NaCl operations",
     "type": "module",
     "sideEffects": false,
