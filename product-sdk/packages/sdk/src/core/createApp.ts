@@ -5,7 +5,15 @@
  */
 
 import type { ChainDefinition } from "polkadot-api";
-import type { App, AppConfig, WalletApi, StorageApi, ChainApi, BulletinApi, Account } from "./types.js";
+import type {
+    App,
+    AppConfig,
+    WalletApi,
+    StorageApi,
+    ChainApi,
+    BulletinApi,
+    Account,
+} from "./types.js";
 import { configure, createLogger } from "@parity/product-sdk-logger";
 import { createKvStore } from "@parity/product-sdk-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
