@@ -4,20 +4,18 @@
  * Creates an App instance with wallet, storage, chain, and bulletin APIs.
  */
 
-import type {
-    App,
-    AppConfig,
-    WalletApi,
-    StorageApi,
-    ChainApi,
-    BulletinApi,
-    Account,
-    ChainDescriptor,
-} from "./types.js";
+import type { ChainDefinition } from "polkadot-api";
+import type { App, AppConfig, WalletApi, StorageApi, ChainApi, BulletinApi, Account } from "./types.js";
 import { configure, createLogger } from "@parity/product-sdk-logger";
 import { createKvStore } from "@parity/product-sdk-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
 import { BulletinClient, computeCid } from "@parity/product-sdk-bulletin";
+import {
+    createChainClient,
+    getClient,
+    isConnected,
+    destroyAll,
+} from "@parity/product-sdk-chain-client";
 
 const log = createLogger("app");
 
@@ -109,12 +107,33 @@ export async function createApp(config: AppConfig): Promise<App> {
 
     // Create chain API
     const chainApi: ChainApi = {
-        getClient<T>(chain: ChainDescriptor<T>): T {
-            // TODO: Implement actual PAPI client creation via @parity/product-sdk-chain-client
-            log.debug("getClient called", { chain: chain.id });
-            throw new Error(
-                `Chain client for ${chain.id} not yet implemented. Use @parity/product-sdk-chain-client directly.`,
-            );
+        getClient(descriptor) {
+            log.debug("getClient called", { genesis: descriptor.genesis });
+            const client = getClient(descriptor);
+            return client.getTypedApi(descriptor);
+        },
+
+        getRawClient(descriptor) {
+            log.debug("getRawClient called", { genesis: descriptor.genesis });
+            return getClient(descriptor);
+        },
+
+        async connect<T extends Record<string, ChainDefinition>>(chains: T) {
+            log.debug("connect called", { chains: Object.keys(chains) });
+            // Build empty rpcs object (required by API but unused - host routes connections)
+            const rpcs = Object.fromEntries(
+                Object.keys(chains).map((k) => [k, [] as readonly string[]]),
+            ) as { [K in keyof T]: readonly string[] };
+            return createChainClient({ chains, rpcs });
+        },
+
+        isConnected(descriptor) {
+            return isConnected(descriptor);
+        },
+
+        destroyAll() {
+            log.debug("destroyAll called");
+            destroyAll();
         },
     };
 

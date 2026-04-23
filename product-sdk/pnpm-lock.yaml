@@ -595,6 +595,9 @@ importers:
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
+      polkadot-api:
+        specifier: ^1.9.5
+        version: 1.23.3(postcss@8.5.10)(rxjs@7.8.2)
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

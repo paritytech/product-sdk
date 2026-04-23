@@ -34,7 +34,10 @@ export type {
     ChainApi,
     BulletinApi,
     Account,
-    ChainDescriptor,
+    ChainClient,
+    ChainDefinition,
+    TypedApi,
+    PolkadotClient,
 } from "./core/types.js";
 export type { LogEntry, LogHandler, LoggerConfig, Logger } from "./core/logger.js";
 

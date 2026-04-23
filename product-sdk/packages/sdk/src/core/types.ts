@@ -4,8 +4,11 @@
 
 import type { LogLevel } from "@parity/product-sdk-logger";
 import type { Environment as BulletinEnvironment } from "@parity/product-sdk-bulletin";
+import type { ChainClient } from "@parity/product-sdk-chain-client";
+import type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";
 
 export type { LogLevel };
+export type { ChainClient };
 
 /** Bulletin configuration options */
 export interface BulletinConfig {
@@ -69,8 +72,49 @@ export interface StorageApi {
 
 /** Chain API exposed by the SDK */
 export interface ChainApi {
-    /** Get a typed PAPI client for a chain */
-    getClient<T>(chain: ChainDescriptor<T>): T;
+    /**
+     * Get a typed PAPI client for a chain.
+     *
+     * Connections are routed through the host provider. The chain must be
+     * connected first via {@link connect}.
+     *
+     * @param descriptor - PAPI chain descriptor (from @parity/product-sdk-descriptors or custom)
+     * @returns Typed API for the chain
+     * @throws If the chain is not connected
+     */
+    getClient<T extends ChainDefinition>(descriptor: T): TypedApi<T>;
+
+    /**
+     * Get the raw PolkadotClient for a chain.
+     *
+     * Use this for advanced APIs like `createInkSdk` from `@polkadot-api/sdk-ink`.
+     *
+     * @param descriptor - PAPI chain descriptor
+     * @returns Raw PolkadotClient instance
+     * @throws If the chain is not connected
+     */
+    getRawClient(descriptor: ChainDefinition): PolkadotClient;
+
+    /**
+     * Connect to one or more chains.
+     *
+     * Connections are routed through the host provider (container-only).
+     * Results are cached - calling with the same descriptors returns existing connections.
+     *
+     * @param chains - Record of named chain descriptors
+     * @returns Connected chain client with typed APIs
+     */
+    connect<T extends Record<string, ChainDefinition>>(chains: T): Promise<ChainClient<T>>;
+
+    /**
+     * Check if a chain is currently connected.
+     */
+    isConnected(descriptor: ChainDefinition): boolean;
+
+    /**
+     * Destroy all chain connections.
+     */
+    destroyAll(): void;
 }
 
 /** Bulletin Chain API exposed by the SDK */
@@ -107,14 +151,5 @@ export interface Account {
     source: string;
 }
 
-/** Chain descriptor for type inference */
-export interface ChainDescriptor<T = unknown> {
-    /** Chain identifier */
-    id: string;
-    /** Chain name */
-    name: string;
-    /** RPC endpoints */
-    endpoints: string[];
-    /** Type marker (used for inference) */
-    _type?: T;
-}
+// Re-export ChainDefinition from polkadot-api for convenience
+export type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";
