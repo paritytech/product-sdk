@@ -2,6 +2,11 @@ import { getPreimageManager, type PreimageManager } from "@parity/product-sdk-ho
 import { createLogger } from "@parity/product-sdk-logger";
 
 import { cidToPreimageKey, computeCid } from "./cid.js";
+import {
+    BulletinHostUnavailableError,
+    BulletinLookupInterruptedError,
+    BulletinLookupTimeoutError,
+} from "./errors.js";
 
 const log = createLogger("bulletin");
 
@@ -25,7 +30,7 @@ export interface QueryStrategy {
  * IPFS polling automatically.
  *
  * @returns The resolved query strategy.
- * @throws {Error} If the host preimage manager is unavailable.
+ * @throws {BulletinHostUnavailableError} If the host preimage manager is unavailable.
  */
 export async function resolveQueryStrategy(): Promise<QueryStrategy> {
     const preimageManager = await getPreimageManager();
@@ -37,9 +42,7 @@ export async function resolveQueryStrategy(): Promise<QueryStrategy> {
         };
     }
 
-    throw new Error(
-        "Host preimage API unavailable. Ensure you are running inside a host container (Polkadot Browser / Desktop).",
-    );
+    throw new BulletinHostUnavailableError("query");
 }
 
 /**
@@ -77,7 +80,7 @@ export function lookupViaHost(
 
         let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
             settle(() => {
-                reject(new Error(`Host preimage lookup timed out after ${timeoutMs}ms for ${key}`));
+                reject(new BulletinLookupTimeoutError(cid, timeoutMs));
             });
         }, timeoutMs);
 
@@ -90,7 +93,7 @@ export function lookupViaHost(
 
         const cancelInterrupt = sub.onInterrupt(() => {
             settle(() => {
-                reject(new Error(`Host preimage lookup interrupted for ${key}`));
+                reject(new BulletinLookupInterruptedError(cid));
             });
         });
     });
@@ -149,14 +152,21 @@ if (import.meta.vitest) {
             expect(result).toEqual(new Uint8Array([10, 20, 30]));
         });
 
-        test("rejects on timeout", async () => {
+        test("rejects with BulletinLookupTimeoutError on timeout", async () => {
+            const { BulletinLookupTimeoutError } = await import("./errors.js");
             const manager = createMockManager("hang");
-            await expect(lookupViaHost(manager, testCid, 50)).rejects.toThrow("timed out");
+            const err = await lookupViaHost(manager, testCid, 50).catch((e) => e);
+            expect(err).toBeInstanceOf(BulletinLookupTimeoutError);
+            expect(err.cid).toBe(testCid);
+            expect(err.timeoutMs).toBe(50);
         });
 
-        test("rejects on interrupt", async () => {
+        test("rejects with BulletinLookupInterruptedError on interrupt", async () => {
+            const { BulletinLookupInterruptedError } = await import("./errors.js");
             const manager = createMockManager("interrupt");
-            await expect(lookupViaHost(manager, testCid)).rejects.toThrow("interrupted");
+            const err = await lookupViaHost(manager, testCid).catch((e) => e);
+            expect(err).toBeInstanceOf(BulletinLookupInterruptedError);
+            expect(err.cid).toBe(testCid);
         });
 
         test("calls unsubscribe and cancelInterrupt on resolution", async () => {
@@ -168,7 +178,7 @@ if (import.meta.vitest) {
 
         test("calls unsubscribe on interrupt", async () => {
             const manager = createMockManager("interrupt");
-            await expect(lookupViaHost(manager, testCid)).rejects.toThrow("interrupted");
+            await lookupViaHost(manager, testCid).catch(() => {});
             expect(manager.unsubscribe).toHaveBeenCalledOnce();
         });
 

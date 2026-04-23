@@ -3,6 +3,8 @@ import { createLogger } from "@parity/product-sdk-logger";
 import { CID } from "multiformats/cid";
 import * as Digest from "multiformats/hashes/digest";
 
+import { BulletinCidError } from "./errors.js";
+
 const log = createLogger("bulletin");
 
 /**
@@ -67,12 +69,13 @@ export function computeCid(data: Uint8Array): string {
 export function cidToPreimageKey(cid: string): `0x${string}` {
     const parsed = CID.parse(cid);
     if (parsed.version !== 1) {
-        throw new Error(`Expected CIDv1, got CIDv${parsed.version}`);
+        throw new BulletinCidError(`Expected CIDv1, got CIDv${parsed.version}`, cid);
     }
     if (!SUPPORTED_HASH_CODES.has(parsed.multihash.code)) {
-        throw new Error(
+        throw new BulletinCidError(
             `Unsupported hash algorithm 0x${parsed.multihash.code.toString(16)}; ` +
                 `expected one of: ${[...SUPPORTED_HASH_CODES].map((c) => `0x${c.toString(16)}`).join(", ")}`,
+            cid,
         );
     }
     return `0x${bytesToHex(parsed.multihash.digest)}`;
@@ -125,19 +128,19 @@ export function hashToCid(
     codec: CidCodec = CidCodec.Raw,
 ): string {
     if (hexHash.length !== EXPECTED_HEX_LENGTH) {
-        throw new Error(
+        throw new BulletinCidError(
             `Expected a 0x-prefixed 32-byte hex hash (${EXPECTED_HEX_LENGTH} chars), ` +
                 `got ${hexHash.length} chars`,
         );
     }
     if (!SUPPORTED_HASH_CODES.has(hashCode)) {
-        throw new Error(
+        throw new BulletinCidError(
             `Unsupported hash algorithm 0x${hashCode.toString(16)}; ` +
                 `expected one of: ${[...SUPPORTED_HASH_CODES].map((c) => `0x${c.toString(16)}`).join(", ")}`,
         );
     }
     if (!SUPPORTED_CODEC_CODES.has(codec)) {
-        throw new Error(
+        throw new BulletinCidError(
             `Unsupported CID codec 0x${codec.toString(16)}; ` +
                 `expected one of: ${[...SUPPORTED_CODEC_CODES].map((c) => `0x${c.toString(16)}`).join(", ")}`,
         );
@@ -222,17 +225,17 @@ if (import.meta.vitest) {
             expect(key).toBe(`0x${bytesToHex(hash)}`);
         });
 
-        test("throws for CIDv0 input", () => {
+        test("throws BulletinCidError for CIDv0 input", () => {
             const hash = new Uint8Array(32).fill(0xab);
             const cidV0 = CID.create(0, 0x70, Digest.create(HashAlgorithm.Sha2_256, hash));
-            expect(() => cidToPreimageKey(cidV0.toString())).toThrow("Expected CIDv1");
+            expect(() => cidToPreimageKey(cidV0.toString())).toThrow(BulletinCidError);
         });
 
-        test("throws for CIDv1 with unsupported hash algorithm", () => {
+        test("throws BulletinCidError for CIDv1 with unsupported hash algorithm", () => {
             const unsupportedCode = 0x99;
             const hash = new Uint8Array(32).fill(0xab);
             const cidV1 = CID.createV1(CidCodec.Raw, Digest.create(unsupportedCode, hash));
-            expect(() => cidToPreimageKey(cidV1.toString())).toThrow("Unsupported hash algorithm");
+            expect(() => cidToPreimageKey(cidV1.toString())).toThrow(BulletinCidError);
         });
     });
 
@@ -306,13 +309,13 @@ if (import.meta.vitest) {
             expect(CID.parse(cid).code).toBe(CidCodec.DagCbor);
         });
 
-        test("throws for hex that is too short", () => {
-            expect(() => hashToCid("0xabcd" as `0x${string}`)).toThrow("66 chars");
+        test("throws BulletinCidError for hex that is too short", () => {
+            expect(() => hashToCid("0xabcd" as `0x${string}`)).toThrow(BulletinCidError);
         });
 
-        test("throws for hex that is too long", () => {
+        test("throws BulletinCidError for hex that is too long", () => {
             const tooLong = `0x${"aa".repeat(33)}` as `0x${string}`;
-            expect(() => hashToCid(tooLong)).toThrow("66 chars");
+            expect(() => hashToCid(tooLong)).toThrow(BulletinCidError);
         });
 
         test("throws for non-hex characters", () => {
@@ -320,17 +323,15 @@ if (import.meta.vitest) {
             expect(() => hashToCid(bad)).toThrow();
         });
 
-        test("throws for unsupported hash algorithm", () => {
+        test("throws BulletinCidError for unsupported hash algorithm", () => {
             const hex = `0x${"ab".repeat(32)}` as `0x${string}`;
-            expect(() => hashToCid(hex, 0x99 as HashAlgorithm)).toThrow(
-                "Unsupported hash algorithm",
-            );
+            expect(() => hashToCid(hex, 0x99 as HashAlgorithm)).toThrow(BulletinCidError);
         });
 
-        test("throws for unsupported codec", () => {
+        test("throws BulletinCidError for unsupported codec", () => {
             const hex = `0x${"ab".repeat(32)}` as `0x${string}`;
             expect(() => hashToCid(hex, HashAlgorithm.Blake2b256, 0x99 as CidCodec)).toThrow(
-                "Unsupported CID codec",
+                BulletinCidError,
             );
         });
     });

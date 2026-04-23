@@ -2,6 +2,8 @@ import { getPreimageManager } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 import type { PolkadotSigner } from "polkadot-api";
 
+import { BulletinHostUnavailableError } from "./errors.js";
+
 const log = createLogger("bulletin");
 
 /**
@@ -41,10 +43,7 @@ export async function resolveUploadStrategy(
         return { kind: "preimage", submit: (data) => preimageManager.submit(data) };
     }
 
-    throw new Error(
-        "Host preimage API unavailable. Ensure you are running inside a host container (Polkadot Browser / Desktop), " +
-            "or provide an explicit signer.",
-    );
+    throw new BulletinHostUnavailableError("upload");
 }
 
 if (import.meta.vitest) {
