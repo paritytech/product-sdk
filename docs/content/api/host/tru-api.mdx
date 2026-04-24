@@ -1,0 +1,21 @@
+---
+generated: true
+title: "type TruApi"
+description: "The TruApi type - provides low-level methods for communicating with the host."
+---
+# `type TruApi`
+
+The TruApi type - provides low-level methods for communicating with the host.
+
+Methods include:
+- `navigateTo(url)` — Navigate to a URL within the host
+- `permission(permissions)` — Request permissions from the host
+- `localStorageRead/Write/Clear` — Host-backed storage
+- `sign(payload)` — Request transaction signing
+- `deriveEntropy(context)` — Derive deterministic entropy
+- `themeSubscribe()` — Subscribe to host theme changes
+- And many more...
+
+```ts
+type TruApi = any
+```

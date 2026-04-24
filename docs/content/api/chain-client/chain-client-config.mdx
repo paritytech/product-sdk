@@ -1,0 +1,48 @@
+---
+generated: true
+title: "interface ChainClientConfig"
+description: "Configuration for `createChainClient`."
+---
+# `interface ChainClientConfig`
+
+Configuration for `createChainClient`.
+
+Provide named chain descriptors and their RPC endpoints.
+TypeScript enforces that `rpcs` has the same keys as `chains`.
+
+Note: The SDK routes all connections through the host provider. The `rpcs`
+field is currently unused but kept for API compatibility.
+
+## Examples
+
+```ts
+import { createChainClient } from "@parity/product-sdk-chain-client";
+import { paseo_asset_hub } from "./descriptors/paseo-asset-hub";
+import { bulletin } from "./descriptors/bulletin";
+
+const client = await createChainClient({
+    chains: { assetHub: paseo_asset_hub, bulletin },
+    rpcs: {
+        assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
+        bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
+    },
+});
+```
+
+## Properties
+
+### property `chains`
+
+```ts
+chains: TChains
+```
+
+Named chain descriptors (PAPI `ChainDefinition` objects).
+
+### property `rpcs`
+
+```ts
+rpcs: { [K in string | number | symbol]: readonly string[] }
+```
+
+RPC endpoints per chain name (currently unused - connections route through host).

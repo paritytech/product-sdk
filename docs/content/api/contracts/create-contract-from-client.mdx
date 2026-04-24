@@ -1,0 +1,35 @@
+---
+generated: true
+title: "createContractFromClient()"
+description: "Create a contract handle from a raw `PolkadotClient`, address, and ABI."
+---
+# `createContractFromClient()`
+
+Create a contract handle from a raw `PolkadotClient`, address, and ABI.
+
+Convenience wrapper that creates the InkSdk internally via dynamic import.
+For size-sensitive apps, use `createContract` with a pre-created `InkSdk`.
+
+```ts
+createContractFromClient(client: PolkadotClient, address: HexString, abi: AbiEntry[], options?: ContractOptions): Promise<Contract<ContractDef>>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `client` | `PolkadotClient` | — |
+| `address` | `HexString` | — |
+| `abi` | `AbiEntry[]` | — |
+| `options` _(optional)_ | `ContractOptions` | — |
+
+## Returns
+
+`Promise<Contract<ContractDef>>`
+
+## Examples
+
+```ts
+const counter = await createContractFromClient(client.raw.assetHub, "0xC472...", abi);
+const { value } = await counter.getCount.query();
+```

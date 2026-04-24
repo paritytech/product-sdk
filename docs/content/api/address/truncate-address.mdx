@@ -1,0 +1,24 @@
+---
+generated: true
+title: "truncateAddress()"
+description: "Truncate an address for display."
+---
+# `truncateAddress()`
+
+Truncate an address for display.
+
+```ts
+truncateAddress(address: string, startChars: number = 6, endChars: number = 4): string
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `address` | `string` | Full address (SS58 or H160) |
+| `startChars` | `number` = `6` | Characters to show at the start (default 6) |
+| `endChars` | `number` = `4` | Characters to show at the end (default 4) |
+
+## Returns
+
+`string` — Truncated string like "5Grwva...utQY"

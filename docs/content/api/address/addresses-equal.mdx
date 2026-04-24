@@ -1,0 +1,29 @@
+---
+generated: true
+title: "addressesEqual()"
+description: "Compare two addresses for equality."
+---
+# `addressesEqual()`
+
+Compare two addresses for equality.
+
+H160 (0x-prefixed) addresses are compared case-insensitively.
+SS58 addresses are compared exactly (base58 is case-sensitive).
+Mixed types (SS58 vs H160) always return false - use ss58ToH160 to normalize first.
+SS58 addresses at different prefixes (same key, different network) return false -
+use normalizeSs58 to re-encode with the same prefix before comparing.
+
+```ts
+addressesEqual(a: string, b: string): boolean
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `a` | `string` | — |
+| `b` | `string` | — |
+
+## Returns
+
+`boolean`

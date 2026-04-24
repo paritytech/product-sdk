@@ -1,0 +1,24 @@
+---
+generated: true
+title: "getStatementStore()"
+description: "Get the host API statement store when running inside a container."
+---
+# `getStatementStore()`
+
+Get the host API statement store when running inside a container.
+
+Returns a statement store with `subscribe`, `createProof`, and `submit` methods
+that communicate through the host's native binary protocol — bypassing JSON-RPC
+entirely. Returns `null` when `@novasamatech/product-sdk` is unavailable.
+
+```ts
+getStatementStore(): Promise<HostStatementStore | null>
+```
+
+## Parameters
+
+_No parameters._
+
+## Returns
+
+`Promise<HostStatementStore | null>` — The host statement store, or `null` if unavailable.

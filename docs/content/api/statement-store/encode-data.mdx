@@ -1,0 +1,30 @@
+---
+generated: true
+title: "encodeData()"
+description: "Encode a value as a JSON-serialized data payload for a statement."
+---
+# `encodeData()`
+
+Encode a value as a JSON-serialized data payload for a statement.
+
+Serializes the value as JSON and encodes to UTF-8 bytes.
+Throws `StatementDataTooLargeError` if the result exceeds
+`MAX_STATEMENT_SIZE` bytes.
+
+```ts
+encodeData(value: T): Uint8Array
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `value` | `T` | The value to serialize. |
+
+## Returns
+
+`Uint8Array` — UTF-8 encoded JSON bytes.
+
+## Throws
+
+- If the encoded data exceeds 512 bytes.

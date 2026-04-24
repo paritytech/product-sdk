@@ -1,0 +1,59 @@
+---
+generated: true
+title: "@parity/product-sdk-contracts"
+---
+
+# `@parity/product-sdk-contracts`
+
+```sh npm2yarn
+npm install @parity/product-sdk-contracts
+```
+
+## Classes
+
+| Name | Summary |
+| --- | --- |
+| [`ContractError`](/api/contracts/contract-error) | Base class for all contract errors. Use `instanceof ContractError` to catch any contract-related error. |
+| [`ContractManager`](/api/contracts/contract-manager) | Manages typed contract interactions backed by a `cdm.json` manifest. |
+| [`ContractNotFoundError`](/api/contracts/contract-not-found-error) | A contract was not found in the cdm.json manifest. |
+| [`ContractSignerMissingError`](/api/contracts/contract-signer-missing-error) | No signer was available for a transaction call. |
+
+## Functions
+
+| Name | Summary |
+| --- | --- |
+| [`createContract()`](/api/contracts/create-contract) | Create a contract handle from a raw address and ABI — no `cdm.json` needed. |
+| [`createContractFromClient()`](/api/contracts/create-contract-from-client) | Create a contract handle from a raw `PolkadotClient`, address, and ABI. |
+| [`generateContractTypes()`](/api/contracts/generate-contract-types) | Generate a TypeScript module augmentation that extends the |
+
+## Interfaces
+
+| Name | Summary |
+| --- | --- |
+| [`AbiEntry`](/api/contracts/abi-entry) | — |
+| [`AbiParam`](/api/contracts/abi-param) | — |
+| [`CdmJson`](/api/contracts/cdm-json) | — |
+| [`CdmJsonContract`](/api/contracts/cdm-json-contract) | — |
+| [`CdmJsonTarget`](/api/contracts/cdm-json-target) | — |
+| [`ContractDef`](/api/contracts/contract-def) | Per-contract definition shape — generated into `.cdm/contracts.d.ts` via module augmentation. |
+| [`ContractDefaults`](/api/contracts/contract-defaults) | Mutable defaults shared across all contract handles from a manager. |
+| [`ContractManagerOptions`](/api/contracts/contract-manager-options) | Options for `ContractManager` construction. |
+| [`ContractOptions`](/api/contracts/contract-options) | Options for `createContract` and base for `ContractManagerOptions`. |
+| [`Contracts`](/api/contracts/contracts) | Augmentable interface extended by codegen with per-contract method types. |
+| [`QueryOptions`](/api/contracts/query-options) | Options for query calls — passed as the last argument after positional args. |
+| [`QueryResult`](/api/contracts/query-result) | Result from a read-only contract query. |
+| [`TxOptions`](/api/contracts/tx-options) | Options for transaction calls — passed as the last argument after positional args. |
+
+## Type Aliases
+
+| Name | Summary |
+| --- | --- |
+| [`Contract`](/api/contracts/contract) | A typed contract handle where each ABI method exposes `.query()` and `.tx()`. |
+
+## Re-exports
+
+Convenience re-exports from leaf packages. Click through for the canonical documentation.
+
+| Name | Kind | Source package |
+| --- | --- | --- |
+| [`TxResult`](/api/tx/tx-result) | interface | [`@parity/product-sdk-tx`](/api/tx) |

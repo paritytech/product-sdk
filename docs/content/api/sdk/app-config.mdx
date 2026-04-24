@@ -1,0 +1,36 @@
+---
+generated: true
+title: "interface AppConfig"
+description: "Configuration for createApp"
+---
+# `interface AppConfig`
+
+Configuration for createApp
+
+## Properties
+
+### property `bulletin`
+
+```ts
+bulletin: false | BulletinConfig
+```
+
+Bulletin Chain configuration.
+- Omit or pass config object to enable (default: \{ environment: "paseo" \})
+- Pass `false` to disable bulletin initialization
+
+### property `logLevel`
+
+```ts
+logLevel: LogLevel
+```
+
+Log level for SDK operations (default: 'info')
+
+### property `name`
+
+```ts
+name: string
+```
+
+Application name - used to derive product accounts and namespace storage

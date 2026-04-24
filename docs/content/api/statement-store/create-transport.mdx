@@ -1,0 +1,27 @@
+---
+generated: true
+title: "createTransport()"
+description: "Create a statement store transport."
+---
+# `createTransport()`
+
+Create a statement store transport.
+
+Uses the Host API via `@parity/product-sdk-host` — the container's native
+statement store protocol (binary, not JSON-RPC). This is the only supported path.
+
+```ts
+createTransport(): Promise<StatementTransport>
+```
+
+## Parameters
+
+_No parameters._
+
+## Returns
+
+`Promise<StatementTransport>`
+
+## Throws
+
+- If the host statement store is unavailable.

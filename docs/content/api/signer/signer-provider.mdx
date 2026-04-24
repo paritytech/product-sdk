@@ -1,0 +1,96 @@
+---
+generated: true
+title: "interface SignerProvider"
+description: "Interface that all signer providers must implement."
+---
+# `interface SignerProvider`
+
+Interface that all signer providers must implement.
+
+Providers are responsible for discovering accounts and creating signers
+from a specific source (Host API or dev accounts).
+
+## Properties
+
+### property `type`
+
+```ts
+type: ProviderType
+```
+
+Unique identifier for this provider type.
+
+## Methods
+
+### method `connect`
+
+Attempt to connect and discover accounts.
+
+```ts
+connect(signal?: AbortSignal): Promise<Result<SignerAccount[], SignerError>>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `signal` _(optional)_ | `AbortSignal` | Optional AbortSignal to cancel the connection attempt. |
+
+#### Returns
+
+`Promise<Result<SignerAccount[], SignerError>>` — Accounts on success, typed error on failure.
+
+### method `disconnect`
+
+Disconnect and clean up resources.
+Safe to call multiple times.
+
+```ts
+disconnect(): void
+```
+
+#### Parameters
+
+_No parameters._
+
+### method `onAccountsChange`
+
+Subscribe to account list changes.
+
+Emitted when the set of available accounts changes (e.g., user
+connects/disconnects in the host wallet).
+
+```ts
+onAccountsChange(callback: (accounts: SignerAccount[]) => void): Unsubscribe
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `callback` | `(accounts: SignerAccount[]) => void` | — |
+
+#### Returns
+
+`Unsubscribe` — Unsubscribe function.
+
+### method `onStatusChange`
+
+Subscribe to connection status changes.
+
+Not all providers emit status changes — for example, dev accounts
+are always "connected" and never emit.
+
+```ts
+onStatusChange(callback: (status: ConnectionStatus) => void): Unsubscribe
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `callback` | `(status: ConnectionStatus) => void` | — |
+
+#### Returns
+
+`Unsubscribe` — Unsubscribe function.

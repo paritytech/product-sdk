@@ -1,0 +1,26 @@
+---
+generated: true
+title: "interface DerivedKeypairs"
+description: "NaCl encryption + signing keypairs derived from a master key."
+---
+# `interface DerivedKeypairs`
+
+NaCl encryption + signing keypairs derived from a master key.
+
+## Properties
+
+### property `encryption`
+
+```ts
+encryption: { publicKey: Uint8Array; secretKey: Uint8Array }
+```
+
+Curve25519 keypair for NaCl Box (asymmetric encryption)
+
+### property `signing`
+
+```ts
+signing: { publicKey: Uint8Array; secretKey: Uint8Array }
+```
+
+Ed25519 keypair for NaCl Sign (digital signatures)

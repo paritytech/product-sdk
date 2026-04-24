@@ -1,0 +1,37 @@
+---
+generated: true
+title: "getBalance()"
+description: "Query the free, reserved, and frozen balances for an on-chain address."
+---
+# `getBalance()`
+
+Query the free, reserved, and frozen balances for an on-chain address.
+
+Thin typed wrapper around `System.Account.getValue` that returns a clean
+`AccountBalance` object. Uses structural typing so it works with any
+PAPI typed API that has the System pallet — no chain-specific imports needed.
+
+```ts
+getBalance(api: BalanceApi, address: string): Promise<AccountBalance>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `api` | `BalanceApi` | A PAPI typed API with `query.System.Account`. Pass the chain-specific API (e.g., `client.assetHub`), not the multi-chain `ChainClient` wrapper. |
+| `address` | `string` | The SS58 address to query. |
+
+## Returns
+
+`Promise<AccountBalance>` — The account's balance breakdown.
+
+## Examples
+
+```ts
+import { getBalance } from "@parity/product-sdk-utils";
+import { formatBalance } from "@parity/product-sdk-utils";
+
+const balance = await getBalance(api.assetHub, aliceAddress);
+console.log(formatBalance(balance.free, { symbol: "DOT" })); // "1,000.5 DOT"
+```

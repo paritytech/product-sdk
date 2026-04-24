@@ -1,0 +1,27 @@
+---
+generated: true
+title: "calculateDelay()"
+description: "Calculate delay with exponential backoff and jitter."
+---
+# `calculateDelay()`
+
+Calculate delay with exponential backoff and jitter.
+
+Jitter prevents thundering-herd when multiple clients retry simultaneously.
+The delay is `min(baseDelay * 2^attempt, maxDelay) * random(0.5, 1.0)`.
+
+```ts
+calculateDelay(attempt: number, baseDelayMs: number, maxDelayMs: number): number
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `attempt` | `number` | — |
+| `baseDelayMs` | `number` | — |
+| `maxDelayMs` | `number` | — |
+
+## Returns
+
+`number`

@@ -1,0 +1,41 @@
+---
+generated: true
+title: "xchachaEncrypt()"
+description: "Encrypt binary data with XChaCha20-Poly1305."
+---
+# `xchachaEncrypt()`
+
+Encrypt binary data with XChaCha20-Poly1305.
+
+The 24-byte nonce makes random nonce generation safe for virtually unlimited
+encryptions under the same key (~2^96 nonce space vs 2^48 for 12-byte).
+This is the **recommended** symmetric cipher for most use cases.
+
+```ts
+xchachaEncrypt(data: Uint8Array, key: Uint8Array): { ciphertext: Uint8Array; nonce: Uint8Array }
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | Binary data to encrypt. |
+| `key` | `Uint8Array` | 32-byte encryption key. |
+
+## Returns
+
+`{ ciphertext: Uint8Array; nonce: Uint8Array }` — Object containing `ciphertext` (with 16-byte tag) and 24-byte `nonce`.
+
+## Throws
+
+- If `key` is not exactly 32 bytes.
+
+## Examples
+
+```ts
+import { xchachaEncrypt, xchachaDecrypt, randomBytes } from "@parity/product-sdk-crypto";
+
+const key = randomBytes(32);
+const { ciphertext, nonce } = xchachaEncrypt(data, key);
+const plaintext = xchachaDecrypt(ciphertext, key, nonce);
+```

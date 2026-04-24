@@ -1,0 +1,17 @@
+---
+generated: true
+title: "type SymmetricAlgorithm"
+description: "Symmetric cipher algorithm identifiers supported by this package."
+---
+# `type SymmetricAlgorithm`
+
+Symmetric cipher algorithm identifiers supported by this package.
+
+- `"aes-256-gcm"` — AES-256 in Galois/Counter Mode (128-bit tag).
+- `"chacha20-poly1305"` — ChaCha20 with Poly1305 MAC (RFC 8439, 12-byte nonce).
+- `"xchacha20-poly1305"` — Extended-nonce ChaCha20 with Poly1305 (24-byte nonce).
+  Preferred for random nonce generation due to negligible collision probability.
+
+```ts
+type SymmetricAlgorithm = "aes-256-gcm" | "chacha20-poly1305" | "xchacha20-poly1305"
+```

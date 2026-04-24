@@ -1,0 +1,12 @@
+---
+generated: true
+title: "type Result"
+description: "Lightweight Result type for operations that can fail expectedly."
+---
+# `type Result`
+
+Lightweight Result type for operations that can fail expectedly.
+
+```ts
+type Result = { ok: true; value: T } | { error: E; ok: false }
+```

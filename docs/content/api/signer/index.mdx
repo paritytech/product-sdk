@@ -1,0 +1,65 @@
+---
+generated: true
+title: "@parity/product-sdk-signer"
+---
+
+# `@parity/product-sdk-signer`
+
+```sh npm2yarn
+npm install @parity/product-sdk-signer
+```
+
+## Classes
+
+| Name | Summary |
+| --- | --- |
+| [`AccountNotFoundError`](/api/signer/account-not-found-error) | An account was not found by address. |
+| [`DestroyedError`](/api/signer/destroyed-error) | The SignerManager has been destroyed and is no longer usable. |
+| [`DevProvider`](/api/signer/dev-provider) | Provider for Substrate development accounts. |
+| [`HostDisconnectedError`](/api/signer/host-disconnected-error) | The host connection was lost. |
+| [`HostProvider`](/api/signer/host-provider) | Provider for the Host API (Polkadot Desktop / Android). |
+| [`HostRejectedError`](/api/signer/host-rejected-error) | The host rejected the account or signing request. |
+| [`HostUnavailableError`](/api/signer/host-unavailable-error) | The Host API is not available (product-sdk not installed or not inside a container). |
+| [`NoAccountsError`](/api/signer/no-accounts-error) | No accounts available from the provider. |
+| [`SignerError`](/api/signer/signer-error) | Base class for all signer errors. Use `instanceof SignerError` to catch any signer-related error. |
+| [`SignerManager`](/api/signer/signer-manager) | Core orchestrator for signer management. |
+| [`SigningFailedError`](/api/signer/signing-failed-error) | A signing operation failed. |
+| [`TimeoutError`](/api/signer/timeout-error) | An operation timed out. |
+
+## Functions
+
+| Name | Summary |
+| --- | --- |
+| [`err()`](/api/signer/err) | Create a failed Result. |
+| [`isHostError()`](/api/signer/is-host-error) | Check if a SignerError is a host-related error. |
+| [`ok()`](/api/signer/ok) | Create a successful Result. |
+| [`sleep()`](/api/signer/sleep) | Sleep for a given duration, cancellable via AbortSignal. |
+| [`withRetry()`](/api/signer/with-retry) | Retry an async operation with exponential backoff. |
+
+## Interfaces
+
+| Name | Summary |
+| --- | --- |
+| [`AccountPersistence`](/api/signer/account-persistence) | Adapter for persisting the selected account address across sessions. |
+| [`ContextualAlias`](/api/signer/contextual-alias) | A contextual alias obtained from Ring VRF. |
+| [`DevProviderOptions`](/api/signer/dev-provider-options) | Options for the dev account provider. |
+| [`HostProviderOptions`](/api/signer/host-provider-options) | Options for the Host API provider. |
+| [`ProductAccount`](/api/signer/product-account) | A product account — an app-scoped derived account managed by the host wallet. |
+| [`RetryOptions`](/api/signer/retry-options) | Options for retry with exponential backoff. |
+| [`RingLocation`](/api/signer/ring-location) | Location of a Ring VRF ring on-chain. |
+| [`SignerAccount`](/api/signer/signer-account) | A signing-capable account from any provider. |
+| [`SignerManagerOptions`](/api/signer/signer-manager-options) | Options for SignerManager construction. |
+| [`SignerProvider`](/api/signer/signer-provider) | Interface that all signer providers must implement. |
+| [`SignerState`](/api/signer/signer-state) | Full state snapshot emitted to subscribers. |
+
+## Type Aliases
+
+| Name | Summary |
+| --- | --- |
+| [`ConnectionStatus`](/api/signer/connection-status) | Connection status for a signer provider. |
+| [`DevAccountName`](/api/signer/dev-account-name) | — |
+| [`DevKeyType`](/api/signer/dev-key-type) | Supported key types for dev account derivation. |
+| [`ProviderFactory`](/api/signer/provider-factory) | Factory function that creates a SignerProvider for a given type. |
+| [`ProviderType`](/api/signer/provider-type) | Identifies the source of an account. |
+| [`Result`](/api/signer/result) | Lightweight Result type for operations that can fail expectedly. |
+| [`Unsubscribe`](/api/signer/unsubscribe) | Function that unsubscribes a listener when called. |

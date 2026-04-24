@@ -1,0 +1,29 @@
+---
+generated: true
+title: "queryBytes()"
+description: "Fetch raw bytes for a CID using the host preimage lookup."
+---
+# `queryBytes()`
+
+Fetch raw bytes for a CID using the host preimage lookup.
+
+Uses local cache + managed IPFS polling via the host container.
+
+```ts
+queryBytes(cid: string, options?: QueryOptions): Promise<Uint8Array<ArrayBufferLike>>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | CIDv1 string to fetch. |
+| `options` _(optional)_ | `QueryOptions` | Query options (lookupTimeoutMs for host). |
+
+## Returns
+
+`Promise<Uint8Array<ArrayBufferLike>>` — Raw bytes of the content.
+
+## Throws
+
+- If the host preimage API is unavailable.

@@ -1,0 +1,41 @@
+---
+generated: true
+title: "chachaEncrypt()"
+description: "Encrypt binary data with ChaCha20-Poly1305 (RFC 8439)."
+---
+# `chachaEncrypt()`
+
+Encrypt binary data with ChaCha20-Poly1305 (RFC 8439).
+
+Uses a random 12-byte nonce. Callers must ensure a given key is not reused
+for more than ~2^32 encryptions to avoid nonce collision. For high-volume
+random-nonce use cases, prefer `xchachaEncrypt` (24-byte nonce).
+
+```ts
+chachaEncrypt(data: Uint8Array, key: Uint8Array): { ciphertext: Uint8Array; nonce: Uint8Array }
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | Binary data to encrypt. |
+| `key` | `Uint8Array` | 32-byte encryption key. |
+
+## Returns
+
+`{ ciphertext: Uint8Array; nonce: Uint8Array }` — Object containing the `ciphertext` (with 16-byte Poly1305 tag appended) and `nonce`.
+
+## Throws
+
+- If `key` is not exactly 32 bytes.
+
+## Examples
+
+```ts
+import { chachaEncrypt, chachaDecrypt, randomBytes } from "@parity/product-sdk-crypto";
+
+const key = randomBytes(32);
+const { ciphertext, nonce } = chachaEncrypt(data, key);
+const plaintext = chachaDecrypt(ciphertext, key, nonce);
+```

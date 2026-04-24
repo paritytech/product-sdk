@@ -1,0 +1,50 @@
+---
+generated: true
+title: "interface RetryOptions"
+description: "Options for retry with exponential backoff."
+---
+# `interface RetryOptions`
+
+Options for retry with exponential backoff.
+
+## Properties
+
+### property `backoffMultiplier`
+
+```ts
+backoffMultiplier: number
+```
+
+Multiplier applied to delay after each attempt. Default: 2
+
+### property `initialDelay`
+
+```ts
+initialDelay: number
+```
+
+Initial delay in ms before first retry. Default: 500
+
+### property `maxAttempts`
+
+```ts
+maxAttempts: number
+```
+
+Maximum number of attempts. Default: 3
+
+### property `maxDelay`
+
+```ts
+maxDelay: number
+```
+
+Maximum delay cap in ms. Default: 10_000
+
+### property `signal`
+
+```ts
+signal: AbortSignal
+```
+
+AbortSignal to cancel retries early.

@@ -1,0 +1,25 @@
+---
+generated: true
+title: "extract()"
+description: "Re-export the full HKDF function from `@noble/hashes` for advanced use cases"
+---
+# `extract()`
+
+HKDF-extract from spec. Less important part. `HKDF-Extract(IKM, salt) -> PRK`
+Arguments position differs from spec (IKM is first one, since it is not optional)
+
+```ts
+extract(hash: (msg: Input) => Uint8Array, ikm: Input, salt?: Input): Uint8Array
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `hash` | `(msg: Input) => Uint8Array` | hash function that would be used (e.g. sha256) |
+| `ikm` | `Input` | input keying material, the initial key |
+| `salt` _(optional)_ | `Input` | optional salt value (a non-secret random value) |
+
+## Returns
+
+`Uint8Array`

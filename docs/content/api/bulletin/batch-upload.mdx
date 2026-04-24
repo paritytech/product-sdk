@@ -1,0 +1,31 @@
+---
+generated: true
+title: "batchUpload()"
+description: "Upload multiple items sequentially to the Bulletin Chain."
+---
+# `batchUpload()`
+
+Upload multiple items sequentially to the Bulletin Chain.
+
+Bulletin Chain requires sequential transaction submission (nonce ordering).
+Individual failures are captured in results — the batch does not abort.
+
+Signer resolution follows the same rules as `upload`: when omitted,
+the strategy is auto-resolved once and reused for all items.
+
+```ts
+batchUpload(api: BulletinApi, items: BatchUploadItem[], signer?: PolkadotSigner, options?: BatchUploadOptions): Promise<BatchUploadResult[]>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `api` | `BulletinApi` | Typed Bulletin Chain API. |
+| `items` | `BatchUploadItem[]` | Array of items to upload, each with data and a label. |
+| `signer` _(optional)_ | `PolkadotSigner` | Optional signer. When omitted, auto-resolved. |
+| `options` _(optional)_ | `BatchUploadOptions` | Batch upload options (gateway, timeout, progress callback). |
+
+## Returns
+
+`Promise<BatchUploadResult[]>` — Array of results, one per item, preserving input order.

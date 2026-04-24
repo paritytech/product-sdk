@@ -1,0 +1,28 @@
+---
+generated: true
+title: "bytesToHex()"
+description: "Convert a `Uint8Array` to its lowercase hexadecimal string representation."
+---
+# `bytesToHex()`
+
+Convert byte array to hex string. Uses built-in function, when available.
+
+```ts
+bytesToHex(bytes: Uint8Array): string
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `bytes` | `Uint8Array` | — |
+
+## Returns
+
+`string`
+
+## Examples
+
+```ts
+bytesToHex(Uint8Array.from([0xca, 0xfe, 0x01, 0x23])) // 'cafe0123'
+```

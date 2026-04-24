@@ -1,0 +1,31 @@
+---
+generated: true
+title: "interface LoggerConfig"
+---
+# `interface LoggerConfig`
+
+## Properties
+
+### property `handler`
+
+```ts
+handler: LogHandler
+```
+
+Custom output handler. Replaces default console output.
+
+### property `level`
+
+```ts
+level: LogLevel
+```
+
+Minimum log level. Default: "warn"
+
+### property `namespaces`
+
+```ts
+namespaces: string[]
+```
+
+If set, only these namespaces use the configured level; others stay at "warn".

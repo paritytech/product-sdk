@@ -1,0 +1,50 @@
+---
+generated: true
+title: "interface TxResult"
+description: "Successful transaction result."
+---
+# `interface TxResult`
+
+Successful transaction result.
+
+## Properties
+
+### property `block`
+
+```ts
+block: { hash: string; index: number; number: number }
+```
+
+Block where the transaction was included.
+
+### property `dispatchError`
+
+```ts
+dispatchError: unknown
+```
+
+Dispatch error details when ok is false.
+
+### property `events`
+
+```ts
+events: unknown[]
+```
+
+Raw events emitted by the transaction.
+
+### property `ok`
+
+```ts
+ok: boolean
+```
+
+Whether the on-chain dispatch succeeded.
+
+### property `txHash`
+
+```ts
+txHash: string
+```
+
+Transaction hash.

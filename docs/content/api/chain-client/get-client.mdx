@@ -1,0 +1,29 @@
+---
+generated: true
+title: "getClient()"
+description: "Get the raw `PolkadotClient` for a connected chain by its descriptor."
+---
+# `getClient()`
+
+Get the raw `PolkadotClient` for a connected chain by its descriptor.
+
+The chain must have been initialized via `createChainClient` first.
+Alternatively, use `client.raw.<name>` on the returned `ChainClient`.
+
+```ts
+getClient(descriptor: ChainDefinition): PolkadotClient
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `descriptor` | `ChainDefinition` | — |
+
+## Returns
+
+`PolkadotClient`
+
+## Throws
+
+- If the chain has not been connected yet.

@@ -1,0 +1,34 @@
+---
+generated: true
+title: "sha256()"
+description: "Compute a 32-byte SHA2-256 hash."
+---
+# `sha256()`
+
+Compute a 32-byte SHA2-256 hash.
+
+Used by bulletin-deploy and supported by the Bulletin Chain as an
+alternative hashing algorithm.
+
+```ts
+sha256(data: Uint8Array): Uint8Array
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | Arbitrary bytes to hash. |
+
+## Returns
+
+`Uint8Array` — 32-byte SHA2-256 digest.
+
+## Examples
+
+```ts
+import { sha256, bytesToHex } from "@parity/product-sdk-utils";
+
+const hash = sha256(new TextEncoder().encode("hello"));
+console.log(bytesToHex(hash)); // 64-char hex string
+```

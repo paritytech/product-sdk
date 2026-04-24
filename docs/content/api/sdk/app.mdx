@@ -1,0 +1,60 @@
+---
+generated: true
+title: "interface App"
+description: "The main App instance returned by createApp"
+---
+# `interface App`
+
+The main App instance returned by createApp
+
+## Properties
+
+### property `bulletin`
+
+```ts
+bulletin: BulletinApi | null
+```
+
+Bulletin Chain operations (null if disabled via config)
+
+### property `chain`
+
+```ts
+chain: ChainApi
+```
+
+Chain interaction operations
+
+### property `storage`
+
+```ts
+storage: StorageApi
+```
+
+Key-value storage operations
+
+### property `wallet`
+
+```ts
+wallet: WalletApi
+```
+
+Wallet/signing operations
+
+## Methods
+
+### method `getAppInfo`
+
+Get app configuration
+
+```ts
+getAppInfo(): AppConfig
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`AppConfig`

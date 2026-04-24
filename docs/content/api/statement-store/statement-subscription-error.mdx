@@ -1,0 +1,28 @@
+---
+generated: true
+title: "class StatementSubscriptionError"
+description: "Failed to set up or maintain a statement subscription."
+---
+# `class StatementSubscriptionError`
+
+Failed to set up or maintain a statement subscription.
+
+This is a non-fatal error — the client falls back to polling
+when subscriptions are unavailable.
+
+**Extends:** `StatementStoreError`
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new StatementSubscriptionError(message: string, options?: ErrorOptions): StatementSubscriptionError
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `message` | `string` | — |
+| `options` _(optional)_ | `ErrorOptions` | — |

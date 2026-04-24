@@ -1,0 +1,15 @@
+---
+generated: true
+title: "type TopicHash"
+description: "A 32-byte blake2b-256 hash used as a statement topic."
+---
+# `type TopicHash`
+
+A 32-byte blake2b-256 hash used as a statement topic.
+
+Topics allow subscribers to filter statements efficiently on the network.
+Create one with `createTopic`.
+
+```ts
+type TopicHash = Uint8Array & { readonly __brand: "TopicHash" }
+```

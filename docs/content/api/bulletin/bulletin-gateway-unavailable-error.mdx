@@ -1,0 +1,37 @@
+---
+generated: true
+title: "class BulletinGatewayUnavailableError"
+description: "The IPFS gateway for the specified environment is not available."
+---
+# `class BulletinGatewayUnavailableError`
+
+The IPFS gateway for the specified environment is not available.
+
+Thrown when attempting to use gateway features for a network that
+doesn't have a live bulletin gateway yet.
+
+**Extends:** `BulletinError`
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new BulletinGatewayUnavailableError(environment: string): BulletinGatewayUnavailableError
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `environment` | `string` | — |
+
+## Properties
+
+### property `environment`
+
+```ts
+environment: string
+```
+
+The environment that was requested.

@@ -1,0 +1,44 @@
+---
+generated: true
+title: "@parity/product-sdk-chain-client"
+---
+
+# `@parity/product-sdk-chain-client`
+
+```sh npm2yarn
+npm install @parity/product-sdk-chain-client
+```
+
+## Functions
+
+| Name | Summary |
+| --- | --- |
+| [`createChainClient()`](/api/chain-client/create-chain-client) | Create a multi-chain client with user-provided descriptors and RPC endpoints. |
+| [`destroyAll()`](/api/chain-client/destroy-all) | Destroy all chain client instances and reset internal caches. |
+| [`getChainAPI()`](/api/chain-client/get-chain-api) | Get a chain client for a known environment with built-in descriptors and RPCs. |
+| [`getClient()`](/api/chain-client/get-client) | Get the raw `PolkadotClient` for a connected chain by its descriptor. |
+| [`isConnected()`](/api/chain-client/is-connected) | Check if a chain is currently connected. |
+
+## Interfaces
+
+| Name | Summary |
+| --- | --- |
+| [`ChainClientConfig`](/api/chain-client/chain-client-config) | Configuration for `createChainClient`. |
+| [`ChainEntry`](/api/chain-client/chain-entry) | Internal per-chain state stored in the HMR-safe cache. |
+
+## Type Aliases
+
+| Name | Summary |
+| --- | --- |
+| [`ChainClient`](/api/chain-client/chain-client) | A connected chain client returned by `createChainClient`. |
+| [`Environment`](/api/chain-client/environment) | Known network environment with built-in descriptors and RPC endpoints. |
+| [`PresetChains`](/api/chain-client/preset-chains) | The chain shape returned by `getChainAPI` for a given environment. |
+
+## Re-exports
+
+Convenience re-exports from leaf packages. Click through for the canonical documentation.
+
+| Name | Kind | Source package |
+| --- | --- | --- |
+| [`isInsideContainer()`](/api/host/is-inside-container) | function | [`@parity/product-sdk-host`](/api/host) |
+| [`isInsideContainerSync()`](/api/host/is-inside-container-sync) | function | [`@parity/product-sdk-host`](/api/host) |

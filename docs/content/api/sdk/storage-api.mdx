@@ -1,0 +1,118 @@
+---
+generated: true
+title: "interface StorageApi"
+description: "Storage API exposed by the SDK"
+---
+# `interface StorageApi`
+
+Storage API exposed by the SDK
+
+## Methods
+
+### method `clear`
+
+Clear all values
+
+```ts
+clear(): Promise<void>
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`Promise<void>`
+
+### method `get`
+
+Get a value by key
+
+```ts
+get(key: string): Promise<string | null>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+
+#### Returns
+
+`Promise<string | null>`
+
+### method `getJSON`
+
+Get a JSON value by key
+
+```ts
+getJSON(key: string): Promise<T | null>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+
+#### Returns
+
+`Promise<T | null>`
+
+### method `remove`
+
+Remove a value by key
+
+```ts
+remove(key: string): Promise<void>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+
+#### Returns
+
+`Promise<void>`
+
+### method `set`
+
+Set a value by key
+
+```ts
+set(key: string, value: string): Promise<void>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+| `value` | `string` | — |
+
+#### Returns
+
+`Promise<void>`
+
+### method `setJSON`
+
+Set a JSON value by key
+
+```ts
+setJSON(key: string, value: T): Promise<void>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+| `value` | `T` | — |
+
+#### Returns
+
+`Promise<void>`

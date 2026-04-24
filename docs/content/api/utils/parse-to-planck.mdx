@@ -1,0 +1,42 @@
+---
+generated: true
+title: "parseToPlanck()"
+description: "Parse a human-readable decimal token amount into its planck (smallest unit) representation."
+---
+# `parseToPlanck()`
+
+Parse a human-readable decimal token amount into its planck (smallest unit) representation.
+
+Converts a string like `"1.5"` into the corresponding bigint planck value
+(e.g. `15_000_000_000n` for 10 decimals). If the input has more fractional
+digits than `decimals`, excess digits are silently truncated with a warning log.
+
+```ts
+parseToPlanck(amount: string, decimals: number = 10): bigint
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `amount` | `string` | A non-negative decimal string (e.g. `"1.5"`, `"100"`, `"0.001"`). |
+| `decimals` | `number` = `10` | Number of decimal places for the token (default: 10 for DOT). |
+
+## Returns
+
+`bigint` — The planck value as a bigint.
+
+## Throws
+
+- If `amount` is empty, negative, or contains invalid characters.
+- If `decimals` is invalid.
+
+## Examples
+
+```ts
+import { parseToPlanck } from "@parity/product-sdk-utils";
+
+parseToPlanck("1.5");        // 15_000_000_000n   (10 decimals, DOT default)
+parseToPlanck("100");        // 1_000_000_000_000n
+parseToPlanck("0.001", 12);  // 1_000_000_000n    (12 decimals)
+```

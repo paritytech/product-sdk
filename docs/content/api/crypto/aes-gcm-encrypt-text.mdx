@@ -1,0 +1,29 @@
+---
+generated: true
+title: "aesGcmEncryptText()"
+description: "Encrypt a UTF-8 string with AES-256-GCM."
+---
+# `aesGcmEncryptText()`
+
+Encrypt a UTF-8 string with AES-256-GCM.
+
+Convenience wrapper that encodes the string to bytes before encrypting.
+
+```ts
+aesGcmEncryptText(plaintext: string, key: Uint8Array): { ciphertext: Uint8Array; nonce: Uint8Array }
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `plaintext` | `string` | The string to encrypt. |
+| `key` | `Uint8Array` | 32-byte AES-256 key. |
+
+## Returns
+
+`{ ciphertext: Uint8Array; nonce: Uint8Array }` — Object containing the `ciphertext` and the random `nonce` used.
+
+## Throws
+
+- If `key` is not exactly 32 bytes.

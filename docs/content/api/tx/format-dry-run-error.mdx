@@ -1,0 +1,43 @@
+---
+generated: true
+title: "formatDryRunError()"
+description: "Extract a human-readable error from a failed dry-run result."
+---
+# `formatDryRunError()`
+
+Extract a human-readable error from a failed dry-run result.
+
+Handles every error shape found across the Polkadot contract ecosystem:
+
+1. **Revert reason** (Ink SDK patched results / EVM contracts):
+   `{ value: { revertReason: "InsufficientBalance" } }`
+
+2. **Nested dispatch errors** (raw Ink SDK / pallet errors):
+   `{ value: { type: "Module", value: { type: "Revive", value: { type: "StorageDepositNotEnoughFunds" } } } }`
+   Delegates to `formatDispatchError` for the Module.Pallet.Error chain.
+
+3. **ReviveApi runtime messages** (`eth_transact` / `ReviveApi.call`):
+   `{ value: { type: "Message", value: "Insufficient balance for gas * price + value" } }`
+
+4. **ReviveApi contract revert data**:
+   `{ value: { type: "Data", value: "0x08c379a0..." } }`
+
+5. **Wrapped raw errors** (patched SDK wrappers):
+   `{ value: { raw: { type: "Message", value: "..." } } }`
+
+6. **Generic error field**:
+   `{ error: { type: "ContractTrapped" } }` or `{ error: { name: "..." } }`
+
+```ts
+formatDryRunError(result: { error?: unknown; success?: boolean; value?: unknown }): string
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `result` | `{ error?: unknown; success?: boolean; value?: unknown }` | A dry-run result with at least `success`, and optionally `value` / `error`. |
+
+## Returns
+
+`string` — A human-readable error string, or `""` if the result succeeded.

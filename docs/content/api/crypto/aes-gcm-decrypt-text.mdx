@@ -1,0 +1,28 @@
+---
+generated: true
+title: "aesGcmDecryptText()"
+description: "Decrypt AES-256-GCM ciphertext back to a UTF-8 string."
+---
+# `aesGcmDecryptText()`
+
+Decrypt AES-256-GCM ciphertext back to a UTF-8 string.
+
+```ts
+aesGcmDecryptText(ciphertext: Uint8Array, key: Uint8Array, nonce: Uint8Array): string
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `ciphertext` | `Uint8Array` | Data to decrypt. |
+| `key` | `Uint8Array` | 32-byte AES-256 key. |
+| `nonce` | `Uint8Array` | 12-byte nonce used during encryption. |
+
+## Returns
+
+`string` — The decrypted plaintext string.
+
+## Throws
+
+- If decryption or authentication fails.

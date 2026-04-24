@@ -1,0 +1,27 @@
+---
+generated: true
+title: "resolveQueryStrategy()"
+description: "Determine the query strategy for the Bulletin Chain."
+---
+# `resolveQueryStrategy()`
+
+Determine the query strategy for the Bulletin Chain.
+
+Uses the host preimage lookup API which caches results and manages
+IPFS polling automatically.
+
+```ts
+resolveQueryStrategy(): Promise<QueryStrategy>
+```
+
+## Parameters
+
+_No parameters._
+
+## Returns
+
+`Promise<QueryStrategy>` — The resolved query strategy.
+
+## Throws
+
+- If the host preimage manager is unavailable.

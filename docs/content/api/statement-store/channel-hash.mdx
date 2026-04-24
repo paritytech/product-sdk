@@ -1,0 +1,16 @@
+---
+generated: true
+title: "type ChannelHash"
+description: "A 32-byte blake2b-256 hash used as a statement channel identifier."
+---
+# `type ChannelHash`
+
+A 32-byte blake2b-256 hash used as a statement channel identifier.
+
+Channels enable last-write-wins semantics: for a given channel,
+only the most recent statement (by timestamp) is kept.
+Create one with `createChannel`.
+
+```ts
+type ChannelHash = Uint8Array & { readonly __brand: "ChannelHash" }
+```

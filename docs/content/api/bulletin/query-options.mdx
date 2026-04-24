@@ -1,0 +1,22 @@
+---
+generated: true
+title: "interface QueryOptions"
+description: "Options for query operations that support host lookup auto-resolution."
+---
+# `interface QueryOptions`
+
+Options for query operations that support host lookup auto-resolution.
+
+**Extends:** `FetchOptions`
+
+## Properties
+
+### property `lookupTimeoutMs`
+
+```ts
+lookupTimeoutMs: number
+```
+
+Timeout for the host preimage lookup subscription in ms.
+Only applies when the query resolves through the host path.
+Default: 30_000.

@@ -1,0 +1,24 @@
+---
+generated: true
+title: "isInsideContainerSync()"
+description: "Synchronous container detection — fast heuristic check without product-sdk."
+---
+# `isInsideContainerSync()`
+
+Synchronous container detection — fast heuristic check without product-sdk.
+
+Checks for iframe, webview marker, and host message port signals.
+Use this when you need a quick sync check (e.g., in hot code paths).
+For full detection including product-sdk, use `isInsideContainer` (async).
+
+```ts
+isInsideContainerSync(): boolean
+```
+
+## Parameters
+
+_No parameters._
+
+## Returns
+
+`boolean`

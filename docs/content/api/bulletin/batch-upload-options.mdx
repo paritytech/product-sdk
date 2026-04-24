@@ -1,0 +1,20 @@
+---
+generated: true
+title: "interface BatchUploadOptions"
+description: "Options for `batchUpload`."
+---
+# `interface BatchUploadOptions`
+
+Options for `batchUpload`.
+
+**Extends:** `UploadOptions`
+
+## Properties
+
+### property `onProgress`
+
+```ts
+onProgress: (completed: number, total: number, current: BatchUploadResult) => void
+```
+
+Called after each item completes (success or failure).

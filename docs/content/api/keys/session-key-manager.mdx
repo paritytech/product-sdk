@@ -1,0 +1,116 @@
+---
+generated: true
+title: "class SessionKeyManager"
+description: "Manages an sr25519 account derived from a BIP39 mnemonic."
+---
+# `class SessionKeyManager`
+
+Manages an sr25519 account derived from a BIP39 mnemonic.
+
+## Examples
+
+```ts
+const store = await createKvStore({ prefix: "session-key" });
+const skm = new SessionKeyManager({ store });
+const key = await skm.getOrCreate();
+```
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new SessionKeyManager(options: { name?: string; store: KvStore }): SessionKeyManager
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `options` | `{ name?: string; store: KvStore }` | — |
+
+## Methods
+
+### method `clear`
+
+Clear the stored mnemonic from the store.
+
+```ts
+clear(): Promise<void>
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`Promise<void>`
+
+### method `create`
+
+Create a new session key from a fresh mnemonic.
+Persists the mnemonic to the store.
+
+```ts
+create(): Promise<SessionKeyInfo>
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`Promise<SessionKeyInfo>`
+
+### method `fromMnemonic`
+
+Derive a session key from an explicit mnemonic (no storage interaction).
+
+```ts
+fromMnemonic(mnemonic: string): SessionKeyInfo
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `mnemonic` | `string` | — |
+
+#### Returns
+
+`SessionKeyInfo`
+
+### method `get`
+
+Load an existing session key from the store.
+Returns null if no mnemonic is stored.
+
+```ts
+get(): Promise<SessionKeyInfo | null>
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`Promise<SessionKeyInfo | null>`
+
+### method `getOrCreate`
+
+Load existing or create a new session key.
+
+```ts
+getOrCreate(): Promise<SessionKeyInfo>
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`Promise<SessionKeyInfo>`

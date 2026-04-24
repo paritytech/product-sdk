@@ -1,0 +1,72 @@
+---
+generated: true
+title: "interface SignerAccount"
+description: "A signing-capable account from any provider."
+---
+# `interface SignerAccount`
+
+A signing-capable account from any provider.
+
+## Properties
+
+### property `address`
+
+```ts
+address: SS58String
+```
+
+SS58 address (generic prefix 42 by default).
+
+### property `h160Address`
+
+```ts
+h160Address: `0x${string}`
+```
+
+H160 EVM address derived from the public key.
+
+For native Substrate accounts: keccak256(publicKey), last 20 bytes.
+For EVM-derived accounts: strips the 0xEE padding.
+Used for pallet-revive / Asset Hub EVM contract interactions.
+
+### property `name`
+
+```ts
+name: string | null
+```
+
+Human-readable name if available from the provider.
+
+### property `publicKey`
+
+```ts
+publicKey: Uint8Array
+```
+
+Raw public key (32 bytes). May be sr25519, ed25519, or ecdsa depending on the provider.
+
+### property `source`
+
+```ts
+source: ProviderType
+```
+
+Which provider supplied this account.
+
+## Methods
+
+### method `getSigner`
+
+Get the PolkadotSigner for this account.
+
+```ts
+getSigner(): PolkadotSigner
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`PolkadotSigner`

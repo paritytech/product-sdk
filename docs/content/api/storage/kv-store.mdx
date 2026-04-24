@@ -1,0 +1,89 @@
+---
+generated: true
+title: "interface KvStore"
+---
+# `interface KvStore`
+
+## Methods
+
+### method `get`
+
+```ts
+get(key: string): Promise<string | null>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+
+#### Returns
+
+`Promise<string | null>`
+
+### method `getJSON`
+
+```ts
+getJSON(key: string): Promise<T | null>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+
+#### Returns
+
+`Promise<T | null>`
+
+### method `remove`
+
+```ts
+remove(key: string): Promise<void>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+
+#### Returns
+
+`Promise<void>`
+
+### method `set`
+
+```ts
+set(key: string, value: string): Promise<void>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+| `value` | `string` | — |
+
+#### Returns
+
+`Promise<void>`
+
+### method `setJSON`
+
+```ts
+setJSON(key: string, value: unknown): Promise<void>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `string` | — |
+| `value` | `unknown` | — |
+
+#### Returns
+
+`Promise<void>`

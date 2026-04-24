@@ -1,0 +1,63 @@
+---
+generated: true
+title: "interface SignerManagerOptions"
+description: "Options for SignerManager construction."
+---
+# `interface SignerManagerOptions`
+
+Options for SignerManager construction.
+
+## Properties
+
+### property `createProvider`
+
+```ts
+createProvider: ProviderFactory
+```
+
+Custom provider factory. Override to inject test doubles or custom providers.
+
+### property `dappName`
+
+```ts
+dappName: string
+```
+
+App name used for storage key namespacing. Default: "product-sdk"
+The selected account is persisted under `product-sdk:signer:{dappName}:selectedAccount`.
+
+### property `hostTimeout`
+
+```ts
+hostTimeout: number
+```
+
+Maximum time in ms to wait for the Host API.
+Applied as an AbortSignal timeout on the host provider connection.
+Default: 10_000
+
+### property `maxRetries`
+
+```ts
+maxRetries: number
+```
+
+Maximum retry attempts for provider connection. Default: 3
+
+### property `persistence`
+
+```ts
+persistence: AccountPersistence | null
+```
+
+Storage adapter for persisting selected account.
+Uses host localStorage when inside a container.
+Set to `null` to disable persistence entirely.
+
+### property `ss58Prefix`
+
+```ts
+ss58Prefix: number
+```
+
+SS58 prefix for address encoding. Default: 42

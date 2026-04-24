@@ -1,0 +1,18 @@
+---
+generated: true
+title: "type UploadResult"
+description: "Result of a successful upload to the Bulletin Chain."
+---
+# `type UploadResult`
+
+Result of a successful upload to the Bulletin Chain.
+
+Discriminated on `kind`:
+- `"transaction"` — uploaded via a signed `TransactionStorage.store` extrinsic.
+- `"preimage"` — uploaded via the host preimage API (no user signing).
+
+Use `result.kind` to narrow the type and access path-specific fields.
+
+```ts
+type UploadResult = UploadResultBase & { blockHash: string; kind: "transaction" } | UploadResultBase & { kind: "preimage"; preimageKey: string }
+```

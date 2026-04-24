@@ -1,0 +1,23 @@
+---
+generated: true
+title: "toH160()"
+description: "Convert any address (SS58 or H160) to an H160 EVM address."
+---
+# `toH160()`
+
+Convert any address (SS58 or H160) to an H160 EVM address.
+If already H160 format (0x-prefixed, 42 chars), returns as-is preserving original casing.
+
+```ts
+toH160(address: string): `0x${string}`
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `address` | `string` | — |
+
+## Returns
+
+``0x${string}``

@@ -1,0 +1,18 @@
+---
+generated: true
+title: "interface ResultAsync"
+description: "Neverthrow-style ResultAsync returned by product-sdk methods."
+---
+# `interface ResultAsync`
+
+Neverthrow-style ResultAsync returned by product-sdk methods.
+
+Use `.match(onOk, onErr)` to handle success/error cases.
+
+## Properties
+
+### property `match`
+
+```ts
+match: (ok: (t: T) => A, err: (e: E) => B) => Promise<A | B>
+```

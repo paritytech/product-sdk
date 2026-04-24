@@ -1,0 +1,25 @@
+---
+generated: true
+title: "isAccountMapped()"
+description: "Check if an address is mapped on-chain."
+---
+# `isAccountMapped()`
+
+Check if an address is mapped on-chain.
+
+Convenience wrapper around `checker.addressIsMapped()` with error handling.
+
+```ts
+isAccountMapped(address: string, checker: MappingChecker): Promise<boolean>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `address` | `string` | — |
+| `checker` | `MappingChecker` | — |
+
+## Returns
+
+`Promise<boolean>`

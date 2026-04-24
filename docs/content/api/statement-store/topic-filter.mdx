@@ -1,0 +1,16 @@
+---
+generated: true
+title: "type TopicFilter"
+description: "Filter for statement subscriptions and queries."
+---
+# `type TopicFilter`
+
+Filter for statement subscriptions and queries.
+
+- `"any"` — matches all statements (no filtering).
+- `{ matchAll: [...] }` — matches statements that have **all** listed topics.
+- `{ matchAny: [...] }` — matches statements that have **any** listed topic.
+
+```ts
+type TopicFilter = "any" | { matchAll: TopicHash[] } | { matchAny: TopicHash[] }
+```

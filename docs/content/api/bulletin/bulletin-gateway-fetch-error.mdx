@@ -1,0 +1,54 @@
+---
+generated: true
+title: "class BulletinGatewayFetchError"
+description: "An IPFS gateway request failed."
+---
+# `class BulletinGatewayFetchError`
+
+An IPFS gateway request failed.
+
+Thrown when a fetch to the IPFS gateway returns a non-OK response.
+
+**Extends:** `BulletinError`
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new BulletinGatewayFetchError(cid: string, status: number, statusText: string): BulletinGatewayFetchError
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | — |
+| `status` | `number` | — |
+| `statusText` | `string` | — |
+
+## Properties
+
+### property `cid`
+
+```ts
+cid: string
+```
+
+The CID that was being fetched.
+
+### property `status`
+
+```ts
+status: number
+```
+
+The HTTP status code returned by the gateway.
+
+### property `statusText`
+
+```ts
+statusText: string
+```
+
+The HTTP status text returned by the gateway.

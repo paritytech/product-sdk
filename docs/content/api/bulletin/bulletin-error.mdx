@@ -1,0 +1,39 @@
+---
+generated: true
+title: "class BulletinError"
+description: "Base class for all Bulletin Chain errors."
+---
+# `class BulletinError`
+
+Base class for all Bulletin Chain errors.
+
+Use `instanceof BulletinError` to catch any bulletin-related error.
+
+**Extends:** `Error`
+
+## Examples
+
+```ts
+try {
+  await bulletin.upload(data);
+} catch (e) {
+  if (e instanceof BulletinError) {
+    console.error("Bulletin operation failed:", e.message);
+  }
+}
+```
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new BulletinError(message: string, options?: ErrorOptions): BulletinError
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `message` | `string` | — |
+| `options` _(optional)_ | `ErrorOptions` | — |

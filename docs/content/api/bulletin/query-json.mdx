@@ -1,0 +1,29 @@
+---
+generated: true
+title: "queryJson()"
+description: "Fetch and parse JSON for a CID, auto-resolving the query path."
+---
+# `queryJson()`
+
+Fetch and parse JSON for a CID, auto-resolving the query path.
+
+Delegates to `queryBytes` and parses the result as JSON.
+
+```ts
+queryJson(cid: string, options?: QueryOptions): Promise<T>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | CIDv1 string to fetch. |
+| `options` _(optional)_ | `QueryOptions` | Query options. |
+
+## Returns
+
+`Promise<T>` — Parsed JSON value.
+
+## Throws
+
+- If the host preimage API is unavailable.

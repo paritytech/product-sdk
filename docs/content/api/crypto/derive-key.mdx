@@ -1,0 +1,36 @@
+---
+generated: true
+title: "deriveKey()"
+description: "Derive a 32-byte key using HKDF-SHA256 (RFC 5869)."
+---
+# `deriveKey()`
+
+Derive a 32-byte key using HKDF-SHA256 (RFC 5869).
+
+This is a convenience wrapper around the full HKDF function, fixed to SHA-256
+and a 32-byte output length — suitable for deriving symmetric encryption keys.
+
+```ts
+deriveKey(ikm: Uint8Array, salt: string | Uint8Array<ArrayBufferLike>, info: string | Uint8Array<ArrayBufferLike>): Uint8Array
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `ikm` | `Uint8Array` | Input keying material (e.g. a shared secret or master key). |
+| `salt` | `string \| Uint8Array<ArrayBufferLike>` | Salt value (string or bytes). Use a unique, application-specific salt. |
+| `info` | `string \| Uint8Array<ArrayBufferLike>` | Context/application-specific info string (string or bytes). |
+
+## Returns
+
+`Uint8Array` — A 32-byte derived key as `Uint8Array`.
+
+## Examples
+
+```ts
+import { deriveKey, randomBytes } from "@parity/product-sdk-crypto";
+
+const masterKey = randomBytes(32);
+const encryptionKey = deriveKey(masterKey, "myapp-v1", "document-encryption");
+```

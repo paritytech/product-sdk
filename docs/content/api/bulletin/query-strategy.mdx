@@ -1,0 +1,25 @@
+---
+generated: true
+title: "interface QueryStrategy"
+description: "Query strategy for the Bulletin Chain."
+---
+# `interface QueryStrategy`
+
+Query strategy for the Bulletin Chain.
+
+The host manages the lookup via its preimage subscription API,
+which includes local caching and managed IPFS polling.
+
+## Properties
+
+### property `kind`
+
+```ts
+kind: "host-lookup"
+```
+
+### property `lookup`
+
+```ts
+lookup: (cid: string, timeoutMs?: number) => Promise<Uint8Array<ArrayBufferLike>>
+```

@@ -1,0 +1,28 @@
+---
+generated: true
+title: "deriveH160()"
+description: "Derive the H160 EVM address from a 32-byte Substrate public key."
+---
+# `deriveH160()`
+
+Derive the H160 EVM address from a 32-byte Substrate public key.
+
+Asset Hub pallet-revive uses these derivation rules:
+- If the account was originally EVM-derived (last 12 bytes are all 0xEE):
+  strip the padding to recover the original H160 address.
+- If native Substrate account (sr25519/ed25519):
+  keccak256(publicKey), take last 20 bytes. One-way mapping.
+
+```ts
+deriveH160(publicKey: Uint8Array): `0x${string}`
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `publicKey` | `Uint8Array` | — |
+
+## Returns
+
+``0x${string}``

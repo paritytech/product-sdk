@@ -1,0 +1,37 @@
+---
+generated: true
+title: "xchachaEncryptPacked()"
+description: "Encrypt binary data with XChaCha20-Poly1305, returning a single packed buffer."
+---
+# `xchachaEncryptPacked()`
+
+Encrypt binary data with XChaCha20-Poly1305, returning a single packed buffer.
+
+Output format: `nonce(24) || ciphertext`. Convenient for storage or transmission
+where a single blob is preferred.
+
+```ts
+xchachaEncryptPacked(data: Uint8Array, key: Uint8Array): Uint8Array
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | Binary data to encrypt. |
+| `key` | `Uint8Array` | 32-byte encryption key. |
+
+## Returns
+
+`Uint8Array` — Single `Uint8Array` with nonce prepended to ciphertext.
+
+## Throws
+
+- If `key` is not exactly 32 bytes.
+
+## Examples
+
+```ts
+const packed = xchachaEncryptPacked(data, key);
+const plaintext = xchachaDecryptPacked(packed, key);
+```

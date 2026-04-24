@@ -1,0 +1,27 @@
+---
+generated: true
+title: "xchachaEncryptText()"
+description: "Encrypt a UTF-8 string with XChaCha20-Poly1305."
+---
+# `xchachaEncryptText()`
+
+Encrypt a UTF-8 string with XChaCha20-Poly1305.
+
+```ts
+xchachaEncryptText(plaintext: string, key: Uint8Array): { ciphertext: Uint8Array; nonce: Uint8Array }
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `plaintext` | `string` | The string to encrypt. |
+| `key` | `Uint8Array` | 32-byte encryption key. |
+
+## Returns
+
+`{ ciphertext: Uint8Array; nonce: Uint8Array }` — Object containing `ciphertext` and 24-byte `nonce`.
+
+## Throws
+
+- If `key` is not exactly 32 bytes.

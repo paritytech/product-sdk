@@ -1,0 +1,270 @@
+---
+generated: true
+title: "class SignerManager"
+description: "Core orchestrator for signer management."
+---
+# `class SignerManager`
+
+Core orchestrator for signer management.
+
+Manages account discovery and signer creation via the Host API.
+Framework-agnostic — use the subscribe() pattern to integrate with
+React, Vue, or any framework.
+
+## Examples
+
+```ts
+const manager = new SignerManager();
+manager.subscribe(state => console.log(state.status));
+
+// Connect to the host provider
+await manager.connect();
+
+// Or use dev accounts for testing
+await manager.connect("dev");
+
+// Select account and get signer
+manager.selectAccount("5GrwvaEF...");
+const signer = manager.getSigner();
+```
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new SignerManager(options?: SignerManagerOptions): SignerManager
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `options` _(optional)_ | `SignerManagerOptions` | — |
+
+## Methods
+
+### method `connect`
+
+Connect to a provider.
+
+If no provider type is specified, connects to the Host API.
+The SDK is designed to run exclusively inside a host container.
+
+When connecting to a specific provider type:
+- `"host"`: Connect to the Host API (default, recommended)
+- `"dev"`: Connect using dev accounts (for testing)
+
+```ts
+connect(providerType?: ProviderType): Promise<Result<SignerAccount[], SignerError>>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `providerType` _(optional)_ | `ProviderType` | — |
+
+#### Returns
+
+`Promise<Result<SignerAccount[], SignerError>>`
+
+### method `createRingVRFProof`
+
+Create a Ring VRF proof for anonymous operations.
+
+Proves that the signer is a member of the ring at the given location
+without revealing which member. Only available when connected via the
+host provider — returns HOST_UNAVAILABLE otherwise.
+
+```ts
+createRingVRFProof(dotNsIdentifier: string, derivationIndex: number, location: RingLocation, message: Uint8Array): Promise<Result<Uint8Array<ArrayBufferLike>, SignerError>>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `dotNsIdentifier` | `string` | — |
+| `derivationIndex` | `number` | — |
+| `location` | `RingLocation` | — |
+| `message` | `Uint8Array` | — |
+
+#### Returns
+
+`Promise<Result<Uint8Array<ArrayBufferLike>, SignerError>>`
+
+### method `destroy`
+
+Destroy the manager and release all resources.
+After calling destroy(), the manager is unusable.
+
+```ts
+destroy(): void
+```
+
+#### Parameters
+
+_No parameters._
+
+### method `disconnect`
+
+Disconnect from the current provider and reset state.
+
+```ts
+disconnect(): void
+```
+
+#### Parameters
+
+_No parameters._
+
+### method `getProductAccount`
+
+Get an app-scoped product account from the host.
+
+Product accounts are derived by the host wallet for each app, identified
+by `dotNsIdentifier` (e.g., "mark3t.dot"). Only available when connected
+via the host provider — returns HOST_UNAVAILABLE otherwise.
+
+```ts
+getProductAccount(dotNsIdentifier: string, derivationIndex: number = 0): Promise<Result<SignerAccount, SignerError>>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `dotNsIdentifier` | `string` | — |
+| `derivationIndex` | `number` = `0` | — |
+
+#### Returns
+
+`Promise<Result<SignerAccount, SignerError>>`
+
+#### Examples
+
+```ts
+const result = await manager.getProductAccount("myapp.dot");
+if (result.ok) {
+  const signer = result.value.getSigner();
+}
+```
+
+### method `getProductAccountAlias`
+
+Get a contextual alias for a product account via Ring VRF.
+
+Aliases prove account membership in a ring without revealing which
+account produced the alias. Only available when connected via the host
+provider — returns HOST_UNAVAILABLE otherwise.
+
+```ts
+getProductAccountAlias(dotNsIdentifier: string, derivationIndex: number = 0): Promise<Result<ContextualAlias, SignerError>>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `dotNsIdentifier` | `string` | — |
+| `derivationIndex` | `number` = `0` | — |
+
+#### Returns
+
+`Promise<Result<ContextualAlias, SignerError>>`
+
+### method `getSigner`
+
+Get the PolkadotSigner for the currently selected account.
+Returns null if no account is selected or manager is disconnected.
+
+```ts
+getSigner(): PolkadotSigner | null
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`PolkadotSigner | null`
+
+### method `getState`
+
+Get a snapshot of the current state.
+
+```ts
+getState(): SignerState
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`SignerState`
+
+### method `selectAccount`
+
+Select an account by address.
+Returns the account on success, or ACCOUNT_NOT_FOUND error.
+
+```ts
+selectAccount(address: string): Result<SignerAccount, SignerError>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `address` | `string` | — |
+
+#### Returns
+
+`Result<SignerAccount, SignerError>`
+
+### method `signRaw`
+
+Sign arbitrary bytes with the currently selected account.
+
+Convenience wrapper around `PolkadotSigner.signBytes` — useful for
+master key derivation, message signing, and proof generation without
+constructing a full transaction.
+
+Returns a SIGNING_FAILED error if no account is selected or signing fails.
+
+```ts
+signRaw(data: Uint8Array): Promise<Result<Uint8Array<ArrayBufferLike>, SignerError>>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | — |
+
+#### Returns
+
+`Promise<Result<Uint8Array<ArrayBufferLike>, SignerError>>`
+
+### method `subscribe`
+
+Subscribe to state changes. The callback fires on every state mutation.
+Returns an unsubscribe function.
+
+```ts
+subscribe(callback: (state: SignerState) => void): () => void
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `callback` | `(state: SignerState) => void` | — |
+
+#### Returns
+
+`() => void`

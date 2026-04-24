@@ -1,0 +1,37 @@
+---
+generated: true
+title: "class BulletinLookupInterruptedError"
+description: "The host interrupted the preimage lookup."
+---
+# `class BulletinLookupInterruptedError`
+
+The host interrupted the preimage lookup.
+
+The host terminated the lookup subscription, typically after repeated failures
+or when the host determines the content is unavailable.
+
+**Extends:** `BulletinError`
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new BulletinLookupInterruptedError(cid: string): BulletinLookupInterruptedError
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | — |
+
+## Properties
+
+### property `cid`
+
+```ts
+cid: string
+```
+
+The CID that was being looked up.

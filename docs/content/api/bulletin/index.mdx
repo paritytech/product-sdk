@@ -1,0 +1,82 @@
+---
+generated: true
+title: "@parity/product-sdk-bulletin"
+---
+
+# `@parity/product-sdk-bulletin`
+
+```sh npm2yarn
+npm install @parity/product-sdk-bulletin
+```
+
+## Classes
+
+| Name | Summary |
+| --- | --- |
+| [`BulletinAuthorizationError`](/api/bulletin/bulletin-authorization-error) | Failed to check authorization status for an account. |
+| [`BulletinCidError`](/api/bulletin/bulletin-cid-error) | Invalid CID format or version. |
+| [`BulletinClient`](/api/bulletin/bulletin-client) | Ergonomic entry point for Bulletin Chain operations. |
+| [`BulletinError`](/api/bulletin/bulletin-error) | Base class for all Bulletin Chain errors. |
+| [`BulletinGatewayFetchError`](/api/bulletin/bulletin-gateway-fetch-error) | An IPFS gateway request failed. |
+| [`BulletinGatewayUnavailableError`](/api/bulletin/bulletin-gateway-unavailable-error) | The IPFS gateway for the specified environment is not available. |
+| [`BulletinHostUnavailableError`](/api/bulletin/bulletin-host-unavailable-error) | The host preimage API is unavailable. |
+| [`BulletinLookupInterruptedError`](/api/bulletin/bulletin-lookup-interrupted-error) | The host interrupted the preimage lookup. |
+| [`BulletinLookupTimeoutError`](/api/bulletin/bulletin-lookup-timeout-error) | The host preimage lookup timed out. |
+
+## Functions
+
+| Name | Summary |
+| --- | --- |
+| [`batchUpload()`](/api/bulletin/batch-upload) | Upload multiple items sequentially to the Bulletin Chain. |
+| [`checkAuthorization()`](/api/bulletin/check-authorization) | Check whether an account is authorized to store data on the Bulletin Chain. |
+| [`cidExists()`](/api/bulletin/cid-exists) | Check if a CID exists on the gateway (HEAD request). Returns false on any error or timeout. |
+| [`cidToPreimageKey()`](/api/bulletin/cid-to-preimage-key) | Extract the content hash digest from a CIDv1 string and return it as a |
+| [`computeCid()`](/api/bulletin/compute-cid) | Compute the CIDv1 (blake2b-256, raw codec) for arbitrary data. |
+| [`fetchBytes()`](/api/bulletin/fetch-bytes) | Fetch raw bytes from the gateway. |
+| [`fetchJson()`](/api/bulletin/fetch-json) | Fetch and parse JSON from the gateway. |
+| [`gatewayUrl()`](/api/bulletin/gateway-url) | Build the full gateway URL for a CID. |
+| [`getGateway()`](/api/bulletin/get-gateway) | Get the IPFS gateway URL for an environment. |
+| [`hashToCid()`](/api/bulletin/hash-to-cid) | Reconstruct a CIDv1 from a `0x`-prefixed hex hash stored on-chain. |
+| [`queryBytes()`](/api/bulletin/query-bytes) | Fetch raw bytes for a CID using the host preimage lookup. |
+| [`queryJson()`](/api/bulletin/query-json) | Fetch and parse JSON for a CID, auto-resolving the query path. |
+| [`resolveQueryStrategy()`](/api/bulletin/resolve-query-strategy) | Determine the query strategy for the Bulletin Chain. |
+| [`resolveUploadStrategy()`](/api/bulletin/resolve-upload-strategy) | Determine the upload strategy for the Bulletin Chain. |
+| [`upload()`](/api/bulletin/upload) | Upload data to the Bulletin Chain. |
+
+## Interfaces
+
+| Name | Summary |
+| --- | --- |
+| [`AuthorizationStatus`](/api/bulletin/authorization-status) | Authorization status for a Bulletin Chain account. |
+| [`BatchUploadItem`](/api/bulletin/batch-upload-item) | A single item in a batch upload. |
+| [`BatchUploadOptions`](/api/bulletin/batch-upload-options) | Options for `batchUpload`. |
+| [`FetchOptions`](/api/bulletin/fetch-options) | Options for gateway fetch operations. |
+| [`QueryOptions`](/api/bulletin/query-options) | Options for query operations that support host lookup auto-resolution. |
+| [`QueryStrategy`](/api/bulletin/query-strategy) | Query strategy for the Bulletin Chain. |
+| [`UploadOptions`](/api/bulletin/upload-options) | Options for `upload`. |
+
+## Type Aliases
+
+| Name | Summary |
+| --- | --- |
+| [`BatchUploadResult`](/api/bulletin/batch-upload-result) | Result for one item in a batch upload. |
+| [`BulletinApi`](/api/bulletin/bulletin-api) | Typed API for the Bulletin Chain, derived from PAPI descriptors. |
+| [`CidCodec`](/api/bulletin/cid-codec) | A multicodec code supported by the Bulletin Chain. |
+| [`HashAlgorithm`](/api/bulletin/hash-algorithm) | A multihash code supported by the Bulletin Chain. |
+| [`UploadResult`](/api/bulletin/upload-result) | Result of a successful upload to the Bulletin Chain. |
+| [`UploadStrategy`](/api/bulletin/upload-strategy) | Discriminated union describing how data will be uploaded to the Bulletin Chain. |
+
+## Variables
+
+| Name | Summary |
+| --- | --- |
+| [`CidCodec`](/api/bulletin/cid-codec) | CID codecs supported by the Bulletin Chain. |
+| [`HashAlgorithm`](/api/bulletin/hash-algorithm) | Hash algorithms supported by the Bulletin Chain. |
+
+## Re-exports
+
+Convenience re-exports from leaf packages. Click through for the canonical documentation.
+
+| Name | Kind | Source package |
+| --- | --- | --- |
+| [`Environment`](/api/chain-client/environment) | type | [`@parity/product-sdk-chain-client`](/api/chain-client) |

@@ -1,0 +1,66 @@
+---
+generated: true
+title: "interface HostStatementStore"
+description: "The statement store interface provided by the host API via product-sdk."
+---
+# `interface HostStatementStore`
+
+The statement store interface provided by the host API via product-sdk.
+
+## Methods
+
+### method `createProof`
+
+Create a proof for a statement using the given account.
+
+```ts
+createProof(accountId: [string, number], statement: unknown): Promise<StatementProof>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `accountId` | `[string, number]` | The account ID tuple [ss58Address, chainPrefix] from product-sdk |
+| `statement` | `unknown` | The unsigned statement |
+
+#### Returns
+
+`Promise<StatementProof>` — The proof (signature + signer info)
+
+### method `submit`
+
+Submit a signed statement to the bulletin chain.
+
+```ts
+submit(signedStatement: unknown): Promise<void>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `signedStatement` | `unknown` | Statement with attached proof |
+
+#### Returns
+
+`Promise<void>`
+
+### method `subscribe`
+
+Subscribe to statements matching the given topics.
+
+```ts
+subscribe(topics: Uint8Array<ArrayBufferLike>[], callback: (statements: unknown[]) => void): { unsubscribe: () => void }
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `topics` | `Uint8Array<ArrayBufferLike>[]` | Topic filters as Uint8Array[] |
+| `callback` | `(statements: unknown[]) => void` | Called with batches of SignedStatement[] |
+
+#### Returns
+
+`{ unsubscribe: () => void }` — Subscription object with unsubscribe method

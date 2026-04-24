@@ -1,0 +1,65 @@
+---
+generated: true
+title: "interface HostProviderOptions"
+description: "Options for the Host API provider."
+---
+# `interface HostProviderOptions`
+
+Options for the Host API provider.
+
+## Properties
+
+### property `loadHostApiEnum`
+
+```ts
+loadHostApiEnum: () => Promise<HostApiEnumHelper>
+```
+
+Custom loader for `@novasamatech/host-api` (used to construct the
+`TransactionSubmit` permission request). Defaults to dynamic import.
+
+### property `loadSdk`
+
+```ts
+loadSdk: () => Promise<ProductSdkModule>
+```
+
+Custom SDK loader. Defaults to `import("@novasamatech/product-sdk")`.
+Override this for testing or custom SDK setups.
+
+### property `maxRetries`
+
+```ts
+maxRetries: number
+```
+
+Max retry attempts for initial connection. Default: 3
+
+### property `requestTransactionSubmitPermission`
+
+```ts
+requestTransactionSubmitPermission: boolean
+```
+
+Whether to request the host's `TransactionSubmit` permission after a
+successful `connect()`. Without this, subsequent signing requests are
+rejected by the host with `PermissionDenied`. Default: `true`.
+
+Set to `false` if your app needs to defer the permission prompt or
+drives it manually.
+
+### property `retryDelay`
+
+```ts
+retryDelay: number
+```
+
+Initial retry delay in ms. Default: 500
+
+### property `ss58Prefix`
+
+```ts
+ss58Prefix: number
+```
+
+SS58 prefix for address encoding. Default: 42

@@ -1,0 +1,29 @@
+---
+generated: true
+title: "interface StatementSignerWithKey"
+description: "An Sr25519 signer with its associated public key."
+---
+# `interface StatementSignerWithKey`
+
+An Sr25519 signer with its associated public key.
+
+Used by `StatementStoreClient.connect` to sign published statements
+when running outside a container (local mode).
+
+## Properties
+
+### property `publicKey`
+
+```ts
+publicKey: Uint8Array
+```
+
+32-byte Sr25519 public key.
+
+### property `sign`
+
+```ts
+sign: StatementSigner
+```
+
+Signing function.

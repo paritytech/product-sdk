@@ -1,0 +1,51 @@
+---
+generated: true
+title: "ensureAccountMapped()"
+description: "Ensure an account's SS58 address is mapped to its H160 EVM address on-chain."
+---
+# `ensureAccountMapped()`
+
+Ensure an account's SS58 address is mapped to its H160 EVM address on-chain.
+
+Account mapping is a prerequisite for any EVM contract interaction on Asset Hub.
+This function checks the on-chain mapping status and, if unmapped, submits a
+`Revive.map_account()` transaction and waits for inclusion.
+
+Idempotent — safe to call multiple times. Returns immediately if already mapped.
+
+```ts
+ensureAccountMapped(address: string, signer: PolkadotSigner, checker: MappingChecker, api: ReviveApi, options?: EnsureAccountMappedOptions): Promise<TxResult | null>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `address` | `string` | The SS58 address to check/map. |
+| `signer` | `PolkadotSigner` | The signer for the account (must match the address). |
+| `checker` | `MappingChecker` | An object with `addressIsMapped()` (e.g., from `createInkSdk(client)`). |
+| `api` | `ReviveApi` | A typed API with `tx.Revive.map_account()`. |
+| `options` _(optional)_ | `EnsureAccountMappedOptions` | Optional timeout and status callback. |
+
+## Returns
+
+`Promise<TxResult | null>` — The transaction result if mapping was performed, or `null` if already mapped.
+
+## Throws
+
+- If the mapping check or transaction fails.
+- If the map_account transaction fails on-chain.
+- If the mapping transaction times out.
+
+## Examples
+
+```ts
+import { ensureAccountMapped } from "@parity/product-sdk-tx";
+import { createInkSdk } from "@polkadot-api/sdk-ink";
+
+const inkSdk = createInkSdk(client);
+const api = client.getTypedApi(descriptor);
+
+await ensureAccountMapped(address, signer, inkSdk, api);
+// Account is now mapped — safe to call EVM contracts
+```

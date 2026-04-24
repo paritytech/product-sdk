@@ -1,0 +1,88 @@
+---
+generated: true
+title: "interface StatementTransport"
+description: "Low-level transport interface for statement store communication."
+---
+# `interface StatementTransport`
+
+Low-level transport interface for statement store communication.
+
+Uses **HostTransport** — the Host API's native binary protocol.
+
+Most consumers should use `StatementStoreClient` instead of this interface directly.
+
+## Methods
+
+### method `destroy`
+
+Destroy the transport and release all resources.
+
+```ts
+destroy(): void
+```
+
+#### Parameters
+
+_No parameters._
+
+### method `query`
+
+Query existing statements from the store.
+
+Note: The host API subscription replays initial state, so this may not be needed.
+
+```ts
+query(filter: TopicFilter): Promise<Partial<{ channel: SizedHex<32>; data: Uint8Array; decryptionKey: SizedHex<32>; expiry: bigint; proof: Proof; topics: SizedHex<32>[] }>[]>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `filter` | `TopicFilter` | — |
+
+#### Returns
+
+`Promise<Partial<{ channel: SizedHex<32>; data: Uint8Array; decryptionKey: SizedHex<32>; expiry: bigint; proof: Proof; topics: SizedHex<32>[] }>[]>`
+
+### method `signAndSubmit`
+
+Sign and submit a statement.
+
+- **Host mode**: delegates to the host API's `createProof` then `submit`.
+- **Local mode**: signs locally using `getStatementSigner` from sdk-statement, then submits.
+
+```ts
+signAndSubmit(statement: Statement, credentials: ConnectionCredentials): Promise<void>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `statement` | `Statement` | The unsigned statement to sign and submit. |
+| `credentials` | `ConnectionCredentials` | Signing credentials (host accountId or local signer). |
+
+#### Returns
+
+`Promise<void>`
+
+### method `subscribe`
+
+Subscribe to statements matching a topic filter.
+
+```ts
+subscribe(filter: TopicFilter, onStatements: (statements: Partial<{ channel: SizedHex<32>; data: Uint8Array; decryptionKey: SizedHex<32>; expiry: bigint; proof: Proof; topics: SizedHex<32>[] }>[]) => void, onError: (error: Error) => void): Unsubscribable
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `filter` | `TopicFilter` | sdk-statement topic filter. |
+| `onStatements` | `(statements: Partial<{ channel: SizedHex<32>; data: Uint8Array; decryptionKey: SizedHex<32>; expiry: bigint; proof: Proof; topics: SizedHex<32>[] }>[]) => void` | Called with batches of received statements. |
+| `onError` | `(error: Error) => void` | Called when the subscription encounters an error. |
+
+#### Returns
+
+`Unsubscribable` — A handle to unsubscribe.

@@ -1,0 +1,110 @@
+---
+generated: true
+title: "class DevProvider"
+description: "Provider for Substrate development accounts."
+---
+# `class DevProvider`
+
+Provider for Substrate development accounts.
+
+Uses the well-known DEV_PHRASE with hard derivation paths (`//Alice`, `//Bob`, etc.)
+to create deterministic accounts for local development and testing.
+
+**Implements:** `SignerProvider`
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new DevProvider(options?: DevProviderOptions): DevProvider
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `options` _(optional)_ | `DevProviderOptions` | — |
+
+## Properties
+
+### property `type`
+
+```ts
+type: "dev"
+```
+
+Unique identifier for this provider type.
+
+## Methods
+
+### method `connect`
+
+Attempt to connect and discover accounts.
+
+```ts
+connect(): Promise<Result<SignerAccount[], SignerError>>
+```
+
+#### Parameters
+
+_No parameters._
+
+#### Returns
+
+`Promise<Result<SignerAccount[], SignerError>>` — Accounts on success, typed error on failure.
+
+### method `disconnect`
+
+Disconnect and clean up resources.
+Safe to call multiple times.
+
+```ts
+disconnect(): void
+```
+
+#### Parameters
+
+_No parameters._
+
+### method `onAccountsChange`
+
+Subscribe to account list changes.
+
+Emitted when the set of available accounts changes (e.g., user
+connects/disconnects in the host wallet).
+
+```ts
+onAccountsChange(_callback: (accounts: SignerAccount[]) => void): Unsubscribe
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `_callback` | `(accounts: SignerAccount[]) => void` | — |
+
+#### Returns
+
+`Unsubscribe` — Unsubscribe function.
+
+### method `onStatusChange`
+
+Subscribe to connection status changes.
+
+Not all providers emit status changes — for example, dev accounts
+are always "connected" and never emit.
+
+```ts
+onStatusChange(_callback: (status: "disconnected" | "connecting" | "connected") => void): Unsubscribe
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `_callback` | `(status: "disconnected" \| "connecting" \| "connected") => void` | — |
+
+#### Returns
+
+`Unsubscribe` — Unsubscribe function.

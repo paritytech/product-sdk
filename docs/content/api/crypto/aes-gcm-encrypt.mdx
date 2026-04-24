@@ -1,0 +1,41 @@
+---
+generated: true
+title: "aesGcmEncrypt()"
+description: "Encrypt binary data with AES-256-GCM."
+---
+# `aesGcmEncrypt()`
+
+Encrypt binary data with AES-256-GCM.
+
+Generates a random 12-byte nonce and returns it alongside the ciphertext.
+The ciphertext includes the 16-byte authentication tag appended by GCM.
+
+```ts
+aesGcmEncrypt(data: Uint8Array, key: Uint8Array): { ciphertext: Uint8Array; nonce: Uint8Array }
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | Binary data to encrypt. |
+| `key` | `Uint8Array` | 32-byte AES-256 key. |
+
+## Returns
+
+`{ ciphertext: Uint8Array; nonce: Uint8Array }` — Object containing the `ciphertext` and the random `nonce` used.
+
+## Throws
+
+- If `key` is not exactly 32 bytes.
+
+## Examples
+
+```ts
+import { aesGcmEncrypt, aesGcmDecrypt } from "@parity/product-sdk-crypto";
+import { randomBytes } from "@parity/product-sdk-crypto";
+
+const key = randomBytes(32);
+const { ciphertext, nonce } = aesGcmEncrypt(data, key);
+const plaintext = aesGcmDecrypt(ciphertext, key, nonce);
+```

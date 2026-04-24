@@ -1,0 +1,12 @@
+---
+generated: true
+title: "type SdkTopicFilter"
+description: "Filter for subscribing to statements with different topics."
+---
+# `type SdkTopicFilter`
+
+Filter for subscribing to statements with different topics.
+
+```ts
+type SdkTopicFilter = "any" | { matchAll: SizedHex<32>[] } | { matchAny: SizedHex<32>[] }
+```

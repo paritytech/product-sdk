@@ -1,0 +1,30 @@
+---
+generated: true
+title: "cidToPreimageKey()"
+description: "Extract the content hash digest from a CIDv1 string and return it as a"
+---
+# `cidToPreimageKey()`
+
+Extract the content hash digest from a CIDv1 string and return it as a
+`0x`-prefixed hex string — the preimage key format used by the host API.
+
+Accepts CIDv1 with any hash algorithm supported by the Bulletin Chain
+(blake2b-256, sha2-256, keccak-256).
+
+```ts
+cidToPreimageKey(cid: string): `0x${string}`
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | CIDv1 base32 string (as produced by `computeCid` or `hashToCid`). |
+
+## Returns
+
+``0x${string}`` — `0x`-prefixed hex string of the 32-byte hash digest.
+
+## Throws
+
+- If the CID is not CIDv1 or uses an unsupported hash algorithm.

@@ -1,0 +1,28 @@
+---
+generated: true
+title: "chachaDecryptText()"
+description: "Decrypt ChaCha20-Poly1305 ciphertext back to a UTF-8 string."
+---
+# `chachaDecryptText()`
+
+Decrypt ChaCha20-Poly1305 ciphertext back to a UTF-8 string.
+
+```ts
+chachaDecryptText(ciphertext: Uint8Array, key: Uint8Array, nonce: Uint8Array): string
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `ciphertext` | `Uint8Array` | Data to decrypt. |
+| `key` | `Uint8Array` | 32-byte encryption key. |
+| `nonce` | `Uint8Array` | 12-byte nonce used during encryption. |
+
+## Returns
+
+`string` — The decrypted plaintext string.
+
+## Throws
+
+- If decryption or authentication fails.

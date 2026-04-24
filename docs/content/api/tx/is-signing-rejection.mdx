@@ -1,0 +1,26 @@
+---
+generated: true
+title: "isSigningRejection()"
+description: "Check if an error looks like a user-rejected signing request."
+---
+# `isSigningRejection()`
+
+Check if an error looks like a user-rejected signing request.
+
+Different wallets use different error messages when the user rejects signing:
+"Cancelled", "Rejected", "User rejected", "denied". This checks for common
+patterns as a best-effort heuristic. Non-Error values always return false.
+
+```ts
+isSigningRejection(error: unknown): boolean
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `error` | `unknown` | The error to check. |
+
+## Returns
+
+`boolean` — `true` if the error message matches a known rejection pattern.

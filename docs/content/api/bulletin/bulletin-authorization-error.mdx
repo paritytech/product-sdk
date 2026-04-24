@@ -1,0 +1,38 @@
+---
+generated: true
+title: "class BulletinAuthorizationError"
+description: "Failed to check authorization status for an account."
+---
+# `class BulletinAuthorizationError`
+
+Failed to check authorization status for an account.
+
+Wraps RPC or query errors that occur when checking if an account
+is authorized to store data on the Bulletin Chain.
+
+**Extends:** `BulletinError`
+
+## Constructors
+
+### constructor `constructor`
+
+```ts
+new BulletinAuthorizationError(address: string, cause?: unknown): BulletinAuthorizationError
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `address` | `string` | — |
+| `cause` _(optional)_ | `unknown` | — |
+
+## Properties
+
+### property `address`
+
+```ts
+address: string
+```
+
+The address that was being checked.

@@ -1,0 +1,30 @@
+---
+generated: true
+title: "boxDecrypt()"
+description: "NaCl box decrypt: authenticated decryption where both sender and recipient are known."
+---
+# `boxDecrypt()`
+
+NaCl box decrypt: authenticated decryption where both sender and recipient are known.
+
+Input format: `nonce(24) || ciphertext`.
+
+```ts
+boxDecrypt(packed: Uint8Array, senderPublicKey: Uint8Array, recipientSecretKey: Uint8Array): Uint8Array
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `packed` | `Uint8Array` | The packed message produced by `boxEncrypt`. |
+| `senderPublicKey` | `Uint8Array` | The sender's 32-byte Curve25519 public key. |
+| `recipientSecretKey` | `Uint8Array` | The recipient's 32-byte Curve25519 secret key. |
+
+## Returns
+
+`Uint8Array` — The decrypted plaintext bytes.
+
+## Throws
+
+- If the packed data is too short, or decryption/authentication fails.

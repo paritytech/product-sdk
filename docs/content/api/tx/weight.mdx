@@ -1,0 +1,29 @@
+---
+generated: true
+title: "interface Weight"
+description: "Substrate weight representing computational and storage resources."
+---
+# `interface Weight`
+
+Substrate weight representing computational and storage resources.
+
+Matches the shape returned by `ReviveApi.call` and `ReviveApi.eth_transact`
+dry-run results in the `weight_required` field.
+
+## Properties
+
+### property `proof_size`
+
+```ts
+proof_size: bigint
+```
+
+Proof size component in bytes.
+
+### property `ref_time`
+
+```ts
+ref_time: bigint
+```
+
+Reference time component in picoseconds.

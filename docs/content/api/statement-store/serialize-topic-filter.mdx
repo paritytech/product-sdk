@@ -1,0 +1,26 @@
+---
+generated: true
+title: "serializeTopicFilter()"
+description: "Serialize a `TopicFilter` into the JSON-RPC format expected by statement store nodes."
+---
+# `serializeTopicFilter()`
+
+Serialize a `TopicFilter` into the JSON-RPC format expected by statement store nodes.
+
+- `"any"` is passed through as the string `"any"`.
+- `{ matchAll: [...] }` becomes `{ matchAll: ["0x...", ...] }` with hex-encoded topics.
+- `{ matchAny: [...] }` becomes `{ matchAny: ["0x...", ...] }` with hex-encoded topics.
+
+```ts
+serializeTopicFilter(filter: TopicFilter): TopicFilter
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `filter` | `TopicFilter` | The topic filter to serialize. |
+
+## Returns
+
+`TopicFilter` — A JSON-RPC compatible filter value.

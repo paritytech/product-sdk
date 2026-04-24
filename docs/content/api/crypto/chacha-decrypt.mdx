@@ -1,0 +1,28 @@
+---
+generated: true
+title: "chachaDecrypt()"
+description: "Decrypt binary data with ChaCha20-Poly1305 (RFC 8439)."
+---
+# `chachaDecrypt()`
+
+Decrypt binary data with ChaCha20-Poly1305 (RFC 8439).
+
+```ts
+chachaDecrypt(ciphertext: Uint8Array, key: Uint8Array, nonce: Uint8Array): Uint8Array
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `ciphertext` | `Uint8Array` | Data to decrypt (includes 16-byte Poly1305 tag). |
+| `key` | `Uint8Array` | 32-byte encryption key. |
+| `nonce` | `Uint8Array` | 12-byte nonce used during encryption. |
+
+## Returns
+
+`Uint8Array` — The decrypted plaintext.
+
+## Throws
+
+- If `key` is not 32 bytes, or if decryption/authentication fails.

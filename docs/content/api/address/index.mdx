@@ -1,0 +1,37 @@
+---
+generated: true
+title: "@parity/product-sdk-address"
+---
+
+# `@parity/product-sdk-address`
+
+```sh npm2yarn
+npm install @parity/product-sdk-address
+```
+
+## Functions
+
+| Name | Summary |
+| --- | --- |
+| [`accountIdBytes()`](/api/address/account-id-bytes) | Decode an SS58 address to its 32-byte AccountId using polkadot-api's AccountId codec. |
+| [`accountIdFromBytes()`](/api/address/account-id-from-bytes) | Encode an SS58 address from a 32-byte public key using polkadot-api's AccountId codec. |
+| [`addressesEqual()`](/api/address/addresses-equal) | Compare two addresses for equality. |
+| [`deriveH160()`](/api/address/derive-h160) | Derive the H160 EVM address from a 32-byte Substrate public key. |
+| [`h160ToSs58()`](/api/address/h160-to-ss58) | Convert an H160 EVM address to its corresponding SS58 address. |
+| [`isValidH160()`](/api/address/is-valid-h160) | Validate whether a string is a valid H160 (20-byte hex) address. |
+| [`isValidSs58()`](/api/address/is-valid-ss58) | Validate whether a string is a valid SS58 address. |
+| [`normalizeSs58()`](/api/address/normalize-ss58) | Re-encode an SS58 address with a different network prefix. |
+| [`ss58Decode()`](/api/address/ss58-decode) | Decode an SS58 address into its raw public key bytes and network prefix. |
+| [`ss58Encode()`](/api/address/ss58-encode) | Encode raw public key bytes into an SS58 address with the given prefix. |
+| [`ss58ToH160()`](/api/address/ss58-to-h160) | Convert an SS58 address to its H160 EVM address. |
+| [`toGenericSs58()`](/api/address/to-generic-ss58) | Convert any SS58 address to generic Substrate format (prefix 42). |
+| [`toH160()`](/api/address/to-h160) | Convert any address (SS58 or H160) to an H160 EVM address. |
+| [`toPolkadotSs58()`](/api/address/to-polkadot-ss58) | Convert any SS58 address to Polkadot format (prefix 0). |
+| [`truncateAddress()`](/api/address/truncate-address) | Truncate an address for display. |
+
+## Type Aliases
+
+| Name | Summary |
+| --- | --- |
+| [`HexString`](/api/address/hex-string) | — |
+| [`SS58String`](/api/address/ss58-string) | — |

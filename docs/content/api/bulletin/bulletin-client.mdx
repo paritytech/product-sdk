@@ -1,0 +1,264 @@
+---
+generated: true
+title: "class BulletinClient"
+description: "Ergonomic entry point for Bulletin Chain operations."
+---
+# `class BulletinClient`
+
+Ergonomic entry point for Bulletin Chain operations.
+
+Bundles a typed Bulletin API (from chain-client) and an IPFS gateway URL
+so callers don't need to re-pass them on every call.
+
+Both upload and query paths use the host container APIs:
+- **Uploads** — the host preimage API signs and submits automatically.
+- **Queries** (`fetchBytes`/`fetchJson`) — uses host preimage lookup with caching.
+
+## Examples
+
+```ts
+const bulletin = await BulletinClient.create("paseo");
+const result = await bulletin.upload(fileBytes);
+const metadata = await bulletin.fetchJson<Metadata>(result.cid);
+```
+
+## Properties
+
+### property `api`
+
+```ts
+api: BulletinApi
+```
+
+### property `gateway`
+
+```ts
+gateway: string
+```
+
+## Methods
+
+### method `batchUpload`
+
+Upload multiple items sequentially.
+
+```ts
+batchUpload(items: BatchUploadItem[], signer?: PolkadotSigner, options?: Omit<BatchUploadOptions, "gateway">): Promise<BatchUploadResult[]>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `items` | `BatchUploadItem[]` | Array of items to upload, each with data and a label. |
+| `signer` _(optional)_ | `PolkadotSigner` | Optional signer. When omitted, auto-resolved. |
+| `options` _(optional)_ | `Omit<BatchUploadOptions, "gateway">` | Batch upload options (timeout, progress callback). |
+
+#### Returns
+
+`Promise<BatchUploadResult[]>`
+
+### method `checkAuthorization`
+
+Check whether an account is authorized to store data on the Bulletin Chain.
+
+Use as a pre-flight check before `upload` to provide clear UX
+instead of letting the transaction fail mid-execution.
+
+```ts
+checkAuthorization(address: string): Promise<AuthorizationStatus>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `address` | `string` | SS58-encoded account address to check. |
+
+#### Returns
+
+`Promise<AuthorizationStatus>` — Authorization status with remaining quota.
+
+#### See also
+
+- `checkAuthorization` for the standalone function equivalent.
+
+### method `cidExists`
+
+Check if a CID exists on the gateway.
+
+```ts
+cidExists(cid: string): Promise<boolean>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | — |
+
+#### Returns
+
+`Promise<boolean>`
+
+### method `fetchBytes`
+
+Fetch raw bytes by CID.
+
+Uses host preimage lookup with caching.
+
+```ts
+fetchBytes(cid: string, options?: QueryOptions): Promise<Uint8Array<ArrayBufferLike>>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | — |
+| `options` _(optional)_ | `QueryOptions` | — |
+
+#### Returns
+
+`Promise<Uint8Array<ArrayBufferLike>>`
+
+### method `fetchJson`
+
+Fetch and parse JSON by CID.
+
+Auto-resolves query path (same as `fetchBytes`).
+
+```ts
+fetchJson(cid: string, options?: QueryOptions): Promise<T>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | — |
+| `options` _(optional)_ | `QueryOptions` | — |
+
+#### Returns
+
+`Promise<T>`
+
+### method `gatewayUrl`
+
+Build the full gateway URL for a CID.
+
+```ts
+gatewayUrl(cid: string): string
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cid` | `string` | — |
+
+#### Returns
+
+`string`
+
+### method `upload`
+
+Upload data to the Bulletin Chain.
+
+```ts
+upload(data: Uint8Array, signer?: PolkadotSigner, options?: Omit<UploadOptions, "gateway">): Promise<UploadResult>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | Raw bytes to store. |
+| `signer` _(optional)_ | `PolkadotSigner` | Optional signer. When omitted, uses the host preimage API. |
+| `options` _(optional)_ | `Omit<UploadOptions, "gateway">` | Upload options (timeout, waitFor, status callback). |
+
+#### Returns
+
+`Promise<UploadResult>`
+
+### method `computeCid`
+
+Compute CID without uploading. Static — no instance needed.
+
+```ts
+computeCid(data: Uint8Array): string
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | — |
+
+#### Returns
+
+`string`
+
+### method `create`
+
+Create from an environment — resolves API via chain-client, gateway from known list.
+
+```ts
+create(env: Environment): Promise<BulletinClient>
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `env` | `Environment` | — |
+
+#### Returns
+
+`Promise<BulletinClient>`
+
+### method `from`
+
+Create from an explicit API and gateway (custom setups, testing).
+
+```ts
+from(api: BulletinApi, gateway: string): BulletinClient
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `api` | `BulletinApi` | — |
+| `gateway` | `string` | — |
+
+#### Returns
+
+`BulletinClient`
+
+### method `hashToCid`
+
+Reconstruct a CID from a `0x`-prefixed hex hash. Static — no instance needed.
+
+Useful for converting on-chain hashes back to CIDs for IPFS gateway lookups.
+Pass optional hash algorithm and codec to match the on-chain CID configuration.
+
+```ts
+hashToCid(hexHash: `0x${string}`, hashCode?: HashAlgorithm, codec?: CidCodec): string
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `hexHash` | ``0x${string}`` | — |
+| `hashCode` _(optional)_ | `HashAlgorithm` | — |
+| `codec` _(optional)_ | `CidCodec` | — |
+
+#### Returns
+
+`string`
+
+#### See also
+
+- `hashToCid` for full documentation.

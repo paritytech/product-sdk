@@ -1,0 +1,42 @@
+---
+generated: true
+title: "interface ContractOptions"
+description: "Options for `createContract` and base for `ContractManagerOptions`."
+---
+# `interface ContractOptions`
+
+Options for `createContract` and base for `ContractManagerOptions`.
+
+Signer resolution order (highest wins):
+1. Explicit override in call options
+2. `signerManager` (current logged-in account)
+3. Static `defaultSigner` / `defaultOrigin`
+
+## Properties
+
+### property `defaultOrigin`
+
+```ts
+defaultOrigin: SS58String
+```
+
+Static fallback caller address for queries.
+
+### property `defaultSigner`
+
+```ts
+defaultSigner: PolkadotSigner
+```
+
+Static fallback signer for transactions.
+
+### property `signerManager`
+
+```ts
+signerManager: SignerManager
+```
+
+Signer manager from `@parity/product-sdk-signer`. When provided, the
+currently selected account is used as the default signer and origin
+for all contract interactions. Resolved at call time so account
+switches are reflected immediately.

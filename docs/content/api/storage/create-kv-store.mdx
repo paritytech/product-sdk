@@ -1,0 +1,29 @@
+---
+generated: true
+title: "createKvStore()"
+description: "Create a key-value store."
+---
+# `createKvStore()`
+
+Create a key-value store.
+
+Uses the host localStorage when inside a container. The SDK is designed
+to run exclusively inside a host container.
+
+```ts
+createKvStore(options?: KvStoreOptions): Promise<KvStore>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `options` _(optional)_ | `KvStoreOptions` | — |
+
+## Returns
+
+`Promise<KvStore>`
+
+## Throws
+
+- If host storage is unavailable (not inside a container).

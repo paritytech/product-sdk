@@ -1,0 +1,15 @@
+---
+generated: true
+title: "type UploadStrategy"
+description: "Discriminated union describing how data will be uploaded to the Bulletin Chain."
+---
+# `type UploadStrategy`
+
+Discriminated union describing how data will be uploaded to the Bulletin Chain.
+
+- `"preimage"` — the host handles signing and chain submission via its preimage API.
+- `"signer"`   — a `TransactionStorage.store` transaction is signed and submitted directly.
+
+```ts
+type UploadStrategy = { kind: "preimage"; submit: (data: Uint8Array) => Promise<string> } | { kind: "signer"; signer: PolkadotSigner }
+```

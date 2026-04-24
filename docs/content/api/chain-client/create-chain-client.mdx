@@ -1,0 +1,56 @@
+---
+generated: true
+title: "createChainClient()"
+description: "Create a multi-chain client with user-provided descriptors and RPC endpoints."
+---
+# `createChainClient()`
+
+Create a multi-chain client with user-provided descriptors and RPC endpoints.
+
+Returns fully-typed APIs for each chain plus raw `PolkadotClient` access via `.raw`.
+Connections use host routing (via `@parity/product-sdk-host`) when inside a container,
+falling back to direct WebSocket RPC.
+
+Results are cached by genesis-hash fingerprint — calling with the same descriptors
+returns the same instance.
+
+```ts
+createChainClient(config: ChainClientConfig<TChains>): Promise<ChainClient<TChains>>
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `config` | `ChainClientConfig<TChains>` | — |
+
+## Returns
+
+`Promise<ChainClient<TChains>>`
+
+## Examples
+
+```ts
+import { createChainClient } from "@parity/product-sdk-chain-client";
+import { paseo_asset_hub } from "./descriptors/paseo-asset-hub";
+import { bulletin } from "./descriptors/bulletin";
+
+const client = await createChainClient({
+    chains: { assetHub: paseo_asset_hub, bulletin },
+    rpcs: {
+        assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
+        bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
+    },
+});
+
+// Fully typed from your descriptors
+const account = await client.assetHub.query.System.Account.getValue(addr);
+const fee = await client.bulletin.query.TransactionStorage.ByteFee.getValue();
+
+// Raw client for advanced use (e.g., InkSdk for contracts)
+import { createInkSdk } from "@polkadot-api/sdk-ink";
+const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+
+// Cleanup
+client.destroy();
+```

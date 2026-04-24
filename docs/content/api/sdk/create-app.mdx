@@ -1,97 +1,57 @@
 ---
-title: createApp
-description: Construct a Product SDK app instance with wallet, storage, chain, and bulletin APIs.
+generated: true
+title: "createApp()"
+description: "Create a new Product SDK app instance really cool"
 ---
+# `createApp()`
 
-# createApp
-
-Construct a Product SDK app instance. Opens host storage, initializes the signer manager, and creates a Bulletin Chain client unless disabled.
-
-## Signature
+Create a new Product SDK app instance really cool
 
 ```ts
-function createApp(config: AppConfig): Promise<App>
+createApp(config: AppConfig): Promise<App>
 ```
 
 ## Parameters
 
-| Name | Type | Default | Description |
-|---|---|---|---|
-| `config.name` | `string` | — | Application name. Used to derive product accounts and namespace host storage. |
-| `config.logLevel` | `LogLevel` | `'warn'` | Global log level for all SDK loggers. One of `'error' \| 'warn' \| 'info' \| 'debug'`. |
-| `config.bulletin` | `BulletinConfig \| false` | `{ environment: 'paseo' }` | Bulletin Chain config. Pass `false` to disable; `app.bulletin` will be `null`. |
-
-### `BulletinConfig`
-
-```ts
-interface BulletinConfig {
-  environment: "paseo" | "polkadot";
-}
-```
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `config` | `AppConfig` | Application configuration |
 
 ## Returns
 
-`Promise<App>` — resolves once storage and the Bulletin client are ready.
-
-```ts
-interface App {
-  wallet: WalletApi;
-  storage: StorageApi;
-  chain: ChainApi;
-  bulletin: BulletinApi | null;
-  getAppInfo(): AppConfig;
-}
-```
-
-See the [Types](/api/sdk/types) page for the full shape of each sub-API.
+`Promise<App>` — App instance with all APIs
 
 ## Examples
 
-### Default
-
 ```ts
-import { createApp } from "@parity/product-sdk";
+import { createApp } from '@parity/product-sdk';
 
-const app = await createApp({ name: "my-app" });
-
-const { accounts } = await app.wallet.connect();
-await app.storage.set("lastVisit", new Date().toISOString());
-```
-
-### Custom Bulletin environment
-
-```ts
+// Default: bulletin enabled with paseo environment
 const app = await createApp({
-  name: "my-app",
-  bulletin: { environment: "polkadot" },
+  name: 'my-app',
+  logLevel: 'info',
 });
 
-const cid = await app.bulletin!.upload("hello world");
-```
+// Custom bulletin environment
+const prodApp = await createApp({
+  name: 'my-app',
+  bulletin: { environment: 'polkadot' },
+});
 
-### Bulletin disabled
-
-```ts
-const app = await createApp({
-  name: "my-app",
+// Disable bulletin entirely
+const noBulletinApp = await createApp({
+  name: 'my-app',
   bulletin: false,
 });
 
-app.bulletin; // null
+// Connect wallet
+const { accounts } = await app.wallet.connect();
+
+// Use storage
+await app.storage.set('key', 'value');
+
+// Use bulletin (check for null if it might be disabled)
+if (app.bulletin) {
+  const cid = await app.bulletin.upload('hello world');
+}
 ```
-
-### With debug logging
-
-```ts
-const app = await createApp({
-  name: "my-app",
-  logLevel: "debug",
-});
-```
-
-## Notes
-
-- **Requires a host.** `createApp` awaits `createKvStore`, which throws `Host storage unavailable` outside a Nova Wallet host or the `host-api-test-sdk`. See [Runtime Environment](/getting-started/container-vs-standalone).
-- `createApp` can be called multiple times. Each call returns an independent `App` but shares the global logger state configured via `logLevel`.
-- `app.chain.getClient(...)` currently throws. Use `@parity/product-sdk-chain-client` directly for typed chain access until the umbrella wiring lands.
-- Dev accounts (Alice/Bob) are not exposed through `createApp`. Use `SignerManager` from `@parity/product-sdk-signer` and call `connect("dev")` when you need them.

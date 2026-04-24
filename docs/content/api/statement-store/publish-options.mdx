@@ -1,0 +1,51 @@
+---
+generated: true
+title: "interface PublishOptions"
+description: "Options for publishing a single statement."
+---
+# `interface PublishOptions`
+
+Options for publishing a single statement.
+
+## Properties
+
+### property `channel`
+
+```ts
+channel: string
+```
+
+Channel name for last-write-wins semantics.
+
+When provided, the statement is tagged with `blake2b(channel)`.
+For a given channel, only the most recent statement is kept.
+
+### property `decryptionKey`
+
+```ts
+decryptionKey: Uint8Array<ArrayBufferLike>
+```
+
+Decryption key hint (32 bytes).
+
+Used by the `statement_posted` RPC method to filter statements.
+Typically set to the blake2b hash of the room or document ID.
+
+### property `topic2`
+
+```ts
+topic2: string
+```
+
+Secondary topic for additional filtering.
+
+Hashed with blake2b and set as topic2. Useful for scoping
+statements to a specific room, document, or context.
+
+### property `ttlSeconds`
+
+```ts
+ttlSeconds: number
+```
+
+Time-to-live in seconds. Overrides `StatementStoreConfig.defaultTtlSeconds`.

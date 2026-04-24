@@ -1,0 +1,50 @@
+---
+generated: true
+title: "interface SignerState"
+description: "Full state snapshot emitted to subscribers."
+---
+# `interface SignerState`
+
+Full state snapshot emitted to subscribers.
+
+## Properties
+
+### property `accounts`
+
+```ts
+accounts: readonly SignerAccount[]
+```
+
+All available accounts across all connected providers.
+
+### property `activeProvider`
+
+```ts
+activeProvider: ProviderType | null
+```
+
+Which provider is active (null if disconnected).
+
+### property `error`
+
+```ts
+error: SignerError | null
+```
+
+Last error (null if no error).
+
+### property `selectedAccount`
+
+```ts
+selectedAccount: SignerAccount | null
+```
+
+Currently selected account (null if none selected).
+
+### property `status`
+
+```ts
+status: ConnectionStatus
+```
+
+Current connection status.

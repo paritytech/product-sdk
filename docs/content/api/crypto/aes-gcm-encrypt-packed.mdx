@@ -1,0 +1,37 @@
+---
+generated: true
+title: "aesGcmEncryptPacked()"
+description: "Encrypt binary data with AES-256-GCM, returning a single packed buffer."
+---
+# `aesGcmEncryptPacked()`
+
+Encrypt binary data with AES-256-GCM, returning a single packed buffer.
+
+Output format: `nonce(12) || ciphertext`. This is the convention used by
+the triangle-js-sdks session encryption and mark3t file encryption.
+
+```ts
+aesGcmEncryptPacked(data: Uint8Array, key: Uint8Array): Uint8Array
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `data` | `Uint8Array` | Binary data to encrypt. |
+| `key` | `Uint8Array` | 32-byte AES-256 key. |
+
+## Returns
+
+`Uint8Array` — Single `Uint8Array` with nonce prepended to ciphertext.
+
+## Throws
+
+- If `key` is not exactly 32 bytes.
+
+## Examples
+
+```ts
+const packed = aesGcmEncryptPacked(data, key);
+const plaintext = aesGcmDecryptPacked(packed, key);
+```

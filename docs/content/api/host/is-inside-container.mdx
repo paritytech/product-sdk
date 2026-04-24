@@ -1,0 +1,26 @@
+---
+generated: true
+title: "isInsideContainer()"
+description: "Detect if running inside a Host container (Polkadot Browser / Polkadot Desktop)."
+---
+# `isInsideContainer()`
+
+Detect if running inside a Host container (Polkadot Browser / Polkadot Desktop).
+
+The SDK is designed to run exclusively inside a host container. This function
+is primarily useful for early validation or informational purposes.
+
+Uses product-sdk's sandboxProvider as primary detection.
+Falls back to manual signal checks when product-sdk is not installed.
+
+```ts
+isInsideContainer(): Promise<boolean>
+```
+
+## Parameters
+
+_No parameters._
+
+## Returns
+
+`Promise<boolean>`
