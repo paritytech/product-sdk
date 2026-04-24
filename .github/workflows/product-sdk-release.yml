@@ -17,17 +17,26 @@ jobs:
     release:
         if: github.event.workflow_run.conclusion == 'success'
         runs-on: ubuntu-latest
+        environment: main
         steps:
+            - name: Generate GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@v1
+              with:
+                  app-id: ${{ secrets.APP_ID }}
+                  private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 0
+                  token: ${{ steps.app-token.outputs.token }}
 
             # Skip if the triggering commit was a version bump by the bot
             - name: Check if bot commit
               id: bot
               run: |
                   author=$(git log -1 --format='%an')
-                  if [ "$author" = "github-actions[bot]" ]; then
+                  if [ "$author" = "github-actions[bot]" ] || [ "$author" = "product-sdk-release-bot[bot]" ]; then
                     echo "skip=true" >> $GITHUB_OUTPUT
                   else
                     echo "skip=false" >> $GITHUB_OUTPUT
@@ -78,8 +87,8 @@ jobs:
             - name: Commit version changes
               if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
               run: |
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git config user.name "product-sdk-release-bot[bot]"
+                  git config user.email "${{ secrets.APP_ID }}+product-sdk-release-bot[bot]@users.noreply.github.com"
                   git add -A
                   git diff --cached --quiet || git commit -m "chore: version packages"
                   git pull --rebase
