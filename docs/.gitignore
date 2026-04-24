@@ -11,5 +11,6 @@ next-env.d.ts
 # API reference extraction output
 generated/
 
-# Pagefind search index
+# Pagefind search index (now written into out/ during static export)
 public/_pagefind/
+out/

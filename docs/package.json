@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "postbuild": "pagefind --site .next/server/app --output-path public/_pagefind",
-    "start": "next start",
+    "postbuild": "pagefind --site out --output-path out/_pagefind",
+    "start": "serve out",
     "docs:extract": "typedoc",
     "docs:render": "tsx scripts/generate-api.ts",
     "docs:generate": "pnpm docs:extract && pnpm docs:render",
@@ -28,6 +28,7 @@
     "autoprefixer": "^10.4.0",
     "pagefind": "^1.4.0",
     "postcss": "^8.4.0",
+    "serve": "^14.2.4",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.19.2",
     "typedoc": "0.28.19",
