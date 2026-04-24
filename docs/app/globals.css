@@ -189,3 +189,126 @@ body {
   --nextra-primary-saturation: 0%;
   --nextra-navbar-height: 64px;
 }
+
+/* ──────────────────────────────────────────────────────────────
+   API reference — scoped styles for generated package pages.
+   Establishes visual containment so members (properties, methods)
+   read as belonging to their parent symbol (class / interface).
+   Wrapper emitted by scripts/lib/render-package.ts.
+   ────────────────────────────────────────────────────────────── */
+
+[data-api-ref] :is(h3) {
+  padding-top: 1.5rem;
+  padding-bottom: 0.25rem;
+  border-top: 1px solid var(--border-divider);
+  margin-top: 3rem;
+}
+
+[data-api-ref] :is(h3):first-of-type {
+  border-top: none;
+  margin-top: 2rem;
+}
+
+/* Group label ("Properties", "Methods", "Parameters") — demote to an eyebrow
+   label so it doesn't outshout the symbol heading above it. */
+[data-api-ref] :is(h4) {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Member heading (name only — kind is rendered separately as a tag). */
+[data-api-ref] :is(h5) {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.125rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border-indicator);
+}
+
+/* Pull each member's body in under the left gutter. */
+[data-api-ref] :is(h5) + :is(p, pre, [data-api-sig]),
+[data-api-ref] [data-api-sig] + p,
+[data-api-ref] :is(h5) + pre + p {
+  margin-left: 0.75rem;
+}
+
+/* Member body blocks tighten up — one short vertical rhythm per member. */
+[data-api-ref] :is(h5) + :is(p, pre, [data-api-sig]) {
+  margin-top: 0.375rem;
+}
+
+[data-api-ref] :is(h5) + pre {
+  background: var(--bg-surface-nested);
+  border: 1px solid var(--border-divider);
+  padding: 0.5rem 0.75rem;
+}
+
+/* Inline property / accessor signature — single scannable row. */
+[data-api-ref] [data-api-sig] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--fg-secondary);
+}
+
+[data-api-ref] [data-api-sig] code {
+  background: transparent;
+  padding: 0;
+  border: 0;
+  color: var(--fg-primary);
+  font-size: 0.875rem;
+}
+
+/* Kind pill ("property", "method", …) — quiet tag, not a heading. */
+[data-api-ref] :is([data-api-kind], [data-api-flag]) {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--border-divider-tint);
+  border-radius: var(--radius-small);
+  line-height: 1;
+}
+
+[data-api-ref] [data-api-kind] {
+  color: var(--fg-tertiary);
+}
+
+/* Flag chips (optional / readonly) — secondary emphasis vs the kind tag,
+   tinted so they're scannable but don't compete with the type signature. */
+[data-api-ref] [data-api-flag] {
+  color: var(--fg-secondary);
+  background: var(--bg-action-secondary);
+  border-color: transparent;
+}
+
+/* Description immediately following a signature row — secondary color and
+   smaller rhythm so the name reads first, description second. */
+[data-api-ref] [data-api-sig] + p {
+  color: var(--fg-secondary);
+  font-size: 0.9375rem;
+  margin-top: 0.375rem;
+}
+
+/* Re-establish a hover-visible anchor link affordance on member headings.
+   Nextra's default `#` indicator relies on heading-level styles we've
+   overridden; re-attach the same behavior on our custom h5 rows. */
+[data-api-ref] :is(h5) a[href^="#"] {
+  color: var(--fg-tertiary);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+[data-api-ref] :is(h5):hover a[href^="#"],
+[data-api-ref] :is(h5) a[href^="#"]:focus-visible {
+  opacity: 1;
+}

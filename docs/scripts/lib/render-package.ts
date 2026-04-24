@@ -100,6 +100,8 @@ export function renderPackageOverview(pkg: Declaration, ownFolder: string): stri
   }
   lines.push(`\`\`\`sh npm2yarn\nnpm install ${pkg.name}\n\`\`\``);
   lines.push("");
+  lines.push("<div data-api-ref>");
+  lines.push("");
 
   const byId = new Map<number, Declaration>();
   (pkg.children ?? []).forEach((c) => byId.set(c.id, c));
@@ -192,5 +194,7 @@ export function renderPackageOverview(pkg: Declaration, ownFolder: string): stri
     lines.push("");
   }
 
+  lines.push("");
+  lines.push("</div>");
   return lines.join("\n").trimEnd() + "\n";
 }

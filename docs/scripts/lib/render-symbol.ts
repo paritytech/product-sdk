@@ -170,13 +170,32 @@ function renderFunctionSection(d: Declaration, baseLevel: number): string {
 
 function renderMember(d: Declaration, ownerName: string, baseLevel: number): string {
   const label = kindLabel(d.kind);
-  const anchor = `\`${d.name}\``;
-  const out: string[] = [h(baseLevel, `${label} ${anchor}`), ""];
+  const out: string[] = [];
 
-  if (d.kind === Kind.Property) {
-    const type = typeToString(d.type);
-    out.push(codeBlock(`${d.name}: ${type}`));
-    const summary = renderSummary(d.comment);
+  // Properties / accessors collapse to a single-line signature: the name is the
+  // heading, and the type sits inline on the same visual row via a data-type
+  // span. Avoids the heavy "heading → code block → prose" tower for what is
+  // conceptually one field definition.
+  if (d.kind === Kind.Property || d.kind === Kind.Accessor) {
+    const rawType =
+      d.kind === Kind.Accessor
+        ? typeToString(d.getSignature?.type ?? d.type)
+        : typeToString(d.type);
+    const type = collapseWhitespace(rawType);
+    out.push(hWithId(baseLevel, `\`${d.name}\``, `${kebab(ownerName)}-${kebab(d.name)}`));
+    out.push("");
+    const flagTags: string[] = [];
+    if (d.flags?.isReadonly) flagTags.push(`<span data-api-flag>readonly</span>`);
+    if (d.flags?.isOptional) flagTags.push(`<span data-api-flag>optional</span>`);
+    // Render as block JSX with the type passed through a JS string expression —
+    // types contain `<`, `>`, `{`, `}`, `|` which would otherwise collide with
+    // MDX's JSX / expression parsing.
+    out.push(
+      `<div data-api-sig><span data-api-kind>${label}</span>${flagTags.join("")}<code>{${JSON.stringify(type)}}</code></div>`,
+    );
+    const summary = renderSummary(
+      d.kind === Kind.Accessor ? (d.getSignature?.comment ?? d.comment) : d.comment,
+    );
     if (summary) {
       out.push("");
       out.push(summary);
@@ -184,16 +203,10 @@ function renderMember(d: Declaration, ownerName: string, baseLevel: number): str
     return out.join("\n");
   }
 
-  if (d.kind === Kind.Accessor) {
-    const type = typeToString(d.getSignature?.type ?? d.type);
-    out.push(codeBlock(`${d.name}: ${type}`));
-    const summary = renderSummary(d.getSignature?.comment ?? d.comment);
-    if (summary) {
-      out.push("");
-      out.push(summary);
-    }
-    return out.join("\n");
-  }
+  // Methods / constructors keep the heading + code-block pattern because their
+  // signatures routinely wrap to multiple lines.
+  out.push(h(baseLevel, `\`${d.name}\``));
+  out.push("");
 
   const signatures = d.signatures ?? [];
   const isCtor = d.kind === Kind.Constructor;
