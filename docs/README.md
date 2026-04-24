@@ -1,8 +1,8 @@
 # @parity/product-sdk-docs
 
-Documentation site for `@parity/product-sdk`. Built with [Nextra 4](https://nextra.site) on Next.js 15, styled with the `polkadot-design-system` tokens.
+Documentation site for `@parity/product-sdk`. Built with [Nextra 4](https://nextra.site) on Next.js 15, styled with `polkadot-design-system` tokens.
 
-Lives at the repo root (a sibling of `product-sdk/` and `repos/`) and runs as a standalone project — it is not part of the `product-sdk/` pnpm workspace.
+Lives at the repo root (a sibling of `product-sdk/` and `repos/`) and runs as a standalone project. It is not part of the `product-sdk/` pnpm workspace.
 
 ## Run locally
 
@@ -14,28 +14,45 @@ pnpm dev
 
 Open http://localhost:3000.
 
+> Search (Pagefind) is only populated by the production build. To test search locally, run `pnpm build && pnpm start` instead.
+
 ## Build
 
 ```bash
-pnpm build   # prerender all routes
+pnpm build   # prerender all routes and build the Pagefind search index
 pnpm start   # serve the production build locally
 ```
 
-Output is static — 13 prerendered routes.
+`postbuild` runs Pagefind against `.next/server/app` and writes the index into `public/_pagefind/`.
 
-## Editing content
+## Content
 
-MDX pages live under [`content/`](./content). Sidebar ordering and labels are defined in the `_meta.ts` file inside each directory.
+MDX pages live under [`content/`](./content). Sidebar ordering and labels are defined in each directory's `_meta.ts`.
 
-- `content/index.mdx` — landing
-- `content/getting-started/` — install, quickstart, runtime environment
-- `content/core-concepts/` — app lifecycle, logging
-- `content/api/sdk/` — umbrella `@parity/product-sdk` reference
+- `content/index.mdx`: landing page
+- `content/getting-started/`: installation and quickstart
+- `content/api/`: auto-generated API reference (see below)
 
-API reference pages follow one shape: **Signature → Parameters table → Returns → Examples → Notes**. Keep prose imperative and terse; lead parameter rows with type.
+## API reference generator
 
-## Design system
+The entire `content/api/` tree is generated from TSDoc comments in `product-sdk/packages/**/src/**`. Don't edit the generated files directly. Update the TSDoc at the source, then regenerate.
 
-Semantic tokens live in [`app/globals.css`](./app/globals.css) (Tailwind v4 `@theme` block + `.dark` overrides). Never use raw Tailwind colors (`bg-white`, `text-gray-500`, `dark:bg-…`) — use the semantic classes (`bg-surface-container`, `text-primary`, `rounded-container`). The `.dark` class on `<html>` swaps modes; no `dark:` prefix needed in components.
+```bash
+pnpm docs:generate   # typedoc --json + custom MDX renderer
+pnpm docs:check      # regenerate and fail if content/api drifts from committed state
+```
 
-Logo SVGs in [`public/`](./public) are copies from the `polkadot-design-system` skill — update them there, then copy over.
+Generator internals:
+
+- Config: [`typedoc.json`](./typedoc.json)
+- Renderer: [`scripts/generate-api.ts`](./scripts/generate-api.ts) and `scripts/lib/*`
+- TypeDoc JSON output: `generated/api.json` (gitignored)
+
+Every generated file carries a `generated: true` frontmatter marker. The renderer only overwrites files with that marker, so any curated MDX sitting in `content/api/` is preserved automatically.
+
+Output per package: one `index.mdx` overview grouping exports by kind, plus a drill-down page per class, function, interface, type alias, enum, and variable. The umbrella's re-exports link to the leaf package's canonical page instead of duplicating.
+
+## Navbar version badge
+
+The small version badge next to "Product SDK" in the navbar is read from [`product-sdk/packages/sdk/package.json`](../product-sdk/packages/sdk/package.json) at module load (server-side) in [`app/_components/logo.tsx`](./app/_components/logo.tsx). It updates automatically on release.
+
