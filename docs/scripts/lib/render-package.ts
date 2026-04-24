@@ -1,10 +1,11 @@
-import { kebab, packageSlug } from "./kebab.js";
+import { kebab } from "./kebab.js";
 import {
   isOwnExport,
   originPackageFolder,
   packageFolderToSlug,
 } from "./reexports.js";
 import { firstLine, renderSummary } from "./render-comment.js";
+import { renderSymbolSection } from "./render-symbol.js";
 import { kindLabel } from "./render-type.js";
 import { Kind, type Declaration } from "./types.js";
 
@@ -17,11 +18,41 @@ const SECTION_ORDER: { title: string; groupTitle: string; kind: number }[] = [
   { title: "Variables", groupTitle: "Variables", kind: Kind.Variable },
 ];
 
+export interface OwnExportGroup {
+  title: string;
+  kind: number;
+  items: Declaration[];
+}
+
+// Returns the package's own (non-re-exported) children grouped by kind in the
+// same order the overview page renders them. Used by both the overview
+// renderer and the sidebar _meta.ts builder so the two stay in sync.
+export function getOwnExportGroups(pkg: Declaration, ownFolder: string): OwnExportGroup[] {
+  const byId = new Map<number, Declaration>();
+  (pkg.children ?? []).forEach((c) => byId.set(c.id, c));
+  const ownIds = new Set(
+    (pkg.children ?? []).filter((c) => isOwnExport(c, ownFolder)).map((c) => c.id),
+  );
+  const groups = pkg.groups ?? [];
+  const result: OwnExportGroup[] = [];
+  for (const section of SECTION_ORDER) {
+    const group = groups.find((g) => g.title === section.groupTitle);
+    if (!group) continue;
+    const items = group.children
+      .map((id) => byId.get(id))
+      .filter(
+        (d): d is Declaration => !!d && d.kind === section.kind && ownIds.has(d.id),
+      );
+    if (items.length === 0) continue;
+    result.push({ title: section.title, kind: section.kind, items });
+  }
+  return result;
+}
+
 const escapeYaml = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
 export function sanitizePackageSummary(summary: string, pkgName: string): string {
   const lines = summary.split(/\r?\n/);
-  // Drop empty leading lines and any leading line that is just the package name.
   while (lines.length > 0) {
     const first = lines[0]!.trim();
     if (first === pkgName || first === "") {
@@ -30,7 +61,6 @@ export function sanitizePackageSummary(summary: string, pkgName: string): string
       break;
     }
   }
-  // If the first remaining line starts with "<pkgName> — " / ": " / "- ", strip the prefix.
   if (lines.length > 0) {
     const escaped = pkgName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const prefixPattern = new RegExp(`^${escaped}\\s*[—:\\-]\\s*`);
@@ -41,7 +71,7 @@ export function sanitizePackageSummary(summary: string, pkgName: string): string
 
 function itemSummary(item: Declaration): string {
   const raw = firstLine(
-    renderSummary(item.comment) || renderSummary(item.signatures?.[0]?.comment)
+    renderSummary(item.comment) || renderSummary(item.signatures?.[0]?.comment),
   );
   return raw ? raw.replace(/\s+/g, " ").replace(/\|/g, "\\|") : "";
 }
@@ -51,7 +81,6 @@ function labelFor(item: Declaration): string {
 }
 
 export function renderPackageOverview(pkg: Declaration, ownFolder: string): string {
-  const slug = packageSlug(pkg.name);
   const rawSummary = renderSummary(pkg.comment);
   const cleanedSummary = sanitizePackageSummary(rawSummary, pkg.name);
   const frontmatterDesc = firstLine(cleanedSummary);
@@ -76,14 +105,12 @@ export function renderPackageOverview(pkg: Declaration, ownFolder: string): stri
   (pkg.children ?? []).forEach((c) => byId.set(c.id, c));
   const groups = pkg.groups ?? [];
 
-  const ownChildren: Declaration[] = [];
-  const reExportChildren: Declaration[] = [];
-  for (const child of pkg.children ?? []) {
-    if (isOwnExport(child, ownFolder)) ownChildren.push(child);
-    else reExportChildren.push(child);
-  }
+  const ownChildren = (pkg.children ?? []).filter((c) => isOwnExport(c, ownFolder));
+  const reExportChildren = (pkg.children ?? []).filter((c) => !isOwnExport(c, ownFolder));
   const ownIds = new Set(ownChildren.map((c) => c.id));
 
+  // Overview table: same-page anchor links grouped by kind.
+  const sectionsWithItems: { title: string; kind: number; items: Declaration[] }[] = [];
   for (const section of SECTION_ORDER) {
     const group = groups.find((g) => g.title === section.groupTitle);
     if (!group) continue;
@@ -91,36 +118,42 @@ export function renderPackageOverview(pkg: Declaration, ownFolder: string): stri
       .map((id) => byId.get(id))
       .filter((d): d is Declaration => !!d && d.kind === section.kind && ownIds.has(d.id));
     if (items.length === 0) continue;
+    sectionsWithItems.push({ title: section.title, kind: section.kind, items });
+  }
 
-    lines.push(`## ${section.title}`);
+  if (sectionsWithItems.length > 0) {
+    lines.push("## Exports");
     lines.push("");
-    lines.push("| Name | Summary |");
-    lines.push("| --- | --- |");
-    for (const item of items) {
-      const href = `/api/${slug}/${kebab(item.name)}`;
-      const summary = itemSummary(item) || "—";
-      lines.push(`| [\`${labelFor(item)}\`](${href}) | ${summary} |`);
+    for (const section of sectionsWithItems) {
+      lines.push(`**${section.title}**`);
+      lines.push("");
+      lines.push("| Name | Summary |");
+      lines.push("| --- | --- |");
+      for (const item of section.items) {
+        const anchor = `#${kebab(item.name)}`;
+        const summary = itemSummary(item) || "—";
+        lines.push(`| [\`${labelFor(item)}\`](${anchor}) | ${summary} |`);
+      }
+      lines.push("");
     }
-    lines.push("");
   }
 
   if (reExportChildren.length > 0) {
     lines.push("## Re-exports");
     lines.push("");
     lines.push(
-      `Convenience re-exports from leaf packages. Click through for the canonical documentation.`
+      "Convenience re-exports from leaf packages. Click through for the canonical documentation.",
     );
     lines.push("");
     lines.push("| Name | Kind | Source package |");
     lines.push("| --- | --- | --- |");
-    // Sort re-exports alphabetically for stable output.
     reExportChildren
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
       .forEach((item) => {
         const folder = originPackageFolder(item);
         const leafSlug = folder ? packageFolderToSlug(folder) : null;
-        const href = leafSlug ? `/api/${leafSlug}/${kebab(item.name)}` : null;
+        const href = leafSlug ? `/api/${leafSlug}/#${kebab(item.name)}` : null;
         const nameCell = href ? `[\`${labelFor(item)}\`](${href})` : `\`${labelFor(item)}\``;
         const kindCell = kindLabel(item.kind);
         const leafPackage = folder
@@ -131,7 +164,19 @@ export function renderPackageOverview(pkg: Declaration, ownFolder: string): stri
     lines.push("");
   }
 
-  // Leftover groups (e.g. "References") that aren't in our section order.
+  // Inline symbol sections grouped by kind, baseLevel=3 under the group ##.
+  for (const section of sectionsWithItems) {
+    lines.push(`## ${section.title}`);
+    lines.push("");
+    for (const item of section.items) {
+      const body = renderSymbolSection(item, 3);
+      if (!body) continue;
+      lines.push(body);
+      lines.push("");
+    }
+  }
+
+  // Leftover groups (e.g. References) that aren't in our section order.
   const known = new Set(SECTION_ORDER.map((s) => s.groupTitle));
   for (const g of groups) {
     if (known.has(g.title)) continue;

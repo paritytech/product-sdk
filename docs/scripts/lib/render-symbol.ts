@@ -1,6 +1,5 @@
 import { kebab } from "./kebab.js";
 import {
-  firstLine,
   renderDeprecated,
   renderExamples,
   renderRemarks,
@@ -17,23 +16,20 @@ import {
 } from "./render-type.js";
 import { Kind, type Declaration, type Parameter, type Signature } from "./types.js";
 
-export interface SymbolPage {
-  fileName: string;
-  body: string;
-  title: string;
-}
-
-const escapeYaml = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-
-function frontmatter(title: string, description?: string): string {
-  const lines = ["---", "generated: true", `title: "${escapeYaml(title)}"`];
-  if (description) lines.push(`description: "${escapeYaml(firstLine(description))}"`);
-  lines.push("---", "");
-  return lines.join("\n");
-}
-
 function mdEscape(s: string): string {
   return s.replace(/([<>{}|])/g, "\\$1");
+}
+
+function h(level: number, text: string): string {
+  return `${"#".repeat(Math.min(level, 6))} ${text}`;
+}
+
+// MDX treats `{#id}` as a JSX expression (parse error). To get a stable anchor
+// target on a heading, emit a self-closing <a> tag with `id` on the line above
+// the heading. Nextra's auto-generated slug still appears on the heading itself,
+// so both the stable anchor and the content-derived slug work.
+function hWithId(level: number, text: string, id: string): string {
+  return `<a id="${id}"></a>\n\n${h(level, text)}`;
 }
 
 function codeBlock(code: string, lang = "ts"): string {
@@ -57,22 +53,15 @@ function renderParamsTable(parameters: Parameter[]): string {
 }
 
 interface SignatureOpts {
-  // Heading level for the "Parameters" / "Returns" / "Examples" subsections.
   subLevel: number;
-  // Include the signature summary. Set false when the caller already printed it above.
   includeSummary: boolean;
-  // Hide the Returns section (useful for constructors).
   hideReturns?: boolean;
-}
-
-function h(level: number, text: string): string {
-  return `${"#".repeat(level)} ${text}`;
 }
 
 function renderSignatureDetails(
   sig: Signature,
   displayName: string,
-  opts: SignatureOpts
+  opts: SignatureOpts,
 ): string {
   const out: string[] = [];
   out.push(codeBlock(signatureLine(displayName, sig)));
@@ -138,10 +127,11 @@ function renderSignatureDetails(
   return out.join("\n");
 }
 
-function renderFunctionPage(d: Declaration): string {
+function renderFunctionSection(d: Declaration, baseLevel: number): string {
   const out: string[] = [];
+  const slug = kebab(d.name);
   const firstComment = d.signatures?.[0]?.comment;
-  out.push(`# \`${d.name}()\``);
+  out.push(hWithId(baseLevel, `\`${d.name}()\``, slug));
   out.push("");
   const topSummary = renderSummary(firstComment);
   if (topSummary) {
@@ -160,26 +150,28 @@ function renderFunctionPage(d: Declaration): string {
     out.push("This function has multiple overloads.");
     signatures.forEach((sig, i) => {
       out.push("");
-      out.push(`## Overload ${i + 1}`);
+      out.push(h(baseLevel + 1, `Overload ${i + 1}`));
       out.push("");
-      out.push(renderSignatureDetails(sig, d.name, { subLevel: 3, includeSummary: true }));
+      out.push(
+        renderSignatureDetails(sig, d.name, { subLevel: baseLevel + 2, includeSummary: true }),
+      );
     });
   } else if (signatures.length === 1) {
     out.push(
       renderSignatureDetails(signatures[0]!, d.name, {
-        subLevel: 2,
+        subLevel: baseLevel + 1,
         includeSummary: false,
-      })
+      }),
     );
   }
 
-  return out.join("\n").trimEnd() + "\n";
+  return out.join("\n").trimEnd();
 }
 
-function renderMember(d: Declaration, ownerName: string): string {
+function renderMember(d: Declaration, ownerName: string, baseLevel: number): string {
   const label = kindLabel(d.kind);
   const anchor = `\`${d.name}\``;
-  const out: string[] = [`### ${label} ${anchor}`, ""];
+  const out: string[] = [h(baseLevel, `${label} ${anchor}`), ""];
 
   if (d.kind === Kind.Property) {
     const type = typeToString(d.type);
@@ -218,21 +210,21 @@ function renderMember(d: Declaration, ownerName: string): string {
   if (signatures.length === 1) {
     out.push(
       renderSignatureDetails(signatures[0]!, displayName, {
-        subLevel: 4,
+        subLevel: baseLevel + 1,
         includeSummary: false,
         hideReturns: isCtor,
-      })
+      }),
     );
   } else {
     signatures.forEach((sig, i) => {
-      out.push(`#### Overload ${i + 1}`);
+      out.push(h(baseLevel + 1, `Overload ${i + 1}`));
       out.push("");
       out.push(
         renderSignatureDetails(sig, displayName, {
-          subLevel: 5,
+          subLevel: baseLevel + 2,
           includeSummary: true,
           hideReturns: isCtor,
-        })
+        }),
       );
       out.push("");
     });
@@ -240,9 +232,14 @@ function renderMember(d: Declaration, ownerName: string): string {
   return out.join("\n");
 }
 
-function renderClassLikePage(d: Declaration, keyword: "class" | "interface"): string {
+function renderClassLikeSection(
+  d: Declaration,
+  keyword: "class" | "interface",
+  baseLevel: number,
+): string {
   const out: string[] = [];
-  out.push(`# \`${keyword} ${d.name}\``);
+  const slug = kebab(d.name);
+  out.push(hWithId(baseLevel, `\`${keyword} ${d.name}\``, slug));
   out.push("");
   const summary = renderSummary(d.comment);
   if (summary) {
@@ -258,20 +255,20 @@ function renderClassLikePage(d: Declaration, keyword: "class" | "interface"): st
 
   if (d.extendedTypes && d.extendedTypes.length > 0) {
     out.push(
-      `**Extends:** ${d.extendedTypes.map((t) => "`" + typeToString(t) + "`").join(", ")}`
+      `**Extends:** ${d.extendedTypes.map((t) => "`" + typeToString(t) + "`").join(", ")}`,
     );
     out.push("");
   }
   if (d.implementedTypes && d.implementedTypes.length > 0) {
     out.push(
-      `**Implements:** ${d.implementedTypes.map((t) => "`" + typeToString(t) + "`").join(", ")}`
+      `**Implements:** ${d.implementedTypes.map((t) => "`" + typeToString(t) + "`").join(", ")}`,
     );
     out.push("");
   }
 
   const remarks = renderRemarks(d.comment);
   if (remarks) {
-    out.push("## Remarks");
+    out.push(h(baseLevel + 1, "Remarks"));
     out.push("");
     out.push(remarks);
     out.push("");
@@ -279,7 +276,7 @@ function renderClassLikePage(d: Declaration, keyword: "class" | "interface"): st
 
   const example = renderExamples(d.comment);
   if (example) {
-    out.push("## Examples");
+    out.push(h(baseLevel + 1, "Examples"));
     out.push("");
     out.push(example);
     out.push("");
@@ -298,20 +295,21 @@ function renderClassLikePage(d: Declaration, keyword: "class" | "interface"): st
       .filter((m): m is Declaration => !!m)
       .filter((m) => !m.flags?.isInherited && !m.flags?.isPrivate);
     if (members.length === 0) continue;
-    out.push(`## ${title}`);
+    out.push(h(baseLevel + 1, title));
     out.push("");
     for (const m of members) {
-      out.push(renderMember(m, d.name));
+      out.push(renderMember(m, d.name, baseLevel + 2));
       out.push("");
     }
   }
 
-  return out.join("\n").trimEnd() + "\n";
+  return out.join("\n").trimEnd();
 }
 
-function renderTypeAliasPage(d: Declaration): string {
+function renderTypeAliasSection(d: Declaration, baseLevel: number): string {
   const out: string[] = [];
-  out.push(`# \`type ${d.name}\``);
+  const slug = kebab(d.name);
+  out.push(hWithId(baseLevel, `\`type ${d.name}\``, slug));
   out.push("");
   const summary = renderSummary(d.comment);
   if (summary) {
@@ -331,7 +329,7 @@ function renderTypeAliasPage(d: Declaration): string {
   const remarks = renderRemarks(d.comment);
   if (remarks) {
     out.push("");
-    out.push("## Remarks");
+    out.push(h(baseLevel + 1, "Remarks"));
     out.push("");
     out.push(remarks);
   }
@@ -339,17 +337,18 @@ function renderTypeAliasPage(d: Declaration): string {
   const example = renderExamples(d.comment);
   if (example) {
     out.push("");
-    out.push("## Examples");
+    out.push(h(baseLevel + 1, "Examples"));
     out.push("");
     out.push(example);
   }
 
-  return out.join("\n").trimEnd() + "\n";
+  return out.join("\n").trimEnd();
 }
 
-function renderVariablePage(d: Declaration): string {
+function renderVariableSection(d: Declaration, baseLevel: number): string {
   const out: string[] = [];
-  out.push(`# \`${d.name}\``);
+  const slug = kebab(d.name);
+  out.push(hWithId(baseLevel, `\`${d.name}\``, slug));
   out.push("");
   const summary = renderSummary(d.comment);
   if (summary) {
@@ -364,17 +363,18 @@ function renderVariablePage(d: Declaration): string {
   const example = renderExamples(d.comment);
   if (example) {
     out.push("");
-    out.push("## Examples");
+    out.push(h(baseLevel + 1, "Examples"));
     out.push("");
     out.push(example);
   }
 
-  return out.join("\n").trimEnd() + "\n";
+  return out.join("\n").trimEnd();
 }
 
-function renderEnumPage(d: Declaration): string {
+function renderEnumSection(d: Declaration, baseLevel: number): string {
   const out: string[] = [];
-  out.push(`# \`enum ${d.name}\``);
+  const slug = kebab(d.name);
+  out.push(hWithId(baseLevel, `\`enum ${d.name}\``, slug));
   out.push("");
   const summary = renderSummary(d.comment);
   if (summary) {
@@ -384,7 +384,7 @@ function renderEnumPage(d: Declaration): string {
 
   const members = d.children ?? [];
   if (members.length > 0) {
-    out.push("## Members");
+    out.push(h(baseLevel + 1, "Members"));
     out.push("");
     out.push("| Name | Value | Description |");
     out.push("| --- | --- | --- |");
@@ -395,47 +395,27 @@ function renderEnumPage(d: Declaration): string {
     }
   }
 
-  return out.join("\n").trimEnd() + "\n";
+  return out.join("\n").trimEnd();
 }
 
-export function pageFor(d: Declaration): SymbolPage | null {
-  const slug = kebab(d.name);
-  const summary = firstLine(
-    renderSummary(d.comment) || renderSummary(d.signatures?.[0]?.comment)
-  );
-  let body: string;
-  let title: string;
+// Renders a symbol as a section fragment (no frontmatter) for embedding inside a
+// package overview page. `baseLevel` is the heading level of the symbol itself;
+// subsections nest from there.
+export function renderSymbolSection(d: Declaration, baseLevel = 3): string | null {
   switch (d.kind) {
     case Kind.Class:
-      body = renderClassLikePage(d, "class");
-      title = `class ${d.name}`;
-      break;
+      return renderClassLikeSection(d, "class", baseLevel);
     case Kind.Interface:
-      body = renderClassLikePage(d, "interface");
-      title = `interface ${d.name}`;
-      break;
+      return renderClassLikeSection(d, "interface", baseLevel);
     case Kind.Function:
-      body = renderFunctionPage(d);
-      title = `${d.name}()`;
-      break;
+      return renderFunctionSection(d, baseLevel);
     case Kind.TypeAlias:
-      body = renderTypeAliasPage(d);
-      title = `type ${d.name}`;
-      break;
+      return renderTypeAliasSection(d, baseLevel);
     case Kind.Variable:
-      body = renderVariablePage(d);
-      title = d.name;
-      break;
+      return renderVariableSection(d, baseLevel);
     case Kind.Enum:
-      body = renderEnumPage(d);
-      title = `enum ${d.name}`;
-      break;
+      return renderEnumSection(d, baseLevel);
     default:
       return null;
   }
-  return {
-    fileName: `${slug}.mdx`,
-    body: frontmatter(title, summary) + body,
-    title,
-  };
 }
