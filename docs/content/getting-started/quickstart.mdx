@@ -27,10 +27,9 @@ const lastVisit = await app.storage.get("lastVisit");
 console.log("Last visit:", lastVisit);
 ```
 
-`createApp` must run inside a Nova Wallet host (Polkadot Desktop / Mobile) or the `@parity/host-api-test-sdk` for local development — it throws `Host storage unavailable` otherwise. See [Runtime Environment](/getting-started/container-vs-standalone).
+`createApp` must run inside a compatible host (Polkadot Desktop, Polkadot Mobile, a web host like [dot.li](https://dot.li), or [`@parity/host-api-test-sdk`](https://github.com/paritytech/host-api-test-sdk) for local development). Outside a host it throws `Host storage unavailable`.
 
 ## What to read next
 
-- [App Lifecycle](/core-concepts/app-lifecycle) — what `createApp` constructs and how the sub-APIs relate
-- [Container vs Standalone](/getting-started/container-vs-standalone) — when you need to care about the runtime
-- [`createApp` reference](/api/sdk/create-app) — full parameter and return documentation
+- [`createApp` reference](/api/sdk/create-app): full parameter and return documentation
+- [API Reference](/api): every exported class, function, and type across all packages

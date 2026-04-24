@@ -1,0 +1,32 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "../product-sdk/packages/address",
+    "../product-sdk/packages/bulletin",
+    "../product-sdk/packages/chain-client",
+    "../product-sdk/packages/contracts",
+    "../product-sdk/packages/crypto",
+    "../product-sdk/packages/host",
+    "../product-sdk/packages/keys",
+    "../product-sdk/packages/logger",
+    "../product-sdk/packages/sdk",
+    "../product-sdk/packages/signer",
+    "../product-sdk/packages/statement-store",
+    "../product-sdk/packages/storage",
+    "../product-sdk/packages/tx",
+    "../product-sdk/packages/utils"
+  ],
+  "entryPointStrategy": "packages",
+  "packageOptions": {
+    "entryPoints": ["src/index.ts"]
+  },
+  "json": "generated/api.json",
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeExternals": true,
+  "sort": ["alphabetical"],
+  "readme": "none",
+  "pretty": false,
+  "logLevel": "Warn"
+}

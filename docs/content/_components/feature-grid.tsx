@@ -5,11 +5,11 @@ const features = [
   },
   {
     title: "Host-integrated",
-    body: "Runs inside Polkadot Desktop and Mobile. Host accounts, host storage, host permissions — no extension setup.",
+    body: "Runs inside Polkadot Desktop, Polkadot Mobile, or a web host like dot.li. Accounts, storage, and permissions come from the host, so there's no wallet extension to wire up.",
   },
   {
     title: "Typed chains",
-    body: "PAPI-generated descriptors for Asset Hub, Bulletin, Paseo, Kusama. Add your own.",
+    body: "PAPI-generated descriptors for Polkadot and Kusama Asset Hub, Paseo Asset Hub, Bulletin, and Individuality. Bring your own.",
   },
   {
     title: "Tx lifecycle",

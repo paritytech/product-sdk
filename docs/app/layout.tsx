@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, DM_Serif_Display } from "next/font/google";
 import { Layout, Navbar } from "nextra-theme-docs";
-import { Head } from "nextra/components";
+import { Head, Search } from "nextra/components";
 import { getPageMap } from "nextra/page-map";
 import { Logo } from "./_components/logo";
 import "./globals.css";
@@ -54,6 +54,7 @@ export default async function RootLayout({
           pageMap={pageMap}
           docsRepositoryBase="https://github.com/paritytech/product-sdk/tree/main/docs"
           sidebar={{ defaultMenuCollapseLevel: 1 }}
+          search={<Search />}
           footer={null}
         >
           {children}

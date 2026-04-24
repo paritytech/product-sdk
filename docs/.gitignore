@@ -7,3 +7,9 @@ next-env.d.ts
 *.tsbuildinfo
 .turbo/
 .vercel/
+
+# API reference extraction output
+generated/
+
+# Pagefind search index
+public/_pagefind/

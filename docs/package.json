@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "postbuild": "pagefind --site .next/server/app --output-path public/_pagefind",
+    "start": "next start",
+    "docs:extract": "typedoc",
+    "docs:render": "tsx scripts/generate-api.ts",
+    "docs:generate": "pnpm docs:extract && pnpm docs:render",
+    "docs:check": "pnpm docs:generate && git diff --exit-code content/api"
   },
   "dependencies": {
     "next": "^15.0.0",
@@ -21,8 +26,11 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.0",
+    "pagefind": "^1.4.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
+    "typedoc": "0.28.19",
     "typescript": "^5.9.3"
   }
 }
