@@ -1,0 +1,85 @@
+name: "docs: Deploy to Bulletin"
+
+on:
+    workflow_run:
+        workflows: ["product-sdk: Release"]
+        types: [completed]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: docs-deploy
+    cancel-in-progress: false
+
+jobs:
+    deploy:
+        if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            # Release runs even when no changesets were consumed (no-op path)
+            # and also tags every leaf package. Only deploy docs when the
+            # umbrella `@parity/product-sdk` was tagged on this HEAD.
+            - name: Check for umbrella tag at HEAD
+              id: gate
+              run: |
+                  tag=$(git tag --points-at HEAD | grep -E '^@parity/product-sdk@[0-9]' | head -n1 || true)
+                  if [ -z "$tag" ]; then
+                    echo "skip=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "skip=false" >> $GITHUB_OUTPUT
+                    echo "tag=$tag" >> $GITHUB_OUTPUT
+                  fi
+
+            - if: steps.gate.outputs.skip != 'true'
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - if: steps.gate.outputs.skip != 'true'
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: "pnpm"
+                  cache-dependency-path: |
+                      product-sdk/pnpm-lock.yaml
+                      docs/pnpm-lock.yaml
+
+            # SDK packages must be built first so cross-package imports resolve
+            # to dist/ types when TypeDoc reads each package's src/index.ts.
+            - name: Install SDK deps
+              if: steps.gate.outputs.skip != 'true'
+              working-directory: product-sdk
+              run: pnpm install --frozen-lockfile
+
+            - name: Build SDK packages
+              if: steps.gate.outputs.skip != 'true'
+              working-directory: product-sdk
+              run: pnpm build
+
+            - name: Install docs deps
+              if: steps.gate.outputs.skip != 'true'
+              working-directory: docs
+              run: pnpm install --frozen-lockfile
+
+            - name: Generate API reference
+              if: steps.gate.outputs.skip != 'true'
+              working-directory: docs
+              run: pnpm docs:generate
+
+            - name: Build static site
+              if: steps.gate.outputs.skip != 'true'
+              working-directory: docs
+              run: pnpm build
+
+            - name: Deploy to Bulletin Chain
+              if: steps.gate.outputs.skip != 'true'
+              working-directory: docs
+              env:
+                  DEPLOY_TAG: ${{ steps.gate.outputs.tag }}
+              run: npx -y bulletin-deploy ./out product-sdk.dot
