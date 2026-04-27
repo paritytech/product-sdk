@@ -22,9 +22,6 @@ jobs:
               with:
                   fetch-depth: 0
 
-            # Release runs even when no changesets were consumed (no-op path)
-            # and also tags every leaf package. Only deploy docs when the
-            # umbrella `@parity/product-sdk` was tagged on this HEAD.
             - name: Check for umbrella tag at HEAD
               id: gate
               run: |
@@ -50,8 +47,6 @@ jobs:
                       product-sdk/pnpm-lock.yaml
                       docs/pnpm-lock.yaml
 
-            # SDK packages must be built first so cross-package imports resolve
-            # to dist/ types when TypeDoc reads each package's src/index.ts.
             - name: Install SDK deps
               if: steps.gate.outputs.skip != 'true'
               working-directory: product-sdk
@@ -67,7 +62,7 @@ jobs:
               working-directory: docs
               run: pnpm install --frozen-lockfile
 
-            - name: Generate API reference
+            - name: Generate API Reference docs
               if: steps.gate.outputs.skip != 'true'
               working-directory: docs
               run: pnpm docs:generate
