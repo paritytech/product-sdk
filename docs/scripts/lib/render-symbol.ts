@@ -40,16 +40,15 @@ function collapseWhitespace(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-function renderParamsTable(parameters: Parameter[]): string {
-  if (parameters.length === 0) return "_No parameters._";
-  const rows = parameters.map((p) => {
-    const type = collapseWhitespace(typeToString(p.type)).replace(/\|/g, "\\|");
-    const optional = p.flags?.isOptional ? " _(optional)_" : "";
-    const def = p.defaultValue ? ` = \`${p.defaultValue}\`` : "";
-    const desc = collapseWhitespace(renderSummary(p.comment)) || "—";
-    return `| \`${p.name}\`${optional} | \`${type}\`${def} | ${mdEscape(desc)} |`;
-  });
-  return ["| Parameter | Type | Description |", "| --- | --- | --- |", ...rows].join("\n");
+// Render only parameters that carry a description — types and names are already
+// visible in the signature line above. Returns an empty string when none qualify,
+// signalling the caller to skip the whole "Parameters" section.
+function renderParamsList(parameters: Parameter[]): string {
+  const items = parameters
+    .map((p) => ({ name: p.name, desc: collapseWhitespace(renderSummary(p.comment)) }))
+    .filter((p) => p.desc);
+  if (items.length === 0) return "";
+  return items.map((p) => `- \`${p.name}\`: ${mdEscape(p.desc)}`).join("\n");
 }
 
 interface SignatureOpts {
@@ -82,21 +81,22 @@ function renderSignatureDetails(
     out.push(remarks);
   }
 
-  out.push("");
-  out.push(h(opts.subLevel, "Parameters"));
-  out.push("");
-  out.push(renderParamsTable(sig.parameters ?? []));
+  const paramsList = renderParamsList(sig.parameters ?? []);
+  if (paramsList) {
+    out.push("");
+    out.push(h(opts.subLevel, "Parameters"));
+    out.push("");
+    out.push(paramsList);
+  }
 
   if (!opts.hideReturns) {
-    const ret = typeToString(sig.type);
-    if (ret && ret !== "void" && ret !== "undefined") {
-      const returns = (sig.comment?.blockTags ?? []).find((t) => t.tag === "@returns");
-      const retDesc = returns ? renderCommentText(returns.content).trim() : "";
-      const body = `\`${ret}\`${retDesc ? " — " + retDesc : ""}`;
+    const returns = (sig.comment?.blockTags ?? []).find((t) => t.tag === "@returns");
+    const retDesc = returns ? renderCommentText(returns.content).trim() : "";
+    if (retDesc) {
       out.push("");
       out.push(h(opts.subLevel, "Returns"));
       out.push("");
-      out.push(body);
+      out.push(retDesc);
     }
   }
 

@@ -1,3 +1,15 @@
+/**
+ * @parity/product-sdk-tx — Submit Polkadot transactions and follow them to finality.
+ *
+ * `submitAndWatch` signs, broadcasts, and tracks a single extrinsic through its
+ * lifecycle; `batchSubmitAndWatch` does the same for a list of calls. The package
+ * also bundles the things you almost always reach for next to a real submission:
+ * dry-run helpers, Asset Hub account mapping, retry primitives, dev signers, and
+ * a typed error hierarchy with formatters that turn dispatch errors into readable
+ * messages.
+ *
+ * @packageDocumentation
+ */
 export { submitAndWatch } from "./submit.js";
 export { batchSubmitAndWatch } from "./batch.js";
 export { withRetry, calculateDelay } from "./retry.js";

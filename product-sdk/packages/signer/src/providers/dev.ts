@@ -14,6 +14,7 @@ const DEV_PHRASE = "bottom drive obey lake curtain smoke basket hold race lonely
 /** Standard Substrate dev account names. */
 const DEFAULT_DEV_NAMES = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"] as const;
 
+/** A well-known Substrate development account name (Alice, Bob, …) used to derive deterministic dev accounts from the standard Substrate dev mnemonic. */
 export type DevAccountName = (typeof DEFAULT_DEV_NAMES)[number];
 
 /** Supported key types for dev account derivation. */

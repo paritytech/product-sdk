@@ -1,3 +1,15 @@
+/**
+ * @parity/product-sdk-signer — Account connection and signing, decoupled from where the keys actually live.
+ *
+ * `SignerManager` wraps one or more `SignerProvider` implementations behind a
+ * `Result`-typed API for connecting, listing accounts, and reacting to status or
+ * account changes. The two built-in providers — `HostProvider` (Polkadot
+ * Desktop/Mobile) and `DevProvider` (the well-known Alice/Bob accounts) — let
+ * the same call sites work in production and in tests.
+ *
+ * @packageDocumentation
+ */
+
 // Core manager
 export { SignerManager } from "./signer-manager.js";
 

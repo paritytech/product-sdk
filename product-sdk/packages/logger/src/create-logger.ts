@@ -34,6 +34,13 @@ function emit(level: LogLevel, namespace: string, message: string, data?: unknow
     }
 }
 
+/**
+ * Create a {@link Logger} bound to a namespace.
+ *
+ * The namespace is attached to every {@link LogEntry} the logger emits and is
+ * what {@link LoggerConfig.namespaces} matches against. Convention is
+ * `package:area` — e.g. `"signer:dev"`, `"chain-client"`.
+ */
 export function createLogger(namespace: string): Logger {
     return {
         error: (message: string, data?: unknown) => emit("error", namespace, message, data),

@@ -3,14 +3,18 @@
  * chain-specific endpoints used by multiple packages.
  */
 
-/** Bulletin chain RPC endpoints by environment. */
+/**
+ * Bulletin Chain RPC endpoints per network environment. Only `paseo` is
+ * populated today; `polkadot` and `kusama` are reserved for when those
+ * Bulletin deployments go live.
+ */
 export const BULLETIN_RPCS = {
     paseo: ["wss://paseo-bulletin-rpc.polkadot.io"],
     polkadot: [] as string[],
     kusama: [] as string[],
 } as const;
 
-/** Default bulletin endpoint (first paseo endpoint). */
+/** Default Bulletin Chain endpoint — the first entry under {@link BULLETIN_RPCS}.paseo. */
 export const DEFAULT_BULLETIN_ENDPOINT: string = BULLETIN_RPCS.paseo[0];
 
 if (import.meta.vitest) {

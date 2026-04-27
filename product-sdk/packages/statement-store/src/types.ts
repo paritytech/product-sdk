@@ -1,12 +1,22 @@
 // Re-export statement types from @novasamatech/sdk-statement
-export type {
-    Statement,
-    SignedStatement,
-    UnsignedStatement,
-    Proof,
-    SubmitResult,
-    TopicFilter as SdkTopicFilter,
-} from "@novasamatech/sdk-statement";
+
+/** A record published to the Statement Store. Every field is optional: a `data` payload, `topics` for routing, a `channel` for last-write-wins, an `expiry`, and a `proof` once signed. */
+export type { Statement } from "@novasamatech/sdk-statement";
+
+/** A {@link Statement} with its `proof` attached and ready for submission — the only field the submission path actually requires. */
+export type { SignedStatement } from "@novasamatech/sdk-statement";
+
+/** A {@link Statement} before signing — the same optional fields, minus `proof`. */
+export type { UnsignedStatement } from "@novasamatech/sdk-statement";
+
+/** Signature attached to a statement — `sr25519`/`ed25519`/`ecdsa` plus public key, or an on-chain witness referencing a block event. */
+export type { Proof } from "@novasamatech/sdk-statement";
+
+/** Outcome of a submission — new, already-known, known-expired, rejected, invalid, or internal-error. */
+export type { SubmitResult } from "@novasamatech/sdk-statement";
+
+/** Upstream topic filter shape — same `"any"` / `matchAll` / `matchAny` structure as {@link TopicFilter}, but carries topics as 32-byte hex strings (`SizedHex<32>`) rather than the SDK's `Uint8Array`-based {@link TopicHash}. Reach for this when working with a {@link StatementTransport} directly. */
+export type { TopicFilter as SdkTopicFilter } from "@novasamatech/sdk-statement";
 
 import type {
     Statement,

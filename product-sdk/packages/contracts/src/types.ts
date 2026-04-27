@@ -9,11 +9,13 @@ export type { TxResult, SubmitOptions } from "@parity/product-sdk-tx";
 // cdm.json schema
 // ---------------------------------------------------------------------------
 
+/** Pins a target to specific asset-hub and Bulletin chain hashes in `cdm.json`. */
 export interface CdmJsonTarget {
     "asset-hub": string;
     bulletin: string;
 }
 
+/** A deployed contract's on-chain address, ABI, and metadata CID. */
 export interface CdmJsonContract {
     version: number;
     address: HexString;
@@ -21,6 +23,7 @@ export interface CdmJsonContract {
     metadataCid: string;
 }
 
+/** A project's `cdm.json` manifest: declared targets, runtime dependencies, and per-target contract deployments. */
 export interface CdmJson {
     targets: Record<string, CdmJsonTarget>;
     dependencies: Record<string, Record<string, number | string>>;
@@ -31,12 +34,14 @@ export interface CdmJson {
 // ABI types (Solidity-compatible, used by both Ink!/PolkaVM and Solidity)
 // ---------------------------------------------------------------------------
 
+/** An ABI parameter or return value, with support for nested tuple and struct types. */
 export interface AbiParam {
     name: string;
     type: string;
     components?: AbiParam[];
 }
 
+/** One function, constructor, or event in a contract's ABI. */
 export interface AbiEntry {
     type: string;
     name?: string;

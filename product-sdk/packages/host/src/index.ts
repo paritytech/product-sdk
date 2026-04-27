@@ -1,3 +1,12 @@
+/**
+ * @parity/product-sdk-host — Detect and talk to the Polkadot Desktop/Mobile host container.
+ *
+ * Use `isInsideContainer` to branch behavior when running embedded vs. standalone,
+ * and `getHostLocalStorage`, `getHostProvider`, and `getStatementStore` to reach
+ * the storage, signer, and statement-store APIs the host injects.
+ *
+ * @packageDocumentation
+ */
 export {
     isInsideContainer,
     isInsideContainerSync,

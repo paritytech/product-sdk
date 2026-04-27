@@ -1,3 +1,11 @@
+/**
+ * @parity/product-sdk-address — Address handling for accounts that live on both Substrate (SS58) and EVM (H160) chains.
+ *
+ * Convert between formats, validate, normalize SS58 prefixes, and shorten
+ * addresses for display.
+ *
+ * @packageDocumentation
+ */
 export {
     isValidSs58,
     ss58Decode,
@@ -19,4 +27,15 @@ export {
 
 export { truncateAddress, addressesEqual } from "./display.js";
 
-export type { SS58String, HexString } from "@polkadot-api/substrate-bindings";
+/**
+ * An SS58-encoded Substrate address (e.g. `5GrwvaEF...`). The brand marks strings
+ * the SDK has validated, so APIs accepting `SS58String` can skip re-checking.
+ * Construct one via {@link normalizeSs58} or {@link ss58Encode}.
+ */
+export type { SS58String } from "@polkadot-api/substrate-bindings";
+
+/**
+ * A `0x`-prefixed hex string (e.g. `0xdeadbeef`). The SDK uses it for raw byte
+ * values like public keys and EVM addresses.
+ */
+export type { HexString } from "@polkadot-api/substrate-bindings";

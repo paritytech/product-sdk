@@ -1,5 +1,11 @@
 import nacl from "tweetnacl";
 
+/**
+ * Re-export of the upstream `tweetnacl` module — the primitive library that
+ * backs the box helpers in this package. Reach for it directly when you need
+ * raw NaCl operations the SDK doesn't wrap, such as `nacl.box.keyPair()`,
+ * `nacl.randomBytes(n)`, or `nacl.sign(...)`.
+ */
 export { default as nacl } from "tweetnacl";
 
 const PUBKEY_LEN = 32;

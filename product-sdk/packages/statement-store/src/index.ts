@@ -1,3 +1,15 @@
+/**
+ * @parity/product-sdk-statement-store — Publish/subscribe over the Polkadot Statement Store.
+ *
+ * `StatementStoreClient` submits signed statements and subscribes to topics via
+ * the Host API's native binary protocol — the SDK runs only inside a host
+ * container (Polkadot Browser / Desktop). `ChannelStore` layers a channel
+ * abstraction on top for apps that want stable, two-party message streams
+ * instead of raw topics.
+ *
+ * @packageDocumentation
+ */
+
 // Client
 export { StatementStoreClient } from "./client.js";
 export { ChannelStore } from "./channels.js";

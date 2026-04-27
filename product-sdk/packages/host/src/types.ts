@@ -1,4 +1,9 @@
-/** Subset of product-sdk's hostLocalStorage that the KV store uses. */
+/**
+ * Persistent string and JSON storage exposed by the host container. Most
+ * apps reach it indirectly through the Storage package's `KvStore`; reach for
+ * it directly via {@link getHostLocalStorage} when you need raw host storage
+ * without the KV abstraction.
+ */
 export interface HostLocalStorage {
     readString(key: string): Promise<string | null>;
     writeString(key: string, value: string): Promise<void>;
@@ -11,14 +16,24 @@ export interface HostLocalStorage {
     clear(key: string): Promise<void>;
 }
 
-/** Proof types returned from createProof (matches product-sdk SCALE-decoded types). */
+/**
+ * Cryptographic proof attached to a statement before submission, returned by
+ * {@link HostStatementStore.createProof}. Variants cover the supported
+ * signature schemes — `Sr25519`, `Ed25519`, `Secp256k1Ecdsa`, and
+ * `EcdsaRecoverable`.
+ */
 export type StatementProof =
     | { tag: "Sr25519"; value: { signature: Uint8Array; signer: Uint8Array } }
     | { tag: "Ed25519"; value: { signature: Uint8Array; signer: Uint8Array } }
     | { tag: "Secp256k1Ecdsa"; value: { signature: Uint8Array; signer: Uint8Array } }
     | { tag: "EcdsaRecoverable"; value: { signature: Uint8Array } };
 
-/** The statement store interface provided by the host API via product-sdk. */
+/**
+ * Statement Store handle exposed by the host container. Provides
+ * `subscribe`, `createProof`, and `submit` operations that go through the
+ * host's native binary protocol; the `statement-store` package layers a
+ * higher-level client on top.
+ */
 export interface HostStatementStore {
     /**
      * Subscribe to statements matching the given topics.

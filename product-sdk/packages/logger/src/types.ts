@@ -1,5 +1,7 @@
+/** Severity ranking — `"error"` is the highest, then `"warn"`, `"info"`, `"debug"`. The configured level is the lowest severity that gets emitted; less-severe entries are dropped. */
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
+/** A structured record emitted by a {@link Logger}. */
 export interface LogEntry {
     level: LogLevel;
     namespace: string;
@@ -8,8 +10,10 @@ export interface LogEntry {
     timestamp: number;
 }
 
+/** Custom sink for log records. When set via {@link configure} it replaces the default `console.*` output and receives every {@link LogEntry} that passes the level filter. */
 export type LogHandler = (entry: LogEntry) => void;
 
+/** Global configuration for the logger system, applied via {@link configure}. */
 export interface LoggerConfig {
     /** Minimum log level. Default: "warn" */
     level?: LogLevel;
@@ -19,6 +23,7 @@ export interface LoggerConfig {
     handler?: LogHandler;
 }
 
+/** A namespaced logger. Each method emits a {@link LogEntry} at the matching {@link LogLevel}, or no-ops when filtered out by the current configuration. */
 export interface Logger {
     error(message: string, data?: unknown): void;
     warn(message: string, data?: unknown): void;

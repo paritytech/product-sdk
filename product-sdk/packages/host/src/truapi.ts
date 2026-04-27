@@ -61,6 +61,7 @@ export {
     fromHex,
 } from "@novasamatech/host-api";
 
+/** A `0x`-prefixed hex string (the template literal type ``\`0x${string}\``) used by the host API surface for raw byte payloads. Re-exported from `@novasamatech/host-api` so consumers bridging between host APIs and SDK code can reach the host-side type without an additional dependency. */
 export type { HexString } from "@novasamatech/host-api";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,7 +203,10 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
 }
 
 /**
- * Account from the host wallet.
+ * One of the user's existing wallet accounts, surfaced through the host and
+ * identified by its public key and an optional name. Contrast with
+ * {@link ProductAccount}, which is also user-controlled but derived by the
+ * host for a specific app rather than picked from the user's existing keys.
  */
 export interface HostAccount {
     publicKey: Uint8Array;
