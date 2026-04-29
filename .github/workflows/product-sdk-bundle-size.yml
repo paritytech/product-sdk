@@ -1,0 +1,135 @@
+name: "product-sdk: Bundle Size"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "product-sdk/**"
+      - ".github/workflows/product-sdk-bundle-size.yml"
+
+jobs:
+  measure-base:
+    name: "Measure base"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: product-sdk
+
+      - name: Build
+        run: pnpm build
+        working-directory: product-sdk
+
+      - name: Measure
+        # If the bench script doesn't exist on base yet, emit an empty
+        # report so the diff shows everything as "new".
+        run: |
+          if [ -f scripts/bench-bundle.mjs ]; then
+            node scripts/bench-bundle.mjs measure --out bundle-size.base.json
+          else
+            echo '{"version":1,"packages":{},"generatedAt":"base","node":"n/a","esbuild":"n/a"}' > bundle-size.base.json
+          fi
+        working-directory: product-sdk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-size-base
+          path: product-sdk/bundle-size.base.json
+          retention-days: 1
+
+  measure-head:
+    name: "Measure head"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: product-sdk
+
+      - name: Build
+        run: pnpm build
+        working-directory: product-sdk
+
+      - name: Measure
+        run: node scripts/bench-bundle.mjs measure --out bundle-size.head.json
+        working-directory: product-sdk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-size-head
+          path: product-sdk/bundle-size.head.json
+          retention-days: 1
+
+  compare:
+    name: "Compare & comment"
+    runs-on: ubuntu-latest
+    needs: [measure-base, measure-head]
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle-size-base
+          path: product-sdk
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle-size-head
+          path: product-sdk
+
+      - name: Compare
+        id: compare
+        continue-on-error: true
+        run: |
+          set +e
+          node scripts/bench-bundle.mjs compare \
+            --base bundle-size.base.json \
+            --head bundle-size.head.json \
+            --md bundle-size.diff.md \
+            --strict
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+        working-directory: product-sdk
+
+      - name: Post sticky PR comment
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: product-sdk-bundle-size
+          path: product-sdk/bundle-size.diff.md
+
+      - name: Fail on regression
+        if: steps.compare.outputs.exit_code != '0'
+        run: |
+          echo "Bundle size regression exceeds fail threshold."
+          exit 1
