@@ -36,19 +36,20 @@ jobs:
 
       - name: Measure
         # If the bench script doesn't exist on base yet, emit an empty
-        # report so the diff shows everything as "new".
+        # report so the diff shows everything as "new". Stage the file at
+        # the repo root so the artifact has it at its root, not nested.
         run: |
-          if [ -f scripts/bench-bundle.mjs ]; then
-            node scripts/bench-bundle.mjs measure --out bundle-size.base.json
+          if [ -f product-sdk/scripts/bench-bundle.mjs ]; then
+            (cd product-sdk && node scripts/bench-bundle.mjs measure --out bundle-size.base.json)
+            mv product-sdk/bundle-size.base.json ./bundle-size.base.json
           else
             echo '{"version":1,"packages":{},"generatedAt":"base","node":"n/a","esbuild":"n/a"}' > bundle-size.base.json
           fi
-        working-directory: product-sdk
 
       - uses: actions/upload-artifact@v4
         with:
           name: bundle-size-base
-          path: product-sdk/bundle-size.base.json
+          path: bundle-size.base.json
           retention-days: 1
 
   measure-head:
@@ -76,13 +77,15 @@ jobs:
         working-directory: product-sdk
 
       - name: Measure
-        run: node scripts/bench-bundle.mjs measure --out bundle-size.head.json
-        working-directory: product-sdk
+        # Stage the JSON at the repo root so the artifact has it at its root.
+        run: |
+          (cd product-sdk && node scripts/bench-bundle.mjs measure --out bundle-size.head.json)
+          mv product-sdk/bundle-size.head.json ./bundle-size.head.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: bundle-size-head
-          path: product-sdk/bundle-size.head.json
+          path: bundle-size.head.json
           retention-days: 1
 
   compare:
@@ -118,8 +121,28 @@ jobs:
             --head bundle-size.head.json \
             --md bundle-size.diff.md \
             --strict
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          # Make sure a comment body always exists, even if the script crashed
+          # before writing one. Otherwise the sticky-comment action errors with
+          # "Either message or path input is required".
+          if [ ! -s bundle-size.diff.md ]; then
+            {
+              echo "<!-- product-sdk-bundle-size -->"
+              echo "## 📦 Bundle size impact"
+              echo
+              echo "Bench compare step failed to produce a report (exit $code). See workflow logs."
+            } > bundle-size.diff.md
+          fi
         working-directory: product-sdk
+
+      - name: Debug — show diff file
+        if: always()
+        run: |
+          echo "--- ls product-sdk ---"
+          ls -la product-sdk/ | grep bundle-size || true
+          echo "--- diff.md head ---"
+          head -40 product-sdk/bundle-size.diff.md || echo "(missing)"
 
       - name: Post sticky PR comment
         if: always()
