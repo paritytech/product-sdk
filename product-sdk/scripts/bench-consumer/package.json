@@ -1,0 +1,23 @@
+{
+  "name": "@parity/product-sdk-bench-consumer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@parity/product-sdk": "workspace:*",
+    "@parity/product-sdk-address": "workspace:*",
+    "@parity/product-sdk-bulletin": "workspace:*",
+    "@parity/product-sdk-chain-client": "workspace:*",
+    "@parity/product-sdk-contracts": "workspace:*",
+    "@parity/product-sdk-crypto": "workspace:*",
+    "@parity/product-sdk-descriptors": "workspace:*",
+    "@parity/product-sdk-host": "workspace:*",
+    "@parity/product-sdk-keys": "workspace:*",
+    "@parity/product-sdk-logger": "workspace:*",
+    "@parity/product-sdk-signer": "workspace:*",
+    "@parity/product-sdk-statement-store": "workspace:*",
+    "@parity/product-sdk-storage": "workspace:*",
+    "@parity/product-sdk-tx": "workspace:*",
+    "@parity/product-sdk-utils": "workspace:*"
+  }
+}

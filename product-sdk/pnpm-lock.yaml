@@ -56,6 +56,9 @@ importers:
       '@changesets/cli':
         specifier: ^2.28.1
         version: 2.31.0(@types/node@25.6.0)
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
       tsup:
         specifier: ^8.4.0
         version: 8.5.0(postcss@8.5.10)(typescript@5.9.3)
@@ -740,6 +743,54 @@ importers:
       vitest:
         specifier: ^3.1.2
         version: 3.2.4(@types/node@25.6.0)
+
+  scripts/bench-consumer:
+    dependencies:
+      '@parity/product-sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@parity/product-sdk-address':
+        specifier: workspace:*
+        version: link:../../packages/address
+      '@parity/product-sdk-bulletin':
+        specifier: workspace:*
+        version: link:../../packages/bulletin
+      '@parity/product-sdk-chain-client':
+        specifier: workspace:*
+        version: link:../../packages/chain-client
+      '@parity/product-sdk-contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@parity/product-sdk-crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      '@parity/product-sdk-descriptors':
+        specifier: workspace:*
+        version: link:../../packages/descriptors
+      '@parity/product-sdk-host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@parity/product-sdk-keys':
+        specifier: workspace:*
+        version: link:../../packages/keys
+      '@parity/product-sdk-logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@parity/product-sdk-signer':
+        specifier: workspace:*
+        version: link:../../packages/signer
+      '@parity/product-sdk-statement-store':
+        specifier: workspace:*
+        version: link:../../packages/statement-store
+      '@parity/product-sdk-storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
+      '@parity/product-sdk-tx':
+        specifier: workspace:*
+        version: link:../../packages/tx
+      '@parity/product-sdk-utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
 
 packages:
 
