@@ -101,19 +101,50 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Debug — env after checkout
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "PWD=$(pwd)"
+          echo "--- repo root ---"
+          ls -la
+          echo "--- product-sdk/ exists? ---"
+          ls -la product-sdk/ 2>&1 | head -20 || echo "MISSING"
+
+      # Download both artifacts to the repo root (artifacts contain the JSON
+      # files at their root since we staged them flat in the measure jobs).
       - uses: actions/download-artifact@v4
         with:
           name: bundle-size-base
-          path: product-sdk
+          path: .
 
       - uses: actions/download-artifact@v4
         with:
           name: bundle-size-head
-          path: product-sdk
+          path: .
+
+      - name: Debug — env after downloads
+        run: |
+          echo "--- repo root ---"
+          ls -la
+          echo "--- bundle-size files ---"
+          ls -la bundle-size.*.json 2>&1 || echo "no bundle-size files"
+          echo "--- product-sdk/scripts ---"
+          ls -la product-sdk/scripts/ 2>&1 | head || echo "MISSING"
+
+      # Run compare from the repo root. The script resolves paths against
+      # WORKSPACE_ROOT (= product-sdk/) internally, so we need to either:
+      #   a) cd into product-sdk/ and reference ../bundle-size.*.json, or
+      #   b) move the artifacts into product-sdk/.
+      # We do (b) — simpler, and bundle-size.diff.md ends up where the
+      # sticky-comment step expects it.
+      - name: Stage artifacts into product-sdk/
+        run: |
+          mv bundle-size.base.json product-sdk/bundle-size.base.json
+          mv bundle-size.head.json product-sdk/bundle-size.head.json
+          ls -la product-sdk/bundle-size.*.json
 
       - name: Compare
         id: compare
-        continue-on-error: true
         run: |
           set +e
           node scripts/bench-bundle.mjs compare \
@@ -122,10 +153,9 @@ jobs:
             --md bundle-size.diff.md \
             --strict
           code=$?
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          # Make sure a comment body always exists, even if the script crashed
-          # before writing one. Otherwise the sticky-comment action errors with
-          # "Either message or path input is required".
+          echo "compare-exit=$code" >> "$GITHUB_OUTPUT"
+          # Always emit a comment body so the sticky-comment action has input
+          # even if the script crashed before writing one.
           if [ ! -s bundle-size.diff.md ]; then
             {
               echo "<!-- product-sdk-bundle-size -->"
@@ -134,12 +164,15 @@ jobs:
               echo "Bench compare step failed to produce a report (exit $code). See workflow logs."
             } > bundle-size.diff.md
           fi
+          # Don't fail this step — let the sticky-comment post first, then
+          # fail the dedicated 'Fail on regression' step at the end.
+          exit 0
         working-directory: product-sdk
 
       - name: Debug — show diff file
         if: always()
         run: |
-          echo "--- ls product-sdk ---"
+          echo "--- product-sdk/ contents ---"
           ls -la product-sdk/ | grep bundle-size || true
           echo "--- diff.md head ---"
           head -40 product-sdk/bundle-size.diff.md || echo "(missing)"
@@ -152,7 +185,7 @@ jobs:
           path: product-sdk/bundle-size.diff.md
 
       - name: Fail on regression
-        if: steps.compare.outputs.exit_code != '0'
+        if: steps.compare.outputs.compare-exit != '0'
         run: |
-          echo "Bundle size regression exceeds fail threshold."
+          echo "Bundle size regression exceeds fail threshold (script exit ${{ steps.compare.outputs.compare-exit }})."
           exit 1
