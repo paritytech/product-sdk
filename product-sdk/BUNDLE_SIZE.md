@@ -51,6 +51,8 @@ pnpm bench:compare
 
 The committed `bundle-size.json` represents the SDK's current measured size. **Update it** when you intentionally land a change that grows or shrinks bundles — adding a feature, swapping a dep, ripping out dead code.
 
+Regenerate using **Node 24** to match CI — V8/zlib output can shift slightly across Node majors, so a baseline captured on a different version will show phantom drift in PR comparisons run on `main`.
+
 ```bash
 pnpm build
 pnpm bench
