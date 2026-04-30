@@ -2,7 +2,7 @@
 
 Documentation site for `@parity/product-sdk`. Built with [Nextra 4](https://nextra.site) on Next.js 15 (static export), styled with `polkadot-design-system` tokens.
 
-Lives at the repo root (a sibling of `product-sdk/` and `repos/`) and runs as a standalone project. It is not part of the `product-sdk/` pnpm workspace.
+Lives at the repo root (a sibling of `product-sdk/`) and runs as a standalone project. It is not part of the `product-sdk/` pnpm workspace.
 
 ## Run locally
 
