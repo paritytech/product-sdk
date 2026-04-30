@@ -7,77 +7,42 @@ import type { BulletinApi, QueryOptions } from "./types.js";
 const log = createLogger("bulletin");
 
 /**
- * Fetch content for a CID, trying chain storage first and falling back to
- * the IPFS gateway.
+ * Fetch content for a CID from the configured IPFS gateway.
  *
- * Read order:
+ * The bulletin chain stores transaction *metadata* on-chain (`chunk_root`,
+ * `content_hash`, `size`, `cid_codec`, hashing) but the content bytes
+ * themselves live in IPFS. There is no `api.query.TransactionStorage` item
+ * that returns raw bytes — the chain only knows about hashes. So byte
+ * retrieval always goes through the gateway, which transparently handles
+ * chunked / DAG-PB content via UnixFS reassembly.
  *
- * 1. **Chain storage** — direct query of `TransactionStorage` (placeholder
- *    until the runtime exposes the CID-keyed query item; today this returns
- *    `null` and we always fall through).
- * 2. **IPFS gateway** — works for content stored via the chain, including
- *    chunked / DAG-PB content (the gateway reassembles UnixFS automatically).
+ * To prove that a CID was stored on-chain (without fetching the bytes),
+ * use {@link verifyOnChain} from `verify.ts`.
  *
- * If neither path is configured (no chain query + no gateway), throws
- * {@link BulletinGatewayUnavailableError}.
+ * @throws {BulletinGatewayUnavailableError} If `gateway` is `null`.
  */
 export async function fetchContent(
-    api: BulletinApi,
+    _api: BulletinApi,
     gateway: string | null,
     cid: string,
     options?: QueryOptions,
 ): Promise<Uint8Array> {
-    const onChain = await readFromChainStorage(api, cid);
-    if (onChain) {
-        log.info("query: served from chain storage", { cid });
-        return onChain;
-    }
-
     if (!gateway) {
         throw new BulletinGatewayUnavailableError("(no gateway configured)");
     }
 
-    log.info("query: chain miss, falling back to gateway", { cid, gateway });
+    log.info("query: fetching from gateway", { cid, gateway });
     return fetchFromGateway(cid, gateway, options);
-}
-
-/**
- * Read content directly from chain storage.
- *
- * Currently a placeholder. The bulletin runtime exposes `TransactionStorage`
- * pallet items, but the CID-keyed read mapping is still being defined — see
- * the issue tracker for the runtime support timeline. Until then this always
- * returns `null` and `fetchContent` falls back to the gateway.
- *
- * When the runtime exposes the necessary item, replace the body with a typed
- * call along the lines of:
- *
- * ```ts
- * const bytes = await api.query.TransactionStorage.Transactions.getValue(...);
- * ```
- */
-export async function readFromChainStorage(
-    _api: BulletinApi,
-    _cid: string,
-): Promise<Uint8Array | null> {
-    return null;
 }
 
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    describe("readFromChainStorage", () => {
-        test("returns null until runtime support lands", async () => {
-            const result = await readFromChainStorage({} as BulletinApi, "bafyabc");
-            expect(result).toBeNull();
-        });
-    });
-
     describe("fetchContent", () => {
         const cid = "bafyabc";
         const data = new Uint8Array([1, 2, 3]);
 
-        test("falls through to gateway when chain returns null", async () => {
+        test("fetches via gateway when one is configured", async () => {
             vi.stubGlobal(
                 "fetch",
                 vi.fn().mockResolvedValue({
@@ -90,7 +55,7 @@ if (import.meta.vitest) {
             vi.unstubAllGlobals();
         });
 
-        test("throws when no gateway and chain returns null", async () => {
+        test("throws when no gateway is configured", async () => {
             await expect(fetchContent({} as BulletinApi, null, cid)).rejects.toThrow(
                 BulletinGatewayUnavailableError,
             );

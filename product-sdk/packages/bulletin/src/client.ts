@@ -16,6 +16,11 @@ import { gatewayUrl } from "./gateway.js";
 import { BulletinChain, type BulletinEnvironment } from "./networks.js";
 import { fetchContent } from "./query.js";
 import type { AuthorizationStatus, BulletinApi, QueryOptions } from "./types.js";
+import {
+    verifyOnChain,
+    type ChainStoredEntry,
+    type VerifyOnChainOptions,
+} from "./verify.js";
 
 const log = createLogger("bulletin");
 
@@ -196,10 +201,11 @@ export class BulletinClient {
     // ─── Read side (our own helpers) ───────────────────────────────────
 
     /**
-     * Fetch raw bytes for a CID.
+     * Fetch raw bytes for a CID from the configured IPFS gateway.
      *
-     * Tries chain storage first (when the runtime exposes the necessary query
-     * — currently a no-op), then falls back to the configured IPFS gateway.
+     * The chain only stores content metadata (`content_hash`, size, codec),
+     * so byte retrieval always goes through IPFS. Use {@link verifyOnChain}
+     * if you only need to confirm a CID was recorded on-chain.
      */
     async fetchBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
         return fetchContent(this.api, this.gateway, cid, options);
@@ -219,6 +225,20 @@ export class BulletinClient {
     /** Pre-flight: check whether `address` can store on the bulletin chain. */
     async checkAuthorization(address: string): Promise<AuthorizationStatus> {
         return checkAuthorization(this.api, address);
+    }
+
+    /**
+     * Verify that a CID was recorded on-chain at the given block.
+     *
+     * Common pattern: pass `blockNumber` (and optionally `extrinsicIndex`)
+     * from a `store(...).send()` receipt to confirm the upload landed.
+     * See {@link verifyOnChain} for details.
+     */
+    async verifyOnChain(
+        cid: string,
+        options: VerifyOnChainOptions,
+    ): Promise<ChainStoredEntry | null> {
+        return verifyOnChain(this.api, cid, options);
     }
 
     /** Tear down the underlying connection. */
