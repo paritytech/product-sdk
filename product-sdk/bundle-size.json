@@ -1,0 +1,657 @@
+{
+  "version": 1,
+  "generatedAt": "2026-04-29T15:31:32.236Z",
+  "node": "v24.11.0",
+  "esbuild": "0.25.12",
+  "packages": {
+    "@parity/product-sdk": {
+      "entries": {
+        ".": {
+          "file": "packages/sdk/dist/index.js",
+          "ship": {
+            "raw": 705,
+            "gzip": 307,
+            "brotli": 278
+          },
+          "bundled": {
+            "raw": 4476259,
+            "gzip": 1468511,
+            "brotli": 675888
+          },
+          "shaken": {
+            "raw": 4346714,
+            "gzip": 1426165,
+            "brotli": 647087
+          },
+          "shakeRatio": 0.9711
+        },
+        "./address": {
+          "file": "packages/sdk/dist/address/index.js",
+          "ship": {
+            "raw": 102,
+            "gzip": 112,
+            "brotli": 88
+          },
+          "bundled": {
+            "raw": 20821,
+            "gzip": 8077,
+            "brotli": 7228
+          },
+          "shaken": {
+            "raw": 15727,
+            "gzip": 6197,
+            "brotli": 5554
+          },
+          "shakeRatio": 0.7553
+        },
+        "./bulletin": {
+          "file": "packages/sdk/dist/bulletin/index.js",
+          "ship": {
+            "raw": 104,
+            "gzip": 114,
+            "brotli": 91
+          },
+          "bundled": {
+            "raw": 4346183,
+            "gzip": 1427968,
+            "brotli": 649911
+          },
+          "shaken": {
+            "raw": 12668,
+            "gzip": 4739,
+            "brotli": 4336
+          },
+          "shakeRatio": 0.0029
+        },
+        "./chain": {
+          "file": "packages/sdk/dist/chain/index.js",
+          "ship": {
+            "raw": 105,
+            "gzip": 118,
+            "brotli": 90
+          },
+          "bundled": {
+            "raw": 4254377,
+            "gzip": 1395798,
+            "brotli": 621908
+          },
+          "shaken": {
+            "raw": 218474,
+            "gzip": 73966,
+            "brotli": 62627
+          },
+          "shakeRatio": 0.0514
+        },
+        "./contracts": {
+          "file": "packages/sdk/dist/contracts/index.js",
+          "ship": {
+            "raw": 106,
+            "gzip": 115,
+            "brotli": 91
+          },
+          "bundled": {
+            "raw": 2391712,
+            "gzip": 756617,
+            "brotli": 412187
+          },
+          "shaken": {
+            "raw": 160700,
+            "gzip": 57482,
+            "brotli": 41396
+          },
+          "shakeRatio": 0.0672
+        },
+        "./core": {
+          "file": "packages/sdk/dist/core/index.js",
+          "ship": {
+            "raw": 206,
+            "gzip": 151,
+            "brotli": 116
+          },
+          "bundled": {
+            "raw": 4476098,
+            "gzip": 1468434,
+            "brotli": 675729
+          },
+          "shaken": {
+            "raw": 634,
+            "gzip": 367,
+            "brotli": 316
+          },
+          "shakeRatio": 0.0001
+        },
+        "./crypto": {
+          "file": "packages/sdk/dist/crypto/index.js",
+          "ship": {
+            "raw": 100,
+            "gzip": 110,
+            "brotli": 94
+          },
+          "bundled": {
+            "raw": 73480,
+            "gzip": 25373,
+            "brotli": 20354
+          },
+          "shaken": {
+            "raw": 43080,
+            "gzip": 15325,
+            "brotli": 12056
+          },
+          "shakeRatio": 0.5863
+        },
+        "./host": {
+          "file": "packages/sdk/dist/host/index.js",
+          "ship": {
+            "raw": 96,
+            "gzip": 109,
+            "brotli": 91
+          },
+          "bundled": {
+            "raw": 99646,
+            "gzip": 33158,
+            "brotli": 27013
+          },
+          "shaken": {
+            "raw": 26117,
+            "gzip": 9523,
+            "brotli": 8578
+          },
+          "shakeRatio": 0.2621
+        },
+        "./identity": {
+          "file": "packages/sdk/dist/identity/index.js",
+          "ship": {
+            "raw": 3731,
+            "gzip": 1171,
+            "brotli": 995
+          },
+          "bundled": {
+            "raw": 51343,
+            "gzip": 18067,
+            "brotli": 14455
+          },
+          "shaken": {
+            "raw": 1158,
+            "gzip": 641,
+            "brotli": 540
+          },
+          "shakeRatio": 0.0226
+        },
+        "./react": {
+          "file": "packages/sdk/dist/react/index.js",
+          "ship": {
+            "raw": 5462,
+            "gzip": 1414,
+            "brotli": 1236
+          },
+          "bundled": {
+            "raw": 4486640,
+            "gzip": 1472018,
+            "brotli": 679095
+          },
+          "shaken": {
+            "raw": 8451,
+            "gzip": 3143,
+            "brotli": 2781
+          },
+          "shakeRatio": 0.0019
+        },
+        "./storage": {
+          "file": "packages/sdk/dist/storage/index.js",
+          "ship": {
+            "raw": 102,
+            "gzip": 111,
+            "brotli": 90
+          },
+          "bundled": {
+            "raw": 99156,
+            "gzip": 33070,
+            "brotli": 27033
+          },
+          "shaken": {
+            "raw": 99116,
+            "gzip": 33061,
+            "brotli": 26894
+          },
+          "shakeRatio": 0.9996
+        },
+        "./wallet": {
+          "file": "packages/sdk/dist/wallet/index.js",
+          "ship": {
+            "raw": 100,
+            "gzip": 115,
+            "brotli": 94
+          },
+          "bundled": {
+            "raw": 260460,
+            "gzip": 85596,
+            "brotli": 63422
+          },
+          "shaken": {
+            "raw": 1206,
+            "gzip": 633,
+            "brotli": 550
+          },
+          "shakeRatio": 0.0046
+        }
+      }
+    },
+    "@parity/product-sdk-address": {
+      "entries": {
+        ".": {
+          "file": "packages/address/dist/index.js",
+          "ship": {
+            "raw": 12913,
+            "gzip": 2996,
+            "brotli": 2687
+          },
+          "bundled": {
+            "raw": 20821,
+            "gzip": 8077,
+            "brotli": 7228
+          },
+          "shaken": {
+            "raw": 15727,
+            "gzip": 6197,
+            "brotli": 5554
+          },
+          "shakeRatio": 0.7553
+        }
+      }
+    },
+    "@parity/product-sdk-bulletin": {
+      "entries": {
+        ".": {
+          "file": "packages/bulletin/dist/index.js",
+          "ship": {
+            "raw": 48906,
+            "gzip": 9709,
+            "brotli": 8462
+          },
+          "bundled": {
+            "raw": 4346183,
+            "gzip": 1427968,
+            "brotli": 649911
+          },
+          "shaken": {
+            "raw": 12668,
+            "gzip": 4739,
+            "brotli": 4336
+          },
+          "shakeRatio": 0.0029
+        }
+      }
+    },
+    "@parity/product-sdk-chain-client": {
+      "entries": {
+        ".": {
+          "file": "packages/chain-client/dist/index.js",
+          "ship": {
+            "raw": 15079,
+            "gzip": 3917,
+            "brotli": 3398
+          },
+          "bundled": {
+            "raw": 4254377,
+            "gzip": 1395798,
+            "brotli": 621908
+          },
+          "shaken": {
+            "raw": 218474,
+            "gzip": 73966,
+            "brotli": 62627
+          },
+          "shakeRatio": 0.0514
+        }
+      }
+    },
+    "@parity/product-sdk-contracts": {
+      "entries": {
+        ".": {
+          "file": "packages/contracts/dist/index.js",
+          "ship": {
+            "raw": 14598,
+            "gzip": 3734,
+            "brotli": 3300
+          },
+          "bundled": {
+            "raw": 2391712,
+            "gzip": 756617,
+            "brotli": 412187
+          },
+          "shaken": {
+            "raw": 160700,
+            "gzip": 57482,
+            "brotli": 41396
+          },
+          "shakeRatio": 0.0672
+        },
+        "./codegen": {
+          "file": "packages/contracts/dist/codegen.js",
+          "ship": {
+            "raw": 134,
+            "gzip": 124,
+            "brotli": 108
+          },
+          "bundled": {
+            "raw": 1587,
+            "gzip": 826,
+            "brotli": 710
+          },
+          "shaken": {
+            "raw": 1453,
+            "gzip": 741,
+            "brotli": 638
+          },
+          "shakeRatio": 0.9156
+        }
+      }
+    },
+    "@parity/product-sdk-crypto": {
+      "entries": {
+        ".": {
+          "file": "packages/crypto/dist/index.js",
+          "ship": {
+            "raw": 20352,
+            "gzip": 3450,
+            "brotli": 3075
+          },
+          "bundled": {
+            "raw": 73480,
+            "gzip": 25373,
+            "brotli": 20354
+          },
+          "shaken": {
+            "raw": 43080,
+            "gzip": 15325,
+            "brotli": 12056
+          },
+          "shakeRatio": 0.5863
+        }
+      }
+    },
+    "@parity/product-sdk-descriptors": {
+      "entries": {
+        "./bulletin": {
+          "file": "packages/descriptors/chains/bulletin/generated/dist/index.mjs",
+          "ship": {
+            "raw": 5055,
+            "gzip": 1635,
+            "brotli": 1449
+          },
+          "bundled": {
+            "raw": 274013,
+            "gzip": 96116,
+            "brotli": 76657
+          },
+          "shaken": {
+            "raw": 50691,
+            "gzip": 20285,
+            "brotli": 17969
+          },
+          "shakeRatio": 0.185
+        },
+        "./individuality": {
+          "file": "packages/descriptors/chains/individuality/generated/dist/index.mjs",
+          "ship": {
+            "raw": 5080,
+            "gzip": 1650,
+            "brotli": 1460
+          },
+          "bundled": {
+            "raw": 625492,
+            "gzip": 211151,
+            "brotli": 160019
+          },
+          "shaken": {
+            "raw": 117618,
+            "gzip": 44965,
+            "brotli": 38141
+          },
+          "shakeRatio": 0.188
+        },
+        "./kusama-asset-hub": {
+          "file": "packages/descriptors/chains/kusama-asset-hub/generated/dist/index.mjs",
+          "ship": {
+            "raw": 6849,
+            "gzip": 2041,
+            "brotli": 1809
+          },
+          "bundled": {
+            "raw": 1084214,
+            "gzip": 350575,
+            "brotli": 254364
+          },
+          "shaken": {
+            "raw": 182095,
+            "gzip": 67972,
+            "brotli": 54644
+          },
+          "shakeRatio": 0.168
+        },
+        "./paseo-asset-hub": {
+          "file": "packages/descriptors/chains/paseo-asset-hub/generated/dist/index.mjs",
+          "ship": {
+            "raw": 6892,
+            "gzip": 2054,
+            "brotli": 1819
+          },
+          "bundled": {
+            "raw": 1026121,
+            "gzip": 331947,
+            "brotli": 239630
+          },
+          "shaken": {
+            "raw": 172854,
+            "gzip": 64460,
+            "brotli": 52146
+          },
+          "shakeRatio": 0.1685
+        },
+        "./polkadot-asset-hub": {
+          "file": "packages/descriptors/chains/polkadot-asset-hub/generated/dist/index.mjs",
+          "ship": {
+            "raw": 6913,
+            "gzip": 2056,
+            "brotli": 1829
+          },
+          "bundled": {
+            "raw": 1022953,
+            "gzip": 330917,
+            "brotli": 238954
+          },
+          "shaken": {
+            "raw": 172227,
+            "gzip": 64297,
+            "brotli": 51856
+          },
+          "shakeRatio": 0.1684
+        }
+      }
+    },
+    "@parity/product-sdk-host": {
+      "entries": {
+        ".": {
+          "file": "packages/host/dist/index.js",
+          "ship": {
+            "raw": 6449,
+            "gzip": 1581,
+            "brotli": 1402
+          },
+          "bundled": {
+            "raw": 99646,
+            "gzip": 33158,
+            "brotli": 27013
+          },
+          "shaken": {
+            "raw": 26117,
+            "gzip": 9523,
+            "brotli": 8578
+          },
+          "shakeRatio": 0.2621
+        }
+      }
+    },
+    "@parity/product-sdk-keys": {
+      "entries": {
+        ".": {
+          "file": "packages/keys/dist/index.js",
+          "ship": {
+            "raw": 21790,
+            "gzip": 4425,
+            "brotli": 3950
+          },
+          "bundled": {
+            "raw": 196371,
+            "gzip": 69422,
+            "brotli": 49626
+          },
+          "shaken": {
+            "raw": 145128,
+            "gzip": 52089,
+            "brotli": 38661
+          },
+          "shakeRatio": 0.7391
+        }
+      }
+    },
+    "@parity/product-sdk-logger": {
+      "entries": {
+        ".": {
+          "file": "packages/logger/dist/index.js",
+          "ship": {
+            "raw": 9600,
+            "gzip": 2272,
+            "brotli": 1973
+          },
+          "bundled": {
+            "raw": 1257,
+            "gzip": 645,
+            "brotli": 569
+          },
+          "shaken": {
+            "raw": 634,
+            "gzip": 367,
+            "brotli": 315
+          },
+          "shakeRatio": 0.5044
+        }
+      }
+    },
+    "@parity/product-sdk-signer": {
+      "entries": {
+        ".": {
+          "file": "packages/signer/dist/index.js",
+          "ship": {
+            "raw": 53071,
+            "gzip": 10087,
+            "brotli": 8866
+          },
+          "bundled": {
+            "raw": 260460,
+            "gzip": 85596,
+            "brotli": 63422
+          },
+          "shaken": {
+            "raw": 1206,
+            "gzip": 633,
+            "brotli": 550
+          },
+          "shakeRatio": 0.0046
+        }
+      }
+    },
+    "@parity/product-sdk-statement-store": {
+      "entries": {
+        ".": {
+          "file": "packages/statement-store/dist/index.js",
+          "ship": {
+            "raw": 35491,
+            "gzip": 8222,
+            "brotli": 7184
+          },
+          "bundled": {
+            "raw": 118344,
+            "gzip": 37534,
+            "brotli": 31079
+          },
+          "shaken": {
+            "raw": 10049,
+            "gzip": 4034,
+            "brotli": 3562
+          },
+          "shakeRatio": 0.0849
+        }
+      }
+    },
+    "@parity/product-sdk-storage": {
+      "entries": {
+        ".": {
+          "file": "packages/storage/dist/index.js",
+          "ship": {
+            "raw": 6549,
+            "gzip": 1449,
+            "brotli": 1255
+          },
+          "bundled": {
+            "raw": 99156,
+            "gzip": 33070,
+            "brotli": 27033
+          },
+          "shaken": {
+            "raw": 99116,
+            "gzip": 33061,
+            "brotli": 26894
+          },
+          "shakeRatio": 0.9996
+        }
+      }
+    },
+    "@parity/product-sdk-tx": {
+      "entries": {
+        ".": {
+          "file": "packages/tx/dist/index.js",
+          "ship": {
+            "raw": 56508,
+            "gzip": 10032,
+            "brotli": 8617
+          },
+          "bundled": {
+            "raw": 166390,
+            "gzip": 60790,
+            "brotli": 42855
+          },
+          "shaken": {
+            "raw": 30847,
+            "gzip": 13206,
+            "brotli": 11589
+          },
+          "shakeRatio": 0.1854
+        }
+      }
+    },
+    "@parity/product-sdk-utils": {
+      "entries": {
+        ".": {
+          "file": "packages/utils/dist/index.js",
+          "ship": {
+            "raw": 15285,
+            "gzip": 3414,
+            "brotli": 3034
+          },
+          "bundled": {
+            "raw": 18195,
+            "gzip": 7294,
+            "brotli": 6330
+          },
+          "shaken": {
+            "raw": 8399,
+            "gzip": 3417,
+            "brotli": 3004
+          },
+          "shakeRatio": 0.4616
+        }
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@
     "description": "PAPI-generated chain descriptors for Polkadot ecosystem",
     "license": "Apache-2.0",
     "type": "module",
+    "sideEffects": false,
     "exports": {
         "./bulletin": {
             "types": "./chains/bulletin/generated/dist/index.d.ts",

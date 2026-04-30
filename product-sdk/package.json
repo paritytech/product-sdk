@@ -12,11 +12,15 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint:biome": "biome lint .",
-    "check": "biome check ."
+    "check": "biome check .",
+    "bench": "node scripts/bench-bundle.mjs measure --out bundle-size.json --md bundle-size.md",
+    "bench:update": "node scripts/bench-bundle.mjs measure --out bundle-size.json --md bundle-size.md",
+    "bench:compare": "node scripts/bench-bundle.mjs compare --base bundle-size.base.json --head bundle-size.json --md bundle-size.diff.md --strict"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@changesets/cli": "^2.28.1",
+    "esbuild": "^0.25.0",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0"
   },

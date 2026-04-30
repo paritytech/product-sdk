@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "examples/*"
+  - "scripts/bench-consumer"
 
 catalog:
   polkadot-api: ^1.23.3

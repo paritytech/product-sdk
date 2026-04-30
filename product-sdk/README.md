@@ -78,6 +78,15 @@ pnpm --filter "@parity/product-sdk-signer-demo" test:e2e
 pnpm --filter "@parity/product-sdk-signer-demo" test:e2e:ui
 ```
 
+## Bundle Size
+
+Every PR runs a bundle-size benchmark across all SDK packages and posts a diff comment. See [BUNDLE_SIZE.md](./BUNDLE_SIZE.md) for what's measured and how to debug regressions.
+
+```bash
+pnpm bench           # measure current sizes locally
+pnpm bench:compare   # compare against a saved snapshot (CI uses this)
+```
+
 ## License
 
 Apache-2.0

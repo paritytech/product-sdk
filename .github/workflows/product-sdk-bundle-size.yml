@@ -1,0 +1,192 @@
+name: "product-sdk: Bundle Size"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "product-sdk/**"
+      - ".github/workflows/product-sdk-bundle-size.yml"
+
+jobs:
+  measure-base:
+    name: "Measure base"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: product-sdk
+
+      - name: Build
+        run: pnpm build
+        working-directory: product-sdk
+
+      - name: Measure
+        # If the bench script doesn't exist on base yet, emit an empty
+        # report so the diff shows everything as "new". Stage the file at
+        # the repo root so the artifact has it at its root, not nested.
+        run: |
+          if [ -f product-sdk/scripts/bench-bundle.mjs ]; then
+            (cd product-sdk && node scripts/bench-bundle.mjs measure --out bundle-size.base.json)
+            mv product-sdk/bundle-size.base.json ./bundle-size.base.json
+          else
+            echo '{"version":1,"packages":{},"generatedAt":"base","node":"n/a","esbuild":"n/a"}' > bundle-size.base.json
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-size-base
+          path: bundle-size.base.json
+          retention-days: 1
+
+  measure-head:
+    name: "Measure head"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: product-sdk
+
+      - name: Build
+        run: pnpm build
+        working-directory: product-sdk
+
+      - name: Measure
+        # Stage the JSON at the repo root so the artifact has it at its root.
+        run: |
+          (cd product-sdk && node scripts/bench-bundle.mjs measure --out bundle-size.head.json)
+          mv product-sdk/bundle-size.head.json ./bundle-size.head.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-size-head
+          path: bundle-size.head.json
+          retention-days: 1
+
+  compare:
+    name: "Compare & comment"
+    runs-on: ubuntu-latest
+    needs: [measure-base, measure-head]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Debug — env after checkout
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "PWD=$(pwd)"
+          echo "--- repo root ---"
+          ls -la
+          echo "--- product-sdk/ exists? ---"
+          ls -la product-sdk/ 2>&1 | head -20 || echo "MISSING"
+
+      # Download both artifacts to the repo root (artifacts contain the JSON
+      # files at their root since we staged them flat in the measure jobs).
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle-size-base
+          path: .
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle-size-head
+          path: .
+
+      - name: Debug — env after downloads
+        run: |
+          echo "--- repo root ---"
+          ls -la
+          echo "--- bundle-size files ---"
+          ls -la bundle-size.*.json 2>&1 || echo "no bundle-size files"
+          echo "--- product-sdk/scripts ---"
+          ls -la product-sdk/scripts/ 2>&1 | head || echo "MISSING"
+
+      # Run compare from the repo root. The script resolves paths against
+      # WORKSPACE_ROOT (= product-sdk/) internally, so we need to either:
+      #   a) cd into product-sdk/ and reference ../bundle-size.*.json, or
+      #   b) move the artifacts into product-sdk/.
+      # We do (b) — simpler, and bundle-size.diff.md ends up where the
+      # sticky-comment step expects it.
+      - name: Stage artifacts into product-sdk/
+        run: |
+          mv bundle-size.base.json product-sdk/bundle-size.base.json
+          mv bundle-size.head.json product-sdk/bundle-size.head.json
+          ls -la product-sdk/bundle-size.*.json
+
+      - name: Compare
+        id: compare
+        run: |
+          set +e
+          node scripts/bench-bundle.mjs compare \
+            --base bundle-size.base.json \
+            --head bundle-size.head.json \
+            --md bundle-size.diff.md \
+            --strict
+          code=$?
+          echo "compare-exit=$code" >> "$GITHUB_OUTPUT"
+          # Always emit a comment body so the sticky-comment action has input
+          # even if the script crashed before writing one.
+          if [ ! -s bundle-size.diff.md ]; then
+            {
+              echo "<!-- product-sdk-bundle-size -->"
+              echo "## 📦 Bundle size impact"
+              echo
+              echo "Bench compare step failed to produce a report (exit $code). See workflow logs."
+            } > bundle-size.diff.md
+          fi
+          # Don't fail this step — let the sticky-comment post first, then
+          # fail the dedicated 'Fail on regression' step at the end.
+          exit 0
+        working-directory: product-sdk
+
+      - name: Debug — show diff file
+        if: always()
+        run: |
+          echo "--- product-sdk/ contents ---"
+          ls -la product-sdk/ | grep bundle-size || true
+          echo "--- diff.md head ---"
+          head -40 product-sdk/bundle-size.diff.md || echo "(missing)"
+
+      - name: Post sticky PR comment
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: product-sdk-bundle-size
+          path: product-sdk/bundle-size.diff.md
+
+      - name: Fail on regression
+        if: steps.compare.outputs.compare-exit != '0'
+        run: |
+          echo "Bundle size regression exceeds fail threshold (script exit ${{ steps.compare.outputs.compare-exit }})."
+          exit 1

@@ -30,3 +30,9 @@ yarn.lock
 
 #local docs
 local-docs
+
+# Bundle bench: ephemeral outputs, baseline JSON is committed.
+product-sdk/bundle-size.md
+product-sdk/bundle-size.base.json
+product-sdk/bundle-size.head.json
+product-sdk/bundle-size.diff.md
