@@ -1,82 +1,99 @@
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { resolveQueryStrategy, type QueryStrategy } from "./resolve-query.js";
-import type { QueryOptions } from "./types.js";
+import { BulletinGatewayUnavailableError } from "./errors.js";
+import { fetchBytes as fetchFromGateway } from "./gateway.js";
+import type { BulletinApi, QueryOptions } from "./types.js";
 
 const log = createLogger("bulletin");
 
 /**
- * Fetch raw bytes for a CID using the host preimage lookup.
+ * Fetch content for a CID, trying chain storage first and falling back to
+ * the IPFS gateway.
  *
- * Uses local cache + managed IPFS polling via the host container.
+ * Read order:
  *
- * @param cid     - CIDv1 string to fetch.
- * @param options - Query options (lookupTimeoutMs for host).
- * @returns Raw bytes of the content.
- * @throws {Error} If the host preimage API is unavailable.
+ * 1. **Chain storage** — direct query of `TransactionStorage` (placeholder
+ *    until the runtime exposes the CID-keyed query item; today this returns
+ *    `null` and we always fall through).
+ * 2. **IPFS gateway** — works for content stored via the chain, including
+ *    chunked / DAG-PB content (the gateway reassembles UnixFS automatically).
+ *
+ * If neither path is configured (no chain query + no gateway), throws
+ * {@link BulletinGatewayUnavailableError}.
  */
-export async function queryBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
-    const strategy = await resolveQueryStrategy();
-    return executeQuery(strategy, cid, options);
-}
-
-/**
- * Fetch and parse JSON for a CID, auto-resolving the query path.
- *
- * Delegates to {@link queryBytes} and parses the result as JSON.
- *
- * @param cid     - CIDv1 string to fetch.
- * @param options - Query options.
- * @returns Parsed JSON value.
- * @throws {Error} If the host preimage API is unavailable.
- */
-export async function queryJson<T>(cid: string, options?: QueryOptions): Promise<T> {
-    const bytes = await queryBytes(cid, options);
-    return JSON.parse(new TextDecoder().decode(bytes)) as T;
-}
-
-/**
- * Execute a query using a pre-resolved strategy.
- *
- * Exposed so that {@link BulletinClient} can resolve the strategy once and
- * reuse it across multiple calls without re-detecting the environment.
- *
- * @param strategy - Pre-resolved query strategy.
- * @param cid      - CIDv1 string to fetch.
- * @param options  - Query options.
- * @returns Raw bytes of the content.
- */
-export async function executeQuery(
-    strategy: QueryStrategy,
+export async function fetchContent(
+    api: BulletinApi,
+    gateway: string | null,
     cid: string,
     options?: QueryOptions,
 ): Promise<Uint8Array> {
-    log.info("querying via host preimage lookup", { cid });
-    return strategy.lookup(cid, options?.lookupTimeoutMs);
+    const onChain = await readFromChainStorage(api, cid);
+    if (onChain) {
+        log.info("query: served from chain storage", { cid });
+        return onChain;
+    }
+
+    if (!gateway) {
+        throw new BulletinGatewayUnavailableError("(no gateway configured)");
+    }
+
+    log.info("query: chain miss, falling back to gateway", { cid, gateway });
+    return fetchFromGateway(cid, gateway, options);
+}
+
+/**
+ * Read content directly from chain storage.
+ *
+ * Currently a placeholder. The bulletin runtime exposes `TransactionStorage`
+ * pallet items, but the CID-keyed read mapping is still being defined — see
+ * the issue tracker for the runtime support timeline. Until then this always
+ * returns `null` and `fetchContent` falls back to the gateway.
+ *
+ * When the runtime exposes the necessary item, replace the body with a typed
+ * call along the lines of:
+ *
+ * ```ts
+ * const bytes = await api.query.TransactionStorage.Transactions.getValue(...);
+ * ```
+ */
+export async function readFromChainStorage(
+    _api: BulletinApi,
+    _cid: string,
+): Promise<Uint8Array | null> {
+    return null;
 }
 
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    // Note: queryBytes and queryJson tests require e2e testing as they
-    // depend on the host container environment for strategy resolution.
+    describe("readFromChainStorage", () => {
+        test("returns null until runtime support lands", async () => {
+            const result = await readFromChainStorage({} as BulletinApi, "bafyabc");
+            expect(result).toBeNull();
+        });
+    });
 
-    describe("executeQuery", () => {
-        const testData = new Uint8Array([1, 2, 3]);
+    describe("fetchContent", () => {
+        const cid = "bafyabc";
+        const data = new Uint8Array([1, 2, 3]);
 
-        test("executes host-lookup strategy", async () => {
-            const lookup = vi.fn().mockResolvedValue(testData);
-            const strategy: QueryStrategy = { kind: "host-lookup", lookup };
-            const result = await executeQuery(strategy, "bafytest");
-            expect(result).toBe(testData);
-            expect(lookup).toHaveBeenCalledWith("bafytest", undefined);
+        test("falls through to gateway when chain returns null", async () => {
+            vi.stubGlobal(
+                "fetch",
+                vi.fn().mockResolvedValue({
+                    ok: true,
+                    arrayBuffer: () => Promise.resolve(data.buffer),
+                }),
+            );
+            const result = await fetchContent({} as BulletinApi, "https://gw/ipfs/", cid);
+            expect(result).toEqual(data);
+            vi.unstubAllGlobals();
         });
 
-        test("passes lookupTimeoutMs to host-lookup", async () => {
-            const lookup = vi.fn().mockResolvedValue(testData);
-            const strategy: QueryStrategy = { kind: "host-lookup", lookup };
-            await executeQuery(strategy, "bafytest", { lookupTimeoutMs: 5000 });
-            expect(lookup).toHaveBeenCalledWith("bafytest", 5000);
+        test("throws when no gateway and chain returns null", async () => {
+            await expect(fetchContent({} as BulletinApi, null, cid)).rejects.toThrow(
+                BulletinGatewayUnavailableError,
+            );
         });
     });
 }
