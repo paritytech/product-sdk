@@ -4,16 +4,14 @@ import { waitForAppReady } from "./helpers";
 /**
  * Query via the host preimage lookup path.
  *
- * Exercises:
- *   - BulletinClient.fetchBytes() → resolveQueryStrategy() → host-lookup
- *   - lookupViaHost() → preimageManager.lookup(key, callback)
- *   - Subscription-to-Promise conversion with timeout
- *   - Full round-trip: upload → host stores → query → host returns
- *
- * Host API surface tested:
- *   - preimageManager.lookup(key, callback) → subscription-based API
+ * SKIPPED: these tests target the host-preimage lookup path that was removed
+ * when @parity/product-sdk-bulletin migrated to wrap @parity/bulletin-sdk
+ * (chain-storage read with IPFS gateway fallback). The new query path needs
+ * either a runtime that exposes the CID-keyed storage item, a live bulletin
+ * gateway, or an HTTP-mocked gateway harness; replacing the host-preimage
+ * test rig is tracked as a follow-up.
  */
-test.describe("@parity/product-sdk-bulletin via Host API — query", () => {
+test.describe.skip("@parity/product-sdk-bulletin via Host API — query", () => {
     test("seeded preimage is found via host lookup", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearPreimages();

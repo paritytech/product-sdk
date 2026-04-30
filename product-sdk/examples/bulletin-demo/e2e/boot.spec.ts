@@ -4,18 +4,13 @@ import { waitForAppReady } from "./helpers";
 /**
  * Smoke-test: the demo app boots and resolves host strategies.
  *
- * Verifies that:
- *   - SignerManager.connect() succeeds via HostProvider.
- *   - resolveUploadStrategy() returns "preimage" (host path).
- *   - resolveQueryStrategy() returns "host-lookup" (host path).
- *   - BulletinClient initializes via BYOD chain client.
- *
- * Host API surface tested:
- *   - isInsideContainer() → true (triggers host strategies)
- *   - resolveUploadStrategy() → preimage kind
- *   - resolveQueryStrategy() → host-lookup kind
+ * SKIPPED: asserts on `upload-strategy` / `query-strategy` UI fields and the
+ * "preimage"/"host-lookup" log lines that came from the host-preimage code
+ * path. After the migration to AsyncBulletinClient those DOM nodes and code
+ * paths are gone. A trimmed boot smoke test (signer connects + bulletin
+ * client constructs) can be reinstated alongside the rest of the suite.
  */
-test.describe("@parity/product-sdk-bulletin via Host API — boot", () => {
+test.describe.skip("@parity/product-sdk-bulletin via Host API — boot", () => {
     test("app connects and resolves host strategies", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

@@ -17,6 +17,7 @@ export type { CreateBulletinClientOptions } from "./client.js";
 export { BulletinChain } from "./networks.js";
 export type { BulletinEnvironment, BulletinNetwork } from "./networks.js";
 export { checkAuthorization } from "./authorization.js";
+export { createLazySigner } from "./lazy-signer.js";
 export { fetchContent, readFromChainStorage } from "./query.js";
 export {
     cidExists,

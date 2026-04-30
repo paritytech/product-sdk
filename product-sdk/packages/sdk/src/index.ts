@@ -46,4 +46,4 @@ export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-ho
 export { createChainClient } from "@parity/product-sdk-chain-client";
 export { SignerManager } from "@parity/product-sdk-signer";
 export { createKvStore } from "@parity/product-sdk-storage";
-export { BulletinClient, computeCid } from "@parity/product-sdk-bulletin";
+export { BulletinClient, calculateCid } from "@parity/product-sdk-bulletin";
