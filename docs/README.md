@@ -9,17 +9,21 @@ Lives at the repo root (a sibling of `product-sdk/` and `repos/`) and runs as a 
 ```bash
 cd docs
 pnpm install
+pnpm docs:generate   # required on first run — populates content/api/
 pnpm dev
 ```
 
 Open http://localhost:3000.
+
+> `pnpm dev` does not auto-regenerate the API reference. Re-run `pnpm docs:generate` after editing TSDoc comments in the SDK sources.
 
 > Search (Pagefind) is only populated by the production build. To test search locally, run `pnpm build && pnpm start` instead.
 
 ## Build
 
 ```bash
-pnpm build   # next build (static export to out/) + Pagefind postbuild
+pnpm docs:generate   # required — content/api/ is gitignored, must regenerate
+pnpm build           # next build (static export to out/) + Pagefind postbuild
 pnpm start  
 ```
 
