@@ -2,9 +2,8 @@
 name: product-sdk-transactions
 description: >
   Submit transactions, connect wallets, manage signers, and handle keys in product-sdk.
-  Use when: submitting transactions, connecting browser wallet extensions (Talisman, Polkadot.js,
-  SubWallet), integrating Host API signing (Polkadot Desktop/Mobile), managing multi-provider
-  wallet accounts, deriving keys, or creating dev signers for testnet.
+  Use when: submitting transactions, integrating Host API signing (Polkadot Desktop/Mobile),
+  managing multi-provider wallet accounts, deriving keys, or creating dev signers for testnet.
   Covers @parity/product-sdk-tx (submit/watch), @parity/product-sdk-signer (wallet connection, account
   management, multi-provider signing), and @parity/product-sdk-keys (key derivation, session keys).
 ---
@@ -176,7 +175,7 @@ const unsub = manager.subscribe((state) => {
   console.log(state.status, state.accounts, state.selectedAccount);
 });
 
-// Auto-detect: tries Host API (in container) or extensions (in browser)
+// Connect to the Host API (default). For testing, pass "dev": manager.connect("dev")
 const result = await manager.connect();
 
 if (result.ok) {

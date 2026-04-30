@@ -47,8 +47,8 @@ function buildTxResult(
  *
  * @param tx - A transaction object with `signSubmitAndWatch`. Works with raw PAPI
  *   transactions and Ink SDK `AsyncTransaction` wrappers (resolved automatically).
- * @param signer - The signer to use. Can come from a wallet extension, Host API
- *   (`getProductAccountSigner`), or {@link createDevSigner}.
+ * @param signer - The signer to use. Can come from the Host API
+ *   (`getProductAccountSigner`) or {@link createDevSigner}.
  * @param options - Submission options (waitFor, timeout, mortality, status callback).
  * @returns The transaction result once included/finalized.
  *

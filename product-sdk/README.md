@@ -9,7 +9,7 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk` | Unified umbrella package — re-exports all modules |
 | `@parity/product-sdk-chain-client` | Multi-chain Polkadot API client with typed access to Asset Hub, Bulletin, and other chains |
 | `@parity/product-sdk-tx` | Transaction submission, lifecycle watching, and dev signers |
-| `@parity/product-sdk-signer` | Multi-provider signer manager — Host API, browser extensions, and dev accounts |
+| `@parity/product-sdk-signer` | Multi-provider signer manager — Host API and dev accounts |
 | `@parity/product-sdk-contracts` | Typed contract interactions on Polkadot Asset Hub |
 | `@parity/product-sdk-bulletin` | Upload and retrieve data on the Polkadot Bulletin Chain |
 | `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |

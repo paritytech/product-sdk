@@ -143,7 +143,7 @@ import { formatBalance } from "@parity/product-sdk-utils";
 async function main() {
     const client = await getChainAPI("paseo");
 
-    // Connect to browser extension wallets
+    // Connect to host-provided accounts
     const signerManager = new SignerManager();
     await signerManager.connect();
 

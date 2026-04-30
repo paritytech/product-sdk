@@ -4,7 +4,7 @@
 
 ## SignerManager
 
-Core orchestrator for signer management across multiple providers (Host API, browser extensions, dev accounts).
+Core orchestrator for signer management across the Host API and dev accounts.
 
 ```ts
 import { SignerManager } from "@parity/product-sdk-signer";
@@ -24,9 +24,8 @@ new SignerManager(options?: SignerManagerOptions)
 connect(providerType?: ProviderType): Promise<Result<SignerAccount[], SignerError>>
 ```
 
-Connect to a provider. If no provider type is specified, runs auto-detection:
-- Inside a container: Try Host API, fallback to extensions
-- Outside a container: Try extensions directly
+Connect to a provider. Defaults to the Host API; pass `"dev"` for dev accounts (testing).
+The SDK is designed for container-only usage — `connect()` with no argument always targets the Host API.
 
 #### selectAccount
 
@@ -80,17 +79,6 @@ import { DevProvider } from "@parity/product-sdk-signer";
 const provider = new DevProvider({ names: ["Alice", "Bob"] });
 ```
 
-### ExtensionProvider
-
-```ts
-import { ExtensionProvider } from "@parity/product-sdk-signer";
-
-const provider = new ExtensionProvider({
-  extensionName: "talisman",
-  dappName: "My App",
-});
-```
-
 ### HostProvider
 
 ```ts
@@ -111,8 +99,6 @@ All errors extend `SignerError`:
 - `HostUnavailableError`
 - `HostRejectedError`
 - `HostDisconnectedError`
-- `ExtensionNotFoundError`
-- `ExtensionRejectedError`
 - `SigningFailedError`
 - `NoAccountsError`
 - `TimeoutError`
@@ -123,7 +109,6 @@ All errors extend `SignerError`:
 
 ```ts
 function isHostError(e: SignerError): boolean
-function isExtensionError(e: SignerError): boolean
 ```
 
 ---
@@ -164,7 +149,7 @@ type ConnectionStatus = "disconnected" | "connecting" | "connected";
 ### ProviderType
 
 ```ts
-type ProviderType = "host" | "extension" | "dev";
+type ProviderType = "host" | "dev";
 ```
 
 ### Result

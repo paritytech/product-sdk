@@ -147,7 +147,7 @@ export interface Account {
     address: string;
     /** Account name/label (if available) */
     name?: string;
-    /** Source of the account (extension name, host, etc.) */
+    /** Source of the account (host, dev signer, etc.) */
     source: string;
 }
 

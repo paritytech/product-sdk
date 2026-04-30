@@ -10,9 +10,7 @@ E2E demo app for `@parity/product-sdk-signer`. Extends the [`tx-demo`](../tx-dem
 - Permission rejection via `testHost.setPermissionBehavior("reject-all")` / `revokePermission("TransactionSubmit")` — verifies the error surfaces cleanly through the `Result` type, not as a bare throw.
 - `disconnect()` + `connect()` lifecycle from a user click.
 
-Not covered (see [`tx-demo`](../tx-demo/README.md) caveats):
-
-- The browser extension / standalone path — the test SDK only simulates the host container.
+See [`tx-demo`](../tx-demo/README.md#caveats) for the shared test-SDK simulation caveats.
 
 ## Run locally
 
