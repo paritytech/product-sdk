@@ -43,7 +43,6 @@ The entire `content/api/` tree is generated from TSDoc comments in `product-sdk/
 
 ```bash
 pnpm docs:generate   # typedoc --json + custom MDX renderer
-pnpm docs:check      # regenerate and fail if content/api drifts (unused for now since content/api/ is gitignored)
 ```
 
 ### Generator internals
