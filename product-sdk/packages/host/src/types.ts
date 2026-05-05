@@ -39,9 +39,7 @@ export type StatementProof =
  * either *all* of the listed topics (`matchAll`) or *any* of them
  * (`matchAny`).
  */
-export type StatementTopicFilter =
-    | { matchAll: Uint8Array[] }
-    | { matchAny: Uint8Array[] };
+export type StatementTopicFilter = { matchAll: Uint8Array[] } | { matchAny: Uint8Array[] };
 
 /**
  * A page of signed statements delivered by {@link HostStatementStore.subscribe}.
@@ -92,10 +90,7 @@ export interface HostStatementStore {
      * @param statement - The unsigned statement.
      * @returns The proof (signature + signer info, or chain-attestation reference).
      */
-    createProof(
-        accountId: [string, number],
-        statement: unknown,
-    ): Promise<StatementProof>;
+    createProof(accountId: [string, number], statement: unknown): Promise<StatementProof>;
 
     /**
      * Submit a signed statement to the bulletin chain.

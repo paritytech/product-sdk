@@ -1,8 +1,5 @@
 import { createLogger } from "@parity/product-sdk-logger";
-import type {
-    HostStatementStore,
-    StatementTopicFilter,
-} from "@parity/product-sdk-host";
+import type { HostStatementStore, StatementTopicFilter } from "@parity/product-sdk-host";
 
 import { StatementConnectionError, StatementSubscriptionError } from "./errors.js";
 import type { ConnectionCredentials, StatementTransport, Unsubscribable } from "./types.js";
@@ -181,7 +178,8 @@ function hostSignedStatementToSdk(hostStmt: HostSignedStatement): Statement {
         const tag = hostStmt.proof.tag;
         const value = hostStmt.proof.value;
         // Product-sdk proof tags use PascalCase; sdk-statement variants are camelCase.
-        const sdkType = tag === "OnChain" ? "onChain" : (tag.toLowerCase() as "sr25519" | "ed25519" | "ecdsa");
+        const sdkType =
+            tag === "OnChain" ? "onChain" : (tag.toLowerCase() as "sr25519" | "ed25519" | "ecdsa");
 
         if (sdkType === "onChain" && "who" in value) {
             result.proof = {
