@@ -26,7 +26,7 @@
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "multiformats": "^13.3.0",
-        "polkadot-api": "^1.9.0"
+        "polkadot-api": "catalog:"
     },
     "devDependencies": {
         "typescript": "^5.7.0",

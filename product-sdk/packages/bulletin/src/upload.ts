@@ -1,7 +1,6 @@
 import { createLogger } from "@parity/product-sdk-logger";
 import { submitAndWatch, withRetry } from "@parity/product-sdk-tx";
 import type { PolkadotSigner } from "polkadot-api";
-import { Binary } from "polkadot-api";
 
 import { computeCid } from "./cid.js";
 import { gatewayUrl } from "./gateway.js";
@@ -56,7 +55,7 @@ export async function upload(
     log.info("uploading via TransactionStorage.store", { cid, size: data.byteLength });
     const result = await withRetry(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const tx = (api as any).tx.TransactionStorage.store({ data: Binary.fromBytes(data) });
+        const tx = (api as any).tx.TransactionStorage.store({ data: data });
         return submitAndWatch(tx, strategy.signer, {
             waitFor: options?.waitFor,
             timeoutMs: options?.timeoutMs,
@@ -131,7 +130,7 @@ export async function batchUpload(
                 const result = await withRetry(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const tx = (api as any).tx.TransactionStorage.store({
-                        data: Binary.fromBytes(item.data),
+                        data: item.data,
                     });
                     return submitAndWatch(tx, strategy.signer, {
                         waitFor: options?.waitFor,

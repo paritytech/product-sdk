@@ -1,4 +1,4 @@
-import type { JsonRpcProvider } from "polkadot-api/ws-provider/web";
+import type { JsonRpcProvider } from "polkadot-api";
 
 import type { HostLocalStorage, HostStatementStore } from "./types.js";
 
