@@ -17,7 +17,7 @@ Read chain state without writing transactions.
   },
   "dependencies": {
     "@parity/product-sdk-chain-client": "latest",
-    "polkadot-api": "^1.23.3"
+    "polkadot-api": "^2.0.2"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
@@ -65,7 +65,7 @@ Submit transactions on testnets using built-in dev accounts.
   "dependencies": {
     "@parity/product-sdk-chain-client": "latest",
     "@parity/product-sdk-tx": "latest",
-    "polkadot-api": "^1.23.3"
+    "polkadot-api": "^2.0.2"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
@@ -123,7 +123,7 @@ Full user-facing app with wallet connection.
     "@parity/product-sdk-signer": "latest",
     "@parity/product-sdk-address": "latest",
     "@parity/product-sdk-utils": "latest",
-    "polkadot-api": "^1.23.3"
+    "polkadot-api": "^2.0.2"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
@@ -197,7 +197,7 @@ Interact with Solidity/ink! smart contracts on Asset Hub.
     "@parity/product-sdk-chain-client": "latest",
     "@parity/product-sdk-contracts": "latest",
     "@parity/product-sdk-signer": "latest",
-    "polkadot-api": "^1.23.3"
+    "polkadot-api": "^2.0.2"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
@@ -282,7 +282,7 @@ Upload and retrieve data from the Bulletin Chain.
     "@parity/product-sdk-chain-client": "latest",
     "@parity/product-sdk-bulletin": "latest",
     "@parity/product-sdk-tx": "latest",
-    "polkadot-api": "^1.23.3"
+    "polkadot-api": "^2.0.2"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
@@ -339,7 +339,7 @@ Pub/sub messaging with the Statement Store.
   "dependencies": {
     "@parity/product-sdk-statement-store": "latest",
     "@parity/product-sdk-keys": "latest",
-    "polkadot-api": "^1.23.3"
+    "polkadot-api": "^2.0.2"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
