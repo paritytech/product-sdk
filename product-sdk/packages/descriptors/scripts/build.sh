@@ -12,7 +12,7 @@ for chain in $CHAINS; do
     dir="chains/$chain"
 
     # Skip if already built
-    if [ -f "$dir/generated/dist/index.mjs" ]; then
+    if [ -f "$dir/generated/dist/index.js" ]; then
         echo "  Skipping $chain (already built)"
         continue
     fi
