@@ -257,19 +257,23 @@ export interface ResultAsync<T, E> {
  */
 export interface AccountsProvider {
     /**
-     * Get non-product accounts (user's external wallets connected to the host).
+     * Get legacy accounts (user's external wallets connected to the host).
+     *
+     * Renamed from `getNonProductAccounts` in @novasamatech/product-sdk 0.7.
      *
      * @returns ResultAsync resolving to array of accounts.
      */
-    getNonProductAccounts: () => ResultAsync<HostAccount[], unknown>;
+    getLegacyAccounts: () => ResultAsync<HostAccount[], unknown>;
 
     /**
-     * Get a signer for a non-product account.
+     * Get a signer for a legacy account.
+     *
+     * Renamed from `getNonProductAccountSigner` in @novasamatech/product-sdk 0.7.
      *
      * @param account - The product account (used for public key lookup).
      * @returns A PolkadotSigner for signing transactions.
      */
-    getNonProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+    getLegacyAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
 
     /**
      * Get an app-scoped product account from the host.

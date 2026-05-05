@@ -97,8 +97,8 @@ interface NeverthrowResultAsync<T, E> {
 
 /** @internal */
 export interface AccountsProvider {
-    getNonProductAccounts: () => NeverthrowResultAsync<RawAccount[], unknown>;
-    getNonProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+    getLegacyAccounts: () => NeverthrowResultAsync<RawAccount[], unknown>;
+    getLegacyAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
     getProductAccount: (
         dotNsIdentifier: string,
         derivationIndex?: number,
@@ -404,7 +404,7 @@ export class HostProvider implements SignerProvider {
         // Step 3: Fetch non-product accounts
         let rawAccounts: RawAccount[];
         try {
-            rawAccounts = (await provider.getNonProductAccounts().match(
+            rawAccounts = (await provider.getLegacyAccounts().match(
                 (accounts) => accounts,
                 (error) => {
                     throw new Error(`Host rejected account request: ${formatError(error)}`);
@@ -487,7 +487,7 @@ export class HostProvider implements SignerProvider {
                     if (!this.accountsProvider) {
                         throw new Error("Host provider is disconnected");
                     }
-                    return this.accountsProvider.getNonProductAccountSigner({
+                    return this.accountsProvider.getLegacyAccountSigner({
                         dotNsIdentifier: "",
                         derivationIndex: 0,
                         publicKey: raw.publicKey,
@@ -527,7 +527,7 @@ if (import.meta.vitest) {
         } as unknown as import("polkadot-api").PolkadotSigner;
 
         return {
-            getNonProductAccounts: vi.fn().mockReturnValue({
+            getLegacyAccounts: vi.fn().mockReturnValue({
                 match: async (
                     onOk: (v: RawAccountTest[]) => unknown,
                     onErr: (e: unknown) => unknown,
@@ -538,7 +538,7 @@ if (import.meta.vitest) {
                     return onOk(accounts);
                 },
             }),
-            getNonProductAccountSigner: vi.fn().mockReturnValue(mockSigner),
+            getLegacyAccountSigner: vi.fn().mockReturnValue(mockSigner),
             getProductAccount: vi.fn().mockReturnValue({
                 match: async (
                     onOk: (v: RawAccountTest) => unknown,
@@ -622,7 +622,7 @@ if (import.meta.vitest) {
             }
         });
 
-        test("returns HOST_REJECTED when getNonProductAccounts fails", async () => {
+        test("returns HOST_REJECTED when getLegacyAccounts fails", async () => {
             const mockProvider = createMockProvider({ shouldReject: true, error: "Rejected" });
             const provider = new HostProvider({
                 maxRetries: 1,

@@ -8,14 +8,14 @@ catalog:
   "@novasamatech/product-sdk": ^0.7.5
   "@novasamatech/sdk-statement": ^0.6.0
   "@novasamatech/host-api": ^0.7.5
-  "@polkadot-api/sdk-ink": ^0.6.2
-  "@polkadot-api/substrate-client": ^0.5.0
+  "@polkadot-api/sdk-ink": ^0.7.0
+  "@polkadot-api/substrate-client": ^0.7.0
   "@polkadot-labs/hdkd-helpers": ^0.0.27
   tsup: ^8.4.0
   typescript: ^5.9.3
   vitest: ^3.1.4
   "@playwright/test": ^1.50.0
-  "@parity/host-api-test-sdk": ^0.6.0
+  "@parity/host-api-test-sdk": ^0.7.3
   vite: ^6.3.0
 
 onlyBuiltDependencies:
