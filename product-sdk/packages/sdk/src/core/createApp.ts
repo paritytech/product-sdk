@@ -158,10 +158,17 @@ export async function createApp(config: AppConfig): Promise<App> {
         ? {
               upload: async (data) => {
                   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-                  const result = await bulletinClient.store(bytes).send();
+                  // Explicitly request a DAG-PB manifest so chunked uploads always
+                  // resolve to a single root CID. Without this, AsyncBulletinClient
+                  // can return `result.cid: undefined` for chunked-without-manifest
+                  // uploads — but BulletinApi.upload promises a string return, and
+                  // app consumers expect a CID they can hand to `fetch(cid)`. Keep
+                  // the defensive null-check below as belt-and-braces in case the
+                  // upstream contract shifts.
+                  const result = await bulletinClient.store(bytes).withManifest(true).send();
                   if (!result.cid) {
                       throw new Error(
-                          "Bulletin upload returned no CID. This happens for chunked uploads with manifest disabled — use BulletinClient.store(...).withManifest(true) or fetch by chunk CID directly.",
+                          "Bulletin upload returned no CID despite .withManifest(true). Upstream contract may have shifted — file an issue.",
                       );
                   }
                   return result.cid.toString();
