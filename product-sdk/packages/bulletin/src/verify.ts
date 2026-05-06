@@ -105,8 +105,22 @@ export async function verifyOnChain(
     const entries = await queryFn(options.block);
     if (!entries || entries.length === 0) return null;
 
+    // When an explicit index is provided, check that slot directly — no
+    // reason to walk the full array just to skip everything else.
+    if (options.index !== undefined) {
+        const entry = entries[options.index];
+        if (entry && matchesEntry(entry, parsed)) {
+            return {
+                block: options.block,
+                index: options.index,
+                size: entry.size,
+                blockChunks: entry.block_chunks,
+            };
+        }
+        return null;
+    }
+
     for (let i = 0; i < entries.length; i++) {
-        if (options.index !== undefined && i !== options.index) continue;
         const entry = entries[i]!;
         if (matchesEntry(entry, parsed)) {
             return {
