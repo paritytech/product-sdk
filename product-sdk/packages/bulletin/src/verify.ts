@@ -16,6 +16,7 @@
  */
 import { CID } from "multiformats/cid";
 
+import { HashAlgorithm } from "./cid.js";
 import { BulletinCidError } from "./errors.js";
 import type { BulletinApi } from "./types.js";
 
@@ -23,9 +24,9 @@ import type { BulletinApi } from "./types.js";
  * Match a multihash code in a CID against the chain's `hashing` enum value.
  */
 const HASH_CODE_TO_ENUM_TYPE: Record<number, "Blake2b256" | "Sha2_256" | "Keccak256"> = {
-    45600: "Blake2b256",
-    18: "Sha2_256",
-    27: "Keccak256",
+    [HashAlgorithm.Blake2b256]: "Blake2b256",
+    [HashAlgorithm.Sha2_256]: "Sha2_256",
+    [HashAlgorithm.Keccak256]: "Keccak256",
 };
 
 /** A single matched entry from `TransactionStorage.Transactions`. */
