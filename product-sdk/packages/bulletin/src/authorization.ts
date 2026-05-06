@@ -161,6 +161,7 @@ export interface AuthorizeAccountOptions {
  * ```
  *
  * @see {@link checkAuthorization} for the read counterpart.
+ * @see {@link BulletinClient.authorizeAccount} for the client method equivalent.
  */
 export async function authorizeAccount(
     api: BulletinApi,

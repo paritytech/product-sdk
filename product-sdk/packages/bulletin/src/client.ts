@@ -1,7 +1,11 @@
 import { getChainAPI } from "@parity/product-sdk-chain-client";
 import type { PolkadotSigner } from "polkadot-api";
 
-import { checkAuthorization } from "./authorization.js";
+import {
+    type AuthorizeAccountOptions,
+    authorizeAccount,
+    checkAuthorization,
+} from "./authorization.js";
 import {
     type CidCodec,
     type HashAlgorithm,
@@ -163,6 +167,36 @@ export class BulletinClient {
     async checkAuthorization(address: string): Promise<AuthorizationStatus> {
         return checkAuthorization(this.api, address);
     }
+
+    /**
+     * Grant an account authorization to store data on the Bulletin Chain.
+     *
+     * Pair with {@link checkAuthorization} for a typical "check, grant if
+     * insufficient, then upload" flow. Pass `viaSudo: true` on networks
+     * where granting authorization requires sudo permissions.
+     *
+     * **Additive semantics** — see {@link authorizeAccount} for the full
+     * additive-quota note. Calling twice with `(100, 1MB)` yields a quota
+     * of 200 transactions and 2MB, not 100/1MB.
+     *
+     * @param who          - SS58-encoded account to authorize.
+     * @param transactions - Number of transactions to **add** to the allowance.
+     * @param bytes        - Byte budget to **add** to the allowance.
+     * @param signer       - Signer for the extrinsic. On `viaSudo: true` must be the sudo key.
+     * @param options      - Optional `viaSudo` flag plus standard submission controls.
+     * @returns Block hash where the extrinsic was included.
+     *
+     * @see {@link authorizeAccount} for the standalone function equivalent.
+     */
+    async authorizeAccount(
+        who: string,
+        transactions: number,
+        bytes: bigint,
+        signer: PolkadotSigner,
+        options?: AuthorizeAccountOptions,
+    ): Promise<{ blockHash: string }> {
+        return authorizeAccount(this.api, who, transactions, bytes, signer, options);
+    }
 }
 
 if (import.meta.vitest) {
@@ -250,6 +284,53 @@ if (import.meta.vitest) {
             expect(status.authorized).toBe(true);
             expect(status.remainingTransactions).toBe(5);
             expect(status.remainingBytes).toBe(2000n);
+        });
+
+        test("authorizeAccount delegates to standalone with the right params", async () => {
+            const fakeTx = {
+                decodedCall: { fakeCall: true } as unknown,
+                signSubmitAndWatch: vi.fn().mockReturnValue({
+                    subscribe: (handlers: { next: (e: unknown) => void }) => {
+                        queueMicrotask(() => {
+                            handlers.next({ type: "signed", txHash: "0xtxhash" });
+                            handlers.next({
+                                type: "txBestBlocksState",
+                                txHash: "0xtxhash",
+                                found: true,
+                                ok: true,
+                                block: { hash: "0xauthblock", number: 1, index: 0 },
+                                events: [],
+                            });
+                        });
+                        return { unsubscribe: vi.fn() };
+                    },
+                }),
+            };
+            const authorizeMockApi = {
+                tx: {
+                    TransactionStorage: {
+                        authorize_account: vi.fn().mockReturnValue(fakeTx),
+                    },
+                    Sudo: { sudo: vi.fn().mockReturnValue(fakeTx) },
+                },
+            } as unknown as BulletinApi;
+
+            const client = BulletinClient.from(authorizeMockApi, GATEWAY);
+            const result = await client.authorizeAccount(
+                "5GrwvaEF...",
+                100,
+                1_000_000n,
+                {} as PolkadotSigner,
+            );
+
+            expect(result).toEqual({ blockHash: "0xauthblock" });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const authMock = (authorizeMockApi as any).tx.TransactionStorage.authorize_account;
+            expect(authMock).toHaveBeenCalledOnce();
+            const arg = authMock.mock.calls[0][0];
+            expect(arg.who).toBe("5GrwvaEF...");
+            expect(arg.transactions).toBe(100);
+            expect(arg.bytes).toBe(1_000_000n);
         });
     });
 }
