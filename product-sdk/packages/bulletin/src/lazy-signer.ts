@@ -27,13 +27,19 @@ export function createLazySigner(
         return inner;
     };
 
-    return {
-        get publicKey(): Uint8Array {
+    // `async` on the methods is deliberate: it converts a "no signer" throw
+    // from `resolve()` into a rejected Promise. PolkadotSigner.signTx /
+    // signBytes are typed as returning Promises, and consumers expect a
+    // rejection rather than a synchronous escape on the failure path.
+    const lazy: PolkadotSigner = {
+        get publicKey() {
             return resolve().publicKey;
         },
-        signTx: async (...args) => resolve().signTx(...args),
-        signBytes: async (data) => resolve().signBytes(data),
-    } as PolkadotSigner;
+        signTx: async (...args: Parameters<PolkadotSigner["signTx"]>) => resolve().signTx(...args),
+        signBytes: async (...args: Parameters<PolkadotSigner["signBytes"]>) =>
+            resolve().signBytes(...args),
+    };
+    return lazy;
 }
 
 if (import.meta.vitest) {
