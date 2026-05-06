@@ -7,7 +7,7 @@ import {
     type StoreBuilder,
     type SubmitFn,
 } from "@parity/bulletin-sdk";
-import { getChainAPI } from "@parity/product-sdk-chain-client";
+import { createChainClient, getChainAPI } from "@parity/product-sdk-chain-client";
 import { createLogger } from "@parity/product-sdk-logger";
 import type { PolkadotClient, PolkadotSigner } from "polkadot-api";
 
@@ -132,7 +132,6 @@ export class BulletinClient {
         // need a PolkadotClient to feed AsyncBulletinClient. Going through
         // chain-client keeps connection management consistent across the SDK.
         const { genesisHash, descriptor, gateway, signer, config } = options;
-        const { createChainClient } = await import("@parity/product-sdk-chain-client");
         // genesisHash is currently unused by createChainClient (host routes
         // connections), but we pass it through for future RPC-direct paths.
         void genesisHash;
