@@ -72,6 +72,23 @@ if (import.meta.vitest) {
             );
         });
 
+        test("signTx forwards to current signer", async () => {
+            const inner = makeMockSigner("alice");
+            const lazy = createLazySigner(() => inner);
+            const callData = new Uint8Array([0xaa, 0xbb]);
+            const signedExtensions = {};
+            const metadata = new Uint8Array([0xcc]);
+            const atBlock = 42;
+            const result = await lazy.signTx(callData, signedExtensions, metadata, atBlock);
+            expect(inner.signTx).toHaveBeenCalledWith(
+                callData,
+                signedExtensions,
+                metadata,
+                atBlock,
+            );
+            expect(result).toEqual(new Uint8Array([1]));
+        });
+
         test("signBytes forwards to current signer", async () => {
             const inner = makeMockSigner("bob");
             const lazy = createLazySigner(() => inner);
