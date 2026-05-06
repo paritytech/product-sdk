@@ -33,7 +33,8 @@ export interface FetchOptions {
 /**
  * Options for {@link BulletinClient.fetchBytes} / {@link BulletinClient.fetchJson}.
  *
- * Read order: chain storage first (when supported by the runtime), then IPFS
- * gateway. Each step honors `timeoutMs` independently.
+ * Currently identical to {@link FetchOptions} — kept as a distinct named type
+ * because the read path may grow query-specific options later (e.g., gateway
+ * preference, retry budget) without breaking the public surface.
  */
-export interface QueryOptions extends FetchOptions {}
+export type QueryOptions = FetchOptions;
