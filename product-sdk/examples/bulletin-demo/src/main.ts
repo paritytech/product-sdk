@@ -8,7 +8,7 @@
  *   1. SignerManager.connect() → HostProvider → account
  *   2. BulletinClient.create() with a lazy signer
  *   3. .store(data).send() → signed TransactionStorage.store extrinsic
- *   4. .fetchBytes(cid) → chain storage (placeholder) → IPFS gateway fallback
+ *   4. .fetchBytes(cid) → host preimage subscription (container-only)
  */
 
 import { SignerManager } from "@parity/product-sdk-signer";

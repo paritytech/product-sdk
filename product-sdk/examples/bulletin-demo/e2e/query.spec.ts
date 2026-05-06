@@ -4,12 +4,10 @@ import { waitForAppReady } from "./helpers";
 /**
  * Query via the host preimage lookup path.
  *
- * SKIPPED: these tests target the host-preimage lookup path that was removed
- * when @parity/product-sdk-bulletin migrated to wrap @parity/bulletin-sdk
- * (chain-storage read with IPFS gateway fallback). The new query path needs
- * either a runtime that exposes the CID-keyed storage item, a live bulletin
- * gateway, or an HTTP-mocked gateway harness; replacing the host-preimage
- * test rig is tracked as a follow-up.
+ * SKIPPED: the e2e harness needs to be updated to seed preimages through
+ * the host's subscription-based preimageManager (the wrapped SDK now
+ * fetches via getPreimageManager().lookup, not the older synchronous
+ * test seam). Replacing the test rig is tracked as a follow-up.
  */
 test.describe.skip("@parity/product-sdk-bulletin via Host API — query", () => {
     test("seeded preimage is found via host lookup", async ({ testHost }) => {
