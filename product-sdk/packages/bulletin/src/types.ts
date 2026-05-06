@@ -24,12 +24,6 @@ export interface AuthorizationStatus {
     expiration: number;
 }
 
-/** Options for gateway fetch operations. */
-export interface FetchOptions {
-    /** Timeout in ms. Default: 30_000. */
-    timeoutMs?: number;
-}
-
 /**
  * Options for {@link BulletinClient.fetchBytes} / {@link BulletinClient.fetchJson}.
  */

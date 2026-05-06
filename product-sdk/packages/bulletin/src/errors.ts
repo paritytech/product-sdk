@@ -7,8 +7,9 @@
  *    `@parity/bulletin-sdk` cover upload/store/authorization failures
  *    surfaced by `AsyncBulletinClient`. Each carries `code`, `retryable`,
  *    and `recoveryHint`.
- * 2. **Read-side errors** declared here — gateway availability/fetch failures
- *    and CID format problems, surfaced by our retrieval helpers.
+ * 2. **Read-side errors** declared here — host preimage availability /
+ *    lookup timeouts / interrupts, plus CID format problems, surfaced by
+ *    our retrieval helpers (`fetchBytes`, `fetchJson`, `verifyOnChain`).
  *
  * Catch upstream errors with `instanceof BulletinError`. Catch our read-side
  * errors with `instanceof ProductBulletinError` (or the specific subclass).
@@ -24,40 +25,6 @@ export class ProductBulletinError extends Error {
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = "ProductBulletinError";
-    }
-}
-
-/**
- * The IPFS gateway for the specified environment is not available.
- */
-export class BulletinGatewayUnavailableError extends ProductBulletinError {
-    /** The environment that was requested. */
-    readonly environment: string;
-
-    constructor(environment: string) {
-        super(`Bulletin gateway for "${environment}" is not yet available`);
-        this.name = "BulletinGatewayUnavailableError";
-        this.environment = environment;
-    }
-}
-
-/**
- * An IPFS gateway request failed.
- */
-export class BulletinGatewayFetchError extends ProductBulletinError {
-    /** The CID that was being fetched. */
-    readonly cid: string;
-    /** The HTTP status code returned by the gateway. */
-    readonly status: number;
-    /** The HTTP status text returned by the gateway. */
-    readonly statusText: string;
-
-    constructor(cid: string, status: number, statusText: string) {
-        super(`Gateway fetch failed for ${cid}: ${status} ${statusText}`);
-        this.name = "BulletinGatewayFetchError";
-        this.cid = cid;
-        this.status = status;
-        this.statusText = statusText;
     }
 }
 
@@ -154,21 +121,6 @@ if (import.meta.vitest) {
             const err = new ProductBulletinError("test");
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe("ProductBulletinError");
-        });
-
-        test("BulletinGatewayUnavailableError", () => {
-            const err = new BulletinGatewayUnavailableError("polkadot");
-            expect(err).toBeInstanceOf(ProductBulletinError);
-            expect(err.environment).toBe("polkadot");
-            expect(err.message).toContain("polkadot");
-        });
-
-        test("BulletinGatewayFetchError", () => {
-            const err = new BulletinGatewayFetchError("bafyabc", 404, "Not Found");
-            expect(err).toBeInstanceOf(ProductBulletinError);
-            expect(err.cid).toBe("bafyabc");
-            expect(err.status).toBe(404);
-            expect(err.message).toContain("404");
         });
 
         test("BulletinCidError", () => {

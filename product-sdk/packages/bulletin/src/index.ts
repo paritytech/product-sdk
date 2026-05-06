@@ -24,13 +24,6 @@ export type { QueryStrategy } from "./resolve-query.js";
 export { verifyOnChain } from "./verify.js";
 export type { ChainStoredEntry, VerifyOnChainOptions } from "./verify.js";
 export {
-    cidExists,
-    fetchBytes,
-    fetchJson,
-    gatewayUrl,
-    getGateway,
-} from "./gateway.js";
-export {
     cidToPreimageKey,
     hashToCid,
     HashAlgorithm,
@@ -44,8 +37,6 @@ export {
     ProductBulletinError,
     BulletinAuthorizationError,
     BulletinCidError,
-    BulletinGatewayFetchError,
-    BulletinGatewayUnavailableError,
     BulletinHostUnavailableError,
     BulletinLookupInterruptedError,
     BulletinLookupTimeoutError,
@@ -56,7 +47,6 @@ export type {
     AuthorizationStatus,
     BulletinApi,
     Environment,
-    FetchOptions,
     QueryOptions,
 } from "./types.js";
 
