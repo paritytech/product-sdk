@@ -1,23 +1,23 @@
 import { BulletinGatewayFetchError, BulletinGatewayUnavailableError } from "./errors.js";
+import { BulletinChain, type BulletinEnvironment } from "./networks.js";
 import type { Environment, FetchOptions } from "./types.js";
-
-/** Add entries here as bulletin gateways go live on each network. */
-const GATEWAYS: Partial<Record<Environment, string>> = {
-    paseo: "https://paseo-ipfs.polkadot.io/ipfs/",
-};
 
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * Get the IPFS gateway URL for an environment.
+ *
+ * Reads from {@link BulletinChain} as the single source of truth — add a new
+ * preset there to make a network's gateway resolvable here.
+ *
  * @throws {BulletinGatewayUnavailableError} If the network doesn't have a live gateway yet.
  */
 export function getGateway(env: Environment): string {
-    const gw = GATEWAYS[env];
-    if (!gw) {
+    const preset = BulletinChain[env as BulletinEnvironment];
+    if (!preset?.gateway) {
         throw new BulletinGatewayUnavailableError(env);
     }
-    return gw;
+    return preset.gateway;
 }
 
 /** Build the full gateway URL for a CID. */
