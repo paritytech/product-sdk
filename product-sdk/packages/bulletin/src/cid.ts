@@ -70,7 +70,9 @@ export function hashToCid(
         );
     }
     if (!/^0x[0-9a-fA-F]{64}$/.test(hexHash)) {
-        throw new BulletinCidError(`Invalid hex characters in hash: ${hexHash}`);
+        throw new BulletinCidError(
+            `Invalid hash format: expected 0x-prefixed 32-byte hex string, got: ${hexHash}`,
+        );
     }
     if (!SUPPORTED_HASH_CODES.has(hashCode)) {
         throw new BulletinCidError(
