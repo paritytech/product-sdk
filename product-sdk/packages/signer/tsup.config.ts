@@ -7,6 +7,7 @@ export default defineConfig({
     sourcemap: true,
     clean: true,
     target: "es2022",
+    treeshake: true,
     external: ["@novasamatech/product-sdk", "@novasamatech/host-api"],
     define: {
         "import.meta.vitest": "undefined",
