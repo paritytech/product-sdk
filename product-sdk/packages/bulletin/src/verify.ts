@@ -140,6 +140,24 @@ interface ParsedCid {
     hashType: "Blake2b256" | "Sha2_256" | "Keccak256";
 }
 
+/**
+ * Hand-rolled mirror of `TransactionStorage.Transactions[block][n]` — the
+ * shape PAPI returns at runtime when you call `query.TransactionStorage
+ * .Transactions.getValue(block)`. Defined here (rather than derived from
+ * `BulletinTypedApi`) because the typed API surfaces these values through
+ * `Anonymize<I…>` codec aliases that aren't ergonomic to inline.
+ *
+ * **If the bulletin runtime changes the entry shape, update this here too.**
+ * Source of truth: `TransactionInfo` in
+ * `packages/descriptors/chains/bulletin/generated/dist/common-types.d.ts`
+ * (look for `chunk_root: FixedSizeBinary<32>` to anchor it). When the
+ * descriptor regenerates and the fields shift, this interface, the
+ * `cid_codec`/`hashing` matching in `matchesEntry`, and the
+ * `HASH_CODE_TO_ENUM_TYPE` map above all need to be re-validated together.
+ *
+ * `Uint8Array | { asBytes(): Uint8Array }` covers both the raw and Binary-
+ * wrapped shapes the codec can return depending on configuration.
+ */
 interface ChainEntry {
     chunk_root: { asBytes(): Uint8Array } | Uint8Array;
     content_hash: { asBytes(): Uint8Array } | Uint8Array;
