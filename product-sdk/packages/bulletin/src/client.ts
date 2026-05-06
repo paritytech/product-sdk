@@ -132,9 +132,18 @@ export class BulletinClient {
         // need a PolkadotClient to feed AsyncBulletinClient. Going through
         // chain-client keeps connection management consistent across the SDK.
         const { genesisHash, descriptor, gateway, signer, config } = options;
-        // genesisHash is currently unused by createChainClient (host routes
-        // connections), but we pass it through for future RPC-direct paths.
-        void genesisHash;
+        // Catch the obvious foot-gun where caller mixes a genesis from one
+        // network with a descriptor from another — the connection would
+        // succeed but typed calls would silently target the wrong chain.
+        // The descriptor's own `.genesis` field is the on-chain truth; the
+        // user-supplied `genesisHash` is informational today (createChainClient
+        // doesn't use it because host routes connections) but kept on the
+        // option shape for future RPC-direct paths.
+        if (descriptor.genesis && genesisHash.toLowerCase() !== descriptor.genesis.toLowerCase()) {
+            throw new Error(
+                `BulletinClient.create: genesisHash (${genesisHash}) does not match descriptor.genesis (${descriptor.genesis}). These must refer to the same network — check that you're pairing the right descriptor with the right genesis hash.`,
+            );
+        }
         const chain = await createChainClient({
             chains: { bulletin: descriptor },
             rpcs: { bulletin: [] },
@@ -286,6 +295,32 @@ if (import.meta.vitest) {
             const data = new Uint8Array([1, 2, 3]);
             expect(client.store(data)).toBe(builder);
             expect(inner.store).toHaveBeenCalledWith(data);
+        });
+    });
+
+    describe("BulletinClient.create (BYOD genesis assertion)", () => {
+        // Stand-in descriptor with a known genesis. The full PAPI descriptor
+        // type is a `ChainDefinition` with a deep type-level shape; the cast
+        // below is fine for the assertion test because we never actually
+        // reach createChainClient.
+        const stubDescriptor = (
+            genesis: `0x${string}`,
+        ): (typeof BulletinChain)[BulletinEnvironment]["descriptor"] =>
+            ({ genesis }) as unknown as (typeof BulletinChain)[BulletinEnvironment]["descriptor"];
+
+        const realPaseo =
+            "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea" as `0x${string}`;
+
+        test("throws when genesisHash and descriptor.genesis disagree", async () => {
+            await expect(
+                BulletinClient.create({
+                    genesisHash:
+                        "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    descriptor: stubDescriptor(realPaseo),
+                    gateway: null,
+                    signer: {} as PolkadotSigner,
+                }),
+            ).rejects.toThrow(/does not match descriptor\.genesis/i);
         });
     });
 }
