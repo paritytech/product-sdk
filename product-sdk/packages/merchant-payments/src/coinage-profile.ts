@@ -22,6 +22,7 @@ import {
 } from "./types.js";
 
 type CoinageAsset = "dotUSD" | "dotEUR" | "DOT" | `other:${string}`;
+type OpaqueBytes = number[];
 
 interface CoinageAmount {
     asset: CoinageAsset;
@@ -41,6 +42,7 @@ interface CoinageReceiveClaim {
     namespaceId: string;
     amount: CoinageAmount;
     channels: string[];
+    paymentCode: OpaqueBytes;
     qrPayload?: string;
     deepLink?: string;
     claimEnvelopeHash: string;
@@ -52,6 +54,8 @@ interface CoinageReceiveStatusEvent {
     claimId: string;
     sequence: number;
     status: string;
+    receivedAmount?: CoinageAmount;
+    attached?: OpaqueBytes;
     recordId?: string;
     occurredAtMs: number;
 }
@@ -99,7 +103,11 @@ export interface MerchantPaymentsCoinageClientLike {
     createSpendRequest(request: {
         namespaceId: string;
         amount: CoinageAmount;
-        destination: { kind: "claim"; claimId: string } | { kind: "externalOpaque"; value: string };
+        destination:
+            | { kind: "paymentCode"; paymentCode: OpaqueBytes }
+            | { kind: "localClaim"; claimId: string }
+            | { kind: "externalOpaque"; value: string };
+        attached?: OpaqueBytes;
         externalReference?: string;
         displayReference?: string;
         idempotencyKey?: string;
@@ -344,7 +352,7 @@ export class CoinageBackedMerchantPaymentsClient implements MerchantPaymentsHost
     }
 
     private applyReceiveStatus(state: IntentState, item: CoinageReceiveStatusEvent): void {
-        if (item.status !== "received") return;
+        if (item.status !== "received" && item.status !== "lateReceived") return;
         const now = item.occurredAtMs;
         state.intent = {
             ...state.intent,
