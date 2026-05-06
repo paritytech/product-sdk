@@ -12,9 +12,9 @@ import { createLogger } from "@parity/product-sdk-logger";
 import type { PolkadotClient, PolkadotSigner } from "polkadot-api";
 
 import { checkAuthorization } from "./authorization.js";
-import { gatewayUrl } from "./gateway.js";
-import { BulletinChain, type BulletinEnvironment } from "./networks.js";
-import { fetchContent } from "./query.js";
+import type { BulletinChain, BulletinEnvironment } from "./networks.js";
+import { executeQuery } from "./query.js";
+import { resolveQueryStrategy, type QueryStrategy } from "./resolve-query.js";
 import type { AuthorizationStatus, BulletinApi, QueryOptions } from "./types.js";
 import { verifyOnChain, type ChainStoredEntry, type VerifyOnChainOptions } from "./verify.js";
 
@@ -26,18 +26,16 @@ const log = createLogger("bulletin");
  * One of two construction shapes is supported:
  *
  * - **Environment shorthand** — pass an `environment` string keyed by
- *   {@link BulletinChain}. Wires up the chain-client and gateway preset
- *   automatically.
- * - **Explicit network** — pass `genesisHash`, `descriptor`, and `gateway`
- *   directly (e.g., spread from a {@link BulletinChain} entry, or supply
- *   custom values for a private chain).
+ *   {@link BulletinChain}. Wires up the chain-client automatically.
+ * - **Explicit network** — pass `genesisHash` and `descriptor` directly
+ *   (e.g., spread from a {@link BulletinChain} entry, or supply custom
+ *   values for a private chain).
  */
 export type CreateBulletinClientOptions =
     | (CreateBulletinClientCommon & { environment: BulletinEnvironment })
     | (CreateBulletinClientCommon & {
           genesisHash: `0x${string}`;
           descriptor: (typeof BulletinChain)[BulletinEnvironment]["descriptor"];
-          gateway: string | null;
       });
 
 interface CreateBulletinClientCommon {
@@ -54,8 +52,9 @@ interface CreateBulletinClientCommon {
  * chunking, DAG-PB manifests, CID calculation, and progress events) and adds:
  *
  * - **Network presets** via {@link BulletinClient.create} and {@link BulletinChain}.
- * - **Read helpers** ({@link fetchBytes}, {@link fetchJson}) — upstream is
- *   upload-only.
+ * - **Read helpers** ({@link fetchBytes}, {@link fetchJson}) routed through
+ *   the host's preimage subscription — upstream is upload-only and the SDK
+ *   is container-only by design (no public-gateway fetches).
  * - **Pre-flight authorization check** ({@link checkAuthorization}) for
  *   friendlier UX before submitting a store.
  *
@@ -81,29 +80,37 @@ export class BulletinClient {
     readonly inner: AsyncBulletinClient;
     /** Typed Bulletin Chain API. */
     readonly api: BulletinApi;
-    /** IPFS gateway base URL, or `null` if none is configured for this network. */
-    readonly gateway: string | null;
+
+    /** Lazy-resolved host-preimage query strategy, cached for the client lifetime. */
+    private queryStrategyPromise: Promise<QueryStrategy> | null = null;
 
     /** Constructed via {@link create} or {@link from}. */
-    private constructor(inner: AsyncBulletinClient, api: BulletinApi, gateway: string | null) {
+    private constructor(inner: AsyncBulletinClient, api: BulletinApi) {
         this.inner = inner;
         this.api = api;
-        this.gateway = gateway;
+    }
+
+    /** Resolve and cache the host query strategy on first use. */
+    private resolveQuery(): Promise<QueryStrategy> {
+        if (!this.queryStrategyPromise) {
+            this.queryStrategyPromise = resolveQueryStrategy();
+        }
+        return this.queryStrategyPromise;
     }
 
     /**
      * Create a client from an environment shorthand or an explicit network.
      *
-     * Environment form uses our `getChainAPI(env)` to resolve the typed API and
-     * the gateway preset from {@link BulletinChain}. Explicit form skips the
-     * environment lookup and lets you pass any genesis/descriptor/gateway combo.
+     * Environment form uses our `getChainAPI(env)` to resolve the typed API.
+     * Explicit form skips the environment lookup and lets you pass any
+     * genesis/descriptor combo.
      *
      * @example
      * ```ts
      * // Shorthand
      * const client = await BulletinClient.create({ environment: "paseo", signer });
      *
-     * // Explicit (custom network, or override gateway)
+     * // Explicit (custom network)
      * const client = await BulletinClient.create({
      *   ...BulletinChain.paseo,
      *   signer,
@@ -113,7 +120,6 @@ export class BulletinClient {
      */
     static async create(options: CreateBulletinClientOptions): Promise<BulletinClient> {
         if ("environment" in options) {
-            const preset = BulletinChain[options.environment];
             const chain = await getChainAPI(options.environment);
             const inner = new AsyncBulletinClient(
                 chain.bulletin as BulletinTypedApi,
@@ -125,13 +131,13 @@ export class BulletinClient {
             log.info("BulletinClient created (environment shorthand)", {
                 environment: options.environment,
             });
-            return new BulletinClient(inner, chain.bulletin, preset.gateway);
+            return new BulletinClient(inner, chain.bulletin);
         }
 
-        // Explicit form — caller owns the descriptor + gateway choice. We still
-        // need a PolkadotClient to feed AsyncBulletinClient. Going through
+        // Explicit form — caller owns the descriptor choice. We still need a
+        // PolkadotClient to feed AsyncBulletinClient. Going through
         // chain-client keeps connection management consistent across the SDK.
-        const { genesisHash, descriptor, gateway, signer, config } = options;
+        const { genesisHash, descriptor, signer, config } = options;
         // Catch the obvious foot-gun where caller mixes a genesis from one
         // network with a descriptor from another — the connection would
         // succeed but typed calls would silently target the wrong chain.
@@ -156,23 +162,19 @@ export class BulletinClient {
             () => chain.destroy(),
         );
         log.info("BulletinClient created (explicit network)");
-        return new BulletinClient(inner, chain.bulletin, gateway);
+        return new BulletinClient(inner, chain.bulletin);
     }
 
     /**
-     * Construct from a pre-built `AsyncBulletinClient` and PAPI client.
+     * Construct from a pre-built `AsyncBulletinClient` and PAPI typed API.
      *
      * Use this when you already own the connection lifecycle (BYOD setups,
      * tests). The caller is responsible for calling `papiClient.destroy()`
      * — this client's {@link destroy} only tears down the upstream's
      * `onDestroy` hook.
      */
-    static from(
-        inner: AsyncBulletinClient,
-        api: BulletinApi,
-        gateway: string | null,
-    ): BulletinClient {
-        return new BulletinClient(inner, api, gateway);
+    static from(inner: AsyncBulletinClient, api: BulletinApi): BulletinClient {
+        return new BulletinClient(inner, api);
     }
 
     // ─── Upload + authorization (forwarded to upstream) ────────────────
@@ -205,25 +207,25 @@ export class BulletinClient {
     // ─── Read side (our own helpers) ───────────────────────────────────
 
     /**
-     * Fetch raw bytes for a CID from the configured IPFS gateway.
+     * Fetch raw bytes for a CID via the host's preimage lookup.
      *
-     * The chain only stores content metadata (`content_hash`, size, codec),
-     * so byte retrieval always goes through IPFS. Use {@link verifyOnChain}
-     * if you only need to confirm a CID was recorded on-chain.
+     * Container-only — outside a Polkadot Browser / Desktop host this
+     * throws {@link BulletinHostUnavailableError}. The chain stores
+     * content metadata (`content_hash`, size, codec) but the bytes
+     * themselves are surfaced through the host's preimage subscription.
+     *
+     * Use {@link verifyOnChain} if you only need to confirm a CID was
+     * recorded on-chain (no byte fetch).
      */
     async fetchBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
-        return fetchContent(this.api, this.gateway, cid, options);
+        const strategy = await this.resolveQuery();
+        return executeQuery(strategy, cid, options);
     }
 
     /** Fetch and parse JSON for a CID. */
     async fetchJson<T>(cid: string, options?: QueryOptions): Promise<T> {
         const bytes = await this.fetchBytes(cid, options);
         return JSON.parse(new TextDecoder().decode(bytes)) as T;
-    }
-
-    /** Build the full gateway URL for a CID. Returns `null` if no gateway is configured. */
-    gatewayUrl(cid: string): string | null {
-        return this.gateway ? gatewayUrl(cid, this.gateway) : null;
     }
 
     /** Pre-flight: check whether `address` can store on the bulletin chain. */
@@ -255,33 +257,20 @@ if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
     describe("BulletinClient.from", () => {
-        test("constructs with given inner, api, and gateway", () => {
+        test("constructs with given inner and api", () => {
             const inner = {
                 destroy: vi.fn().mockResolvedValue(undefined),
             } as unknown as AsyncBulletinClient;
             const api = {} as BulletinApi;
-            const client = BulletinClient.from(inner, api, "https://gw/ipfs/");
+            const client = BulletinClient.from(inner, api);
             expect(client.inner).toBe(inner);
             expect(client.api).toBe(api);
-            expect(client.gateway).toBe("https://gw/ipfs/");
-        });
-
-        test("gatewayUrl returns null when gateway is null", () => {
-            const inner = {} as AsyncBulletinClient;
-            const client = BulletinClient.from(inner, {} as BulletinApi, null);
-            expect(client.gatewayUrl("bafyabc")).toBeNull();
-        });
-
-        test("gatewayUrl concatenates when gateway is set", () => {
-            const inner = {} as AsyncBulletinClient;
-            const client = BulletinClient.from(inner, {} as BulletinApi, "https://gw/ipfs/");
-            expect(client.gatewayUrl("bafyabc")).toBe("https://gw/ipfs/bafyabc");
         });
 
         test("destroy delegates to upstream", async () => {
             const destroy = vi.fn().mockResolvedValue(undefined);
             const inner = { destroy } as unknown as AsyncBulletinClient;
-            const client = BulletinClient.from(inner, {} as BulletinApi, null);
+            const client = BulletinClient.from(inner, {} as BulletinApi);
             await client.destroy();
             expect(destroy).toHaveBeenCalledOnce();
         });
@@ -291,7 +280,7 @@ if (import.meta.vitest) {
             const inner = {
                 store: vi.fn().mockReturnValue(builder),
             } as unknown as AsyncBulletinClient;
-            const client = BulletinClient.from(inner, {} as BulletinApi, null);
+            const client = BulletinClient.from(inner, {} as BulletinApi);
             const data = new Uint8Array([1, 2, 3]);
             expect(client.store(data)).toBe(builder);
             expect(inner.store).toHaveBeenCalledWith(data);
@@ -317,7 +306,6 @@ if (import.meta.vitest) {
                     genesisHash:
                         "0x0000000000000000000000000000000000000000000000000000000000000001",
                     descriptor: stubDescriptor(realPaseo),
-                    gateway: null,
                     signer: {} as PolkadotSigner,
                 }),
             ).rejects.toThrow(/does not match descriptor\.genesis/i);

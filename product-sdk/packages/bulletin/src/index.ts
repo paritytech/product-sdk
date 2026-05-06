@@ -18,7 +18,9 @@ export { BulletinChain } from "./networks.js";
 export type { BulletinEnvironment, BulletinNetwork } from "./networks.js";
 export { checkAuthorization } from "./authorization.js";
 export { createLazySigner } from "./lazy-signer.js";
-export { fetchContent } from "./query.js";
+export { executeQuery, queryBytes, queryJson } from "./query.js";
+export { resolveQueryStrategy } from "./resolve-query.js";
+export type { QueryStrategy } from "./resolve-query.js";
 export { verifyOnChain } from "./verify.js";
 export type { ChainStoredEntry, VerifyOnChainOptions } from "./verify.js";
 export {
@@ -44,6 +46,9 @@ export {
     BulletinCidError,
     BulletinGatewayFetchError,
     BulletinGatewayUnavailableError,
+    BulletinHostUnavailableError,
+    BulletinLookupInterruptedError,
+    BulletinLookupTimeoutError,
 } from "./errors.js";
 
 // Types

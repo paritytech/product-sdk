@@ -32,9 +32,11 @@ export interface FetchOptions {
 
 /**
  * Options for {@link BulletinClient.fetchBytes} / {@link BulletinClient.fetchJson}.
- *
- * Currently identical to {@link FetchOptions} — kept as a distinct named type
- * because the read path may grow query-specific options later (e.g., gateway
- * preference, retry budget) without breaking the public surface.
  */
-export type QueryOptions = FetchOptions;
+export interface QueryOptions {
+    /**
+     * Timeout for the host preimage lookup subscription, in ms.
+     * Default: 30_000.
+     */
+    lookupTimeoutMs?: number;
+}

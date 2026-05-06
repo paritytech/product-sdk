@@ -1,64 +1,83 @@
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { BulletinGatewayUnavailableError } from "./errors.js";
-import { fetchBytes as fetchFromGateway } from "./gateway.js";
-import type { BulletinApi, QueryOptions } from "./types.js";
+import type { QueryStrategy } from "./resolve-query.js";
+import { resolveQueryStrategy } from "./resolve-query.js";
+import type { QueryOptions } from "./types.js";
 
 const log = createLogger("bulletin");
 
 /**
- * Fetch content for a CID from the configured IPFS gateway.
+ * Fetch raw bytes for a CID via the host's preimage lookup.
  *
- * The bulletin chain stores transaction *metadata* on-chain (`chunk_root`,
- * `content_hash`, `size`, `cid_codec`, hashing) but the content bytes
- * themselves live in IPFS. There is no `api.query.TransactionStorage` item
- * that returns raw bytes — the chain only knows about hashes. So byte
- * retrieval always goes through the gateway, which transparently handles
- * chunked / DAG-PB content via UnixFS reassembly.
+ * Container-only by design: the bulletin SDK does not retrieve content
+ * through public IPFS gateways. Inside a Polkadot Browser / Desktop
+ * container, the host's `preimageManager` provides a cached, polling-
+ * managed lookup that returns bytes when the underlying IPFS network
+ * makes them available. Outside a container, this throws
+ * {@link BulletinHostUnavailableError}.
+ *
+ * The bulletin chain stores transaction *metadata* on-chain
+ * (`chunk_root`, `content_hash`, `size`, `cid_codec`, `hashing`) — the
+ * content bytes themselves live in IPFS and are surfaced through the
+ * host's preimage subscription, never via direct gateway fetch.
  *
  * To prove that a CID was stored on-chain (without fetching the bytes),
- * use {@link verifyOnChain} from `verify.ts`.
+ * use `verifyOnChain` from `verify.ts`.
  *
- * @throws {BulletinGatewayUnavailableError} If `gateway` is `null`.
+ * @param cid     - CIDv1 string to fetch.
+ * @param options - Query options (`lookupTimeoutMs` for host).
+ * @throws {BulletinHostUnavailableError} If running outside a container.
  */
-export async function fetchContent(
-    _api: BulletinApi,
-    gateway: string | null,
+export async function queryBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
+    const strategy = await resolveQueryStrategy();
+    return executeQuery(strategy, cid, options);
+}
+
+/**
+ * Fetch and parse JSON for a CID via the host's preimage lookup.
+ *
+ * Convenience wrapper over {@link queryBytes}.
+ */
+export async function queryJson<T>(cid: string, options?: QueryOptions): Promise<T> {
+    const bytes = await queryBytes(cid, options);
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+}
+
+/**
+ * Execute a query using a pre-resolved strategy.
+ *
+ * Exposed so `BulletinClient` can resolve the strategy once at
+ * construction time and reuse it across calls without re-detecting
+ * the host environment on every fetch.
+ */
+export async function executeQuery(
+    strategy: QueryStrategy,
     cid: string,
     options?: QueryOptions,
 ): Promise<Uint8Array> {
-    if (!gateway) {
-        throw new BulletinGatewayUnavailableError("(no gateway configured)");
-    }
-
-    log.info("query: fetching from gateway", { cid, gateway });
-    return fetchFromGateway(cid, gateway, options);
+    log.info("query: host preimage lookup", { cid });
+    return strategy.lookup(cid, options?.lookupTimeoutMs);
 }
 
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    describe("fetchContent", () => {
-        const cid = "bafyabc";
-        const data = new Uint8Array([1, 2, 3]);
+    describe("executeQuery", () => {
+        const testData = new Uint8Array([1, 2, 3]);
 
-        test("fetches via gateway when one is configured", async () => {
-            vi.stubGlobal(
-                "fetch",
-                vi.fn().mockResolvedValue({
-                    ok: true,
-                    arrayBuffer: () => Promise.resolve(data.buffer),
-                }),
-            );
-            const result = await fetchContent({} as BulletinApi, "https://gw/ipfs/", cid);
-            expect(result).toEqual(data);
-            vi.unstubAllGlobals();
+        test("delegates to the strategy's lookup function", async () => {
+            const lookup = vi.fn().mockResolvedValue(testData);
+            const strategy: QueryStrategy = { kind: "host-lookup", lookup };
+            const result = await executeQuery(strategy, "bafytest");
+            expect(result).toBe(testData);
+            expect(lookup).toHaveBeenCalledWith("bafytest", undefined);
         });
 
-        test("throws when no gateway is configured", async () => {
-            await expect(fetchContent({} as BulletinApi, null, cid)).rejects.toThrow(
-                BulletinGatewayUnavailableError,
-            );
+        test("forwards lookupTimeoutMs to the strategy", async () => {
+            const lookup = vi.fn().mockResolvedValue(testData);
+            const strategy: QueryStrategy = { kind: "host-lookup", lookup };
+            await executeQuery(strategy, "bafytest", { lookupTimeoutMs: 5000 });
+            expect(lookup).toHaveBeenCalledWith("bafytest", 5000);
         });
     });
 }
