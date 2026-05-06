@@ -4,6 +4,7 @@ import { Layout, Navbar } from "nextra-theme-docs";
 import { Head, Search } from "nextra/components";
 import { getPageMap } from "nextra/page-map";
 import { Logo } from "./_components/logo";
+import { PreserveHostParams } from "./_components/preserve-host-params";
 import "./globals.css";
 
 const inter = Inter({
@@ -49,6 +50,7 @@ export default async function RootLayout({
     >
       <Head />
       <body className="bg-surface-main text-primary font-sans antialiased">
+        <PreserveHostParams />
         <Layout
           navbar={navbar}
           pageMap={pageMap}
