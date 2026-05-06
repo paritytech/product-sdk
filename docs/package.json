@@ -10,8 +10,7 @@
     "start": "serve out",
     "docs:extract": "typedoc",
     "docs:render": "tsx scripts/generate-api.ts",
-    "docs:generate": "pnpm docs:extract && pnpm docs:render",
-    "docs:check": "pnpm docs:generate && git diff --exit-code content/api"
+    "docs:generate": "pnpm docs:extract && pnpm docs:render"
   },
   "dependencies": {
     "next": "^15.0.0",

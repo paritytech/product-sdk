@@ -20,12 +20,12 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
-        "@parity/bulletin-sdk": "^0.2.0",
+        "@parity/bulletin-sdk": "^0.3.0",
         "@parity/product-sdk-chain-client": "workspace:*",
         "@parity/product-sdk-descriptors": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "multiformats": "^13.3.0",
-        "polkadot-api": "^1.9.0"
+        "polkadot-api": "catalog:"
     },
     "devDependencies": {
         "typescript": "^5.7.0",

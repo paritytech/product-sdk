@@ -66,8 +66,8 @@ async function resolveDecodedCall(call: BatchableCall): Promise<unknown> {
  *   chain that has the Utility pallet — no chain-specific imports required.
  *   **All calls must target the same chain as this API.** Do not mix decoded calls
  *   from different chains (e.g., Asset Hub and Bulletin) in a single batch.
- * @param signer - The signer to use. Can come from a wallet extension, Host API
- *   (`getProductAccountSigner`), or {@link createDevSigner}.
+ * @param signer - The signer to use. Can come from the Host API
+ *   (`getProductAccountSigner`) or {@link createDevSigner}.
  * @param options - Optional {@link BatchSubmitOptions} (extends `SubmitOptions` with `mode`).
  * @returns The transaction result from the batch submission.
  *

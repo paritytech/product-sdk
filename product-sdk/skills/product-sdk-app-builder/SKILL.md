@@ -91,7 +91,7 @@ npm init -y
   "type": "module",
   "dependencies": {
     "@parity/product-sdk-chain-client": "latest",
-    "polkadot-api": "^1.23.3"
+    "polkadot-api": "^2.0.2"
   }
 }
 ```

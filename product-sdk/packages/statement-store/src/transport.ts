@@ -1,5 +1,5 @@
 import { createLogger } from "@parity/product-sdk-logger";
-import type { HostStatementStore } from "@parity/product-sdk-host";
+import type { HostStatementStore, StatementTopicFilter } from "@parity/product-sdk-host";
 
 import { StatementConnectionError, StatementSubscriptionError } from "./errors.js";
 import type { ConnectionCredentials, StatementTransport, Unsubscribable } from "./types.js";
@@ -39,15 +39,15 @@ class HostTransport implements StatementTransport {
         onStatements: (statements: Statement[]) => void,
         onError: (error: Error) => void,
     ): Unsubscribable {
-        const topics = extractTopicBytes(filter);
+        const hostFilter = sdkFilterToHost(filter);
 
         try {
-            const sub = this.store.subscribe(topics, (statements) => {
-                // product-sdk delivers HostSignedStatement[] (Uint8Array fields, { tag } enums).
-                // sdk-statement expects Statement (hex string fields, { type } enums).
-                // Type assertion needed: store.subscribe callback types are unknown[] at the interface
-                // but actual runtime values are HostSignedStatement[].
-                const converted = (statements as HostSignedStatement[]).map(
+            const sub = this.store.subscribe(hostFilter, (page) => {
+                // product-sdk delivers HostSignedStatement[] (Uint8Array fields, { tag } enums)
+                // inside a StatementsPage. sdk-statement expects Statement (hex string fields,
+                // { type } enums). Type assertion needed: page.statements is unknown[] at the
+                // interface boundary but actual runtime values are HostSignedStatement[].
+                const converted = (page.statements as HostSignedStatement[]).map(
                     hostSignedStatementToSdk,
                 );
                 onStatements(converted);
@@ -134,6 +134,19 @@ export async function createTransport(): Promise<StatementTransport> {
 // both languages correctly.
 // ============================================================================
 
+/** Convert an sdk-statement TopicFilter (hex strings) → host StatementTopicFilter (Uint8Array). */
+function sdkFilterToHost(filter: SdkTopicFilter): StatementTopicFilter {
+    if (filter === "any") {
+        // The host API has no "match anything" variant — express it as
+        // "match any of zero topics" which the host treats as a wildcard.
+        return { matchAny: [] };
+    }
+    if ("matchAll" in filter) {
+        return { matchAll: filter.matchAll.map(hexToBytes) };
+    }
+    return { matchAny: filter.matchAny.map(hexToBytes) };
+}
+
 /** Convert a product-sdk SignedStatement (Uint8Array fields) → sdk-statement Statement (hex strings). */
 function hostSignedStatementToSdk(hostStmt: HostSignedStatement): Statement {
     const result: Partial<Statement> = {};
@@ -159,14 +172,25 @@ function hostSignedStatementToSdk(hostStmt: HostSignedStatement): Statement {
         result.decryptionKey = bytesToHex(hostStmt.decryptionKey) as Statement["decryptionKey"];
     }
 
-    // proof: { tag: "Sr25519", value: { signature: Uint8Array, signer: Uint8Array } }
-    //      → { type: "sr25519", value: { signature: hexString, signer: hexString } }
+    // proof: { tag: "Sr25519" | "Ed25519" | "Ecdsa" | "OnChain", value: ... }
+    //      → { type: "sr25519" | "ed25519" | "ecdsa" | "onChain", value: ... } (with hex)
     if (hostStmt.proof) {
         const tag = hostStmt.proof.tag;
         const value = hostStmt.proof.value;
-        const sdkType = tag.charAt(0).toLowerCase() + tag.slice(1);
+        // Product-sdk proof tags use PascalCase; sdk-statement variants are camelCase.
+        const sdkType =
+            tag === "OnChain" ? "onChain" : (tag.toLowerCase() as "sr25519" | "ed25519" | "ecdsa");
 
-        if ("signature" in value && "signer" in value) {
+        if (sdkType === "onChain" && "who" in value) {
+            result.proof = {
+                type: "onChain",
+                value: {
+                    who: bytesToHex(value.who),
+                    blockHash: bytesToHex(value.blockHash),
+                    event: value.event,
+                },
+            } as Statement["proof"];
+        } else if ("signature" in value && "signer" in value) {
             result.proof = {
                 type: sdkType,
                 value: {
@@ -206,18 +230,6 @@ function sdkStatementToHost(stmt: Statement): HostStatement {
     }
 
     return result as HostStatement;
-}
-
-/** Extract topic Uint8Arrays from an sdk-statement TopicFilter for the host API. */
-function extractTopicBytes(filter: SdkTopicFilter): Uint8Array[] {
-    if (filter === "any") return [];
-    if ("matchAll" in filter) {
-        return filter.matchAll.map(hexToBytes);
-    }
-    if ("matchAny" in filter) {
-        return filter.matchAny.map(hexToBytes);
-    }
-    return [];
 }
 
 /** Convert a 0x-prefixed hex string to Uint8Array. */

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-29T15:31:32.236Z",
+  "generatedAt": "2026-05-05T18:09:53.544Z",
   "node": "v24.11.0",
   "esbuild": "0.25.12",
   "packages": {
@@ -14,16 +14,16 @@
             "brotli": 278
           },
           "bundled": {
-            "raw": 4476259,
-            "gzip": 1468511,
-            "brotli": 675888
+            "raw": 4456890,
+            "gzip": 1467733,
+            "brotli": 675165
           },
           "shaken": {
-            "raw": 4346714,
-            "gzip": 1426165,
-            "brotli": 647087
+            "raw": 4338195,
+            "gzip": 1426844,
+            "brotli": 645741
           },
-          "shakeRatio": 0.9711
+          "shakeRatio": 0.9734
         },
         "./address": {
           "file": "packages/sdk/dist/address/index.js",
@@ -52,14 +52,14 @@
             "brotli": 91
           },
           "bundled": {
-            "raw": 4346183,
-            "gzip": 1427968,
-            "brotli": 649911
+            "raw": 4339527,
+            "gzip": 1426396,
+            "brotli": 647347
           },
           "shaken": {
             "raw": 12668,
             "gzip": 4739,
-            "brotli": 4336
+            "brotli": 4334
           },
           "shakeRatio": 0.0029
         },
@@ -71,16 +71,16 @@
             "brotli": 90
           },
           "bundled": {
-            "raw": 4254377,
-            "gzip": 1395798,
-            "brotli": 621908
+            "raw": 4247935,
+            "gzip": 1394295,
+            "brotli": 620754
           },
           "shaken": {
-            "raw": 218474,
-            "gzip": 73966,
-            "brotli": 62627
+            "raw": 213452,
+            "gzip": 73219,
+            "brotli": 64198
           },
-          "shakeRatio": 0.0514
+          "shakeRatio": 0.0502
         },
         "./contracts": {
           "file": "packages/sdk/dist/contracts/index.js",
@@ -90,16 +90,16 @@
             "brotli": 91
           },
           "bundled": {
-            "raw": 2391712,
-            "gzip": 756617,
-            "brotli": 412187
+            "raw": 2378737,
+            "gzip": 752756,
+            "brotli": 410572
           },
           "shaken": {
-            "raw": 160700,
-            "gzip": 57482,
-            "brotli": 41396
+            "raw": 155553,
+            "gzip": 56300,
+            "brotli": 40589
           },
-          "shakeRatio": 0.0672
+          "shakeRatio": 0.0654
         },
         "./core": {
           "file": "packages/sdk/dist/core/index.js",
@@ -109,9 +109,9 @@
             "brotli": 116
           },
           "bundled": {
-            "raw": 4476098,
-            "gzip": 1468434,
-            "brotli": 675729
+            "raw": 4456729,
+            "gzip": 1467677,
+            "brotli": 675479
           },
           "shaken": {
             "raw": 634,
@@ -147,16 +147,16 @@
             "brotli": 91
           },
           "bundled": {
-            "raw": 99646,
-            "gzip": 33158,
-            "brotli": 27013
+            "raw": 88534,
+            "gzip": 30101,
+            "brotli": 26417
           },
           "shaken": {
-            "raw": 26117,
-            "gzip": 9523,
-            "brotli": 8578
+            "raw": 28355,
+            "gzip": 10470,
+            "brotli": 9357
           },
-          "shakeRatio": 0.2621
+          "shakeRatio": 0.3203
         },
         "./identity": {
           "file": "packages/sdk/dist/identity/index.js",
@@ -185,9 +185,9 @@
             "brotli": 1236
           },
           "bundled": {
-            "raw": 4486640,
-            "gzip": 1472018,
-            "brotli": 679095
+            "raw": 4467271,
+            "gzip": 1471393,
+            "brotli": 678547
           },
           "shaken": {
             "raw": 8451,
@@ -204,16 +204,16 @@
             "brotli": 90
           },
           "bundled": {
-            "raw": 99156,
-            "gzip": 33070,
-            "brotli": 27033
+            "raw": 88370,
+            "gzip": 30081,
+            "brotli": 26344
           },
           "shaken": {
-            "raw": 99116,
-            "gzip": 33061,
-            "brotli": 26894
+            "raw": 88330,
+            "gzip": 30064,
+            "brotli": 26307
           },
-          "shakeRatio": 0.9996
+          "shakeRatio": 0.9995
         },
         "./wallet": {
           "file": "packages/sdk/dist/wallet/index.js",
@@ -223,16 +223,16 @@
             "brotli": 94
           },
           "bundled": {
-            "raw": 260460,
-            "gzip": 85596,
-            "brotli": 63422
+            "raw": 235413,
+            "gzip": 81367,
+            "brotli": 61061
           },
           "shaken": {
             "raw": 1206,
             "gzip": 633,
             "brotli": 550
           },
-          "shakeRatio": 0.0046
+          "shakeRatio": 0.0051
         }
       }
     },
@@ -264,19 +264,19 @@
         ".": {
           "file": "packages/bulletin/dist/index.js",
           "ship": {
-            "raw": 48906,
-            "gzip": 9709,
-            "brotli": 8462
+            "raw": 48825,
+            "gzip": 9689,
+            "brotli": 8447
           },
           "bundled": {
-            "raw": 4346183,
-            "gzip": 1427968,
-            "brotli": 649911
+            "raw": 4339527,
+            "gzip": 1426396,
+            "brotli": 647347
           },
           "shaken": {
             "raw": 12668,
             "gzip": 4739,
-            "brotli": 4336
+            "brotli": 4334
           },
           "shakeRatio": 0.0029
         }
@@ -292,16 +292,16 @@
             "brotli": 3398
           },
           "bundled": {
-            "raw": 4254377,
-            "gzip": 1395798,
-            "brotli": 621908
+            "raw": 4247935,
+            "gzip": 1394295,
+            "brotli": 620754
           },
           "shaken": {
-            "raw": 218474,
-            "gzip": 73966,
-            "brotli": 62627
+            "raw": 213452,
+            "gzip": 73219,
+            "brotli": 64198
           },
-          "shakeRatio": 0.0514
+          "shakeRatio": 0.0502
         }
       }
     },
@@ -315,16 +315,16 @@
             "brotli": 3300
           },
           "bundled": {
-            "raw": 2391712,
-            "gzip": 756617,
-            "brotli": 412187
+            "raw": 2378737,
+            "gzip": 752756,
+            "brotli": 410572
           },
           "shaken": {
-            "raw": 160700,
-            "gzip": 57482,
-            "brotli": 41396
+            "raw": 155553,
+            "gzip": 56300,
+            "brotli": 40589
           },
-          "shakeRatio": 0.0672
+          "shakeRatio": 0.0654
         },
         "./codegen": {
           "file": "packages/contracts/dist/codegen.js",
@@ -373,97 +373,97 @@
     "@parity/product-sdk-descriptors": {
       "entries": {
         "./bulletin": {
-          "file": "packages/descriptors/chains/bulletin/generated/dist/index.mjs",
+          "file": "packages/descriptors/chains/bulletin/generated/dist/index.js",
           "ship": {
-            "raw": 5055,
-            "gzip": 1635,
-            "brotli": 1449
+            "raw": 4349,
+            "gzip": 1315,
+            "brotli": 1173
           },
           "bundled": {
-            "raw": 274013,
-            "gzip": 96116,
-            "brotli": 76657
+            "raw": 273995,
+            "gzip": 96107,
+            "brotli": 76603
           },
           "shaken": {
-            "raw": 50691,
-            "gzip": 20285,
-            "brotli": 17969
+            "raw": 50685,
+            "gzip": 20277,
+            "brotli": 17962
           },
           "shakeRatio": 0.185
         },
         "./individuality": {
-          "file": "packages/descriptors/chains/individuality/generated/dist/index.mjs",
+          "file": "packages/descriptors/chains/individuality/generated/dist/index.js",
           "ship": {
-            "raw": 5080,
-            "gzip": 1650,
-            "brotli": 1460
+            "raw": 4354,
+            "gzip": 1329,
+            "brotli": 1184
           },
           "bundled": {
-            "raw": 625492,
-            "gzip": 211151,
-            "brotli": 160019
+            "raw": 625474,
+            "gzip": 211136,
+            "brotli": 160079
           },
           "shaken": {
-            "raw": 117618,
-            "gzip": 44965,
-            "brotli": 38141
+            "raw": 117612,
+            "gzip": 44956,
+            "brotli": 38066
           },
           "shakeRatio": 0.188
         },
         "./kusama-asset-hub": {
-          "file": "packages/descriptors/chains/kusama-asset-hub/generated/dist/index.mjs",
+          "file": "packages/descriptors/chains/kusama-asset-hub/generated/dist/index.js",
           "ship": {
-            "raw": 6849,
-            "gzip": 2041,
-            "brotli": 1809
+            "raw": 6111,
+            "gzip": 1694,
+            "brotli": 1506
           },
           "bundled": {
-            "raw": 1084214,
-            "gzip": 350575,
-            "brotli": 254364
+            "raw": 1084196,
+            "gzip": 350555,
+            "brotli": 254336
           },
           "shaken": {
-            "raw": 182095,
-            "gzip": 67972,
-            "brotli": 54644
+            "raw": 182089,
+            "gzip": 67962,
+            "brotli": 54633
           },
-          "shakeRatio": 0.168
+          "shakeRatio": 0.1679
         },
         "./paseo-asset-hub": {
-          "file": "packages/descriptors/chains/paseo-asset-hub/generated/dist/index.mjs",
+          "file": "packages/descriptors/chains/paseo-asset-hub/generated/dist/index.js",
           "ship": {
-            "raw": 6892,
-            "gzip": 2054,
-            "brotli": 1819
+            "raw": 6158,
+            "gzip": 1707,
+            "brotli": 1523
           },
           "bundled": {
-            "raw": 1026121,
-            "gzip": 331947,
-            "brotli": 239630
+            "raw": 1026103,
+            "gzip": 331930,
+            "brotli": 239526
           },
           "shaken": {
-            "raw": 172854,
-            "gzip": 64460,
-            "brotli": 52146
+            "raw": 172848,
+            "gzip": 64450,
+            "brotli": 52141
           },
           "shakeRatio": 0.1685
         },
         "./polkadot-asset-hub": {
-          "file": "packages/descriptors/chains/polkadot-asset-hub/generated/dist/index.mjs",
+          "file": "packages/descriptors/chains/polkadot-asset-hub/generated/dist/index.js",
           "ship": {
-            "raw": 6913,
-            "gzip": 2056,
-            "brotli": 1829
+            "raw": 6167,
+            "gzip": 1711,
+            "brotli": 1527
           },
           "bundled": {
-            "raw": 1022953,
-            "gzip": 330917,
-            "brotli": 238954
+            "raw": 1022935,
+            "gzip": 330900,
+            "brotli": 239004
           },
           "shaken": {
-            "raw": 172227,
-            "gzip": 64297,
-            "brotli": 51856
+            "raw": 172221,
+            "gzip": 64287,
+            "brotli": 51809
           },
           "shakeRatio": 0.1684
         }
@@ -479,16 +479,16 @@
             "brotli": 1402
           },
           "bundled": {
-            "raw": 99646,
-            "gzip": 33158,
-            "brotli": 27013
+            "raw": 88534,
+            "gzip": 30101,
+            "brotli": 26417
           },
           "shaken": {
-            "raw": 26117,
-            "gzip": 9523,
-            "brotli": 8578
+            "raw": 28355,
+            "gzip": 10470,
+            "brotli": 9357
           },
-          "shakeRatio": 0.2621
+          "shakeRatio": 0.3203
         }
       }
     },
@@ -502,16 +502,16 @@
             "brotli": 3950
           },
           "bundled": {
-            "raw": 196371,
-            "gzip": 69422,
-            "brotli": 49626
+            "raw": 191349,
+            "gzip": 68212,
+            "brotli": 48754
           },
           "shaken": {
-            "raw": 145128,
-            "gzip": 52089,
-            "brotli": 38661
+            "raw": 140106,
+            "gzip": 50703,
+            "brotli": 37847
           },
-          "shakeRatio": 0.7391
+          "shakeRatio": 0.7322
         }
       }
     },
@@ -543,21 +543,21 @@
         ".": {
           "file": "packages/signer/dist/index.js",
           "ship": {
-            "raw": 53071,
-            "gzip": 10087,
-            "brotli": 8866
+            "raw": 53051,
+            "gzip": 10093,
+            "brotli": 8870
           },
           "bundled": {
-            "raw": 260460,
-            "gzip": 85596,
-            "brotli": 63422
+            "raw": 235413,
+            "gzip": 81367,
+            "brotli": 61061
           },
           "shaken": {
             "raw": 1206,
             "gzip": 633,
             "brotli": 550
           },
-          "shakeRatio": 0.0046
+          "shakeRatio": 0.0051
         }
       }
     },
@@ -566,21 +566,21 @@
         ".": {
           "file": "packages/statement-store/dist/index.js",
           "ship": {
-            "raw": 35491,
-            "gzip": 8222,
-            "brotli": 7184
+            "raw": 35763,
+            "gzip": 8286,
+            "brotli": 7238
           },
           "bundled": {
-            "raw": 118344,
-            "gzip": 37534,
-            "brotli": 31079
+            "raw": 105501,
+            "gzip": 35560,
+            "brotli": 29784
           },
           "shaken": {
             "raw": 10049,
             "gzip": 4034,
             "brotli": 3562
           },
-          "shakeRatio": 0.0849
+          "shakeRatio": 0.0953
         }
       }
     },
@@ -594,16 +594,16 @@
             "brotli": 1255
           },
           "bundled": {
-            "raw": 99156,
-            "gzip": 33070,
-            "brotli": 27033
+            "raw": 88370,
+            "gzip": 30081,
+            "brotli": 26344
           },
           "shaken": {
-            "raw": 99116,
-            "gzip": 33061,
-            "brotli": 26894
+            "raw": 88330,
+            "gzip": 30064,
+            "brotli": 26307
           },
-          "shakeRatio": 0.9996
+          "shakeRatio": 0.9995
         }
       }
     },
@@ -617,16 +617,16 @@
             "brotli": 8617
           },
           "bundled": {
-            "raw": 166390,
-            "gzip": 60790,
-            "brotli": 42855
+            "raw": 161368,
+            "gzip": 59030,
+            "brotli": 41980
           },
           "shaken": {
             "raw": 30847,
             "gzip": 13206,
             "brotli": 11589
           },
-          "shakeRatio": 0.1854
+          "shakeRatio": 0.1912
         }
       }
     },

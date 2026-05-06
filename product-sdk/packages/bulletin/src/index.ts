@@ -82,7 +82,6 @@ export {
     parseCid,
     reassembleChunks,
     resolveClientConfig,
-    toBytes,
     validateChunkSize,
     CID,
 } from "@parity/bulletin-sdk";

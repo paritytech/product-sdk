@@ -2,24 +2,28 @@
 
 Documentation site for `@parity/product-sdk`. Built with [Nextra 4](https://nextra.site) on Next.js 15 (static export), styled with `polkadot-design-system` tokens.
 
-Lives at the repo root (a sibling of `product-sdk/` and `repos/`) and runs as a standalone project. It is not part of the `product-sdk/` pnpm workspace.
+Lives at the repo root (a sibling of `product-sdk/`) and runs as a standalone project. It is not part of the `product-sdk/` pnpm workspace.
 
 ## Run locally
 
 ```bash
 cd docs
 pnpm install
+pnpm docs:generate   # required on first run — populates content/api/
 pnpm dev
 ```
 
 Open http://localhost:3000.
+
+> `pnpm dev` does not auto-regenerate the API reference. Re-run `pnpm docs:generate` after editing TSDoc comments in the SDK sources.
 
 > Search (Pagefind) is only populated by the production build. To test search locally, run `pnpm build && pnpm start` instead.
 
 ## Build
 
 ```bash
-pnpm build   # next build (static export to out/) + Pagefind postbuild
+pnpm docs:generate   # required — content/api/ is gitignored, must regenerate
+pnpm build           # next build (static export to out/) + Pagefind postbuild
 pnpm start  
 ```
 
@@ -39,7 +43,6 @@ The entire `content/api/` tree is generated from TSDoc comments in `product-sdk/
 
 ```bash
 pnpm docs:generate   # typedoc --json + custom MDX renderer
-pnpm docs:check      # regenerate and fail if content/api drifts (unused for now since content/api/ is gitignored)
 ```
 
 ### Generator internals

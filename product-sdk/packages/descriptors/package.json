@@ -8,28 +8,23 @@
     "exports": {
         "./bulletin": {
             "types": "./chains/bulletin/generated/dist/index.d.ts",
-            "import": "./chains/bulletin/generated/dist/index.mjs",
-            "require": "./chains/bulletin/generated/dist/index.js"
+            "import": "./chains/bulletin/generated/dist/index.js"
         },
         "./individuality": {
             "types": "./chains/individuality/generated/dist/index.d.ts",
-            "import": "./chains/individuality/generated/dist/index.mjs",
-            "require": "./chains/individuality/generated/dist/index.js"
+            "import": "./chains/individuality/generated/dist/index.js"
         },
         "./kusama-asset-hub": {
             "types": "./chains/kusama-asset-hub/generated/dist/index.d.ts",
-            "import": "./chains/kusama-asset-hub/generated/dist/index.mjs",
-            "require": "./chains/kusama-asset-hub/generated/dist/index.js"
+            "import": "./chains/kusama-asset-hub/generated/dist/index.js"
         },
         "./paseo-asset-hub": {
             "types": "./chains/paseo-asset-hub/generated/dist/index.d.ts",
-            "import": "./chains/paseo-asset-hub/generated/dist/index.mjs",
-            "require": "./chains/paseo-asset-hub/generated/dist/index.js"
+            "import": "./chains/paseo-asset-hub/generated/dist/index.js"
         },
         "./polkadot-asset-hub": {
             "types": "./chains/polkadot-asset-hub/generated/dist/index.d.ts",
-            "import": "./chains/polkadot-asset-hub/generated/dist/index.mjs",
-            "require": "./chains/polkadot-asset-hub/generated/dist/index.js"
+            "import": "./chains/polkadot-asset-hub/generated/dist/index.js"
         }
     },
     "scripts": {
@@ -38,7 +33,7 @@
         "clean": "rm -rf chains/*/generated/dist chains/*/generated/src chains/*/generated/generated.json"
     },
     "dependencies": {
-        "polkadot-api": "^1.9.5"
+        "polkadot-api": "catalog:"
     },
     "devDependencies": {
         "typescript": "^5.8.3"
@@ -46,7 +41,6 @@
     "files": [
         "chains/*/generated/dist/**/*.js",
         "chains/*/generated/dist/**/*.d.ts",
-        "chains/*/generated/dist/**/*.mjs",
         "chains/*/.papi/**/*"
     ]
 }

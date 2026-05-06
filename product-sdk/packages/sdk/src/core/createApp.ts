@@ -17,11 +17,7 @@ import type {
 import { configure, createLogger } from "@parity/product-sdk-logger";
 import { createKvStore } from "@parity/product-sdk-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
-import {
-    BulletinClient,
-    calculateCid,
-    createLazySigner,
-} from "@parity/product-sdk-bulletin";
+import { BulletinClient, calculateCid, createLazySigner } from "@parity/product-sdk-bulletin";
 import {
     createChainClient,
     getClient,

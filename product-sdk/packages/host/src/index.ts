@@ -14,7 +14,14 @@ export {
     getHostProvider,
     getStatementStore,
 } from "./container.js";
-export type { HostLocalStorage, HostStatementStore, StatementProof } from "./types.js";
+export type {
+    HostLocalStorage,
+    HostStatementStore,
+    HostSubscription,
+    StatementProof,
+    StatementTopicFilter,
+    StatementsPage,
+} from "./types.js";
 export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 
 // TruAPI - re-exports from @novasamatech/product-sdk and @novasamatech/host-api

@@ -19,7 +19,7 @@ import type { PolkadotSigner } from "polkadot-api";
  */
 export function createLazySigner(
     getSigner: () => PolkadotSigner | null,
-    onMissing: string = "No signer available — connect a wallet and select an account first.",
+    onMissing = "No signer available — connect a wallet and select an account first.",
 ): PolkadotSigner {
     const resolve = (): PolkadotSigner => {
         const inner = getSigner();
@@ -61,9 +61,9 @@ if (import.meta.vitest) {
 
         test("signTx throws when getter returns null", async () => {
             const lazy = createLazySigner(() => null);
-            await expect(
-                lazy.signTx(new Uint8Array(), {}, new Uint8Array(), 0),
-            ).rejects.toThrow("No signer available");
+            await expect(lazy.signTx(new Uint8Array(), {}, new Uint8Array(), 0)).rejects.toThrow(
+                "No signer available",
+            );
         });
 
         test("signBytes forwards to current signer", async () => {

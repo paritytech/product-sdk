@@ -16,11 +16,7 @@ import { gatewayUrl } from "./gateway.js";
 import { BulletinChain, type BulletinEnvironment } from "./networks.js";
 import { fetchContent } from "./query.js";
 import type { AuthorizationStatus, BulletinApi, QueryOptions } from "./types.js";
-import {
-    verifyOnChain,
-    type ChainStoredEntry,
-    type VerifyOnChainOptions,
-} from "./verify.js";
+import { verifyOnChain, type ChainStoredEntry, type VerifyOnChainOptions } from "./verify.js";
 
 const log = createLogger("bulletin");
 
@@ -252,7 +248,9 @@ if (import.meta.vitest) {
 
     describe("BulletinClient.from", () => {
         test("constructs with given inner, api, and gateway", () => {
-            const inner = { destroy: vi.fn().mockResolvedValue(undefined) } as unknown as AsyncBulletinClient;
+            const inner = {
+                destroy: vi.fn().mockResolvedValue(undefined),
+            } as unknown as AsyncBulletinClient;
             const api = {} as BulletinApi;
             const client = BulletinClient.from(inner, api, "https://gw/ipfs/");
             expect(client.inner).toBe(inner);
@@ -282,7 +280,9 @@ if (import.meta.vitest) {
 
         test("store delegates to inner", () => {
             const builder = {} as StoreBuilder;
-            const inner = { store: vi.fn().mockReturnValue(builder) } as unknown as AsyncBulletinClient;
+            const inner = {
+                store: vi.fn().mockReturnValue(builder),
+            } as unknown as AsyncBulletinClient;
             const client = BulletinClient.from(inner, {} as BulletinApi, null);
             const data = new Uint8Array([1, 2, 3]);
             expect(client.store(data)).toBe(builder);

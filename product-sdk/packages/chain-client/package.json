@@ -23,7 +23,7 @@
         "@parity/product-sdk-descriptors": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-host": "workspace:*",
-        "polkadot-api": "^1.9.0"
+        "polkadot-api": "catalog:"
     },
     "devDependencies": {
         "tsup": "catalog:",

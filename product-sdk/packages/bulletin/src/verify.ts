@@ -23,9 +23,9 @@ import type { BulletinApi } from "./types.js";
  * Match a multihash code in a CID against the chain's `hashing` enum value.
  */
 const HASH_CODE_TO_ENUM_TYPE: Record<number, "Blake2b256" | "Sha2_256" | "Keccak256"> = {
-    0xb220: "Blake2b256",
-    0x12: "Sha2_256",
-    0x1b: "Keccak256",
+    45600: "Blake2b256",
+    18: "Sha2_256",
+    27: "Keccak256",
 };
 
 /** A single matched entry from `TransactionStorage.Transactions`. */
@@ -92,8 +92,8 @@ export async function verifyOnChain(
 ): Promise<ChainStoredEntry | null> {
     const parsed = parseCidForVerify(cid);
 
-    const queryFn = (api as unknown as TransactionsQueryApi).query?.TransactionStorage
-        ?.Transactions?.getValue;
+    const queryFn = (api as unknown as TransactionsQueryApi).query?.TransactionStorage?.Transactions
+        ?.getValue;
     if (!queryFn) {
         throw new Error(
             "Bulletin API does not expose query.TransactionStorage.Transactions — " +
@@ -245,9 +245,7 @@ if (import.meta.vitest) {
             const digest = new Uint8Array(32).fill(0xab);
             // CID uses blake2b-256, chain entry says sha2-256 with same digest bytes
             const cid = await makeCidWithDigest(digest, 0xb220);
-            const api = makeMockApi(
-                vi.fn().mockResolvedValue([makeEntry(digest, "Sha2_256")]),
-            );
+            const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(digest, "Sha2_256")]));
 
             const result = await verifyOnChain(api, cid, { block: 100 });
             expect(result).toBeNull();
@@ -258,11 +256,13 @@ if (import.meta.vitest) {
             const filler = new Uint8Array(32).fill(0xcd);
             const cid = await makeCidWithDigest(targetDigest);
             const api = makeMockApi(
-                vi.fn().mockResolvedValue([
-                    makeEntry(filler),
-                    makeEntry(filler),
-                    makeEntry(targetDigest),
-                ]),
+                vi
+                    .fn()
+                    .mockResolvedValue([
+                        makeEntry(filler),
+                        makeEntry(filler),
+                        makeEntry(targetDigest),
+                    ]),
             );
 
             const result = await verifyOnChain(api, cid, { block: 100 });
@@ -275,11 +275,13 @@ if (import.meta.vitest) {
             const cid = await makeCidWithDigest(targetDigest);
             // Target is at index 2, but caller says index 0 — should not match
             const api = makeMockApi(
-                vi.fn().mockResolvedValue([
-                    makeEntry(filler),
-                    makeEntry(filler),
-                    makeEntry(targetDigest),
-                ]),
+                vi
+                    .fn()
+                    .mockResolvedValue([
+                        makeEntry(filler),
+                        makeEntry(filler),
+                        makeEntry(targetDigest),
+                    ]),
             );
 
             const result = await verifyOnChain(api, cid, { block: 100, index: 0 });
@@ -291,11 +293,13 @@ if (import.meta.vitest) {
             const filler = new Uint8Array(32).fill(0xcd);
             const cid = await makeCidWithDigest(targetDigest);
             const api = makeMockApi(
-                vi.fn().mockResolvedValue([
-                    makeEntry(filler),
-                    makeEntry(filler),
-                    makeEntry(targetDigest),
-                ]),
+                vi
+                    .fn()
+                    .mockResolvedValue([
+                        makeEntry(filler),
+                        makeEntry(filler),
+                        makeEntry(targetDigest),
+                    ]),
             );
 
             const result = await verifyOnChain(api, cid, { block: 100, index: 2 });

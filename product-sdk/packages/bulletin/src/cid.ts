@@ -117,7 +117,7 @@ export function cidToPreimageKey(cid: string): `0x${string}` {
 function hexToBytes(hex: `0x${string}`): Uint8Array {
     const out = new Uint8Array(32);
     for (let i = 0; i < 32; i++) {
-        out[i] = parseInt(hex.slice(2 + i * 2, 4 + i * 2), 16);
+        out[i] = Number.parseInt(hex.slice(2 + i * 2, 4 + i * 2), 16);
     }
     return out;
 }
@@ -174,9 +174,9 @@ if (import.meta.vitest) {
         });
 
         test("throws on unsupported codec", () => {
-            expect(() =>
-                hashToCid(sampleHex, HashAlgorithm.Blake2b256, 0x99 as CidCodec),
-            ).toThrow(BulletinCidError);
+            expect(() => hashToCid(sampleHex, HashAlgorithm.Blake2b256, 0x99 as CidCodec)).toThrow(
+                BulletinCidError,
+            );
         });
     });
 

@@ -25,7 +25,7 @@
         "@parity/product-sdk-storage": "workspace:*",
         "@polkadot-labs/hdkd": "^0.0.28",
         "@polkadot-labs/hdkd-helpers": "^0.0.10",
-        "polkadot-api": "^1.9.0"
+        "polkadot-api": "catalog:"
     },
     "devDependencies": {
         "typescript": "^5.7.0",

@@ -17,7 +17,7 @@ PAPI-generated chain descriptors for the Polkadot ecosystem. These provide fully
 ```typescript
 import { polkadot_asset_hub } from "@parity/product-sdk-descriptors/polkadot-asset-hub";
 import { createClient } from "polkadot-api";
-import { getWsProvider } from "polkadot-api/ws-provider/web";
+import { getWsProvider } from "polkadot-api/ws";
 
 // Create a typed client for Polkadot Asset Hub
 const client = createClient(

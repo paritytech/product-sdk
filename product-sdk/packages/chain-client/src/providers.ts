@@ -1,5 +1,5 @@
 import { getHostProvider } from "@parity/product-sdk-host";
-import type { JsonRpcProvider } from "polkadot-api/ws-provider/web";
+import type { JsonRpcProvider } from "polkadot-api";
 
 /**
  * Create a PAPI-compatible JSON-RPC provider for a chain.
