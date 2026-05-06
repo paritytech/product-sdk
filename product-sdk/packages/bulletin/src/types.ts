@@ -36,7 +36,20 @@ export interface FetchOptions {
 export interface QueryOptions {
     /**
      * Timeout for the host preimage lookup subscription, in ms.
-     * Default: 30_000.
+     * Default: 30_000. Applied per lookup — for chunked content (DAG-PB
+     * manifest CIDs), the manifest fetch and each child chunk fetch
+     * each get this budget.
      */
     lookupTimeoutMs?: number;
+    /**
+     * When `true`, return the raw bytes for the requested CID without
+     * parsing or recursing into a DAG-PB manifest. Default: `false` — the
+     * client transparently reassembles chunked content so callers don't
+     * need to know whether a CID points at a single chunk or a manifest.
+     *
+     * Set this if you want to inspect the manifest itself, e.g., to read
+     * `unixfs.fileSize()` ahead of fetching, or to drive your own chunk
+     * pipeline.
+     */
+    noReassemble?: boolean;
 }
