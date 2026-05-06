@@ -11,7 +11,8 @@
  * @packageDocumentation
  */
 export { BulletinClient } from "./client.js";
-export { checkAuthorization } from "./authorization.js";
+export { authorizeAccount, checkAuthorization } from "./authorization.js";
+export type { AuthorizeAccountOptions } from "./authorization.js";
 export {
     computeCid,
     cidToPreimageKey,
