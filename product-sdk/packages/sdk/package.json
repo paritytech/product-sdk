@@ -44,6 +44,10 @@
             "import": "./dist/identity/index.js",
             "types": "./dist/identity/index.d.ts"
         },
+        "./merchant-payments": {
+            "import": "./dist/merchant-payments/index.js",
+            "types": "./dist/merchant-payments/index.d.ts"
+        },
         "./react": {
             "import": "./dist/react/index.js",
             "types": "./dist/react/index.d.ts"
@@ -71,6 +75,7 @@
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-merchant-payments": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-storage": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",

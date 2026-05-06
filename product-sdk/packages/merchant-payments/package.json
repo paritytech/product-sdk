@@ -1,0 +1,27 @@
+{
+    "name": "@parity/product-sdk-merchant-payments",
+    "version": "0.1.0",
+    "description": "Merchant payment profile client for hosted Coinage payment products",
+    "type": "module",
+    "sideEffects": false,
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": ["dist", "src"],
+    "scripts": {
+        "build": "tsup",
+        "clean": "rm -rf dist"
+    },
+    "devDependencies": {
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "^3.0.0"
+    },
+    "license": "Apache-2.0"
+}

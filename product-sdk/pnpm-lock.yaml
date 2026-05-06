@@ -563,6 +563,18 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)
 
+  packages/merchant-payments:
+    devDependencies:
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.0(postcss@8.5.10)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.6.0)
+
   packages/sdk:
     dependencies:
       '@parity/product-sdk-address':
@@ -589,6 +601,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-merchant-payments':
+        specifier: workspace:*
+        version: link:../merchant-payments
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer

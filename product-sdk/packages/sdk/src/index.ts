@@ -47,3 +47,4 @@ export { createChainClient } from "@parity/product-sdk-chain-client";
 export { SignerManager } from "@parity/product-sdk-signer";
 export { createKvStore } from "@parity/product-sdk-storage";
 export { BulletinClient, computeCid } from "@parity/product-sdk-bulletin";
+export * as merchantPayments from "@parity/product-sdk-merchant-payments";
