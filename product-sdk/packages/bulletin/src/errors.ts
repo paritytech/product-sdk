@@ -62,6 +62,60 @@ export class BulletinGatewayFetchError extends ProductBulletinError {
 }
 
 /**
+ * The host preimage API is unavailable.
+ *
+ * Thrown when bulletin operations require the host container but it's not
+ * available. This typically means the SDK is running outside Polkadot
+ * Browser / Desktop. The bulletin SDK is container-only by design — see
+ * the README for the rationale.
+ */
+export class BulletinHostUnavailableError extends ProductBulletinError {
+    constructor(operation: "upload" | "query") {
+        super(
+            `Host preimage API unavailable for ${operation}. Ensure you are running inside a host container (Polkadot Browser / Desktop).`,
+        );
+        this.name = "BulletinHostUnavailableError";
+    }
+}
+
+/**
+ * The host preimage lookup timed out.
+ *
+ * The host was unable to retrieve the requested content within the timeout
+ * period. The content may still become available later.
+ */
+export class BulletinLookupTimeoutError extends ProductBulletinError {
+    /** The CID that was being looked up. */
+    readonly cid: string;
+    /** The timeout duration in milliseconds. */
+    readonly timeoutMs: number;
+
+    constructor(cid: string, timeoutMs: number) {
+        super(`Host preimage lookup timed out after ${timeoutMs}ms for CID: ${cid}`);
+        this.name = "BulletinLookupTimeoutError";
+        this.cid = cid;
+        this.timeoutMs = timeoutMs;
+    }
+}
+
+/**
+ * The host interrupted the preimage lookup.
+ *
+ * The host terminated the lookup subscription, typically after repeated
+ * failures or when the host determines the content is unavailable.
+ */
+export class BulletinLookupInterruptedError extends ProductBulletinError {
+    /** The CID that was being looked up. */
+    readonly cid: string;
+
+    constructor(cid: string) {
+        super(`Host preimage lookup was interrupted for CID: ${cid}`);
+        this.name = "BulletinLookupInterruptedError";
+        this.cid = cid;
+    }
+}
+
+/**
  * Invalid CID format or version.
  */
 export class BulletinCidError extends ProductBulletinError {
@@ -121,6 +175,28 @@ if (import.meta.vitest) {
             const err = new BulletinCidError("bad", "Qmabc");
             expect(err).toBeInstanceOf(ProductBulletinError);
             expect(err.cid).toBe("Qmabc");
+        });
+
+        test("BulletinHostUnavailableError", () => {
+            const err = new BulletinHostUnavailableError("query");
+            expect(err).toBeInstanceOf(ProductBulletinError);
+            expect(err.message).toContain("query");
+            expect(err.message).toContain("Host preimage API unavailable");
+        });
+
+        test("BulletinLookupTimeoutError", () => {
+            const err = new BulletinLookupTimeoutError("bafyabc123", 30000);
+            expect(err).toBeInstanceOf(ProductBulletinError);
+            expect(err.cid).toBe("bafyabc123");
+            expect(err.timeoutMs).toBe(30000);
+            expect(err.message).toContain("30000ms");
+        });
+
+        test("BulletinLookupInterruptedError", () => {
+            const err = new BulletinLookupInterruptedError("bafyabc123");
+            expect(err).toBeInstanceOf(ProductBulletinError);
+            expect(err.cid).toBe("bafyabc123");
+            expect(err.message).toContain("interrupted");
         });
 
         test("BulletinAuthorizationError carries cause", () => {

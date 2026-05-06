@@ -393,6 +393,9 @@ importers:
       '@parity/product-sdk-descriptors':
         specifier: workspace:*
         version: link:../descriptors
+      '@parity/product-sdk-host':
+        specifier: workspace:*
+        version: link:../host
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
