@@ -4,15 +4,13 @@ import { waitForAppReady } from "./helpers";
 /**
  * Upload via the host preimage path.
  *
- * Exercises:
- *   - BulletinClient.upload() → resolveUploadStrategy() → preimage
- *   - preimageManager.submit(data) → host stores with blake2b-256 key
- *   - computeCid() → cidToPreimageKey() → key consistency
- *
- * Host API surface tested:
- *   - preimageManager.submit(data: Uint8Array): Promise<string>
+ * SKIPPED: these tests target the host-preimage upload path that was removed
+ * when @parity/product-sdk-bulletin migrated to wrap @parity/bulletin-sdk's
+ * AsyncBulletinClient (signed TransactionStorage.store extrinsic). The new
+ * upload path needs a real bulletin chain (or an extrinsic-aware mock) to
+ * exercise; replacing the host-preimage harness is tracked as a follow-up.
  */
-test.describe("@parity/product-sdk-bulletin via Host API — upload", () => {
+test.describe.skip("@parity/product-sdk-bulletin via Host API — upload", () => {
     test("upload stores preimage on host", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearPreimages();

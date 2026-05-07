@@ -1,7 +1,8 @@
+import { calculateCid } from "@parity/bulletin-sdk";
 import { getPreimageManager, type PreimageManager } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { cidToPreimageKey, computeCid } from "./cid.js";
+import { cidToPreimageKey } from "./cid.js";
 import {
     BulletinHostUnavailableError,
     BulletinLookupInterruptedError,
@@ -100,7 +101,7 @@ export function lookupViaHost(
 }
 
 if (import.meta.vitest) {
-    const { describe, test, expect, vi } = import.meta.vitest;
+    const { beforeAll, describe, test, expect, vi } = import.meta.vitest;
 
     // Note: resolveQueryStrategy tests require e2e testing as they
     // depend on the host container environment.
@@ -138,7 +139,12 @@ if (import.meta.vitest) {
             return { lookup, unsubscribe, cancelInterrupt, submit: vi.fn() };
         }
 
-        const testCid = computeCid(new TextEncoder().encode("test"));
+        // calculateCid is async (Web Crypto), so populate lazily.
+        let testCid: string;
+        beforeAll(async () => {
+            const cid = await calculateCid(new TextEncoder().encode("test"));
+            testCid = cid.toString();
+        });
 
         test("resolves on first non-null callback", async () => {
             const manager = createMockManager("resolve");

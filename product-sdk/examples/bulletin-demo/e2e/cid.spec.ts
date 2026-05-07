@@ -4,15 +4,14 @@ import { waitForAppReady } from "./helpers";
 /**
  * CID computation and preimage-key consistency.
  *
- * Verifies that:
- *   - computeCid() produces valid CIDv1 strings
- *   - cidToPreimageKey(computeCid(data)) matches the host's blake2b-256 key
- *   - The host and product use the same hashing for round-trip consistency
- *
- * Surface tested:
- *   - computeCid(), cidToPreimageKey() — verified against real host preimage keys
+ * SKIPPED: relies on the host-preimage upload path (clicking upload triggers
+ * `Uploaded (preimage):` log lines and seeds the test host's preimage store)
+ * which was removed when bulletin migrated to AsyncBulletinClient. The CID
+ * round-trip itself is still valid and is covered by the bulletin package's
+ * unit tests; reinstating the e2e variant is tracked alongside the upload
+ * and query specs.
  */
-test.describe("@parity/product-sdk-bulletin via Host API — CID", () => {
+test.describe.skip("@parity/product-sdk-bulletin via Host API — CID", () => {
     test("computeCid produces valid CIDv1 string", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

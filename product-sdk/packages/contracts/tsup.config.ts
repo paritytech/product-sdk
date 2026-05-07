@@ -10,6 +10,7 @@ export default defineConfig({
     sourcemap: true,
     clean: true,
     target: "es2022",
+    treeshake: true,
     define: {
         "import.meta.vitest": "undefined",
     },

@@ -305,7 +305,6 @@ async function main() {
 
     const result = await bulletin.upload(data);
     console.log("Uploaded CID:", result.cid);
-    console.log("Gateway URL:", result.gatewayUrl);
 
     // Fetch it back
     const content = await bulletin.fetchJson<{ title: string; timestamp: number }>(

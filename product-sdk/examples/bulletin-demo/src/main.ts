@@ -1,29 +1,22 @@
 /**
- * Entry point for the @parity/product-sdk-bulletin E2E demo.
+ * Entry point for the @parity/product-sdk-bulletin demo.
  *
- * Wires up SignerManager (account discovery) + BulletinClient (BYOD chain
- * client for the bulletin chain) and exposes upload/query operations to
- * Playwright via data-testid selectors.
+ * Wires up SignerManager (account discovery) + BulletinClient (against the
+ * bulletin chain via @parity/bulletin-sdk's AsyncBulletinClient).
  *
- * Flow inside the host-api-test-sdk test host:
- *   1. SignerManager.connect() → HostProvider → Bob's account
- *   2. createChainClient() → bulletin chain via direct WS (fallback)
- *   3. resolveUploadStrategy() → "preimage" (preimageManager.submit)
- *   4. resolveQueryStrategy() → "host-lookup" (preimageManager.lookup)
- *   5. upload() → preimage path → host stores data
- *   6. fetchBytes() → host-lookup path → host returns data
+ * Flow:
+ *   1. SignerManager.connect() → HostProvider → account
+ *   2. BulletinClient.create() with a lazy signer
+ *   3. .store(data).send() → signed TransactionStorage.store extrinsic
+ *   4. .fetchBytes(cid) → host preimage subscription (container-only)
  */
 
 import { SignerManager } from "@parity/product-sdk-signer";
-import { createChainClient } from "@parity/product-sdk-chain-client";
-import { bulletin } from "@parity/product-sdk-descriptors/bulletin";
 import {
     BulletinClient,
-    getGateway,
-    resolveUploadStrategy,
-    resolveQueryStrategy,
-    computeCid,
+    calculateCid,
     cidToPreimageKey,
+    createLazySigner,
 } from "@parity/product-sdk-bulletin";
 
 import { appendLog, getEl } from "./ui.js";
@@ -33,14 +26,12 @@ const $connectionStatus = getEl<HTMLSpanElement>("connection-status");
 const $activeProvider = getEl<HTMLSpanElement>("active-provider");
 const $accountAddress = getEl<HTMLSpanElement>("account-address");
 const $bulletinStatus = getEl<HTMLSpanElement>("bulletin-status");
-const $uploadStrategy = getEl<HTMLSpanElement>("upload-strategy");
-const $queryStrategy = getEl<HTMLSpanElement>("query-strategy");
 const $uploadInput = getEl<HTMLInputElement>("upload-input");
 const $btnUpload = getEl<HTMLButtonElement>("btn-upload");
 const $queryCidInput = getEl<HTMLInputElement>("query-cid-input");
 const $btnQuery = getEl<HTMLButtonElement>("btn-query");
 const $lastCid = getEl<HTMLSpanElement>("last-cid");
-const $lastPreimageKey = getEl<HTMLSpanElement>("last-preimage-key");
+const $lastBlockHash = getEl<HTMLSpanElement>("last-block");
 const $queryResult = getEl<HTMLSpanElement>("query-result");
 const $log = getEl<HTMLElement>("bulletin-log");
 
@@ -79,17 +70,17 @@ $btnUpload.addEventListener("click", async () => {
     log(`Uploading: "${text}" (${data.length} bytes)…`);
 
     try {
-        const result = await bulletinClient.upload(data);
-        $lastCid.textContent = result.cid;
-        $queryCidInput.value = result.cid;
+        const result = await bulletinClient.store(data).send();
+        const cid = result.cid?.toString() ?? "(no manifest CID)";
+        $lastCid.textContent = cid;
+        $queryCidInput.value = cid;
 
-        if (result.kind === "preimage") {
-            $lastPreimageKey.textContent = result.preimageKey;
-            log(`Uploaded (preimage): CID=${result.cid.slice(0, 20)}… key=${result.preimageKey.slice(0, 18)}…`, "ok");
-        } else {
-            $lastPreimageKey.textContent = "-";
-            log(`Uploaded (transaction): CID=${result.cid.slice(0, 20)}… block=${result.blockHash.slice(0, 18)}…`, "ok");
-        }
+        const blockNumber = result.blockNumber !== undefined ? `#${result.blockNumber}` : "-";
+        $lastBlockHash.textContent = blockNumber;
+        log(
+            `Uploaded: CID=${cid.slice(0, 20)}… block=${blockNumber} size=${result.size} bytes`,
+            "ok",
+        );
     } catch (err) {
         log(`Upload failed: ${(err as Error).message}`, "err");
     } finally {
@@ -145,38 +136,25 @@ async function init() {
     }
     log(`Signer ready: ${accounts[0].address}`, "ok");
 
-    // Step 2: resolve strategies (host detection happens here)
-    log("Resolving upload strategy…");
-    const uploadStrategy = await resolveUploadStrategy();
-    $uploadStrategy.textContent = uploadStrategy.kind;
-    log(`Upload strategy: ${uploadStrategy.kind}`, "ok");
-
-    log("Resolving query strategy…");
-    const queryStrategy = await resolveQueryStrategy();
-    $queryStrategy.textContent = queryStrategy.kind;
-    log(`Query strategy: ${queryStrategy.kind}`, "ok");
-
-    // Step 3: create BYOD chain client with only bulletin chain
-    log("Connecting to bulletin chain…");
+    // Step 2: create BulletinClient with a lazy signer that resolves
+    // through the SignerManager on every sign call.
+    log("Creating BulletinClient…");
     try {
-        const chain = await createChainClient({
-            chains: { bulletin },
-            rpcs: {
-                bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
-            },
+        bulletinClient = await BulletinClient.create({
+            environment: "paseo",
+            signer: createLazySigner(() => manager.getSigner()),
         });
-        bulletinClient = BulletinClient.from(chain.bulletin, getGateway("paseo"));
         $bulletinStatus.textContent = "connected";
-        log("BulletinClient ready (BYOD)", "ok");
+        log("BulletinClient ready", "ok");
     } catch (err) {
         $bulletinStatus.textContent = "error";
-        log(`Bulletin chain connect failed: ${(err as Error).message}`, "err");
+        log(`BulletinClient init failed: ${(err as Error).message}`, "err");
         return;
     }
 
-    // Expose utilities for e2e tests
+    // Expose utilities for manual debugging in the browser console.
     (window as unknown as Record<string, unknown>).__BULLETIN__ = {
-        computeCid,
+        calculateCid,
         cidToPreimageKey,
         client: bulletinClient,
     };

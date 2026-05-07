@@ -1,59 +1,96 @@
-import { getChainAPI } from "@parity/product-sdk-chain-client";
-import type { PolkadotSigner } from "polkadot-api";
+import {
+    AsyncBulletinClient,
+    type AuthCallBuilder,
+    type BulletinTypedApi,
+    type CallBuilder,
+    type ClientConfig,
+    type StoreBuilder,
+    type SubmitFn,
+} from "@parity/bulletin-sdk";
+import { createChainClient, getChainAPI } from "@parity/product-sdk-chain-client";
+import { createLogger } from "@parity/product-sdk-logger";
+import type { PolkadotClient, PolkadotSigner } from "polkadot-api";
 
 import { checkAuthorization } from "./authorization.js";
-import {
-    type CidCodec,
-    type HashAlgorithm,
-    cidToPreimageKey,
-    computeCid,
-    hashToCid,
-} from "./cid.js";
-import { cidExists, getGateway, gatewayUrl } from "./gateway.js";
+import type { BulletinChain, BulletinEnvironment } from "./networks.js";
 import { executeQuery } from "./query.js";
 import { resolveQueryStrategy, type QueryStrategy } from "./resolve-query.js";
-import { batchUpload, upload } from "./upload.js";
-import type {
-    AuthorizationStatus,
-    BatchUploadItem,
-    BatchUploadOptions,
-    BatchUploadResult,
-    BulletinApi,
-    Environment,
-    QueryOptions,
-    UploadOptions,
-    UploadResult,
-} from "./types.js";
+import type { AuthorizationStatus, BulletinApi, QueryOptions } from "./types.js";
+import { verifyOnChain, type ChainStoredEntry, type VerifyOnChainOptions } from "./verify.js";
+
+const log = createLogger("bulletin");
+
+/**
+ * Options for {@link BulletinClient.create}.
+ *
+ * One of two construction shapes is supported:
+ *
+ * - **Environment shorthand** — pass an `environment` string keyed by
+ *   {@link BulletinChain}. Wires up the chain-client automatically.
+ * - **Explicit network** — pass `genesisHash` and `descriptor` directly
+ *   (e.g., spread from a {@link BulletinChain} entry, or supply custom
+ *   values for a private chain).
+ */
+export type CreateBulletinClientOptions =
+    | (CreateBulletinClientCommon & { environment: BulletinEnvironment })
+    | (CreateBulletinClientCommon & {
+          genesisHash: `0x${string}`;
+          descriptor: (typeof BulletinChain)[BulletinEnvironment]["descriptor"];
+      });
+
+interface CreateBulletinClientCommon {
+    /** Signer for transaction submission. Required — every store needs a signer. */
+    signer: PolkadotSigner;
+    /** Optional config forwarded to {@link AsyncBulletinClient}. */
+    config?: Partial<ClientConfig>;
+}
 
 /**
  * Ergonomic entry point for Bulletin Chain operations.
  *
- * Bundles a typed Bulletin API (from chain-client) and an IPFS gateway URL
- * so callers don't need to re-pass them on every call.
+ * Wraps {@link AsyncBulletinClient} from `@parity/bulletin-sdk` (which handles
+ * chunking, DAG-PB manifests, CID calculation, and progress events) and adds:
  *
- * Both upload and query paths use the host container APIs:
- * - **Uploads** — the host preimage API signs and submits automatically.
- * - **Queries** (`fetchBytes`/`fetchJson`) — uses host preimage lookup with caching.
+ * - **Network presets** via {@link BulletinClient.create} and {@link BulletinChain}.
+ * - **Read helpers** ({@link fetchBytes}, {@link fetchJson}) routed through
+ *   the host's preimage subscription — upstream is upload-only and the SDK
+ *   is container-only by design (no public-gateway fetches).
+ * - **Pre-flight authorization check** ({@link checkAuthorization}) for
+ *   friendlier UX before submitting a store.
  *
- * @example
+ * For uploads, mirror upstream's fluent builders:
+ *
  * ```ts
- * const bulletin = await BulletinClient.create("paseo");
- * const result = await bulletin.upload(fileBytes);
- * const metadata = await bulletin.fetchJson<Metadata>(result.cid);
+ * const client = await BulletinClient.create({ environment: "paseo", signer });
+ * const result = await client.store(data).send();
+ * ```
+ *
+ * For chunked uploads with progress:
+ *
+ * ```ts
+ * const result = await client
+ *   .store(largeFile)
+ *   .withChunkSize(1 << 20)
+ *   .withCallback((evt) => console.log(evt))
+ *   .send();
  * ```
  */
 export class BulletinClient {
+    /** Underlying upstream client — exposed for power users. */
+    readonly inner: AsyncBulletinClient;
+    /** Typed Bulletin Chain API. */
     readonly api: BulletinApi;
-    readonly gateway: string;
 
+    /** Lazy-resolved host-preimage query strategy, cached for the client lifetime. */
     private queryStrategyPromise: Promise<QueryStrategy> | null = null;
 
-    private constructor(api: BulletinApi, gateway: string) {
+    /** Constructed via {@link create} or {@link from}. */
+    private constructor(inner: AsyncBulletinClient, api: BulletinApi) {
+        this.inner = inner;
         this.api = api;
-        this.gateway = gateway;
     }
 
-    /** Lazily resolve and cache the query strategy for the client lifetime. */
+    /** Resolve and cache the host query strategy on first use. */
     private resolveQuery(): Promise<QueryStrategy> {
         if (!this.queryStrategyPromise) {
             this.queryStrategyPromise = resolveQueryStrategy();
@@ -61,195 +98,217 @@ export class BulletinClient {
         return this.queryStrategyPromise;
     }
 
-    /** Create from an environment — resolves API via chain-client, gateway from known list. */
-    static async create(env: Environment): Promise<BulletinClient> {
-        const chain = await getChainAPI(env);
-        return new BulletinClient(chain.bulletin, getGateway(env));
-    }
-
-    /** Create from an explicit API and gateway (custom setups, testing). */
-    static from(api: BulletinApi, gateway: string): BulletinClient {
-        return new BulletinClient(api, gateway);
-    }
-
-    /** Compute CID without uploading. Static — no instance needed. */
-    static computeCid(data: Uint8Array): string {
-        return computeCid(data);
-    }
-
     /**
-     * Reconstruct a CID from a `0x`-prefixed hex hash. Static — no instance needed.
+     * Create a client from an environment shorthand or an explicit network.
      *
-     * Useful for converting on-chain hashes back to CIDs for IPFS gateway lookups.
-     * Pass optional hash algorithm and codec to match the on-chain CID configuration.
+     * Environment form uses our `getChainAPI(env)` to resolve the typed API.
+     * Explicit form skips the environment lookup and lets you pass any
+     * genesis/descriptor combo.
      *
-     * @see {@link hashToCid} for full documentation.
+     * @example
+     * ```ts
+     * // Shorthand
+     * const client = await BulletinClient.create({ environment: "paseo", signer });
+     *
+     * // Explicit (custom network)
+     * const client = await BulletinClient.create({
+     *   ...BulletinChain.paseo,
+     *   signer,
+     *   config: { defaultChunkSize: 1 << 20 },
+     * });
+     * ```
      */
-    static hashToCid(hexHash: `0x${string}`, hashCode?: HashAlgorithm, codec?: CidCodec): string {
-        return hashToCid(hexHash, hashCode, codec);
+    static async create(options: CreateBulletinClientOptions): Promise<BulletinClient> {
+        if ("environment" in options) {
+            const chain = await getChainAPI(options.environment);
+            const inner = new AsyncBulletinClient(
+                chain.bulletin as BulletinTypedApi,
+                options.signer,
+                chain.raw.bulletin.submit as SubmitFn,
+                options.config,
+                () => chain.destroy(),
+            );
+            log.info("BulletinClient created (environment shorthand)", {
+                environment: options.environment,
+            });
+            return new BulletinClient(inner, chain.bulletin);
+        }
+
+        // Explicit form — caller owns the descriptor choice. We still need a
+        // PolkadotClient to feed AsyncBulletinClient. Going through
+        // chain-client keeps connection management consistent across the SDK.
+        const { genesisHash, descriptor, signer, config } = options;
+        // Catch the obvious foot-gun where caller mixes a genesis from one
+        // network with a descriptor from another — the connection would
+        // succeed but typed calls would silently target the wrong chain.
+        // The descriptor's own `.genesis` field is the on-chain truth; the
+        // user-supplied `genesisHash` is informational today (createChainClient
+        // doesn't use it because host routes connections) but kept on the
+        // option shape for future RPC-direct paths.
+        if (descriptor.genesis && genesisHash.toLowerCase() !== descriptor.genesis.toLowerCase()) {
+            throw new Error(
+                `BulletinClient.create: genesisHash (${genesisHash}) does not match descriptor.genesis (${descriptor.genesis}). These must refer to the same network — check that you're pairing the right descriptor with the right genesis hash.`,
+            );
+        }
+        const chain = await createChainClient({
+            chains: { bulletin: descriptor },
+            rpcs: { bulletin: [] },
+        });
+        const inner = new AsyncBulletinClient(
+            chain.bulletin as BulletinTypedApi,
+            signer,
+            chain.raw.bulletin.submit as SubmitFn,
+            config,
+            () => chain.destroy(),
+        );
+        log.info("BulletinClient created (explicit network)");
+        return new BulletinClient(inner, chain.bulletin);
     }
 
     /**
-     * Upload data to the Bulletin Chain.
+     * Construct from a pre-built `AsyncBulletinClient` and PAPI typed API.
      *
-     * @param data   - Raw bytes to store.
-     * @param signer - Optional signer. When omitted, uses the host preimage API.
-     * @param options - Upload options (timeout, waitFor, status callback).
+     * Use this when you already own the connection lifecycle (BYOD setups,
+     * tests). The caller is responsible for calling `papiClient.destroy()`
+     * — this client's {@link destroy} only tears down the upstream's
+     * `onDestroy` hook.
      */
-    async upload(
-        data: Uint8Array,
-        signer?: PolkadotSigner,
-        options?: Omit<UploadOptions, "gateway">,
-    ): Promise<UploadResult> {
-        return upload(this.api, data, signer, { ...options, gateway: this.gateway });
+    static from(inner: AsyncBulletinClient, api: BulletinApi): BulletinClient {
+        return new BulletinClient(inner, api);
     }
 
-    /**
-     * Upload multiple items sequentially.
-     *
-     * @param items  - Array of items to upload, each with data and a label.
-     * @param signer - Optional signer. When omitted, auto-resolved.
-     * @param options - Batch upload options (timeout, progress callback).
-     */
-    async batchUpload(
-        items: BatchUploadItem[],
-        signer?: PolkadotSigner,
-        options?: Omit<BatchUploadOptions, "gateway">,
-    ): Promise<BatchUploadResult[]> {
-        return batchUpload(this.api, items, signer, { ...options, gateway: this.gateway });
+    // ─── Upload + authorization (forwarded to upstream) ────────────────
+
+    /** Build a store transaction. See upstream `StoreBuilder` for chained options. */
+    store(data: Uint8Array): StoreBuilder {
+        return this.inner.store(data);
     }
 
+    /** Authorize an account to store data on the chain (sudo required on most networks). */
+    authorizeAccount(who: string, transactions: number, bytes: bigint): AuthCallBuilder {
+        return this.inner.authorizeAccount(who, transactions, bytes);
+    }
+
+    /** Authorize content storage by hash (anyone can store; no fees). */
+    authorizePreimage(contentHash: Uint8Array, maxSize: bigint): AuthCallBuilder {
+        return this.inner.authorizePreimage(contentHash, maxSize);
+    }
+
+    /** Renew a stored transaction by block + index. */
+    renew(block: number, index: number): CallBuilder {
+        return this.inner.renew(block, index);
+    }
+
+    /** Estimate the authorization (transactions + bytes) needed for `dataSize`. */
+    estimateAuthorization(dataSize: number): { transactions: number; bytes: number } {
+        return this.inner.estimateAuthorization(dataSize);
+    }
+
+    // ─── Read side (our own helpers) ───────────────────────────────────
+
     /**
-     * Fetch raw bytes by CID.
+     * Fetch raw bytes for a CID via the host's preimage lookup.
      *
-     * Uses host preimage lookup with caching.
+     * Container-only — outside a Polkadot Browser / Desktop host this
+     * throws {@link BulletinHostUnavailableError}. The chain stores
+     * content metadata (`content_hash`, size, codec) but the bytes
+     * themselves are surfaced through the host's preimage subscription.
+     *
+     * Use {@link verifyOnChain} if you only need to confirm a CID was
+     * recorded on-chain (no byte fetch).
      */
     async fetchBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
         const strategy = await this.resolveQuery();
         return executeQuery(strategy, cid, options);
     }
 
-    /**
-     * Fetch and parse JSON by CID.
-     *
-     * Auto-resolves query path (same as {@link fetchBytes}).
-     */
+    /** Fetch and parse JSON for a CID. */
     async fetchJson<T>(cid: string, options?: QueryOptions): Promise<T> {
         const bytes = await this.fetchBytes(cid, options);
         return JSON.parse(new TextDecoder().decode(bytes)) as T;
     }
 
-    /** Check if a CID exists on the gateway. */
-    async cidExists(cid: string): Promise<boolean> {
-        return cidExists(cid, this.gateway);
-    }
-
-    /** Build the full gateway URL for a CID. */
-    gatewayUrl(cid: string): string {
-        return gatewayUrl(cid, this.gateway);
+    /** Pre-flight: check whether `address` can store on the bulletin chain. */
+    async checkAuthorization(address: string): Promise<AuthorizationStatus> {
+        return checkAuthorization(this.api, address);
     }
 
     /**
-     * Check whether an account is authorized to store data on the Bulletin Chain.
+     * Verify that a CID was recorded on-chain at the given block.
      *
-     * Use as a pre-flight check before {@link upload} to provide clear UX
-     * instead of letting the transaction fail mid-execution.
-     *
-     * @param address - SS58-encoded account address to check.
-     * @returns Authorization status with remaining quota.
-     *
-     * @see {@link checkAuthorization} for the standalone function equivalent.
+     * Common pattern: pass `blockNumber` (and optionally `extrinsicIndex`)
+     * from a `store(...).send()` receipt to confirm the upload landed.
+     * See {@link verifyOnChain} for details.
      */
-    async checkAuthorization(address: string): Promise<AuthorizationStatus> {
-        return checkAuthorization(this.api, address);
+    async verifyOnChain(
+        cid: string,
+        options: VerifyOnChainOptions,
+    ): Promise<ChainStoredEntry | null> {
+        return verifyOnChain(this.api, cid, options);
+    }
+
+    /** Tear down the underlying connection. */
+    async destroy(): Promise<void> {
+        await this.inner.destroy();
     }
 }
 
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    const mockApi = {
-        tx: {
-            TransactionStorage: {
-                store: vi.fn().mockReturnValue({
-                    signSubmitAndWatch: () => ({
-                        subscribe: (handlers: { next: (e: unknown) => void }) => {
-                            queueMicrotask(() => {
-                                handlers.next({ type: "signed", txHash: "0x" });
-                                handlers.next({
-                                    type: "txBestBlocksState",
-                                    txHash: "0x",
-                                    found: true,
-                                    ok: true,
-                                    block: { hash: "0xblock", number: 1, index: 0 },
-                                    events: [],
-                                });
-                            });
-                            return { unsubscribe: vi.fn() };
-                        },
-                    }),
+    describe("BulletinClient.from", () => {
+        test("constructs with given inner and api", () => {
+            const inner = {
+                destroy: vi.fn().mockResolvedValue(undefined),
+            } as unknown as AsyncBulletinClient;
+            const api = {} as BulletinApi;
+            const client = BulletinClient.from(inner, api);
+            expect(client.inner).toBe(inner);
+            expect(client.api).toBe(api);
+        });
+
+        test("destroy delegates to upstream", async () => {
+            const destroy = vi.fn().mockResolvedValue(undefined);
+            const inner = { destroy } as unknown as AsyncBulletinClient;
+            const client = BulletinClient.from(inner, {} as BulletinApi);
+            await client.destroy();
+            expect(destroy).toHaveBeenCalledOnce();
+        });
+
+        test("store delegates to inner", () => {
+            const builder = {} as StoreBuilder;
+            const inner = {
+                store: vi.fn().mockReturnValue(builder),
+            } as unknown as AsyncBulletinClient;
+            const client = BulletinClient.from(inner, {} as BulletinApi);
+            const data = new Uint8Array([1, 2, 3]);
+            expect(client.store(data)).toBe(builder);
+            expect(inner.store).toHaveBeenCalledWith(data);
+        });
+    });
+
+    describe("BulletinClient.create (BYOD genesis assertion)", () => {
+        // Stand-in descriptor with a known genesis. The full PAPI descriptor
+        // type is a `ChainDefinition` with a deep type-level shape; the cast
+        // below is fine for the assertion test because we never actually
+        // reach createChainClient.
+        const stubDescriptor = (
+            genesis: `0x${string}`,
+        ): (typeof BulletinChain)[BulletinEnvironment]["descriptor"] =>
+            ({ genesis }) as unknown as (typeof BulletinChain)[BulletinEnvironment]["descriptor"];
+
+        const realPaseo =
+            "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea" as `0x${string}`;
+
+        test("throws when genesisHash and descriptor.genesis disagree", async () => {
+            await expect(
+                BulletinClient.create({
+                    genesisHash:
+                        "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    descriptor: stubDescriptor(realPaseo),
+                    signer: {} as PolkadotSigner,
                 }),
-            },
-        },
-    } as unknown as BulletinApi;
-
-    const GATEWAY = "https://test-gw/ipfs/";
-
-    describe("BulletinClient", () => {
-        test("from() creates client with given API and gateway", () => {
-            const client = BulletinClient.from(mockApi, GATEWAY);
-            expect(client.api).toBe(mockApi);
-            expect(client.gateway).toBe(GATEWAY);
-        });
-
-        test("computeCid() is static and delegates to standalone", () => {
-            const data = new TextEncoder().encode("hello");
-            const cid = BulletinClient.computeCid(data);
-            expect(cid).toBe(computeCid(data));
-        });
-
-        test("hashToCid() is static and delegates to standalone", () => {
-            const data = new TextEncoder().encode("hello");
-            const cid = computeCid(data);
-            const key = cidToPreimageKey(cid);
-            expect(BulletinClient.hashToCid(key)).toBe(cid);
-        });
-
-        test("gatewayUrl() returns gateway + cid", () => {
-            const client = BulletinClient.from(mockApi, GATEWAY);
-            expect(client.gatewayUrl("bafyabc")).toBe("https://test-gw/ipfs/bafyabc");
-        });
-
-        test("upload() passes gateway from client with explicit signer", async () => {
-            const client = BulletinClient.from(mockApi, GATEWAY);
-            const data = new TextEncoder().encode("test");
-            const result = await client.upload(data, {} as PolkadotSigner);
-            expect(result.gatewayUrl).toContain(GATEWAY);
-            expect(result.cid).toBeTruthy();
-        });
-
-        // Note: fetchBytes and fetchJson tests require e2e testing as they
-        // depend on the host container environment for strategy resolution.
-
-        test("checkAuthorization delegates to standalone", async () => {
-            const authMockApi = {
-                ...mockApi,
-                query: {
-                    TransactionStorage: {
-                        Authorizations: {
-                            getValue: vi.fn().mockResolvedValue({
-                                extent: { transactions: 5, bytes: 2000n },
-                                expiration: 100,
-                            }),
-                        },
-                    },
-                },
-            } as unknown as BulletinApi;
-            const client = BulletinClient.from(authMockApi, GATEWAY);
-            const status = await client.checkAuthorization("5GrwvaEF...");
-            expect(status.authorized).toBe(true);
-            expect(status.remainingTransactions).toBe(5);
-            expect(status.remainingBytes).toBe(2000n);
+            ).rejects.toThrow(/does not match descriptor\.genesis/i);
         });
     });
 }
