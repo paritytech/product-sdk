@@ -74,8 +74,14 @@ export function createTerminalAdapter(options: TerminalAdapterOptions): Terminal
     const storage = createNodeStorageAdapter(options.appId, options.storageDir);
     // ws-provider 0.9 takes endpoints positionally; relies on the global
     // WebSocket (Node ≥21) unless `websocketClass` is supplied.
+    //
+    // heartbeatTimeout uses setTimeout under the hood, which clamps to a
+    // 32-bit signed integer. Passing Infinity triggers a noisy
+    // `TimeoutOverflowWarning` on every reschedule. Use the int32 max
+    // (~24.8 days) — effectively-never for any CLI session.
+    const HEARTBEAT_NEVER_MS = 2_147_483_647;
     const lazyClient = createLazyClient(
-        getWsProvider(endpoints, { heartbeatTimeout: Number.POSITIVE_INFINITY }),
+        getWsProvider(endpoints, { heartbeatTimeout: HEARTBEAT_NEVER_MS }),
     );
     const statementStore = createPapiStatementStoreAdapter(lazyClient);
 
