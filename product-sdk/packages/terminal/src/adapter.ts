@@ -13,9 +13,12 @@ import {
     SS_PASEO_STABLE_STAGE_ENDPOINTS,
 } from "@novasamatech/host-papp";
 import { createLazyClient, createPapiStatementStoreAdapter } from "@novasamatech/statement-store";
+import { createLogger } from "@parity/product-sdk-logger";
 import { getWsProvider } from "@polkadot-api/ws-provider";
 
 import { createNodeStorageAdapter } from "./node-storage.js";
+
+const log = createLogger("terminal");
 
 /** Options for creating a terminal adapter. */
 export interface TerminalAdapterOptions {
@@ -94,6 +97,7 @@ export function createTerminalAdapter(options: TerminalAdapterOptions): Terminal
         destroy() {
             if (destroyed) return;
             destroyed = true;
+            log.debug("destroying terminal adapter; suppressing statement-store teardown noise");
 
             // The statement-store logs `console.error("Statement subscription error:", err)`
             // when the WebSocket disconnects while subscriptions are still active.
@@ -109,8 +113,8 @@ export function createTerminalAdapter(options: TerminalAdapterOptions): Terminal
             adapter.sessions.dispose();
             try {
                 lazyClient.disconnect();
-            } catch {
-                // best-effort
+            } catch (e) {
+                log.warn("lazyClient.disconnect threw during destroy", { error: e });
             }
 
             setTimeout(() => {

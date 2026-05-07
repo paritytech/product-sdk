@@ -6,11 +6,13 @@
  * provides persistent storage for the SDK's session and secret data.
  */
 import type { StorageAdapter } from "@novasamatech/storage-adapter";
+import { createLogger } from "@parity/product-sdk-logger";
 import { fromPromise } from "neverthrow";
 import { join } from "node:path";
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 
+const log = createLogger("terminal");
 const DEFAULT_STORAGE_DIR = join(homedir(), ".polkadot-apps");
 
 /**
@@ -55,8 +57,8 @@ export function createNodeStorageAdapter(appId: string, storageDir?: string): St
             for (const cb of subs) {
                 try {
                     cb(value);
-                } catch {
-                    /* ignore */
+                } catch (e) {
+                    log.warn("storage subscriber callback threw", { key, error: e });
                 }
             }
         }
@@ -65,7 +67,17 @@ export function createNodeStorageAdapter(appId: string, storageDir?: string): St
     return {
         read(key: string) {
             return fromPromise(
-                readFile(fp(key), "utf-8").catch(() => null),
+                readFile(fp(key), "utf-8").catch((e) => {
+                    // Missing files are expected (a missing key reads as null);
+                    // log at debug so consumers can opt in to seeing reads when
+                    // diagnosing "why isn't my session loading".
+                    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+                        log.warn("storage read failed", { key, error: e });
+                    } else {
+                        log.debug("storage read miss", { key });
+                    }
+                    return null;
+                }),
                 toError,
             );
         },
@@ -108,10 +120,14 @@ if (import.meta.vitest) {
     const { describe, test, expect, beforeEach, afterAll } = import.meta.vitest;
     const { mkdtemp, rm } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
+    const { configure } = await import("@parity/product-sdk-logger");
 
     let testDir: string;
 
     beforeEach(async () => {
+        // Silence the logger so tests that exercise the warn paths don't
+        // pollute stderr with expected log output.
+        configure({ handler: () => {} });
         testDir = await mkdtemp(join(tmpdir(), "terminal-storage-test-"));
     });
 

@@ -37,6 +37,11 @@ if (hostPappFound && !nodejsEntry) {
     // Found host-papp but couldn't locate verifiablejs/pkg-nodejs after the walk-up.
     // Subsequent imports of `verifiablejs/bundler` will resolve to the inline-WASM
     // build and fail at import time with a cryptic loader error. Warn early.
+    //
+    // Uses raw console.warn (rather than @parity/product-sdk-logger) because this
+    // loader runs before any user code has had a chance to call `configure()` on
+    // the logger — routing through the logger would emit via the *default*
+    // handler (console.warn) anyway, with extra import overhead for nothing.
     console.warn(
         "[@parity/product-sdk-terminal/register] Found @novasamatech/host-papp but could not locate verifiablejs/pkg-nodejs/verifiablejs.js after walking 10 directories. The Node.js WASM patch will not be applied — host-papp imports may fail. Check that verifiablejs is hoisted into a node_modules dir near host-papp.",
     );
