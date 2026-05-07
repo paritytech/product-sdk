@@ -1,4 +1,35 @@
 import type { AbiEntry, AbiParam } from "./types.js";
+import { loadPvmContractAbi } from "./pvm.js";
+
+/** A contract input to {@link generateContractTypes}: either an inline ABI or a `cargo-pvm-contract` artefact path. */
+export type ContractTypeInput =
+    | { library: string; abi: AbiEntry[] }
+    | { library: string; abiPath: string };
+
+/**
+ * Resolve a heterogeneous list of {@link ContractTypeInput} entries into the
+ * `{ library, abi }` shape consumed by {@link generateContractTypes}. Reads any
+ * `abiPath` entries off disk via {@link loadPvmContractAbi} (Node only).
+ *
+ * @example
+ * ```ts
+ * const resolved = await resolveContractTypeInputs([
+ *     { library: "@example/counter", abiPath: "./target/counter.release.abi.json" },
+ *     { library: "@example/inline", abi: counterAbi },
+ * ]);
+ * const src = generateContractTypes(resolved);
+ * ```
+ */
+export async function resolveContractTypeInputs(
+    inputs: readonly ContractTypeInput[],
+): Promise<{ library: string; abi: AbiEntry[] }[]> {
+    return Promise.all(
+        inputs.map(async (input) => {
+            if ("abi" in input) return { library: input.library, abi: input.abi };
+            return { library: input.library, abi: await loadPvmContractAbi(input.abiPath) };
+        }),
+    );
+}
 
 /** Map a Solidity ABI type to its TypeScript equivalent. */
 function mapSolidityType(param: AbiParam): string {
@@ -71,12 +102,23 @@ function generateMethodResponseType(outputs: AbiParam[] | undefined): string {
  * augments `"@parity/product-sdk-contracts"` so that
  * `ContractManager.getContract()` returns fully-typed handles.
  *
+ * Accepts `{ library, abi }` directly. To pull ABIs from
+ * `cargo-pvm-contract` build artefacts on disk, use
+ * {@link resolveContractTypeInputs} first.
+ *
  * @example
  * ```ts
+ * // Inline ABIs
  * const src = generateContractTypes([
  *     { library: "@example/counter", abi },
  * ]);
  * writeFileSync(".cdm/contracts.d.ts", src);
+ *
+ * // From cargo-pvm-contract artefacts
+ * const resolved = await resolveContractTypeInputs([
+ *     { library: "@example/counter", abiPath: "./target/counter.release.abi.json" },
+ * ]);
+ * writeFileSync(".cdm/contracts.d.ts", generateContractTypes(resolved));
  * ```
  */
 export function generateContractTypes(contracts: { library: string; abi: AbiEntry[] }[]): string {
@@ -295,6 +337,51 @@ if (import.meta.vitest) {
             const result = generateContractTypes([]);
             expect(result).toContain("import type { HexString, Binary, FixedSizeBinary }");
             expect(result).toContain('from "polkadot-api"');
+        });
+    });
+
+    describe("resolveContractTypeInputs", () => {
+        test("passes inline { library, abi } through unchanged", async () => {
+            const abi: AbiEntry[] = [
+                {
+                    type: "function",
+                    name: "foo",
+                    inputs: [],
+                    outputs: [{ name: "", type: "bool" }],
+                },
+            ];
+            const out = await resolveContractTypeInputs([{ library: "@x/foo", abi }]);
+            expect(out).toEqual([{ library: "@x/foo", abi }]);
+        });
+
+        test("loads ABI from { abiPath } on disk", async () => {
+            const fs = await import("node:fs/promises");
+            const path = await import("node:path");
+            const os = await import("node:os");
+            const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "codegen-"));
+            const abi: AbiEntry[] = [
+                {
+                    type: "function",
+                    name: "ping",
+                    inputs: [],
+                    outputs: [{ name: "", type: "bool" }],
+                },
+            ];
+            const file = path.join(tmp, "ping.release.abi.json");
+            await fs.writeFile(file, JSON.stringify(abi), "utf8");
+            try {
+                const out = await resolveContractTypeInputs([
+                    { library: "@x/ping", abiPath: file },
+                ]);
+                expect(out).toEqual([{ library: "@x/ping", abi }]);
+
+                // And it composes with generateContractTypes end-to-end:
+                const src = generateContractTypes(out);
+                expect(src).toContain('"@x/ping"');
+                expect(src).toContain("ping: { args: []; response: boolean };");
+            } finally {
+                await fs.rm(tmp, { recursive: true, force: true });
+            }
         });
     });
 }

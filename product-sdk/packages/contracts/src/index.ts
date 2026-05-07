@@ -12,7 +12,8 @@
 export { ContractManager, createContract, createContractFromClient } from "./manager.js";
 export { createContractRuntime } from "./runtime.js";
 export type { ContractRuntime, ReviveTypedApi, ReviveDryRunResult } from "./runtime.js";
-export { generateContractTypes } from "./codegen.js";
+export { generateContractTypes, resolveContractTypeInputs } from "./codegen.js";
+export type { ContractTypeInput } from "./codegen.js";
 export {
     ContractError,
     ContractSignerMissingError,
