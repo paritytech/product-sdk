@@ -13,6 +13,10 @@
         "./codegen": {
             "types": "./dist/codegen.d.ts",
             "import": "./dist/codegen.js"
+        },
+        "./pvm": {
+            "types": "./dist/pvm.d.ts",
+            "import": "./dist/pvm.js"
         }
     },
     "files": ["dist"],
