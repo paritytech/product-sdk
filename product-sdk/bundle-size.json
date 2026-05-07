@@ -587,7 +587,7 @@
     "@parity/product-sdk-local-storage": {
       "entries": {
         ".": {
-          "file": "packages/storage/dist/index.js",
+          "file": "packages/local-storage/dist/index.js",
           "ship": {
             "raw": 6549,
             "gzip": 1449,

@@ -219,12 +219,12 @@ importers:
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../../packages/keys
+      '@parity/product-sdk-local-storage':
+        specifier: workspace:*
+        version: link:../../packages/local-storage
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../../packages/signer
-      '@parity/product-sdk-local-storage':
-        specifier: workspace:*
-        version: link:../../packages/storage
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
@@ -306,12 +306,12 @@ importers:
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@parity/product-sdk-local-storage':
+        specifier: workspace:*
+        version: link:../../packages/local-storage
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../../packages/signer
-      '@parity/product-sdk-local-storage':
-        specifier: workspace:*
-        version: link:../../packages/storage
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
@@ -539,7 +539,7 @@ importers:
         version: link:../crypto
       '@parity/product-sdk-local-storage':
         specifier: workspace:*
-        version: link:../storage
+        version: link:../local-storage
       '@polkadot-labs/hdkd':
         specifier: ^0.0.28
         version: 0.0.28
@@ -549,6 +549,22 @@ importers:
       polkadot-api:
         specifier: 'catalog:'
         version: 2.1.2(esbuild@0.27.7)(rxjs@7.8.2)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.6.0)
+
+  packages/local-storage:
+    dependencies:
+      '@parity/product-sdk-host':
+        specifier: workspace:*
+        version: link:../host
+      '@parity/product-sdk-logger':
+        specifier: workspace:*
+        version: link:../logger
     devDependencies:
       typescript:
         specifier: ^5.7.0
@@ -592,15 +608,15 @@ importers:
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys
+      '@parity/product-sdk-local-storage':
+        specifier: workspace:*
+        version: link:../local-storage
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
-      '@parity/product-sdk-local-storage':
-        specifier: workspace:*
-        version: link:../storage
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
@@ -693,22 +709,6 @@ importers:
         specifier: 'catalog:'
         version: 3.2.4(@types/node@25.6.0)
 
-  packages/storage:
-    dependencies:
-      '@parity/product-sdk-host':
-        specifier: workspace:*
-        version: link:../host
-      '@parity/product-sdk-logger':
-        specifier: workspace:*
-        version: link:../logger
-    devDependencies:
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/node@25.6.0)
-
   packages/tx:
     dependencies:
       '@parity/product-sdk-keys':
@@ -779,6 +779,9 @@ importers:
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../../packages/keys
+      '@parity/product-sdk-local-storage':
+        specifier: workspace:*
+        version: link:../../packages/local-storage
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../../packages/logger
@@ -788,9 +791,6 @@ importers:
       '@parity/product-sdk-statement-store':
         specifier: workspace:*
         version: link:../../packages/statement-store
-      '@parity/product-sdk-local-storage':
-        specifier: workspace:*
-        version: link:../../packages/storage
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../../packages/tx
