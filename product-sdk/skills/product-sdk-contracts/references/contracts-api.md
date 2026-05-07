@@ -332,3 +332,48 @@ interface AbiParam {
     components?: AbiParam[];
 }
 ```
+
+## `./pvm` Subpath — cargo-pvm-contract Artefact Loaders
+
+Imported from `@parity/product-sdk-contracts/pvm`. Parses the artefacts that
+`cargo pvm-contract build` writes to `target/<name>.release.{abi.json,polkavm}`
+into shapes the main `@parity/product-sdk-contracts` factories already accept.
+
+### parsePvmContractAbi
+
+In-memory parser. Browser-safe (no `node:fs` dependency).
+
+```typescript
+function parsePvmContractAbi(source: unknown): AbiEntry[];
+```
+
+Accepts a parsed `AbiEntry[]`, a wrapped `{ abi: AbiEntry[] }` object, a JSON
+string of either, or a `Uint8Array` containing UTF-8 JSON of either. Throws if
+the input cannot be coerced to an array of well-formed entries.
+
+### loadPvmContractAbi
+
+Async filesystem read + parse. **Node-only** — lazy-imports `node:fs/promises`.
+
+```typescript
+function loadPvmContractAbi(path: string): Promise<AbiEntry[]>;
+```
+
+### loadPvmContractArtifacts
+
+Reads both `<basePath>.abi.json` and `<basePath>.polkavm` for a single
+contract. Returns the parsed ABI plus the bytecode as a `Uint8Array`.
+
+```typescript
+function loadPvmContractArtifacts(basePath: string): Promise<PvmContractArtifacts>;
+
+interface PvmContractArtifacts {
+    abi: AbiEntry[];
+    bytecode: Uint8Array;
+}
+```
+
+Use the bytecode with `pallet-revive`'s `instantiate_with_code` to deploy. A
+deploy helper is not yet part of `@parity/product-sdk-contracts`; reference
+implementations live in consumer repos (e.g. `task-rabbit`'s
+`packages/utils/src/deployer.ts`).

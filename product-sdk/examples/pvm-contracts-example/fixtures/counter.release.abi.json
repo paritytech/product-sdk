@@ -1,0 +1,39 @@
+[
+    { "type": "constructor", "inputs": [], "stateMutability": "nonpayable" },
+    {
+        "type": "event",
+        "name": "Incremented",
+        "inputs": [
+            { "indexed": true, "name": "by", "type": "address" },
+            { "indexed": false, "name": "newValue", "type": "uint32" }
+        ]
+    },
+    {
+        "type": "function",
+        "name": "get",
+        "inputs": [],
+        "outputs": [{ "name": "", "type": "uint32" }],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "increment",
+        "inputs": [{ "name": "by", "type": "uint32" }],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "setLabel",
+        "inputs": [{ "name": "label", "type": "string" }],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "labelOf",
+        "inputs": [{ "name": "owner", "type": "address" }],
+        "outputs": [{ "name": "", "type": "string" }],
+        "stateMutability": "view"
+    }
+]

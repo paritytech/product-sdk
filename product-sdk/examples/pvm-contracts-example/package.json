@@ -1,0 +1,20 @@
+{
+    "name": "@parity/product-sdk-pvm-contracts-example",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "description": "Node example showing how to consume cargo-pvm-contract artifacts via @parity/product-sdk-contracts/pvm",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "demo": "node --experimental-strip-types src/main.ts",
+        "demo:built": "tsc -p tsconfig.json && node dist/main.js"
+    },
+    "dependencies": {
+        "@parity/product-sdk-contracts": "workspace:*",
+        "polkadot-api": "catalog:"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "typescript": "catalog:"
+    }
+}

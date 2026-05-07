@@ -173,6 +173,46 @@ const counter = manager.getContract("@example/counter");
 // counter.getCount is typed with correct args and return type
 ```
 
+## Loading cargo-pvm-contract Artifacts (without CDM)
+
+For contracts built with `cargo pvm-contract build`, the toolchain emits two
+files per contract:
+
+```
+target/<name>.release.abi.json   # Solidity-flavoured ABI
+target/<name>.release.polkavm    # PolkaVM bytecode
+```
+
+Use the `./pvm` subpath to feed those artefacts into the contracts package
+without going through CDM:
+
+```typescript
+import {
+    parsePvmContractAbi,
+    loadPvmContractAbi,
+    loadPvmContractArtifacts,
+} from "@parity/product-sdk-contracts/pvm";
+import { createContractFromClient } from "@parity/product-sdk-contracts";
+
+// 1. In-memory (browser-safe)
+import abiJson from "./counter.release.abi.json" with { type: "json" };
+const abi = parsePvmContractAbi(abiJson);
+
+// 2. From disk (Node-only)
+const abi2 = await loadPvmContractAbi("./target/counter.release.abi.json");
+
+// 3. ABI + bytecode pair (Node-only) — useful when you also want to deploy
+const { abi: abi3, bytecode } = await loadPvmContractArtifacts("./target/counter.release");
+
+// Hand the parsed ABI straight to the existing factories
+const counter = await createContractFromClient(client.raw.assetHub, "0xC472...", abi);
+const { value } = await counter.get.query();
+await counter.increment.tx(1n, { signer });
+```
+
+The filesystem helpers lazy-import `node:fs/promises` so the `./pvm` module
+remains importable in browser builds — only the call site needs to be in Node.
+
 ## InkSdk Access
 
 For advanced use cases, create an InkSdk directly:

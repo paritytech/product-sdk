@@ -84,7 +84,7 @@ export async function loadPvmContractArtifacts(basePath: string): Promise<PvmCon
 }
 
 if (import.meta.vitest) {
-    const { test, expect, describe } = import.meta.vitest;
+    const { test, expect, describe, beforeAll, afterAll } = import.meta.vitest;
 
     const sampleAbi: AbiEntry[] = [
         { type: "constructor", inputs: [], stateMutability: "nonpayable" },
@@ -147,6 +147,71 @@ if (import.meta.vitest) {
 
         test("treats null as invalid", () => {
             expect(() => parsePvmContractAbi(null)).toThrow();
+        });
+    });
+
+    describe("loadPvmContractAbi / loadPvmContractArtifacts", () => {
+        // Cover the Node-only filesystem helpers via a real tmpdir round-trip.
+        // The cargo-pvm-contract toolchain emits files at
+        //   target/<name>.release.abi.json
+        //   target/<name>.release.polkavm
+        // — we recreate that layout here.
+        let dir = "";
+        let base = "";
+        let lonely = "";
+        let badAbi = "";
+        // Minimal PolkaVM magic (`PVM\0`) is enough to exercise the path —
+        // we don't validate bytecode contents in the loader.
+        const fakeBytecode = new Uint8Array([0x50, 0x56, 0x4d, 0x00, 0x01, 0x02, 0x03]);
+
+        beforeAll(async () => {
+            const { mkdtempSync, writeFileSync } = await import("node:fs");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
+            dir = mkdtempSync(join(tmpdir(), "pvm-loader-test-"));
+            base = join(dir, "counter.release");
+            lonely = join(dir, "lonely.release");
+            badAbi = join(dir, "bad.release");
+            writeFileSync(`${base}.abi.json`, JSON.stringify(sampleAbi));
+            writeFileSync(`${base}.polkavm`, fakeBytecode);
+            writeFileSync(`${lonely}.abi.json`, JSON.stringify(sampleAbi));
+            writeFileSync(`${badAbi}.abi.json`, "{not valid json");
+        });
+
+        afterAll(async () => {
+            const { rmSync } = await import("node:fs");
+            try {
+                rmSync(dir, { recursive: true, force: true });
+            } catch {
+                /* ignore */
+            }
+        });
+
+        test("loadPvmContractAbi parses a JSON file from disk", async () => {
+            const abi = await loadPvmContractAbi(`${base}.abi.json`);
+            expect(abi).toEqual(sampleAbi);
+        });
+
+        test("loadPvmContractArtifacts reads abi + bytecode pair", async () => {
+            const out = await loadPvmContractArtifacts(base);
+            expect(out.abi).toEqual(sampleAbi);
+            expect(out.bytecode).toBeInstanceOf(Uint8Array);
+            expect(Array.from(out.bytecode)).toEqual(Array.from(fakeBytecode));
+        });
+
+        test("loadPvmContractAbi rejects a missing file", async () => {
+            await expect(loadPvmContractAbi(`${base}.does-not-exist`)).rejects.toThrow();
+        });
+
+        test("loadPvmContractArtifacts rejects when bytecode is missing", async () => {
+            // Only `${lonely}.abi.json` exists — `.polkavm` is absent.
+            await expect(loadPvmContractArtifacts(lonely)).rejects.toThrow();
+        });
+
+        test("loadPvmContractAbi propagates parse errors with helpful message", async () => {
+            await expect(loadPvmContractAbi(`${badAbi}.abi.json`)).rejects.toThrow(
+                /not valid JSON/,
+            );
         });
     });
 }
