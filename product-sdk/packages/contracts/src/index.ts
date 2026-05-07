@@ -10,8 +10,17 @@
  * @packageDocumentation
  */
 export { ContractManager, createContract, createContractFromClient } from "./manager.js";
-export { createContractRuntime, ensureContractAccountMapped } from "./runtime.js";
-export type { ContractRuntime, ReviveTypedApi, ReviveDryRunResult } from "./runtime.js";
+export {
+    createContractRuntime,
+    createContractRuntimeFromClient,
+    ensureContractAccountMapped,
+} from "./runtime.js";
+export type {
+    ContractRuntime,
+    ReviveTypedApi,
+    ReviveDryRunResult,
+    ReviveDryRunCall,
+} from "./runtime.js";
 export { generateContractTypes, resolveContractTypeInputs } from "./codegen.js";
 export type { ContractTypeInput } from "./codegen.js";
 export {

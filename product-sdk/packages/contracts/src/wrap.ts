@@ -152,7 +152,7 @@ export function wrapContract(
                         encodeCalldata(abi, methodName, positionalArgs),
                     );
 
-                    const dryRun = await runtime.api.apis.ReviveApi.call(
+                    const dryRun = await runtime.dryRunCall(
                         origin,
                         dest,
                         value,
@@ -209,7 +209,7 @@ export function wrapContract(
                     let weightLimit = overrides?.gasLimit;
                     let storageDepositLimit = overrides?.storageDepositLimit;
                     if (!weightLimit || storageDepositLimit === undefined) {
-                        const dryRun = await runtime.api.apis.ReviveApi.call(
+                        const dryRun = await runtime.dryRunCall(
                             origin,
                             dest,
                             value,
@@ -468,18 +468,23 @@ if (import.meta.vitest) {
 
         test("throws ContractDryRunFailedError when ReviveApi.call reports failure", async () => {
             const dispatchError = { type: "Module", value: { type: "ContractReverted" } };
+            const failingDryRun: ContractRuntime["dryRunCall"] = async () => ({
+                weight_consumed: { ref_time: 0n, proof_size: 0n },
+                weight_required: { ref_time: 0n, proof_size: 0n },
+                storage_deposit: { type: "Refund", value: 0n },
+                max_storage_deposit: { type: "Refund", value: 0n },
+                gas_consumed: 0n,
+                result: { success: false, value: dispatchError },
+            });
             const runtime: ContractRuntime = {
                 api: {
                     apis: {
                         ReviveApi: {
-                            call: async () => ({
-                                weight_consumed: { ref_time: 0n, proof_size: 0n },
-                                weight_required: { ref_time: 0n, proof_size: 0n },
-                                storage_deposit: { type: "Refund", value: 0n },
-                                max_storage_deposit: { type: "Refund", value: 0n },
-                                gas_consumed: 0n,
-                                result: { success: false, value: dispatchError },
-                            }),
+                            call: () => {
+                                throw new Error(
+                                    "typed ReviveApi.call must NOT be invoked — runtime.dryRunCall owns the dry-run path",
+                                );
+                            },
                         },
                     },
                     tx: {
@@ -492,6 +497,7 @@ if (import.meta.vitest) {
                         },
                     },
                 } as unknown as ContractRuntime["api"],
+                dryRunCall: failingDryRun,
             };
 
             const wrapped = wrapContract(runtime, ADDRESS, abi, {

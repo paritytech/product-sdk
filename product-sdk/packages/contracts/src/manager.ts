@@ -1,8 +1,8 @@
 import type { HexString, PolkadotClient } from "polkadot-api";
 import { wrapContract } from "./wrap.js";
 import { ContractNotFoundError } from "./errors.js";
-import type { ContractRuntime, ReviveTypedApi } from "./runtime.js";
-import { createContractRuntime } from "./runtime.js";
+import type { ContractRuntime } from "./runtime.js";
+import { createContractRuntimeFromClient } from "./runtime.js";
 import type {
     AbiEntry,
     CdmJson,
@@ -95,10 +95,11 @@ export class ContractManager {
         descriptor: TDescriptor,
         options?: ContractManagerOptions,
     ): ContractManager {
-        const api = client.getTypedApi(
-            descriptor as Parameters<PolkadotClient["getTypedApi"]>[0],
-        ) as unknown as ReviveTypedApi;
-        return new ContractManager(cdmJson, createContractRuntime(api), options);
+        return new ContractManager(
+            cdmJson,
+            createContractRuntimeFromClient(client, descriptor),
+            options,
+        );
     }
 
     private getContractData(library: string): CdmJsonContract {
@@ -177,10 +178,12 @@ export function createContractFromClient<TDescriptor>(
     abi: AbiEntry[],
     options?: ContractOptions,
 ): Contract<ContractDef> {
-    const api = client.getTypedApi(
-        descriptor as Parameters<PolkadotClient["getTypedApi"]>[0],
-    ) as unknown as ReviveTypedApi;
-    return createContract(createContractRuntime(api), address, abi, options);
+    return createContract(
+        createContractRuntimeFromClient(client, descriptor),
+        address,
+        abi,
+        options,
+    );
 }
 
 if (import.meta.vitest) {

@@ -15,6 +15,7 @@
     "dependencies": {
         "@parity/product-sdk-chain-client": "workspace:*",
         "@parity/product-sdk-contracts": "workspace:*",
+        "@parity/product-sdk-descriptors": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@novasamatech/host-api": "catalog:",
         "@novasamatech/product-sdk": "catalog:",

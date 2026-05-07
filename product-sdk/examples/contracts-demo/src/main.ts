@@ -21,7 +21,8 @@
 
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
-import { ContractManager, createContractRuntime } from "@parity/product-sdk-contracts";
+import { ContractManager } from "@parity/product-sdk-contracts";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 import cdm from "./cdm.json";
 import { appendLog, getEl } from "./ui.js";
@@ -164,10 +165,17 @@ async function init() {
 
     log("Initialising ContractManager…");
     try {
-        const runtime = createContractRuntime(chain.assetHub as never);
-        contractManager = new ContractManager(cdm as never, runtime, {
-            signerManager: manager,
-        });
+        // `ContractManager.fromClient` builds a runtime that routes the
+        // `ReviveApi.call` dry-run through PAPI's unsafe API, sidestepping
+        // compatibility-token failures when the descriptor lags a chain
+        // upgrade. Pass the raw client + descriptor so it can wire up both
+        // typed (extrinsics + storage) and unsafe (dry-run) paths.
+        contractManager = ContractManager.fromClient(
+            cdm as never,
+            chain.raw.assetHub,
+            paseo_asset_hub,
+            { signerManager: manager },
+        );
         log("ContractManager ready (@t3rminal/bulletin-index)", "ok");
     } catch (err) {
         log(`ContractManager failed: ${(err as Error).message}`, "err");

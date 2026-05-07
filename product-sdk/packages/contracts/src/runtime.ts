@@ -1,4 +1,4 @@
-import type { SS58String, PolkadotSigner } from "polkadot-api";
+import type { PolkadotClient, PolkadotSigner, SS58String } from "polkadot-api";
 import { type Binary, FixedSizeBinary } from "@polkadot-api/substrate-bindings";
 import type { SubmittableTransaction, Weight, TxResult } from "@parity/product-sdk-tx";
 import { ensureAccountMapped } from "@parity/product-sdk-tx";
@@ -66,6 +66,26 @@ export interface ReviveTypedApi {
 }
 
 /**
+ * Signature of a `ReviveApi.call` dry-run, used by the wrapped contract layer
+ * to estimate weight + storage deposit and surface revert / OOG /
+ * `AccountNotMapped` failures before a tx is signed.
+ *
+ * Identical to `ReviveTypedApi.apis.ReviveApi.call`, but extracted so the
+ * runtime can route this single hot call through PAPI's *unsafe* API
+ * (skipping compatibility-token checks) on production runtimes whose
+ * descriptors lag a chain upgrade — every other surface still uses the
+ * compat-checked typed API.
+ */
+export type ReviveDryRunCall = (
+    origin: SS58String,
+    dest: FixedSizeBinary<20>,
+    value: bigint,
+    gas_limit: Weight | undefined,
+    storage_deposit_limit: bigint | undefined,
+    input_data: Binary,
+) => Promise<ReviveDryRunResult>;
+
+/**
  * Runtime handle that drives queries and transactions against a
  * pallet-revive-capable chain.
  *
@@ -73,26 +93,78 @@ export interface ReviveTypedApi {
  * ```ts
  * import { createChainClient } from "@parity/product-sdk-chain-client";
  * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
- * import { createContractRuntime } from "@parity/product-sdk-contracts";
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
  *
  * const client = await createChainClient({
  *     chains: { assetHub: paseo_asset_hub },
  *     rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
  * });
- * const runtime = createContractRuntime(client.assetHub);
+ * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  * ```
  */
 export interface ContractRuntime {
     readonly api: ReviveTypedApi;
+    /**
+     * Dry-run entry point. Production factories route this through the
+     * *unsafe* API to avoid compatibility-token failures when the descriptor
+     * trails a runtime upgrade. The {@link createContractRuntime} test factory
+     * delegates to `api.apis.ReviveApi.call`.
+     */
+    readonly dryRunCall: ReviveDryRunCall;
 }
 
 /**
- * Wrap a typed PAPI API as a `ContractRuntime`. The argument is accepted
- * structurally; any chain whose typed API exposes `tx.Revive.call` and
- * `apis.ReviveApi.call` works.
+ * Wrap a typed PAPI API as a `ContractRuntime`. Intended for tests and
+ * advanced setups where the caller already holds a typed API. Routes the
+ * dry-run through the typed (compatibility-token-checked) `ReviveApi.call`
+ * — fine for mocks but susceptible to `Incompatible runtime entry` errors
+ * on a live chain whose descriptor lags. Prefer
+ * {@link createContractRuntimeFromClient} for production use.
  */
 export function createContractRuntime(api: ReviveTypedApi): ContractRuntime {
-    return { api };
+    return {
+        api,
+        dryRunCall: (origin, dest, value, gas, deposit, data) =>
+            api.apis.ReviveApi.call(origin, dest, value, gas, deposit, data),
+    };
+}
+
+/**
+ * Build a `ContractRuntime` from a raw `PolkadotClient` plus its descriptor.
+ *
+ * The typed API powers `tx.Revive.call`, `tx.Revive.map_account`, and
+ * `query.Revive.OriginalAccount` (extrinsics + storage are tolerant of
+ * descriptor drift). The runtime-API dry-run, which is *not* tolerant of
+ * descriptor drift on PAPI's compat-token path, is routed through
+ * `client.getUnsafeApi()` — bypassing the compat check while preserving
+ * argument and return shapes.
+ *
+ * Use this on every production code path that calls a contract's `.tx()` or
+ * `.query()` against a live chain.
+ *
+ * @example
+ * ```ts
+ * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+ *
+ * const runtime = createContractRuntimeFromClient(rawClient, paseo_asset_hub);
+ * ```
+ */
+export function createContractRuntimeFromClient<TDescriptor>(
+    client: PolkadotClient,
+    descriptor: TDescriptor,
+): ContractRuntime {
+    const typed = client.getTypedApi(
+        descriptor as Parameters<PolkadotClient["getTypedApi"]>[0],
+    ) as unknown as ReviveTypedApi;
+    const unsafe = client.getUnsafeApi() as unknown as {
+        apis: { ReviveApi: { call: ReviveDryRunCall } };
+    };
+    return {
+        api: typed,
+        dryRunCall: (origin, dest, value, gas, deposit, data) =>
+            unsafe.apis.ReviveApi.call(origin, dest, value, gas, deposit, data),
+    };
 }
 
 /**

@@ -160,6 +160,9 @@ importers:
       '@parity/product-sdk-contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@parity/product-sdk-descriptors':
+        specifier: workspace:*
+        version: link:../../packages/descriptors
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../../packages/signer
