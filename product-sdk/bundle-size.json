@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-05T18:09:53.544Z",
-  "node": "v24.11.0",
+  "generatedAt": "2026-05-07T11:29:34.985Z",
+  "node": "v22.19.0",
   "esbuild": "0.25.12",
   "packages": {
     "@parity/product-sdk": {
@@ -14,14 +14,14 @@
             "brotli": 278
           },
           "bundled": {
-            "raw": 4456890,
-            "gzip": 1467733,
-            "brotli": 675165
+            "raw": 4461520,
+            "gzip": 1467817,
+            "brotli": 677314
           },
           "shaken": {
-            "raw": 4338195,
-            "gzip": 1426844,
-            "brotli": 645741
+            "raw": 4342836,
+            "gzip": 1427860,
+            "brotli": 646823
           },
           "shakeRatio": 0.9734
         },
@@ -34,12 +34,12 @@
           },
           "bundled": {
             "raw": 20821,
-            "gzip": 8077,
+            "gzip": 8044,
             "brotli": 7228
           },
           "shaken": {
             "raw": 15727,
-            "gzip": 6197,
+            "gzip": 6168,
             "brotli": 5554
           },
           "shakeRatio": 0.7553
@@ -52,13 +52,13 @@
             "brotli": 91
           },
           "bundled": {
-            "raw": 4339527,
-            "gzip": 1426396,
-            "brotli": 647347
+            "raw": 4344166,
+            "gzip": 1427727,
+            "brotli": 648157
           },
           "shaken": {
             "raw": 12668,
-            "gzip": 4739,
+            "gzip": 4723,
             "brotli": 4334
           },
           "shakeRatio": 0.0029
@@ -71,13 +71,13 @@
             "brotli": 90
           },
           "bundled": {
-            "raw": 4247935,
-            "gzip": 1394295,
-            "brotli": 620754
+            "raw": 4252456,
+            "gzip": 1395866,
+            "brotli": 622798
           },
           "shaken": {
             "raw": 213452,
-            "gzip": 73219,
+            "gzip": 73014,
             "brotli": 64198
           },
           "shakeRatio": 0.0502
@@ -91,12 +91,12 @@
           },
           "bundled": {
             "raw": 2378737,
-            "gzip": 752756,
+            "gzip": 751631,
             "brotli": 410572
           },
           "shaken": {
             "raw": 155553,
-            "gzip": 56300,
+            "gzip": 55626,
             "brotli": 40589
           },
           "shakeRatio": 0.0654
@@ -105,13 +105,13 @@
           "file": "packages/sdk/dist/core/index.js",
           "ship": {
             "raw": 206,
-            "gzip": 151,
+            "gzip": 149,
             "brotli": 116
           },
           "bundled": {
-            "raw": 4456729,
-            "gzip": 1467677,
-            "brotli": 675479
+            "raw": 4461359,
+            "gzip": 1467760,
+            "brotli": 677166
           },
           "shaken": {
             "raw": 634,
@@ -129,12 +129,12 @@
           },
           "bundled": {
             "raw": 73480,
-            "gzip": 25373,
+            "gzip": 25105,
             "brotli": 20354
           },
           "shaken": {
             "raw": 43080,
-            "gzip": 15325,
+            "gzip": 15077,
             "brotli": 12056
           },
           "shakeRatio": 0.5863
@@ -148,12 +148,12 @@
           },
           "bundled": {
             "raw": 88534,
-            "gzip": 30101,
+            "gzip": 29993,
             "brotli": 26417
           },
           "shaken": {
             "raw": 28355,
-            "gzip": 10470,
+            "gzip": 10464,
             "brotli": 9357
           },
           "shakeRatio": 0.3203
@@ -162,17 +162,17 @@
           "file": "packages/sdk/dist/identity/index.js",
           "ship": {
             "raw": 3731,
-            "gzip": 1171,
+            "gzip": 1176,
             "brotli": 995
           },
           "bundled": {
             "raw": 51343,
-            "gzip": 18067,
+            "gzip": 17786,
             "brotli": 14455
           },
           "shaken": {
             "raw": 1158,
-            "gzip": 641,
+            "gzip": 642,
             "brotli": 540
           },
           "shakeRatio": 0.0226
@@ -181,17 +181,17 @@
           "file": "packages/sdk/dist/react/index.js",
           "ship": {
             "raw": 5462,
-            "gzip": 1414,
+            "gzip": 1413,
             "brotli": 1236
           },
           "bundled": {
-            "raw": 4467271,
-            "gzip": 1471393,
-            "brotli": 678547
+            "raw": 4471901,
+            "gzip": 1471317,
+            "brotli": 680823
           },
           "shaken": {
             "raw": 8451,
-            "gzip": 3143,
+            "gzip": 3157,
             "brotli": 2781
           },
           "shakeRatio": 0.0019
@@ -205,12 +205,12 @@
           },
           "bundled": {
             "raw": 88370,
-            "gzip": 30081,
+            "gzip": 29968,
             "brotli": 26344
           },
           "shaken": {
             "raw": 88330,
-            "gzip": 30064,
+            "gzip": 29952,
             "brotli": 26307
           },
           "shakeRatio": 0.9995
@@ -224,12 +224,12 @@
           },
           "bundled": {
             "raw": 235413,
-            "gzip": 81367,
+            "gzip": 80697,
             "brotli": 61061
           },
           "shaken": {
             "raw": 1206,
-            "gzip": 633,
+            "gzip": 635,
             "brotli": 550
           },
           "shakeRatio": 0.0051
@@ -242,17 +242,17 @@
           "file": "packages/address/dist/index.js",
           "ship": {
             "raw": 12913,
-            "gzip": 2996,
+            "gzip": 2997,
             "brotli": 2687
           },
           "bundled": {
             "raw": 20821,
-            "gzip": 8077,
+            "gzip": 8044,
             "brotli": 7228
           },
           "shaken": {
             "raw": 15727,
-            "gzip": 6197,
+            "gzip": 6168,
             "brotli": 5554
           },
           "shakeRatio": 0.7553
@@ -265,17 +265,17 @@
           "file": "packages/bulletin/dist/index.js",
           "ship": {
             "raw": 48825,
-            "gzip": 9689,
+            "gzip": 9668,
             "brotli": 8447
           },
           "bundled": {
-            "raw": 4339527,
-            "gzip": 1426396,
-            "brotli": 647347
+            "raw": 4344166,
+            "gzip": 1427727,
+            "brotli": 648157
           },
           "shaken": {
             "raw": 12668,
-            "gzip": 4739,
+            "gzip": 4723,
             "brotli": 4334
           },
           "shakeRatio": 0.0029
@@ -288,17 +288,17 @@
           "file": "packages/chain-client/dist/index.js",
           "ship": {
             "raw": 15079,
-            "gzip": 3917,
+            "gzip": 3907,
             "brotli": 3398
           },
           "bundled": {
-            "raw": 4247935,
-            "gzip": 1394295,
-            "brotli": 620754
+            "raw": 4252456,
+            "gzip": 1395866,
+            "brotli": 622798
           },
           "shaken": {
             "raw": 213452,
-            "gzip": 73219,
+            "gzip": 73014,
             "brotli": 64198
           },
           "shakeRatio": 0.0502
@@ -311,17 +311,17 @@
           "file": "packages/contracts/dist/index.js",
           "ship": {
             "raw": 14598,
-            "gzip": 3734,
+            "gzip": 3746,
             "brotli": 3300
           },
           "bundled": {
             "raw": 2378737,
-            "gzip": 752756,
+            "gzip": 751631,
             "brotli": 410572
           },
           "shaken": {
             "raw": 155553,
-            "gzip": 56300,
+            "gzip": 55626,
             "brotli": 40589
           },
           "shakeRatio": 0.0654
@@ -330,12 +330,12 @@
           "file": "packages/contracts/dist/codegen.js",
           "ship": {
             "raw": 134,
-            "gzip": 124,
+            "gzip": 122,
             "brotli": 108
           },
           "bundled": {
             "raw": 1587,
-            "gzip": 826,
+            "gzip": 825,
             "brotli": 710
           },
           "shaken": {
@@ -353,17 +353,17 @@
           "file": "packages/crypto/dist/index.js",
           "ship": {
             "raw": 20352,
-            "gzip": 3450,
+            "gzip": 3453,
             "brotli": 3075
           },
           "bundled": {
             "raw": 73480,
-            "gzip": 25373,
+            "gzip": 25105,
             "brotli": 20354
           },
           "shaken": {
             "raw": 43080,
-            "gzip": 15325,
+            "gzip": 15077,
             "brotli": 12056
           },
           "shakeRatio": 0.5863
@@ -375,97 +375,102 @@
         "./bulletin": {
           "file": "packages/descriptors/chains/bulletin/generated/dist/index.js",
           "ship": {
-            "raw": 4349,
-            "gzip": 1315,
-            "brotli": 1173
+            "raw": 280105,
+            "gzip": 97346,
+            "brotli": 77665
           },
           "bundled": {
-            "raw": 273995,
-            "gzip": 96107,
-            "brotli": 76603
+            "raw": 274456,
+            "gzip": 96379,
+            "brotli": 76870
           },
           "shaken": {
-            "raw": 50685,
-            "gzip": 20277,
-            "brotli": 17962
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "no exports detected"
           },
-          "shakeRatio": 0.185
+          "shakeRatio": null
         },
         "./individuality": {
           "file": "packages/descriptors/chains/individuality/generated/dist/index.js",
           "ship": {
-            "raw": 4354,
-            "gzip": 1329,
-            "brotli": 1184
+            "raw": 631659,
+            "gzip": 212273,
+            "brotli": 160570
           },
           "bundled": {
-            "raw": 625474,
-            "gzip": 211136,
-            "brotli": 160079
+            "raw": 625940,
+            "gzip": 211289,
+            "brotli": 159799
           },
           "shaken": {
-            "raw": 117612,
-            "gzip": 44956,
-            "brotli": 38066
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "no exports detected"
           },
-          "shakeRatio": 0.188
+          "shakeRatio": null
         },
         "./kusama-asset-hub": {
           "file": "packages/descriptors/chains/kusama-asset-hub/generated/dist/index.js",
           "ship": {
-            "raw": 6111,
-            "gzip": 1694,
-            "brotli": 1506
+            "raw": 1092040,
+            "gzip": 351742,
+            "brotli": 255546
           },
           "bundled": {
-            "raw": 1084196,
-            "gzip": 350555,
-            "brotli": 254336
+            "raw": 1084665,
+            "gzip": 350625,
+            "brotli": 254523
           },
           "shaken": {
-            "raw": 182089,
-            "gzip": 67962,
-            "brotli": 54633
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "no exports detected"
           },
-          "shakeRatio": 0.1679
+          "shakeRatio": null
         },
         "./paseo-asset-hub": {
           "file": "packages/descriptors/chains/paseo-asset-hub/generated/dist/index.js",
           "ship": {
-            "raw": 6158,
-            "gzip": 1707,
-            "brotli": 1523
+            "raw": 1033975,
+            "gzip": 333229,
+            "brotli": 240730
           },
           "bundled": {
-            "raw": 1026103,
-            "gzip": 331930,
-            "brotli": 239526
+            "raw": 1026571,
+            "gzip": 332107,
+            "brotli": 239838
           },
           "shaken": {
-            "raw": 172848,
-            "gzip": 64450,
-            "brotli": 52141
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "no exports detected"
           },
-          "shakeRatio": 0.1685
+          "shakeRatio": null
         },
         "./polkadot-asset-hub": {
           "file": "packages/descriptors/chains/polkadot-asset-hub/generated/dist/index.js",
           "ship": {
-            "raw": 6167,
-            "gzip": 1711,
-            "brotli": 1527
+            "raw": 1030858,
+            "gzip": 332202,
+            "brotli": 240193
           },
           "bundled": {
-            "raw": 1022935,
-            "gzip": 330900,
-            "brotli": 239004
+            "raw": 1023406,
+            "gzip": 331091,
+            "brotli": 239209
           },
           "shaken": {
-            "raw": 172221,
-            "gzip": 64287,
-            "brotli": 51809
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "no exports detected"
           },
-          "shakeRatio": 0.1684
+          "shakeRatio": null
         }
       }
     },
@@ -475,17 +480,17 @@
           "file": "packages/host/dist/index.js",
           "ship": {
             "raw": 6449,
-            "gzip": 1581,
+            "gzip": 1586,
             "brotli": 1402
           },
           "bundled": {
             "raw": 88534,
-            "gzip": 30101,
+            "gzip": 29993,
             "brotli": 26417
           },
           "shaken": {
             "raw": 28355,
-            "gzip": 10470,
+            "gzip": 10464,
             "brotli": 9357
           },
           "shakeRatio": 0.3203
@@ -498,17 +503,17 @@
           "file": "packages/keys/dist/index.js",
           "ship": {
             "raw": 21790,
-            "gzip": 4425,
+            "gzip": 4430,
             "brotli": 3950
           },
           "bundled": {
             "raw": 191349,
-            "gzip": 68212,
+            "gzip": 67551,
             "brotli": 48754
           },
           "shaken": {
             "raw": 140106,
-            "gzip": 50703,
+            "gzip": 50169,
             "brotli": 37847
           },
           "shakeRatio": 0.7322
@@ -521,12 +526,12 @@
           "file": "packages/logger/dist/index.js",
           "ship": {
             "raw": 9600,
-            "gzip": 2272,
+            "gzip": 2276,
             "brotli": 1973
           },
           "bundled": {
             "raw": 1257,
-            "gzip": 645,
+            "gzip": 647,
             "brotli": 569
           },
           "shaken": {
@@ -544,17 +549,17 @@
           "file": "packages/signer/dist/index.js",
           "ship": {
             "raw": 53051,
-            "gzip": 10093,
+            "gzip": 10092,
             "brotli": 8870
           },
           "bundled": {
             "raw": 235413,
-            "gzip": 81367,
+            "gzip": 80697,
             "brotli": 61061
           },
           "shaken": {
             "raw": 1206,
-            "gzip": 633,
+            "gzip": 635,
             "brotli": 550
           },
           "shakeRatio": 0.0051
@@ -567,17 +572,17 @@
           "file": "packages/statement-store/dist/index.js",
           "ship": {
             "raw": 35763,
-            "gzip": 8286,
+            "gzip": 8278,
             "brotli": 7238
           },
           "bundled": {
             "raw": 105501,
-            "gzip": 35560,
+            "gzip": 35401,
             "brotli": 29784
           },
           "shaken": {
             "raw": 10049,
-            "gzip": 4034,
+            "gzip": 4007,
             "brotli": 3562
           },
           "shakeRatio": 0.0953
@@ -590,20 +595,87 @@
           "file": "packages/storage/dist/index.js",
           "ship": {
             "raw": 6549,
-            "gzip": 1449,
+            "gzip": 1454,
             "brotli": 1255
           },
           "bundled": {
             "raw": 88370,
-            "gzip": 30081,
+            "gzip": 29968,
             "brotli": 26344
           },
           "shaken": {
             "raw": 88330,
-            "gzip": 30064,
+            "gzip": 29952,
             "brotli": 26307
           },
           "shakeRatio": 0.9995
+        }
+      }
+    },
+    "@parity/product-sdk-terminal": {
+      "entries": {
+        ".": {
+          "file": "packages/terminal/dist/index.js",
+          "ship": {
+            "raw": 9038,
+            "gzip": 2636,
+            "brotli": 2295
+          },
+          "bundled": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 4 errors:\nnode_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs.js:1:22: ERROR: No loader is configured for \".wasm\" files: node_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs_bg.wasm\npackages/terminal/dist/chunk-7O5TQ3L6.js:3:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-7O5TQ3L6.js:4:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-7O5TQ3L6.js:5:24: ERROR: Could not resolve \"os\""
+          },
+          "shaken": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 4 errors:\nnode_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs.js:1:22: ERROR: No loader is configured for \".wasm\" files: node_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs_bg.wasm\npackages/terminal/dist/chunk-7O5TQ3L6.js:3:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-7O5TQ3L6.js:4:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-7O5TQ3L6.js:5:24: ERROR: Could not resolve \"os\""
+          },
+          "shakeRatio": null
+        },
+        "./register": {
+          "file": "packages/terminal/dist/register.js",
+          "ship": {
+            "raw": 381,
+            "gzip": 213,
+            "brotli": 180
+          },
+          "bundled": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 3 errors:\npackages/terminal/dist/register.js:2:25: ERROR: Could not resolve \"module\"\npackages/terminal/dist/register.js:3:30: ERROR: Could not resolve \"url\"\npackages/terminal/dist/register.js:4:30: ERROR: Could not resolve \"path\""
+          },
+          "shaken": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "no exports detected"
+          },
+          "shakeRatio": null
+        },
+        "./testing": {
+          "file": "packages/terminal/dist/testing.js",
+          "ship": {
+            "raw": 11382,
+            "gzip": 2557,
+            "brotli": 2305
+          },
+          "bundled": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 5 errors:\npackages/terminal/dist/chunk-7O5TQ3L6.js:3:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-7O5TQ3L6.js:4:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-7O5TQ3L6.js:5:24: ERROR: Could not resolve \"os\"\npackages/terminal/dist/testing.js:24:33: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/testing.js:25:21: ERROR: Could not resolve \"path\""
+          },
+          "shaken": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 5 errors:\npackages/terminal/dist/chunk-7O5TQ3L6.js:3:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-7O5TQ3L6.js:4:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-7O5TQ3L6.js:5:24: ERROR: Could not resolve \"os\"\npackages/terminal/dist/testing.js:24:33: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/testing.js:25:21: ERROR: Could not resolve \"path\""
+          },
+          "shakeRatio": null
         }
       }
     },
@@ -613,17 +685,17 @@
           "file": "packages/tx/dist/index.js",
           "ship": {
             "raw": 56508,
-            "gzip": 10032,
+            "gzip": 10049,
             "brotli": 8617
           },
           "bundled": {
             "raw": 161368,
-            "gzip": 59030,
+            "gzip": 58333,
             "brotli": 41980
           },
           "shaken": {
             "raw": 30847,
-            "gzip": 13206,
+            "gzip": 13028,
             "brotli": 11589
           },
           "shakeRatio": 0.1912
@@ -636,17 +708,17 @@
           "file": "packages/utils/dist/index.js",
           "ship": {
             "raw": 15285,
-            "gzip": 3414,
+            "gzip": 3415,
             "brotli": 3034
           },
           "bundled": {
             "raw": 18195,
-            "gzip": 7294,
+            "gzip": 7205,
             "brotli": 6330
           },
           "shaken": {
             "raw": 8399,
-            "gzip": 3417,
+            "gzip": 3392,
             "brotli": 3004
           },
           "shakeRatio": 0.4616

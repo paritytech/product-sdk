@@ -17,6 +17,7 @@
     "@parity/product-sdk-signer": "workspace:*",
     "@parity/product-sdk-statement-store": "workspace:*",
     "@parity/product-sdk-storage": "workspace:*",
+    "@parity/product-sdk-terminal": "workspace:*",
     "@parity/product-sdk-tx": "workspace:*",
     "@parity/product-sdk-utils": "workspace:*"
   }
