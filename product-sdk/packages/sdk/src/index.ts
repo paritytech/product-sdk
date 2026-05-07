@@ -44,6 +44,8 @@ export type { LogEntry, LogHandler, LoggerConfig, Logger } from "./core/logger.j
 // Re-export common utilities from leaf packages
 export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-host";
 export { createChainClient } from "@parity/product-sdk-chain-client";
+export { createCoinPaymentClient } from "@parity/product-sdk-coinpayment";
+export { createMerchantPaymentsSdk } from "@parity/product-sdk-merchant-payments";
 export { SignerManager } from "@parity/product-sdk-signer";
 export { createKvStore } from "@parity/product-sdk-storage";
 export { BulletinClient, calculateCid } from "@parity/product-sdk-bulletin";

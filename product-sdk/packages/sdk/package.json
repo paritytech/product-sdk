@@ -24,6 +24,10 @@
             "import": "./dist/chain/index.js",
             "types": "./dist/chain/index.d.ts"
         },
+        "./coinpayment": {
+            "import": "./dist/coinpayment/index.js",
+            "types": "./dist/coinpayment/index.d.ts"
+        },
         "./contracts": {
             "import": "./dist/contracts/index.js",
             "types": "./dist/contracts/index.d.ts"
@@ -39,6 +43,10 @@
         "./host": {
             "import": "./dist/host/index.js",
             "types": "./dist/host/index.d.ts"
+        },
+        "./merchant-payments": {
+            "import": "./dist/merchant-payments/index.js",
+            "types": "./dist/merchant-payments/index.d.ts"
         },
         "./identity": {
             "import": "./dist/identity/index.js",
@@ -66,11 +74,13 @@
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-bulletin": "workspace:*",
         "@parity/product-sdk-chain-client": "workspace:*",
+        "@parity/product-sdk-coinpayment": "workspace:*",
         "@parity/product-sdk-contracts": "workspace:*",
         "@parity/product-sdk-crypto": "workspace:*",
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-merchant-payments": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-storage": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
