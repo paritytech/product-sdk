@@ -5,15 +5,13 @@ import { submitAndWatch } from "@parity/product-sdk-tx";
 import { seedToAccount } from "@parity/product-sdk-keys";
 import { createLogger } from "@parity/product-sdk-logger";
 import { DEV_PHRASE, ss58Address } from "@polkadot-labs/hdkd-helpers";
-import { ContractSignerMissingError } from "./errors.js";
+import { ContractSignerMissingError, ContractDryRunFailedError } from "./errors.js";
 import type { ContractRuntime } from "./runtime.js";
 import type {
     AbiEntry,
-    BatchableCall,
     Contract,
     ContractDef,
     ContractDefaults,
-    PrepareOptions,
     QueryOptions,
     QueryResult,
     TxOptions,
@@ -30,15 +28,6 @@ function buildMethodArgMap(abi: AbiEntry[]): Record<string, string[]> {
         }
     }
     return map;
-}
-
-/** Convert positional arguments to a record matching the ABI parameter names. */
-function positionalToNamed(argNames: string[], values: unknown[]): Record<string, unknown> {
-    const data: Record<string, unknown> = {};
-    for (let i = 0; i < argNames.length; i++) {
-        data[argNames[i]] = values[i];
-    }
-    return data;
 }
 
 /**
@@ -143,7 +132,6 @@ export function wrapContract(
 ): Contract<ContractDef> {
     const methodArgs = buildMethodArgMap(abi);
     const dest = addressToFixedBinary(address);
-    void positionalToNamed; // retained for future named-arg paths; viem consumes positional
 
     return new Proxy({} as Record<string, unknown>, {
         get(_, methodName: string) {
@@ -213,7 +201,11 @@ export function wrapContract(
                     );
 
                     // Dry-run for weight + storage deposit unless the caller
-                    // supplied explicit overrides for both.
+                    // supplied explicit overrides for both. We dry-run even
+                    // when both are provided would be wasteful, but if either
+                    // is missing we use the dry-run to fill it in AND to fail
+                    // fast on revert / OOG / AccountNotMapped — the caller
+                    // shouldn't pay gas on a tx the chain already rejected.
                     let weightLimit = overrides?.gasLimit;
                     let storageDepositLimit = overrides?.storageDepositLimit;
                     if (!weightLimit || storageDepositLimit === undefined) {
@@ -225,6 +217,9 @@ export function wrapContract(
                             undefined,
                             calldata,
                         );
+                        if (!dryRun.result.success) {
+                            throw new ContractDryRunFailedError(methodName, dryRun.result.value);
+                        }
                         weightLimit = weightLimit ?? dryRun.weight_required;
                         if (storageDepositLimit === undefined) {
                             storageDepositLimit =
@@ -247,27 +242,6 @@ export function wrapContract(
                         timeoutMs: overrides?.timeoutMs,
                         mortalityPeriod: overrides?.mortalityPeriod,
                         onStatus: overrides?.onStatus,
-                    });
-                },
-
-                prepare: (...args: unknown[]): BatchableCall => {
-                    const { positionalArgs, overrides } = extractOverrides<PrepareOptions>(
-                        argNames,
-                        args,
-                    );
-                    const data = positionalToNamed(argNames, positionalArgs);
-                    // prepare() doesn't require a signer — origin here is for
-                    // dry-run gas estimation; the batch's signer replaces it
-                    // as the dispatched origin at submission.
-                    const origin = resolveOrigin(defaults, overrides?.origin, true)!;
-                    return inkContract.send(methodName, {
-                        data,
-                        origin,
-                        ...(overrides?.value !== undefined && { value: overrides.value }),
-                        ...(overrides?.gasLimit && { gasLimit: overrides.gasLimit }),
-                        ...(overrides?.storageDepositLimit !== undefined && {
-                            storageDepositLimit: overrides.storageDepositLimit,
-                        }),
                     });
                 },
             };
@@ -314,16 +288,6 @@ if (import.meta.vitest) {
         });
     });
 
-    describe("positionalToNamed", () => {
-        test("maps positional values to named keys", () => {
-            expect(positionalToNamed(["a", "b"], [1, 2])).toEqual({ a: 1, b: 2 });
-        });
-
-        test("handles empty args", () => {
-            expect(positionalToNamed([], [])).toEqual({});
-        });
-    });
-
     describe("extractOverrides", () => {
         test("returns overrides when extra object arg is present", () => {
             const result = extractOverrides<{ origin: string }>(["a"], [42, { origin: "0x1" }]);
@@ -353,9 +317,7 @@ if (import.meta.vitest) {
     describe("addressToFixedBinary", () => {
         test("accepts 0x-prefixed H160", () => {
             const a = addressToFixedBinary("0x1234567890abcdef1234567890abcdef12345678");
-            expect(a.asHex().toLowerCase()).toBe(
-                "0x1234567890abcdef1234567890abcdef12345678",
-            );
+            expect(a.asHex().toLowerCase()).toBe("0x1234567890abcdef1234567890abcdef12345678");
         });
 
         test("accepts unprefixed hex", () => {
@@ -489,12 +451,7 @@ if (import.meta.vitest) {
         });
     });
 
-    describe("wrapContract — prepare", () => {
-        // .prepare() port from polkadot-apps@4b60d19. Asserts that the
-        // method returns a BatchableCall consumable by batchSubmitAndWatch
-        // without going through submission, doesn't require a signer, and
-        // forwards the gas/value overrides the same way `.tx()` does.
-
+    describe("wrapContract — tx dry-run failure", () => {
         const abi: AbiEntry[] = [
             {
                 type: "function",
@@ -503,141 +460,54 @@ if (import.meta.vitest) {
                 outputs: [],
                 stateMutability: "nonpayable",
             },
-            {
-                type: "function",
-                name: "add",
-                inputs: [{ name: "n", type: "uint32" }],
-                outputs: [],
-                stateMutability: "nonpayable",
-            },
         ];
+        const ADDRESS = "0x0102030405060708090a0b0c0d0e0f1011121314";
+        const fakeSigner = {
+            publicKey: new Uint8Array(32),
+        } as unknown as PolkadotSigner;
 
-        test("prepare returns ink send result without submitting", () => {
-            let sendCapture: any;
-            const fakeSendResult = { waited: Promise.resolve({ decodedCall: { pallet: "X" } }) };
-            const fakeInk = {
-                send: (method: string, args: any) => {
-                    sendCapture = { method, args };
-                    return fakeSendResult;
-                },
-            };
-            const wrapped = wrapContract(fakeInk, abi, { origin: "5Alice" as any });
-
-            const result = wrapped.add.prepare(42);
-            expect(sendCapture.method).toBe("add");
-            expect(sendCapture.args.data).toEqual({ n: 42 });
-            expect(sendCapture.args.origin).toBe("5Alice");
-            expect(result).toBe(fakeSendResult);
-        });
-
-        test("prepare does not require a signer", () => {
-            const fakeInk = {
-                send: () => ({ waited: Promise.resolve({ decodedCall: {} }) }),
-            };
-            const wrapped = wrapContract(fakeInk, abi, {});
-            // No signer, no signerManager, no default origin — should still work
-            expect(() => wrapped.increment.prepare()).not.toThrow();
-        });
-
-        test("prepare uses fallback origin for dry-run gas estimation", () => {
-            let captured: any;
-            const fakeInk = {
-                send: (_: string, args: any) => {
-                    captured = args;
-                    return { waited: Promise.resolve({ decodedCall: {} }) };
-                },
-            };
-            const wrapped = wrapContract(fakeInk, abi, {});
-
-            wrapped.increment.prepare();
-            expect(captured.origin).toBe(QUERY_FALLBACK_ORIGIN);
-        });
-
-        test("prepare forwards value, gasLimit, storageDepositLimit", () => {
-            let captured: any;
-            const fakeInk = {
-                send: (_: string, args: any) => {
-                    captured = args;
-                    return { waited: Promise.resolve({ decodedCall: {} }) };
-                },
-            };
-            const wrapped = wrapContract(fakeInk, abi, { origin: "5A" as any });
-
-            const gasLimit = { ref_time: 1_000_000n, proof_size: 1024n };
-            wrapped.add.prepare(7, {
-                value: 500n,
-                gasLimit,
-                storageDepositLimit: 999n,
-            });
-            expect(captured.data).toEqual({ n: 7 });
-            expect(captured.value).toBe(500n);
-            expect(captured.gasLimit).toBe(gasLimit);
-            expect(captured.storageDepositLimit).toBe(999n);
-        });
-
-        test("prepare override origin wins over signerManager and default", () => {
-            let captured: any;
-            const fakeInk = {
-                send: (_: string, args: any) => {
-                    captured = args;
-                    return { waited: Promise.resolve({ decodedCall: {} }) };
-                },
-            };
-            const wrapped = wrapContract(fakeInk, abi, {
-                origin: "5Default" as any,
-                signerManager: mockSigner({ address: "5Source" }),
-            });
-
-            wrapped.increment.prepare({ origin: "5Override" as any });
-            expect(captured.origin).toBe("5Override");
-        });
-
-        test("prepare result is consumable by batchSubmitAndWatch", async () => {
-            const { batchSubmitAndWatch } = await import("@parity/product-sdk-tx");
-            const prepared = [
-                { waited: Promise.resolve({ decodedCall: { call: "one" } }) },
-                { waited: Promise.resolve({ decodedCall: { call: "two" } }) },
-            ];
-            const fakeInk = {
-                send: (_: string, _args: any) => prepared.shift()!,
-            };
-            const wrapped = wrapContract(fakeInk, abi, { origin: "5A" as any });
-
-            const a = wrapped.increment.prepare();
-            const b = wrapped.add.prepare(1);
-
-            const captured: unknown[][] = [];
-            const fakeApi = {
-                tx: {
-                    Utility: {
-                        batch_all: (args: { calls: unknown[] }) => {
-                            captured.push(args.calls);
-                            return {
-                                signSubmitAndWatch: () => ({
-                                    subscribe: (h: any) => {
-                                        h.next({ type: "signed", txHash: "0xb" });
-                                        h.next({
-                                            type: "txBestBlocksState",
-                                            txHash: "0xb",
-                                            found: true,
-                                            ok: true,
-                                            events: [],
-                                            block: { hash: "0xblk", number: 1, index: 0 },
-                                        });
-                                        return { unsubscribe: () => {} };
-                                    },
-                                }),
-                            };
+        test("throws ContractDryRunFailedError when ReviveApi.call reports failure", async () => {
+            const dispatchError = { type: "Module", value: { type: "ContractReverted" } };
+            const runtime: ContractRuntime = {
+                api: {
+                    apis: {
+                        ReviveApi: {
+                            call: async () => ({
+                                weight_consumed: { ref_time: 0n, proof_size: 0n },
+                                weight_required: { ref_time: 0n, proof_size: 0n },
+                                storage_deposit: { type: "Refund", value: 0n },
+                                max_storage_deposit: { type: "Refund", value: 0n },
+                                gas_consumed: 0n,
+                                result: { success: false, value: dispatchError },
+                            }),
                         },
                     },
-                },
-            } as any;
+                    tx: {
+                        Revive: {
+                            call: () => {
+                                throw new Error(
+                                    "Revive.call must NOT be invoked on dry-run failure",
+                                );
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+            };
 
-            const result = await batchSubmitAndWatch([a, b], fakeApi, {
-                publicKey: new Uint8Array(32),
-            } as any);
-            expect(result.ok).toBe(true);
-            expect(captured[0]).toEqual([{ call: "one" }, { call: "two" }]);
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {
+                signer: fakeSigner,
+                origin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
+            });
+
+            await expect(
+                (
+                    wrapped as unknown as { increment: { tx: () => Promise<unknown> } }
+                ).increment.tx(),
+            ).rejects.toMatchObject({
+                name: "ContractDryRunFailedError",
+                methodName: "increment",
+                dispatchError,
+            });
         });
     });
 }

@@ -243,73 +243,66 @@ if (import.meta.vitest) {
     };
 
     /**
-     * Minimal InkSdk stub — `getContract()` is the only method
-     * `ContractManager.getContract()` calls. Everything else on the SDK
-     * is left undefined so a misroute through any other method would
-     * throw and surface in the test.
+     * Minimal `ContractRuntime` stub — `ContractManager` only forwards the
+     * runtime through to `wrapContract`'s proxy, which doesn't invoke any
+     * runtime member at construction time. The fields below stay
+     * shape-only; any test that actually wants to call `.query()` / `.tx()`
+     * builds its own runtime with real captures.
      */
-    function fakeInkSdk(): InkSdk {
+    function fakeRuntime(): ContractRuntime {
         return {
-            getContract: (descriptor: unknown, address: unknown) => ({
-                __descriptor: descriptor,
-                __address: address,
-                // Each method on a real ink contract has `query` + `send`.
-                // We don't invoke them in the smoke test — just need the
-                // shape to flow through `wrapContract`'s proxy.
-                query: async () => ({ success: true, value: { response: undefined } }),
-                send: () => ({ waited: Promise.resolve({}) }),
-            }),
-        } as unknown as InkSdk;
+            api: {
+                tx: { Revive: { call: () => null, map_account: () => null } },
+                query: { Revive: { OriginalAccount: { getValue: async () => undefined } } },
+                apis: { ReviveApi: { call: async () => null } },
+            },
+            dryRunCall: async () => null,
+        } as unknown as ContractRuntime;
     }
 
     describe("ContractManager — cdm.json resolution", () => {
         test("constructs from a real-world cdm.json without errors", () => {
-            const manager = new ContractManager(playgroundCdm, fakeInkSdk());
+            const manager = new ContractManager(playgroundCdm, fakeRuntime());
             expect(manager.getAddress("@w3s/playground-registry")).toBe(
                 "0x4A37B123b0BA2A894cA5953f472264921d44e298",
             );
         });
 
         test("getContract returns a typed handle for a library in the manifest", () => {
-            const manager = new ContractManager(playgroundCdm, fakeInkSdk());
-            const registry = manager.getContract("@w3s/playground-registry");
+            const manager = new ContractManager(playgroundCdm, fakeRuntime());
+            const registry = manager.getContract("@w3s/playground-registry") as unknown as Record<
+                string,
+                { query: unknown; tx: unknown }
+            >;
 
-            // Methods from the abi are accessible
             expect(typeof registry.publish.query).toBe("function");
             expect(typeof registry.publish.tx).toBe("function");
-            expect(typeof registry.publish.prepare).toBe("function");
             expect(typeof registry.unpublish.query).toBe("function");
         });
 
         test("getContract throws ContractNotFoundError for an unknown library", () => {
-            const manager = new ContractManager(playgroundCdm, fakeInkSdk());
+            const manager = new ContractManager(playgroundCdm, fakeRuntime());
             expect(() => manager.getContract("@nonexistent/contract")).toThrow(
                 /not found in cdm\.json/,
             );
         });
 
         test("auto-selects the first target when no targetHash is provided", () => {
-            const manager = new ContractManager(playgroundCdm, fakeInkSdk());
+            const manager = new ContractManager(playgroundCdm, fakeRuntime());
             // Single-target manifest — should resolve cleanly without
             // requiring an explicit targetHash.
             expect(() => manager.getContract("@w3s/playground-registry")).not.toThrow();
         });
 
-        test("getContract passes the right address to inkSdk", () => {
-            let capturedAddress: unknown;
-            const inkSdk = {
-                getContract: (_descriptor: unknown, address: unknown) => {
-                    capturedAddress = address;
-                    return {
-                        query: async () => ({ success: true, value: { response: undefined } }),
-                        send: () => ({ waited: Promise.resolve({}) }),
-                    };
-                },
-            } as unknown as InkSdk;
-
-            const manager = new ContractManager(playgroundCdm, inkSdk);
-            manager.getContract("@w3s/playground-registry");
-            expect(capturedAddress).toBe("0x4A37B123b0BA2A894cA5953f472264921d44e298");
+        test("getAddress returns the manifest's recorded H160 for a library", () => {
+            // Replaces the prior "passes the right address to inkSdk" test —
+            // the new runtime doesn't take the address at construction time
+            // (wrapContract receives it directly), so we assert the
+            // manifest-side projection instead.
+            const manager = new ContractManager(playgroundCdm, fakeRuntime());
+            expect(manager.getAddress("@w3s/playground-registry")).toBe(
+                "0x4A37B123b0BA2A894cA5953f472264921d44e298",
+            );
         });
 
         test("explicit targetHash option selects the right contracts subtree", () => {
@@ -342,10 +335,10 @@ if (import.meta.vitest) {
                 },
             };
 
-            const aManager = new ContractManager(multiTargetCdm, fakeInkSdk(), {
+            const aManager = new ContractManager(multiTargetCdm, fakeRuntime(), {
                 targetHash: "target_a",
             });
-            const bManager = new ContractManager(multiTargetCdm, fakeInkSdk(), {
+            const bManager = new ContractManager(multiTargetCdm, fakeRuntime(), {
                 targetHash: "target_b",
             });
 
@@ -359,13 +352,13 @@ if (import.meta.vitest) {
 
         test("constructor throws when cdm.json has no targets", () => {
             const emptyCdm: CdmJson = { targets: {}, dependencies: {} };
-            expect(() => new ContractManager(emptyCdm, fakeInkSdk())).toThrow(/No targets found/);
+            expect(() => new ContractManager(emptyCdm, fakeRuntime())).toThrow(/No targets found/);
         });
     });
 
     describe("ContractManager defaults", () => {
         test("setDefaults updates origin / signer / signerManager mid-flight", () => {
-            const manager = new ContractManager(playgroundCdm, fakeInkSdk(), {
+            const manager = new ContractManager(playgroundCdm, fakeRuntime(), {
                 defaultOrigin: "5OldOrigin" as HexString,
             });
             // This is a behavioral check via private-ish field — we don't

@@ -76,26 +76,39 @@ async function main(): Promise<void> {
     // gives you a typed handle with .query() / .tx() per method:
     //
     //     import { createClient } from "polkadot-api";
-    //     import { getWsProvider } from "polkadot-api/ws-provider/web";
-    //     import { createContractFromClient } from "@parity/product-sdk-contracts";
+    //     import { getWsProvider } from "polkadot-api/ws";
+    //     import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+    //     import {
+    //         createContractFromClient,
+    //         createContractRuntime,
+    //         ensureContractAccountMapped,
+    //     } from "@parity/product-sdk-contracts";
     //
     //     const client = createClient(getWsProvider("wss://asset-hub-paseo-rpc.dwellir.com"));
-    //     const counter = await createContractFromClient(
+    //
+    //     // One-time per signing account: register the SS58 → H160 mapping
+    //     // that pallet-revive requires for the .tx() path. Idempotent — safe
+    //     // to call on every app start.
+    //     const runtime = createContractRuntime(client.getTypedApi(paseo_asset_hub));
+    //     await ensureContractAccountMapped(runtime, signerAddress, signer);
+    //
+    //     const counter = createContractFromClient(
     //         client,
-    //         "0xC472..." as `0x${string}`, // TODO: your deployed contract address
+    //         paseo_asset_hub,                          // descriptor
+    //         "0xC472..." as `0x${string}`,             // TODO: deployed address
     //         abiFromDisk,
     //     );
     //
     //     const { value } = await counter.get.query();
     //     console.log("counter value:", value);
-    //     // await counter.increment.tx(1, { signer });  // needs a signer
+    //     // await counter.increment.tx(1, { signer });  // needs a mapped signer
     //
     // We don't run this here because it requires a live deployment. The point
     // of this example is the loader path; the rest is identical to the
     // existing contracts-demo.
     console.log(
         "\nNext step: pass `abiFromDisk` plus a deployed address into",
-        "`createContractFromClient(client, address, abiFromDisk)` to interact.",
+        "`createContractFromClient(client, paseo_asset_hub, address, abiFromDisk)` to interact.",
     );
 }
 

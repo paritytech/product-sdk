@@ -1,6 +1,8 @@
-import type { SS58String } from "polkadot-api";
+import type { SS58String, PolkadotSigner } from "polkadot-api";
 import { type Binary, FixedSizeBinary } from "@polkadot-api/substrate-bindings";
-import type { SubmittableTransaction, Weight } from "@parity/product-sdk-tx";
+import type { SubmittableTransaction, Weight, TxResult } from "@parity/product-sdk-tx";
+import { ensureAccountMapped } from "@parity/product-sdk-tx";
+import { ss58ToH160 } from "@parity/product-sdk-address";
 
 /**
  * Result of a `Revive.call` extrinsic — present on the typed API as
@@ -36,7 +38,19 @@ export interface ReviveDryRunResult {
 
 /** Structural shape consumed by `ContractManager` / `createContract`. */
 export interface ReviveTypedApi {
-    tx: { Revive: { call: ReviveCallTx } };
+    tx: {
+        Revive: {
+            call: ReviveCallTx;
+            map_account(): SubmittableTransaction;
+        };
+    };
+    query: {
+        Revive: {
+            OriginalAccount: {
+                getValue(address: FixedSizeBinary<20>): Promise<SS58String | undefined>;
+            };
+        };
+    };
     apis: {
         ReviveApi: {
             call(
@@ -79,4 +93,50 @@ export interface ContractRuntime {
  */
 export function createContractRuntime(api: ReviveTypedApi): ContractRuntime {
     return { api };
+}
+
+/**
+ * Ensure the SS58 account is mapped to its derived H160 on `pallet-revive`.
+ *
+ * `pallet-revive` requires every signing account to have a registered
+ * `OriginalAccount` mapping before the runtime accepts its `Revive.call`
+ * extrinsics. The mapping is one-time and cheap. This helper:
+ *
+ *   1. Reads `Revive.OriginalAccount` for the H160 derived from `address`.
+ *   2. Returns `null` if already mapped (idempotent fast-path).
+ *   3. Otherwise submits `Revive.map_account()` and waits for inclusion.
+ *
+ * Call this once per signing account at app startup — after that, every
+ * subsequent `contract.<method>.tx({ signer })` against the same chain will
+ * succeed without further mapping work.
+ *
+ * @param runtime - The contract runtime (typically `createContractRuntime(...)`).
+ * @param address - The SS58 address of the account to map.
+ * @param signer - A signer matching `address`.
+ * @param options - Optional timeout / status callback (forwarded to the underlying tx).
+ * @returns The `TxResult` from the mapping extrinsic, or `null` if already mapped.
+ *
+ * @example
+ * ```ts
+ * import { createContractRuntime, ensureContractAccountMapped } from "@parity/product-sdk-contracts";
+ *
+ * const runtime = createContractRuntime(client.getTypedApi(paseo_asset_hub));
+ * await ensureContractAccountMapped(runtime, signerManager.getState().selectedAccount!.address, signer);
+ * // now safe to call contract.<method>.tx({ signer })
+ * ```
+ */
+export async function ensureContractAccountMapped(
+    runtime: ContractRuntime,
+    address: SS58String,
+    signer: PolkadotSigner,
+    options?: { timeoutMs?: number; onStatus?: (s: string) => void },
+): Promise<TxResult | null> {
+    const checker = {
+        addressIsMapped: async (addr: string): Promise<boolean> => {
+            const h160 = ss58ToH160(addr);
+            const dest = FixedSizeBinary.fromHex(h160.slice(2)) as FixedSizeBinary<20>;
+            return (await runtime.api.query.Revive.OriginalAccount.getValue(dest)) !== undefined;
+        },
+    };
+    return ensureAccountMapped(address, signer, checker, runtime.api, options);
 }
