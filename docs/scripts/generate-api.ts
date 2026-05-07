@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { kebab, packageSlug } from "./lib/kebab.js";
+import { discoverPackages, type PackageRegistry } from "./lib/registry.js";
 import {
   getOwnExportGroups,
   renderPackageOverview,
@@ -13,10 +14,17 @@ import { Kind, type Declaration, type Project } from "./lib/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DOCS_ROOT = resolve(__dirname, "..");
+const PACKAGES_DIR = resolve(DOCS_ROOT, "..", "product-sdk", "packages");
 const API_JSON = join(DOCS_ROOT, "generated/api.json");
 const API_CONTENT = join(DOCS_ROOT, "content/api");
 
-function ownFolderFor(pkg: Declaration): string {
+// The on-disk folder for a package, looked up from the workspace registry.
+// Falls back to deriving the folder from the package name if a TypeDoc-emitted
+// package isn't in the registry (shouldn't happen — guards a future scenario
+// where TypeDoc surfaces a package that lacks a discoverable package.json).
+function ownFolderFor(pkg: Declaration, registry: PackageRegistry): string {
+  const folder = registry.nameToFolder.get(pkg.name);
+  if (folder) return folder;
   if (pkg.name === "@parity/product-sdk") return "sdk";
   return pkg.name.replace(/^@parity\/product-sdk-/, "");
 }
@@ -33,8 +41,13 @@ function labelFor(item: Declaration): string {
 // Build the per-package sidebar: symbols grouped by kind with separator
 // headers, each symbol linking to an anchor on the package's own page so
 // navigation stays within the single consolidated document.
-function buildPackageSidebar(pkg: Declaration, ownFolder: string, slug: string): MetaEntry[] {
-  const groups = getOwnExportGroups(pkg, ownFolder);
+function buildPackageSidebar(
+  pkg: Declaration,
+  ownFolder: string,
+  slug: string,
+  registry: PackageRegistry,
+): MetaEntry[] {
+  const groups = getOwnExportGroups(pkg, ownFolder, registry);
   // "Overview" points back to the package page itself (without a fragment),
   // so clicking it takes the reader to the top of the consolidated page.
   // Without this entry, Nextra labels the index page by its frontmatter
@@ -55,15 +68,18 @@ function buildPackageSidebar(pkg: Declaration, ownFolder: string, slug: string):
   return entries;
 }
 
-async function generateForPackage(pkg: Declaration): Promise<string> {
+async function generateForPackage(
+  pkg: Declaration,
+  registry: PackageRegistry,
+): Promise<string> {
   const slug = packageSlug(pkg.name);
-  const ownFolder = ownFolderFor(pkg);
+  const ownFolder = ownFolderFor(pkg, registry);
   const pkgDir = join(API_CONTENT, slug);
 
-  const overview = renderPackageOverview(pkg, ownFolder);
+  const overview = renderPackageOverview(pkg, ownFolder, registry);
   await writeFileAtomic(join(pkgDir, "index.mdx"), overview);
 
-  const sidebar = buildPackageSidebar(pkg, ownFolder, slug);
+  const sidebar = buildPackageSidebar(pkg, ownFolder, slug, registry);
   await writeFileAtomic(join(pkgDir, "_meta.ts"), renderMeta(sidebar));
 
   return slug;
@@ -105,13 +121,21 @@ async function main(): Promise<void> {
     throw new Error("No packages in TypeDoc JSON — did docs:extract run?");
   }
 
+  // Discover the workspace package registry once. This drives folder ↔ name
+  // resolution everywhere else, replacing what used to be a hardcoded list of
+  // folder names.
+  const registry = discoverPackages(PACKAGES_DIR);
+  if (registry.folders.size === 0) {
+    throw new Error(`No documentable packages discovered in ${PACKAGES_DIR}`);
+  }
+
   // Nuke-and-repave the generated tree. Everything under content/api/ is
   // generator-owned so stale artifacts never drift across runs.
   if (existsSync(API_CONTENT)) rmSync(API_CONTENT, { recursive: true, force: true });
 
   const packageInfos: { slug: string; name: string; summary: string }[] = [];
   for (const pkg of project.children) {
-    const slug = await generateForPackage(pkg);
+    const slug = await generateForPackage(pkg, registry);
     const rawSummary = (pkg.comment?.summary ?? [])
       .map((p) => ("text" in p ? (p as { text: string }).text : ""))
       .join("");

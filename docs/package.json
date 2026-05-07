@@ -8,7 +8,7 @@
     "build": "next build",
     "postbuild": "pagefind --site out --output-path out/_pagefind",
     "start": "serve out",
-    "docs:extract": "typedoc",
+    "docs:extract": "tsx scripts/extract.ts",
     "docs:render": "tsx scripts/generate-api.ts",
     "docs:generate": "pnpm docs:extract && pnpm docs:render"
   },

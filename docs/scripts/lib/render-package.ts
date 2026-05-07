@@ -4,6 +4,7 @@ import {
   originPackageFolder,
   packageFolderToSlug,
 } from "./reexports.js";
+import type { PackageRegistry } from "./registry.js";
 import { firstLine, renderSummary } from "./render-comment.js";
 import { renderSymbolSection } from "./render-symbol.js";
 import { kindLabel } from "./render-type.js";
@@ -27,11 +28,17 @@ export interface OwnExportGroup {
 // Returns the package's own (non-re-exported) children grouped by kind in the
 // same order the overview page renders them. Used by both the overview
 // renderer and the sidebar _meta.ts builder so the two stay in sync.
-export function getOwnExportGroups(pkg: Declaration, ownFolder: string): OwnExportGroup[] {
+export function getOwnExportGroups(
+  pkg: Declaration,
+  ownFolder: string,
+  registry: PackageRegistry,
+): OwnExportGroup[] {
   const byId = new Map<number, Declaration>();
   (pkg.children ?? []).forEach((c) => byId.set(c.id, c));
   const ownIds = new Set(
-    (pkg.children ?? []).filter((c) => isOwnExport(c, ownFolder)).map((c) => c.id),
+    (pkg.children ?? [])
+      .filter((c) => isOwnExport(c, ownFolder, registry))
+      .map((c) => c.id),
   );
   const groups = pkg.groups ?? [];
   const result: OwnExportGroup[] = [];
@@ -80,7 +87,11 @@ function labelFor(item: Declaration): string {
   return item.kind === Kind.Function ? `${item.name}()` : item.name;
 }
 
-export function renderPackageOverview(pkg: Declaration, ownFolder: string): string {
+export function renderPackageOverview(
+  pkg: Declaration,
+  ownFolder: string,
+  registry: PackageRegistry,
+): string {
   const rawSummary = renderSummary(pkg.comment);
   const cleanedSummary = sanitizePackageSummary(rawSummary, pkg.name);
   const frontmatterDesc = firstLine(cleanedSummary);
@@ -107,8 +118,10 @@ export function renderPackageOverview(pkg: Declaration, ownFolder: string): stri
   (pkg.children ?? []).forEach((c) => byId.set(c.id, c));
   const groups = pkg.groups ?? [];
 
-  const ownChildren = (pkg.children ?? []).filter((c) => isOwnExport(c, ownFolder));
-  const reExportChildren = (pkg.children ?? []).filter((c) => !isOwnExport(c, ownFolder));
+  const ownChildren = (pkg.children ?? []).filter((c) => isOwnExport(c, ownFolder, registry));
+  const reExportChildren = (pkg.children ?? []).filter(
+    (c) => !isOwnExport(c, ownFolder, registry),
+  );
   const ownIds = new Set(ownChildren.map((c) => c.id));
 
   // Overview table: same-page anchor links grouped by kind.
@@ -153,14 +166,14 @@ export function renderPackageOverview(pkg: Declaration, ownFolder: string): stri
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
       .forEach((item) => {
-        const folder = originPackageFolder(item);
-        const leafSlug = folder ? packageFolderToSlug(folder) : null;
+        const folder = originPackageFolder(item, registry);
+        const leafSlug = folder ? packageFolderToSlug(folder, registry) : null;
+        const leafPkgName = folder ? registry.folderToName.get(folder) ?? null : null;
         const href = leafSlug ? `/api/${leafSlug}/#${kebab(item.name)}` : null;
         const nameCell = href ? `[\`${labelFor(item)}\`](${href})` : `\`${labelFor(item)}\``;
         const kindCell = kindLabel(item.kind);
-        const leafPackage = folder
-          ? `[\`@parity/product-sdk-${folder}\`](/api/${leafSlug})`
-          : "—";
+        const leafPackage =
+          leafPkgName && leafSlug ? `[\`${leafPkgName}\`](/api/${leafSlug})` : "—";
         lines.push(`| ${nameCell} | ${kindCell} | ${leafPackage} |`);
       });
     lines.push("");
