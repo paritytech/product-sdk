@@ -14,6 +14,8 @@ pnpm add @parity/product-sdk-terminal
 
 ## Setup
 
+**Requires Node ≥21.** The package relies on the global `WebSocket` exposed by Node 21+ (via `@polkadot-api/ws-provider@0.9`). On older Node versions the WebSocket connection fails at runtime with `WebSocket is not defined`.
+
 **Register the WASM loader** — the host-papp SDK depends on `verifiablejs` which uses inline WASM (browser-only). The register hook redirects it to the Node.js WASM build. Pass it via `--import`:
 
 ```bash
@@ -127,6 +129,41 @@ File-based storage adapter for Node.js. Data persists in `storageDir` (defaults 
 
 Waits for the session list to emit at least one entry, or resolves with `[]` after `timeoutMs`.
 
+## Migration from `@polkadot-apps/terminal`
+
+For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing sessions on disk (`~/.polkadot-apps/`) carry over — same `appId`, same path. No re-pairing required for the migration itself.
+
+| Concern | `@polkadot-apps/terminal` | `@parity/product-sdk-terminal` |
+| --- | --- | --- |
+| Package name | `@polkadot-apps/terminal` | `@parity/product-sdk-terminal` |
+| Register import path | `--import @polkadot-apps/terminal/register` | `--import @parity/product-sdk-terminal/register` |
+| `createTerminalAdapter` | `async` — returned `Promise<TerminalAdapter>` | **sync** — returns `TerminalAdapter` directly. Drop the `await`. |
+| Default account signer | `createSessionSigner(session)` | `createSessionSigner(session, adapter)` — pass the adapter as second arg |
+| Non-default sub-account signer | not exposed | `createSessionSignerForAccount(session, { productId, derivationIndex })` |
+| Override session storage dir | not supported (hard-coded `~/.polkadot-apps/`) | `createTerminalAdapter({ ..., storageDir })` option |
+| E2E test helper for sessions | none | `createTestSession` from `@parity/product-sdk-terminal/testing` |
+| Node version | any (bundled `ws`) | **≥21** (uses global `WebSocket`) |
+| `destroy()` shutdown noise | emitted `Statement subscription error` to stderr | suppressed; `console.error` muted for ~50 ms |
+
+### Why the signer API changed
+
+`@novasamatech/host-papp` 0.7 replaced `SigningRawRequest.address` with `productAccountId: [productId, derivationIndex]`. The wire format requires both fields, so a session-only argument is no longer enough — the signer needs to know *which sub-account of which product is asking*. We split that into two functions to keep the common case ergonomic:
+
+- `createSessionSigner(session, adapter)` for the default account (uses `[adapter.appId, 0]`)
+- `createSessionSignerForAccount(session, { productId, derivationIndex })` for everything else
+
+The single-argument `createSessionSigner(session)` from `@polkadot-apps/terminal` no longer works against host-papp 0.7 regardless of which package you use.
+
+### Migration steps
+
+1. **Replace the dep**: `pnpm remove @polkadot-apps/terminal && pnpm add @parity/product-sdk-terminal`
+2. **Update the `--import` flag** in your `node` / `tsx` invocations or `package.json` scripts.
+3. **Drop `await`** in front of `createTerminalAdapter(...)` calls.
+4. **Update each `createSessionSigner` call site**: change `createSessionSigner(session)` → `createSessionSigner(session, adapter)`.
+5. **Verify Node version** is ≥21 (`node --version`).
+
+If your existing sessions don't appear after migrating, double-check that the `appId` is identical to what you used in `@polkadot-apps/terminal` — the on-disk file names depend on it.
+
 ## Testing
 
 The `@parity/product-sdk-terminal/testing` subpath exports `createTestSession`, a helper that synthesizes a valid persisted session on disk. E2E tests can inject a known-good session without going through QR pairing + attestation:
@@ -172,9 +209,19 @@ After login and attestation, the paired wallet can sign messages via the stateme
 
 ### WebSocket transport
 
-The adapter uses `@polkadot-api/ws-provider/node`, which internally bundles the [`ws`](https://www.npmjs.com/package/ws) package — no `globalThis.WebSocket` polyfill is required.
+The adapter uses `@polkadot-api/ws-provider@0.9`, which relies on the global `WebSocket` exposed by Node ≥21. Older Node versions (18, 20) will fail at connect time with `WebSocket is not defined` — upgrade Node, or pass an explicit `websocketClass` from the [`ws`](https://www.npmjs.com/package/ws) package.
 
-The bundled WebSocket is constructed without `followRedirects: true`, so endpoints behind an HTTP redirect will fail to connect. If you must point at an endpoint that does, supply the resolved URL directly via the `endpoints` option.
+The default WebSocket is constructed without `followRedirects: true`, so endpoints behind an HTTP redirect will fail to connect. If you must point at an endpoint that does, supply the resolved URL directly via the `endpoints` option.
+
+### `ExperimentalWarning: Importing WebAssembly module instances`
+
+You'll see this warning at startup:
+
+```
+(node:NNNNN) ExperimentalWarning: Importing WebAssembly module instances is an experimental feature and might change at any time
+```
+
+It's emitted by Node when the loader hook imports the `verifiablejs` WASM. Harmless. To silence it, run with `--no-warnings=ExperimentalWarning`.
 
 ## How It Works
 
