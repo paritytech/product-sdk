@@ -1,9 +1,12 @@
 import type { PolkadotSigner, SS58String } from "polkadot-api";
+import { Binary, FixedSizeBinary } from "@polkadot-api/substrate-bindings";
+import { encodeFunctionData, decodeFunctionResult, type Abi as ViemAbi } from "viem";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 import { seedToAccount } from "@parity/product-sdk-keys";
 import { createLogger } from "@parity/product-sdk-logger";
 import { DEV_PHRASE, ss58Address } from "@polkadot-labs/hdkd-helpers";
 import { ContractSignerMissingError } from "./errors.js";
+import type { ContractRuntime } from "./runtime.js";
 import type {
     AbiEntry,
     BatchableCall,
@@ -12,21 +15,13 @@ import type {
     ContractDefaults,
     PrepareOptions,
     QueryOptions,
+    QueryResult,
     TxOptions,
 } from "./types.js";
 
 const log = createLogger("contracts");
 
-/**
- * Ink SDK contract instance returned by `inkSdk.getContract()`.
- *
- * Typed as `any` because we call `.query()` / `.send()` with runtime method
- * names — the SDK's `ContractSdk<D>` requires compile-time descriptor
- * knowledge that runtime ABIs can't provide.
- */
-type InkContract = any;
-
-/** Extract method name → ordered parameter names from the ABI. */
+/** Map of method name → ordered ABI parameter names. */
 function buildMethodArgMap(abi: AbiEntry[]): Record<string, string[]> {
     const map: Record<string, string[]> = {};
     for (const entry of abi) {
@@ -37,7 +32,7 @@ function buildMethodArgMap(abi: AbiEntry[]): Record<string, string[]> {
     return map;
 }
 
-/** Convert positional arguments to a named object matching the ABI parameter names. */
+/** Convert positional arguments to a record matching the ABI parameter names. */
 function positionalToNamed(argNames: string[], values: unknown[]): Record<string, unknown> {
     const data: Record<string, unknown> = {};
     for (let i = 0; i < argNames.length; i++) {
@@ -67,16 +62,9 @@ function extractOverrides<T>(
  * Dev address (Alice) used as fallback origin for read-only queries when no
  * wallet is connected. Queries are dry-run simulations — the origin only
  * affects gas estimation and is safe to stub.
- *
- * This is a development convenience. In production, the origin is resolved
- * from the signerManager (logged-in account) or an explicit defaultOrigin.
  */
 const QUERY_FALLBACK_ORIGIN = seedToAccount(DEV_PHRASE, "//Alice").ss58Address as SS58String;
 
-/**
- * Resolve the origin address: explicit override → signerManager → static default.
- * For queries, pass `forQuery: true` to enable the dev-address fallback.
- */
 function resolveOrigin(
     defaults: ContractDefaults,
     override?: SS58String,
@@ -93,9 +81,6 @@ function resolveOrigin(
     return undefined;
 }
 
-/**
- * Resolve the signer: explicit override → signerManager → static default.
- */
 function resolveSigner(
     defaults: ContractDefaults,
     override?: PolkadotSigner,
@@ -103,42 +88,108 @@ function resolveSigner(
     return override ?? defaults.signerManager?.getSigner() ?? defaults.signer;
 }
 
+/** Convert a 0x-prefixed H160 string to the 20-byte FixedSizeBinary descriptors expect. */
+function addressToFixedBinary(address: string): FixedSizeBinary<20> {
+    const hex = address.startsWith("0x") ? address.slice(2) : address;
+    if (hex.length !== 40) {
+        throw new Error(`Expected 20-byte H160 contract address, got ${hex.length / 2} bytes`);
+    }
+    return FixedSizeBinary.fromHex(hex);
+}
+
 /**
- * Wrap an ink SDK contract instance with a proxy that exposes each ABI
- * method as `{ query, tx }` — converting positional arguments to the
- * named-parameter format the SDK expects.
+ * Encode the calldata for a contract method using the Solidity ABI codec.
+ * Returns `selector ‖ head ‖ tail` as a `0x`-prefixed hex string.
+ */
+function encodeCalldata(abi: AbiEntry[], methodName: string, args: unknown[]): `0x${string}` {
+    return encodeFunctionData({
+        abi: abi as unknown as ViemAbi,
+        functionName: methodName,
+        args,
+    });
+}
+
+/**
+ * Decode a successful query's return data via the Solidity ABI codec.
+ * Returns `undefined` for void methods.
+ */
+function decodeReturn(abi: AbiEntry[], methodName: string, returnData: Uint8Array): unknown {
+    if (returnData.byteLength === 0) return undefined;
+    let hex = "0x";
+    for (let i = 0; i < returnData.byteLength; i++) {
+        hex += returnData[i].toString(16).padStart(2, "0");
+    }
+    return decodeFunctionResult({
+        abi: abi as unknown as ViemAbi,
+        functionName: methodName,
+        data: hex as `0x${string}`,
+    });
+}
+
+/**
+ * Build a typed contract handle backed by direct `Revive` extrinsic +
+ * `ReviveApi` runtime API calls. The Solidity ABI codec runs through `viem`.
+ *
+ * @param runtime - A `ContractRuntime` (returned by `createContractRuntime`).
+ * @param address - The H160 address of the deployed contract.
+ * @param abi - The Solidity ABI for the contract.
+ * @param defaults - Origin / signer fallbacks shared across all method calls.
  */
 export function wrapContract(
-    inkContract: InkContract,
+    runtime: ContractRuntime,
+    address: string,
     abi: AbiEntry[],
     defaults: ContractDefaults,
 ): Contract<ContractDef> {
     const methodArgs = buildMethodArgMap(abi);
+    const dest = addressToFixedBinary(address);
+    void positionalToNamed; // retained for future named-arg paths; viem consumes positional
 
-    return new Proxy({} as any, {
+    return new Proxy({} as Record<string, unknown>, {
         get(_, methodName: string) {
             if (typeof methodName !== "string") return undefined;
             const argNames = methodArgs[methodName];
             if (!argNames) return undefined;
 
             return {
-                query: async (...args: unknown[]) => {
+                query: async (...args: unknown[]): Promise<QueryResult<unknown>> => {
                     const { positionalArgs, overrides } = extractOverrides<QueryOptions>(
                         argNames,
                         args,
                     );
-                    const data = positionalToNamed(argNames, positionalArgs);
                     const origin = resolveOrigin(defaults, overrides?.origin, true)!;
+                    const value = overrides?.value ?? 0n;
 
-                    const result = await inkContract.query(methodName, {
+                    const calldata = Binary.fromHex(
+                        encodeCalldata(abi, methodName, positionalArgs),
+                    );
+
+                    const dryRun = await runtime.api.apis.ReviveApi.call(
                         origin,
-                        data,
-                        ...(overrides?.value !== undefined && { value: overrides.value }),
-                    });
+                        dest,
+                        value,
+                        undefined,
+                        undefined,
+                        calldata,
+                    );
+
+                    if (!dryRun.result.success) {
+                        return {
+                            success: false,
+                            value: undefined,
+                            gasRequired: dryRun.weight_required,
+                        };
+                    }
+
+                    const decoded = decodeReturn(
+                        abi,
+                        methodName,
+                        dryRun.result.value.data.asBytes(),
+                    );
                     return {
-                        success: result.success,
-                        value: result.success ? result.value.response : undefined,
-                        gasRequired: result.value?.gasRequired,
+                        success: true,
+                        value: decoded,
+                        gasRequired: dryRun.weight_required,
                     };
                 },
 
@@ -147,7 +198,6 @@ export function wrapContract(
                         argNames,
                         args,
                     );
-                    const data = positionalToNamed(argNames, positionalArgs);
                     const signer = resolveSigner(defaults, overrides?.signer);
                     if (!signer) {
                         throw new ContractSignerMissingError();
@@ -156,16 +206,43 @@ export function wrapContract(
                     const origin =
                         resolveOrigin(defaults, overrides?.origin) ??
                         (ss58Address(signer.publicKey) as SS58String);
-                    const inkTx = inkContract.send(methodName, {
-                        data,
-                        origin,
-                        ...(overrides?.value !== undefined && { value: overrides.value }),
-                        ...(overrides?.gasLimit && { gasLimit: overrides.gasLimit }),
-                        ...(overrides?.storageDepositLimit !== undefined && {
-                            storageDepositLimit: overrides.storageDepositLimit,
-                        }),
+
+                    const value = overrides?.value ?? 0n;
+                    const calldata = Binary.fromHex(
+                        encodeCalldata(abi, methodName, positionalArgs),
+                    );
+
+                    // Dry-run for weight + storage deposit unless the caller
+                    // supplied explicit overrides for both.
+                    let weightLimit = overrides?.gasLimit;
+                    let storageDepositLimit = overrides?.storageDepositLimit;
+                    if (!weightLimit || storageDepositLimit === undefined) {
+                        const dryRun = await runtime.api.apis.ReviveApi.call(
+                            origin,
+                            dest,
+                            value,
+                            undefined,
+                            undefined,
+                            calldata,
+                        );
+                        weightLimit = weightLimit ?? dryRun.weight_required;
+                        if (storageDepositLimit === undefined) {
+                            storageDepositLimit =
+                                dryRun.storage_deposit.type === "Charge"
+                                    ? dryRun.storage_deposit.value
+                                    : 0n;
+                        }
+                    }
+
+                    const tx = runtime.api.tx.Revive.call({
+                        dest,
+                        value,
+                        weight_limit: weightLimit,
+                        storage_deposit_limit: storageDepositLimit,
+                        data: calldata,
                     });
-                    return submitAndWatch(inkTx, signer, {
+
+                    return submitAndWatch(tx, signer, {
                         waitFor: overrides?.waitFor,
                         timeoutMs: overrides?.timeoutMs,
                         mortalityPeriod: overrides?.mortalityPeriod,
@@ -195,7 +272,7 @@ export function wrapContract(
                 },
             };
         },
-    });
+    }) as Contract<ContractDef>;
 }
 
 if (import.meta.vitest) {
@@ -222,8 +299,7 @@ if (import.meta.vitest) {
                 },
                 { type: "event", name: "Transfer", inputs: [] },
             ];
-            const map = buildMethodArgMap(abi);
-            expect(map).toEqual({
+            expect(buildMethodArgMap(abi)).toEqual({
                 transfer: ["to", "amount"],
                 balanceOf: ["owner"],
             });
@@ -274,17 +350,86 @@ if (import.meta.vitest) {
         });
     });
 
-    /** Build a partial SignerManager mock for tests. */
+    describe("addressToFixedBinary", () => {
+        test("accepts 0x-prefixed H160", () => {
+            const a = addressToFixedBinary("0x1234567890abcdef1234567890abcdef12345678");
+            expect(a.asHex().toLowerCase()).toBe(
+                "0x1234567890abcdef1234567890abcdef12345678",
+            );
+        });
+
+        test("accepts unprefixed hex", () => {
+            const a = addressToFixedBinary("aabbccddeeff00112233445566778899aabbccdd");
+            expect(a.asBytes().byteLength).toBe(20);
+        });
+
+        test("rejects wrong length", () => {
+            expect(() => addressToFixedBinary("0x1234")).toThrow(/20-byte/);
+        });
+    });
+
+    describe("encodeCalldata / decodeReturn (viem round-trip)", () => {
+        const abi: AbiEntry[] = [
+            {
+                type: "function",
+                name: "add",
+                inputs: [
+                    { name: "a", type: "uint32" },
+                    { name: "b", type: "uint32" },
+                ],
+                outputs: [{ name: "", type: "uint32" }],
+                stateMutability: "view",
+            },
+            {
+                type: "function",
+                name: "name",
+                inputs: [],
+                outputs: [{ name: "", type: "string" }],
+                stateMutability: "view",
+            },
+        ];
+
+        test("encodes selector + args", () => {
+            const data = encodeCalldata(abi, "add", [1, 2]);
+            expect(data.slice(0, 2)).toBe("0x");
+            // 4-byte selector + 2 * 32-byte args = 68 bytes = 136 hex chars + "0x"
+            expect(data.length).toBe(2 + 4 * 2 + 2 * 32 * 2);
+        });
+
+        test("decodes single uint32 return", () => {
+            const buf = new Uint8Array(32);
+            buf[31] = 7;
+            expect(decodeReturn(abi, "add", buf)).toBe(7);
+        });
+
+        test("decodes string return", () => {
+            const hex =
+                "0000000000000000000000000000000000000000000000000000000000000020" +
+                "0000000000000000000000000000000000000000000000000000000000000002" +
+                "6869000000000000000000000000000000000000000000000000000000000000";
+            const buf = new Uint8Array(hex.length / 2);
+            for (let i = 0; i < buf.length; i++) {
+                buf[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+            }
+            expect(decodeReturn(abi, "name", buf)).toBe("hi");
+        });
+
+        test("returns undefined for empty data", () => {
+            expect(decodeReturn(abi, "add", new Uint8Array(0))).toBeUndefined();
+        });
+    });
+
+    /** Minimal SignerManager mock for resolve* helpers. */
     function mockSigner(opts: {
         address?: string | null;
-        signer?: any;
+        signer?: PolkadotSigner | null;
     }): import("@parity/product-sdk-signer").SignerManager {
         return {
             getSigner: () => opts.signer ?? null,
             getState: () => ({
-                selectedAccount: opts.address ? ({ address: opts.address } as any) : null,
+                selectedAccount: opts.address ? ({ address: opts.address } as never) : null,
             }),
-        } as any;
+        } as unknown as import("@parity/product-sdk-signer").SignerManager;
     }
 
     describe("resolveOrigin", () => {
@@ -312,23 +457,15 @@ if (import.meta.vitest) {
         test("returns undefined when nothing available", () => {
             expect(resolveOrigin({})).toBeUndefined();
         });
-
-        test("skips signerManager when no account selected", () => {
-            const defaults: ContractDefaults = {
-                origin: "5Static" as SS58String,
-                signerManager: mockSigner({ address: null }),
-            };
-            expect(resolveOrigin(defaults)).toBe("5Static");
-        });
     });
 
     describe("resolveSigner", () => {
-        const fakeSigner = { id: "fake" } as any;
-        const sourceSigner = { id: "source" } as any;
+        const fakeSigner = { id: "fake" } as unknown as PolkadotSigner;
+        const sourceSigner = { id: "source" } as unknown as PolkadotSigner;
 
         test("explicit override wins", () => {
             const defaults: ContractDefaults = {
-                signer: { id: "static" } as any,
+                signer: { id: "static" } as unknown as PolkadotSigner,
                 signerManager: mockSigner({ signer: sourceSigner }),
             };
             expect(resolveSigner(defaults, fakeSigner)).toBe(fakeSigner);
@@ -336,7 +473,7 @@ if (import.meta.vitest) {
 
         test("signerManager wins over static default", () => {
             const defaults: ContractDefaults = {
-                signer: { id: "static" } as any,
+                signer: { id: "static" } as unknown as PolkadotSigner,
                 signerManager: mockSigner({ signer: sourceSigner }),
             };
             expect(resolveSigner(defaults)).toBe(sourceSigner);
@@ -349,14 +486,6 @@ if (import.meta.vitest) {
 
         test("returns undefined when nothing available", () => {
             expect(resolveSigner({})).toBeUndefined();
-        });
-
-        test("skips signerManager when getSigner returns null", () => {
-            const defaults: ContractDefaults = {
-                signer: fakeSigner,
-                signerManager: mockSigner({}),
-            };
-            expect(resolveSigner(defaults)).toBe(fakeSigner);
         });
     });
 

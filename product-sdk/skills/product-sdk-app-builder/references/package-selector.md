@@ -28,7 +28,7 @@ START
 │  └─ Need key derivation or session keys?
 │     YES → @parity/product-sdk-keys
 │
-├─ Need to interact with smart contracts (Solidity/ink! on Asset Hub)?
+├─ Need to interact with smart contracts (PolkaVM/Solidity on Asset Hub)?
 │  YES → @parity/product-sdk-contracts
 │  │
 │  ├─ Have a cdm.json manifest?
@@ -136,12 +136,12 @@ storage ← host, logger
 keys ← address, crypto, utils, storage
 tx ← keys, logger
 signer ← address, keys, logger
-chain-client ← descriptors, host  (provides .raw for InkSdk creation)
-contracts ← tx, signer, keys, logger  (needs InkSdk from @polkadot-api/sdk-ink)
+chain-client ← descriptors, host  (provides .raw for ContractRuntime creation)
+contracts ← tx, signer, keys, logger  (needs ContractRuntime from @parity/product-sdk-contracts)
 bulletin ← chain-client, descriptors, host, logger, tx
 statement-store ← host, logger, utils  (+ @novasamatech/sdk-statement, @polkadot-api/substrate-client)
 ```
 
-Note: `contracts` no longer depends on `chain-client`. Create InkSdk yourself from `client.raw.<chain>` and pass it to `ContractManager` or `createContract`.
+Note: `contracts` no longer depends on `chain-client`. Create ContractRuntime yourself from `client.raw.<chain>` and pass it to `ContractManager` or `createContract`.
 
 Transitive dependencies are handled automatically by npm/pnpm — install only the packages you directly use.

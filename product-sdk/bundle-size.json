@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-07T12:28:10.453Z",
+  "generatedAt": "2026-05-07T22:14:38.258Z",
   "node": "v22.19.0",
   "esbuild": "0.25.12",
   "packages": {
@@ -17,13 +17,13 @@
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shaken": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shakeRatio": null
         },
@@ -36,13 +36,13 @@
           },
           "bundled": {
             "raw": 20821,
-            "gzip": 8077,
-            "brotli": 7228
+            "gzip": 8078,
+            "brotli": 7196
           },
           "shaken": {
             "raw": 15727,
-            "gzip": 6197,
-            "brotli": 5554
+            "gzip": 6199,
+            "brotli": 5535
           },
           "shakeRatio": 0.7553
         },
@@ -57,13 +57,13 @@
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shaken": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shakeRatio": null
         },
@@ -75,18 +75,16 @@
             "brotli": 90
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 4254832,
+            "gzip": 1397368,
+            "brotli": 623904
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 88750,
+            "gzip": 29780,
+            "brotli": 26324
           },
-          "shakeRatio": null
+          "shakeRatio": 0.0209
         },
         "./contracts": {
           "file": "packages/sdk/dist/contracts/index.js",
@@ -96,16 +94,18 @@
             "brotli": 91
           },
           "bundled": {
-            "raw": 2378737,
-            "gzip": 752756,
-            "brotli": 410572
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
           },
           "shaken": {
-            "raw": 155553,
-            "gzip": 56300,
-            "brotli": 40589
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
           },
-          "shakeRatio": 0.0654
+          "shakeRatio": null
         },
         "./core": {
           "file": "packages/sdk/dist/core/index.js",
@@ -118,13 +118,13 @@
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shaken": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shakeRatio": null
         },
@@ -136,16 +136,16 @@
             "brotli": 94
           },
           "bundled": {
-            "raw": 73480,
-            "gzip": 25373,
-            "brotli": 20354
+            "raw": 73478,
+            "gzip": 25379,
+            "brotli": 20405
           },
           "shaken": {
-            "raw": 43080,
-            "gzip": 15325,
-            "brotli": 12056
+            "raw": 34170,
+            "gzip": 11674,
+            "brotli": 8857
           },
-          "shakeRatio": 0.5863
+          "shakeRatio": 0.465
         },
         "./host": {
           "file": "packages/sdk/dist/host/index.js",
@@ -155,18 +155,16 @@
             "brotli": 91
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 89524,
+            "gzip": 30358,
+            "brotli": 26562
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 28882,
+            "gzip": 10671,
+            "brotli": 9539
           },
-          "shakeRatio": null
+          "shakeRatio": 0.3226
         },
         "./identity": {
           "file": "packages/sdk/dist/identity/index.js",
@@ -177,13 +175,13 @@
           },
           "bundled": {
             "raw": 51343,
-            "gzip": 18067,
-            "brotli": 14455
+            "gzip": 18081,
+            "brotli": 14440
           },
           "shaken": {
             "raw": 1158,
             "gzip": 641,
-            "brotli": 540
+            "brotli": 551
           },
           "shakeRatio": 0.0226
         },
@@ -198,13 +196,13 @@
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shaken": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shakeRatio": null
         },
@@ -216,18 +214,16 @@
             "brotli": 90
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 89360,
+            "gzip": 30350,
+            "brotli": 26525
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 89320,
+            "gzip": 30316,
+            "brotli": 26539
           },
-          "shakeRatio": null
+          "shakeRatio": 0.9996
         },
         "./wallet": {
           "file": "packages/sdk/dist/wallet/index.js",
@@ -237,18 +233,16 @@
             "brotli": 94
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 236517,
+            "gzip": 81701,
+            "brotli": 61387
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 1206,
+            "gzip": 634,
+            "brotli": 549
           },
-          "shakeRatio": null
+          "shakeRatio": 0.0051
         }
       }
     },
@@ -257,19 +251,19 @@
         ".": {
           "file": "packages/address/dist/index.js",
           "ship": {
-            "raw": 12913,
-            "gzip": 2996,
-            "brotli": 2687
+            "raw": 3807,
+            "gzip": 1316,
+            "brotli": 1181
           },
           "bundled": {
             "raw": 20821,
-            "gzip": 8077,
-            "brotli": 7228
+            "gzip": 8078,
+            "brotli": 7196
           },
           "shaken": {
             "raw": 15727,
-            "gzip": 6197,
-            "brotli": 5554
+            "gzip": 6199,
+            "brotli": 5535
           },
           "shakeRatio": 0.7553
         }
@@ -288,13 +282,13 @@
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shaken": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 1 error:\npackages/bulletin/dist/index.js:298:51: ERROR: Could not resolve \"@parity/product-sdk-crypto\""
           },
           "shakeRatio": null
         }
@@ -305,23 +299,21 @@
         ".": {
           "file": "packages/chain-client/dist/index.js",
           "ship": {
-            "raw": 15079,
-            "gzip": 3917,
-            "brotli": 3398
+            "raw": 6058,
+            "gzip": 1830,
+            "brotli": 1598
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 4254832,
+            "gzip": 1397368,
+            "brotli": 623904
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 88750,
+            "gzip": 29780,
+            "brotli": 26324
           },
-          "shakeRatio": null
+          "shakeRatio": 0.0209
         }
       }
     },
@@ -330,59 +322,63 @@
         ".": {
           "file": "packages/contracts/dist/index.js",
           "ship": {
-            "raw": 14598,
-            "gzip": 3734,
-            "brotli": 3300
+            "raw": 20842,
+            "gzip": 5237,
+            "brotli": 4645
           },
           "bundled": {
-            "raw": 2378737,
-            "gzip": 752756,
-            "brotli": 410572
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
           },
           "shaken": {
-            "raw": 155553,
-            "gzip": 56300,
-            "brotli": 40589
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
           },
-          "shakeRatio": 0.0654
+          "shakeRatio": null
         },
         "./codegen": {
           "file": "packages/contracts/dist/codegen.js",
           "ship": {
-            "raw": 134,
-            "gzip": 124,
-            "brotli": 108
+            "raw": 222,
+            "gzip": 155,
+            "brotli": 139
           },
           "bundled": {
-            "raw": 1587,
-            "gzip": 826,
-            "brotli": 710
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
           },
           "shaken": {
-            "raw": 1453,
-            "gzip": 741,
-            "brotli": 638
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
           },
-          "shakeRatio": 0.9156
+          "shakeRatio": null
         },
         "./pvm": {
           "file": "packages/contracts/dist/pvm.js",
           "ship": {
-            "raw": 3750,
-            "gzip": 1145,
-            "brotli": 1018
+            "raw": 226,
+            "gzip": 137,
+            "brotli": 134
           },
           "bundled": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/pvm.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
           },
           "shaken": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/pvm.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
           },
           "shakeRatio": null
         }
@@ -393,21 +389,21 @@
         ".": {
           "file": "packages/crypto/dist/index.js",
           "ship": {
-            "raw": 20352,
-            "gzip": 3450,
-            "brotli": 3075
+            "raw": 7018,
+            "gzip": 1486,
+            "brotli": 1339
           },
           "bundled": {
-            "raw": 73480,
-            "gzip": 25373,
-            "brotli": 20354
+            "raw": 73478,
+            "gzip": 25379,
+            "brotli": 20405
           },
           "shaken": {
-            "raw": 43080,
-            "gzip": 15325,
-            "brotli": 12056
+            "raw": 34170,
+            "gzip": 11674,
+            "brotli": 8857
           },
-          "shakeRatio": 0.5863
+          "shakeRatio": 0.465
         }
       }
     },
@@ -520,23 +516,21 @@
         ".": {
           "file": "packages/host/dist/index.js",
           "ship": {
-            "raw": 6449,
-            "gzip": 1581,
-            "brotli": 1402
+            "raw": 2599,
+            "gzip": 817,
+            "brotli": 696
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 89524,
+            "gzip": 30358,
+            "brotli": 26562
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 28882,
+            "gzip": 10671,
+            "brotli": 9539
           },
-          "shakeRatio": null
+          "shakeRatio": 0.3226
         }
       }
     },
@@ -545,19 +539,19 @@
         ".": {
           "file": "packages/keys/dist/index.js",
           "ship": {
-            "raw": 21790,
-            "gzip": 4425,
-            "brotli": 3950
+            "raw": 6026,
+            "gzip": 1922,
+            "brotli": 1709
           },
           "bundled": {
             "raw": 191349,
-            "gzip": 68212,
-            "brotli": 48754
+            "gzip": 68255,
+            "brotli": 48895
           },
           "shaken": {
             "raw": 140106,
-            "gzip": 50703,
-            "brotli": 37847
+            "gzip": 50713,
+            "brotli": 37739
           },
           "shakeRatio": 0.7322
         }
@@ -568,14 +562,14 @@
         ".": {
           "file": "packages/logger/dist/index.js",
           "ship": {
-            "raw": 9600,
-            "gzip": 2272,
-            "brotli": 1973
+            "raw": 2322,
+            "gzip": 830,
+            "brotli": 700
           },
           "bundled": {
             "raw": 1257,
             "gzip": 645,
-            "brotli": 569
+            "brotli": 572
           },
           "shaken": {
             "raw": 634,
@@ -591,23 +585,21 @@
         ".": {
           "file": "packages/signer/dist/index.js",
           "ship": {
-            "raw": 53051,
-            "gzip": 10093,
-            "brotli": 8870
+            "raw": 28975,
+            "gzip": 6431,
+            "brotli": 5639
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 236517,
+            "gzip": 81701,
+            "brotli": 61387
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 1206,
+            "gzip": 634,
+            "brotli": 549
           },
-          "shakeRatio": null
+          "shakeRatio": 0.0051
         }
       }
     },
@@ -616,23 +608,21 @@
         ".": {
           "file": "packages/statement-store/dist/index.js",
           "ship": {
-            "raw": 35763,
-            "gzip": 8286,
-            "brotli": 7238
+            "raw": 20991,
+            "gzip": 5724,
+            "brotli": 4981
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 106455,
+            "gzip": 35770,
+            "brotli": 29998
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "raw": 10012,
+            "gzip": 4027,
+            "brotli": 3561
           },
-          "shakeRatio": null
+          "shakeRatio": 0.094
         }
       }
     },
@@ -641,21 +631,86 @@
         ".": {
           "file": "packages/storage/dist/index.js",
           "ship": {
-            "raw": 6549,
-            "gzip": 1449,
-            "brotli": 1255
+            "raw": 1995,
+            "gzip": 619,
+            "brotli": 539
+          },
+          "bundled": {
+            "raw": 89360,
+            "gzip": 30350,
+            "brotli": 26525
+          },
+          "shaken": {
+            "raw": 89320,
+            "gzip": 30316,
+            "brotli": 26539
+          },
+          "shakeRatio": 0.9996
+        }
+      }
+    },
+    "@parity/product-sdk-terminal": {
+      "entries": {
+        ".": {
+          "file": "packages/terminal/dist/index.js",
+          "ship": {
+            "raw": 10977,
+            "gzip": 2950,
+            "brotli": 2609
           },
           "bundled": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 4 errors:\nnode_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs.js:1:22: ERROR: No loader is configured for \".wasm\" files: node_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs_bg.wasm\npackages/terminal/dist/chunk-5MCLSFKQ.js:4:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:5:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:6:24: ERROR: Could not resolve \"os\""
           },
           "shaken": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 1 error:\nnode_modules/.pnpm/@polkadot-api+json-rpc-provider-proxy@0.4.0/node_modules/@polkadot-api/json-rpc-provider-proxy/dist/get-proxy.js:1:27: ERROR: Could not resolve \"@polkadot-api/json-rpc-provider\""
+            "error": "Build failed with 4 errors:\nnode_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs.js:1:22: ERROR: No loader is configured for \".wasm\" files: node_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs_bg.wasm\npackages/terminal/dist/chunk-5MCLSFKQ.js:4:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:5:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:6:24: ERROR: Could not resolve \"os\""
+          },
+          "shakeRatio": null
+        },
+        "./register": {
+          "file": "packages/terminal/dist/register.js",
+          "ship": {
+            "raw": 381,
+            "gzip": 218,
+            "brotli": 180
+          },
+          "bundled": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 3 errors:\npackages/terminal/dist/register.js:2:25: ERROR: Could not resolve \"module\"\npackages/terminal/dist/register.js:3:30: ERROR: Could not resolve \"url\"\npackages/terminal/dist/register.js:4:30: ERROR: Could not resolve \"path\""
+          },
+          "shaken": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "no exports detected"
+          },
+          "shakeRatio": null
+        },
+        "./testing": {
+          "file": "packages/terminal/dist/testing.js",
+          "ship": {
+            "raw": 11382,
+            "gzip": 2550,
+            "brotli": 2305
+          },
+          "bundled": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 5 errors:\npackages/terminal/dist/chunk-5MCLSFKQ.js:4:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:5:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:6:24: ERROR: Could not resolve \"os\"\npackages/terminal/dist/testing.js:24:33: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/testing.js:25:21: ERROR: Could not resolve \"path\""
+          },
+          "shaken": {
+            "raw": null,
+            "gzip": null,
+            "brotli": null,
+            "error": "Build failed with 5 errors:\npackages/terminal/dist/chunk-5MCLSFKQ.js:4:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:5:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:6:24: ERROR: Could not resolve \"os\"\npackages/terminal/dist/testing.js:24:33: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/testing.js:25:21: ERROR: Could not resolve \"path\""
           },
           "shakeRatio": null
         }
@@ -666,21 +721,21 @@
         ".": {
           "file": "packages/tx/dist/index.js",
           "ship": {
-            "raw": 56508,
-            "gzip": 10032,
-            "brotli": 8617
+            "raw": 14628,
+            "gzip": 3819,
+            "brotli": 3383
           },
           "bundled": {
-            "raw": 161368,
-            "gzip": 59030,
-            "brotli": 41980
+            "raw": 161358,
+            "gzip": 59029,
+            "brotli": 41868
           },
           "shaken": {
-            "raw": 30847,
-            "gzip": 13206,
-            "brotli": 11589
+            "raw": 30841,
+            "gzip": 13194,
+            "brotli": 11611
           },
-          "shakeRatio": 0.1912
+          "shakeRatio": 0.1911
         }
       }
     },
@@ -689,21 +744,21 @@
         ".": {
           "file": "packages/utils/dist/index.js",
           "ship": {
-            "raw": 15285,
-            "gzip": 3414,
-            "brotli": 3034
+            "raw": 3857,
+            "gzip": 1399,
+            "brotli": 1223
           },
           "bundled": {
             "raw": 18195,
-            "gzip": 7294,
-            "brotli": 6330
+            "gzip": 7289,
+            "brotli": 6308
           },
           "shaken": {
-            "raw": 8399,
-            "gzip": 3417,
-            "brotli": 3004
+            "raw": 1626,
+            "gzip": 858,
+            "brotli": 759
           },
-          "shakeRatio": 0.4616
+          "shakeRatio": 0.0894
         }
       }
     }

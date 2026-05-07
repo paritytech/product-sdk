@@ -37,7 +37,8 @@ export interface CdmJson {
 }
 
 // ---------------------------------------------------------------------------
-// ABI types (Solidity-compatible, used by both Ink!/PolkaVM and Solidity)
+// ABI types (Solidity-compatible — emitted by cargo-pvm-contract and any
+// Solidity toolchain targeting pallet-revive)
 // ---------------------------------------------------------------------------
 
 /** An ABI parameter or return value, with support for nested tuple and struct types. */
@@ -79,7 +80,11 @@ export interface Contracts {}
 export interface QueryResult<T> {
     success: boolean;
     value: T;
-    gasRequired?: bigint;
+    /**
+     * Weight required to execute this call as a transaction. Returned by
+     * `ReviveApi.call` and consumed by `Revive.call`'s `weight_limit`.
+     */
+    gasRequired?: Weight;
 }
 
 /** Options for query calls — passed as the last argument after positional args. */

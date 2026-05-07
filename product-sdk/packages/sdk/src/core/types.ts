@@ -87,7 +87,7 @@ export interface ChainApi {
     /**
      * Get the raw PolkadotClient for a chain.
      *
-     * Use this for advanced APIs like `createInkSdk` from `@polkadot-api/sdk-ink`.
+     * Use this for advanced APIs like `createContractRuntime` from `@parity/product-sdk-contracts`.
      *
      * @param descriptor - PAPI chain descriptor
      * @returns Raw PolkadotClient instance

@@ -20,8 +20,9 @@ export class TxAccountMappingError extends Error {
 /**
  * Minimal interface for checking if an address is mapped on-chain.
  *
- * The Ink SDK's `createInkSdk(client)` returns an object with this method.
- * We accept it structurally to avoid importing `@polkadot-api/sdk-ink`.
+ * Accepted structurally so this module stays runtime-agnostic. Build one
+ * directly from the typed API of any pallet-revive-capable chain — see the
+ * example on {@link ensureAccountMapped}.
  */
 export interface MappingChecker {
     addressIsMapped(address: string): Promise<boolean>;
@@ -60,7 +61,8 @@ export interface EnsureAccountMappedOptions {
  *
  * @param address - The SS58 address to check/map.
  * @param signer - The signer for the account (must match the address).
- * @param checker - An object with `addressIsMapped()` (e.g., from `createInkSdk(client)`).
+ * @param checker - An object with `addressIsMapped()`. Easiest path: build one
+ *   from a pallet-revive-capable typed API by querying `Revive.OriginalAccount`.
  * @param api - A typed API with `tx.Revive.map_account()`.
  * @param options - Optional timeout and status callback.
  * @returns The transaction result if mapping was performed, or `null` if already mapped.
@@ -72,13 +74,16 @@ export interface EnsureAccountMappedOptions {
  * @example
  * ```ts
  * import { ensureAccountMapped } from "@parity/product-sdk-tx";
- * import { createInkSdk } from "@polkadot-api/sdk-ink";
+ * import { ss58ToH160 } from "@parity/product-sdk-address";
  *
- * const inkSdk = createInkSdk(client);
- * const api = client.getTypedApi(descriptor);
+ * const api = client.getTypedApi(paseo_asset_hub);
+ * const checker = {
+ *     addressIsMapped: async (addr: string) =>
+ *         (await api.query.Revive.OriginalAccount.getValue(ss58ToH160(addr))) !== undefined,
+ * };
  *
- * await ensureAccountMapped(address, signer, inkSdk, api);
- * // Account is now mapped — safe to call EVM contracts
+ * await ensureAccountMapped(address, signer, checker, api);
+ * // Account is now mapped — safe to call PolkaVM/Solidity contracts
  * ```
  */
 export async function ensureAccountMapped(

@@ -1,14 +1,14 @@
 ---
 name: product-sdk-contracts
 description: >
-  Use when interacting with smart contracts (Solidity/ink!) on Asset Hub, using ContractManager
-  with cdm.json manifests, createContract for ad-hoc contracts, InkSdk creation, or contract
+  Use when interacting with smart contracts (PolkaVM/Solidity) on Asset Hub, using ContractManager
+  with cdm.json manifests, createContract for ad-hoc contracts, ContractRuntime creation, or contract
   type codegen. Covers @parity/product-sdk-contracts.
 ---
 
 # Product SDK Contracts
 
-`@parity/product-sdk-contracts` provides ergonomic, fully-typed smart contract interactions on Asset Hub. It supports both Solidity contracts (via pallet-revive) and ink! contracts.
+`@parity/product-sdk-contracts` provides ergonomic, fully-typed smart contract interactions on Asset Hub. It supports both Solidity contracts (via pallet-revive) and PolkaVM contracts.
 
 ## Quick Start: With cdm.json Manifest
 
@@ -213,23 +213,23 @@ await counter.increment.tx(1n, { signer });
 The filesystem helpers lazy-import `node:fs/promises` so the `./pvm` module
 remains importable in browser builds — only the call site needs to be in Node.
 
-## InkSdk Access
+## ContractRuntime Access
 
-For advanced use cases, create an InkSdk directly:
+For advanced use cases, create an ContractRuntime directly:
 
 ```typescript
-import { createInkSdk } from "@polkadot-api/sdk-ink";
+import { createContractRuntime } from "@parity/product-sdk-contracts";
 
-const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 
 // Use with createContract
 import { createContract } from "@parity/product-sdk-contracts";
-const counter = createContract(inkSdk, "0x...", abi, { signerManager });
+const counter = createContract(runtime, "0x...", abi, { signerManager });
 ```
 
 ## Common Mistakes
 
-1. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create InkSdk yourself or use `ContractManager.fromClient()`.
+1. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create ContractRuntime yourself or use `ContractManager.fromClient()`.
 
 2. **Missing signerManager for tx()** — If no signer is available, `tx()` throws `ContractSignerMissingError`.
 

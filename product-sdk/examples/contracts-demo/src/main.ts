@@ -21,7 +21,7 @@
 
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
-import { ContractManager } from "@parity/product-sdk-contracts";
+import { ContractManager, createContractRuntime } from "@parity/product-sdk-contracts";
 
 import cdm from "./cdm.json";
 import { appendLog, getEl } from "./ui.js";
@@ -164,7 +164,8 @@ async function init() {
 
     log("Initialising ContractManager…");
     try {
-        contractManager = await ContractManager.fromClient(cdm as any, chain.raw.assetHub, {
+        const runtime = createContractRuntime(chain.assetHub as never);
+        contractManager = new ContractManager(cdm as never, runtime, {
             signerManager: manager,
         });
         log("ContractManager ready (@t3rminal/bulletin-index)", "ok");

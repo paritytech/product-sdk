@@ -180,7 +180,7 @@ main().catch(console.error);
 
 ## Contract dApp
 
-Interact with Solidity/ink! smart contracts on Asset Hub.
+Interact with PolkaVM/Solidity smart contracts on Asset Hub.
 
 ### package.json
 

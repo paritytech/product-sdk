@@ -112,12 +112,12 @@ for (const [key, value] of entries) {
 
 ## Raw API Access
 
-For advanced use cases (like creating InkSdk for contracts), access the raw PAPI client:
+For advanced use cases (like creating ContractRuntime for contracts), access the raw PAPI client:
 
 ```typescript
-import { createInkSdk } from "@polkadot-api/sdk-ink";
+import { createContractRuntime } from "@parity/product-sdk-contracts";
 
-const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 ```
 
 ## Environment Support

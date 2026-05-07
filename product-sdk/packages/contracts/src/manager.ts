@@ -1,7 +1,8 @@
 import type { HexString, PolkadotClient } from "polkadot-api";
-import type { InkSdk } from "@polkadot-api/sdk-ink";
 import { wrapContract } from "./wrap.js";
 import { ContractNotFoundError } from "./errors.js";
+import type { ContractRuntime, ReviveTypedApi } from "./runtime.js";
+import { createContractRuntime } from "./runtime.js";
 import type {
     AbiEntry,
     CdmJson,
@@ -24,21 +25,19 @@ import type {
  * @example
  * ```ts
  * import { createChainClient } from "@parity/product-sdk-chain-client";
- * import { createInkSdk } from "@polkadot-api/sdk-ink";
  * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
- * import { ContractManager } from "@parity/product-sdk-contracts";
+ * import { ContractManager, createContractRuntime } from "@parity/product-sdk-contracts";
  * import cdmJson from "./cdm.json";
  *
  * const client = await createChainClient({
  *     chains: { assetHub: paseo_asset_hub },
  *     rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
  * });
- * const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
- * const manager = new ContractManager(cdmJson, inkSdk, {
- *     signerManager: signerManager, // from @parity/product-sdk-signer
+ * const runtime = createContractRuntime(client.assetHub);
+ * const manager = new ContractManager(cdmJson, runtime, {
+ *     signerManager,
  * });
  *
- * // Uses the host's logged-in account automatically
  * const counter = manager.getContract("@example/counter");
  * const { value } = await counter.getCount.query();
  * await counter.increment.tx();
@@ -47,12 +46,12 @@ import type {
 export class ContractManager {
     private cdmJson: CdmJson;
     private targetHash: string;
-    private inkSdk: InkSdk;
+    private runtime: ContractRuntime;
     private defaults: ContractDefaults;
 
-    constructor(cdmJson: CdmJson, inkSdk: InkSdk, options?: ContractManagerOptions) {
+    constructor(cdmJson: CdmJson, runtime: ContractRuntime, options?: ContractManagerOptions) {
         this.cdmJson = cdmJson;
-        this.inkSdk = inkSdk;
+        this.runtime = runtime;
 
         if (options?.targetHash) {
             this.targetHash = options.targetHash;
@@ -78,42 +77,28 @@ export class ContractManager {
     }
 
     /**
-     * Create a ContractManager from a raw `PolkadotClient`.
+     * Create a `ContractManager` from a raw `PolkadotClient`.
      *
-     * Convenience factory that creates the InkSdk internally via dynamic import
-     * of `@polkadot-api/sdk-ink`. The ~4 MB sdk-ink metadata is loaded lazily
-     * only when this method is called.
-     *
-     * For size-sensitive apps, prefer the constructor with a pre-created `InkSdk`
-     * to control exactly when `@polkadot-api/sdk-ink` is loaded.
+     * Convenience factory: builds a `ContractRuntime` internally from the
+     * client's typed API. Requires that the chain's typed API exposes the
+     * `Revive` pallet and `ReviveApi` runtime API (Asset Hub Paseo /
+     * Polkadot / Kusama).
      *
      * @param cdmJson - The CDM manifest.
-     * @param client - A `PolkadotClient` for the chain where contracts are deployed (e.g., `client.raw.assetHub`).
+     * @param client - A `PolkadotClient` for the chain where contracts are deployed.
+     * @param descriptor - The chain descriptor used to derive the typed API.
      * @param options - Optional configuration (signerManager, defaults).
-     *
-     * @example
-     * ```ts
-     * import { createChainClient } from "@parity/product-sdk-chain-client";
-     * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-     * import { ContractManager } from "@parity/product-sdk-contracts";
-     *
-     * const client = await createChainClient({
-     *     chains: { assetHub: paseo_asset_hub },
-     *     rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
-     * });
-     * const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
-     *     signerManager,
-     * });
-     * ```
      */
-    static async fromClient(
+    static fromClient<TDescriptor>(
         cdmJson: CdmJson,
         client: PolkadotClient,
+        descriptor: TDescriptor,
         options?: ContractManagerOptions,
-    ): Promise<ContractManager> {
-        const { createInkSdk } = await import("@polkadot-api/sdk-ink");
-        const inkSdk = createInkSdk(client, { atBest: true });
-        return new ContractManager(cdmJson, inkSdk, options);
+    ): ContractManager {
+        const api = client.getTypedApi(
+            descriptor as Parameters<PolkadotClient["getTypedApi"]>[0],
+        ) as unknown as ReviveTypedApi;
+        return new ContractManager(cdmJson, createContractRuntime(api), options);
     }
 
     private getContractData(library: string): CdmJsonContract {
@@ -137,9 +122,7 @@ export class ContractManager {
     getContract(library: string): Contract<ContractDef>;
     getContract(library: string): Contract<ContractDef> {
         const data = this.getContractData(library);
-        const descriptor = { abi: data.abi };
-        const inkContract = this.inkSdk.getContract(descriptor as any, data.address);
-        return wrapContract(inkContract, data.abi, this.defaults);
+        return wrapContract(this.runtime, data.address, data.abi, this.defaults);
     }
 
     /** Get the on-chain address of an installed contract. */
@@ -149,56 +132,55 @@ export class ContractManager {
 }
 
 /**
- * Create a contract handle from a raw address and ABI — no `cdm.json` needed.
+ * Create a contract handle from a raw H160 address and ABI — no `cdm.json` needed.
  *
  * @example
  * ```ts
- * import { createInkSdk } from "@polkadot-api/sdk-ink";
+ * import { createContractRuntime, createContract } from "@parity/product-sdk-contracts";
  *
- * const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
- * const counter = createContract(inkSdk, "0xC472...", abi, {
- *     signerManager: signerManager,
- * });
+ * const runtime = createContractRuntime(client.assetHub);
+ * const counter = createContract(runtime, "0xC472...", abi, { signerManager });
  * await counter.getCount.query();
  * await counter.increment.tx();
  * ```
  */
 export function createContract(
-    inkSdk: InkSdk,
+    runtime: ContractRuntime,
     address: HexString,
     abi: AbiEntry[],
     options?: ContractOptions,
 ): Contract<ContractDef> {
-    const inkContract = inkSdk.getContract({ abi } as any, address);
     const defaults: ContractDefaults = {
         signerManager: options?.signerManager,
         origin: options?.defaultOrigin,
         signer: options?.defaultSigner,
     };
-    return wrapContract(inkContract, abi, defaults);
+    return wrapContract(runtime, address, abi, defaults);
 }
 
 /**
- * Create a contract handle from a raw `PolkadotClient`, address, and ABI.
+ * Create a contract handle from a raw `PolkadotClient`, descriptor, address, and ABI.
  *
- * Convenience wrapper that creates the InkSdk internally via dynamic import.
- * For size-sensitive apps, use {@link createContract} with a pre-created `InkSdk`.
+ * Convenience wrapper that builds the `ContractRuntime` from the client's
+ * typed API. The chain must expose `Revive` + `ReviveApi`.
  *
  * @example
  * ```ts
- * const counter = await createContractFromClient(client.raw.assetHub, "0xC472...", abi);
+ * const counter = createContractFromClient(client, paseo_asset_hub, "0xC472...", abi);
  * const { value } = await counter.getCount.query();
  * ```
  */
-export async function createContractFromClient(
+export function createContractFromClient<TDescriptor>(
     client: PolkadotClient,
+    descriptor: TDescriptor,
     address: HexString,
     abi: AbiEntry[],
     options?: ContractOptions,
-): Promise<Contract<ContractDef>> {
-    const { createInkSdk } = await import("@polkadot-api/sdk-ink");
-    const inkSdk = createInkSdk(client, { atBest: true });
-    return createContract(inkSdk, address, abi, options);
+): Contract<ContractDef> {
+    const api = client.getTypedApi(
+        descriptor as Parameters<PolkadotClient["getTypedApi"]>[0],
+    ) as unknown as ReviveTypedApi;
+    return createContract(createContractRuntime(api), address, abi, options);
 }
 
 if (import.meta.vitest) {
