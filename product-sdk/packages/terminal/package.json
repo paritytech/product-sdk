@@ -29,6 +29,7 @@
         "postinstall": "bash scripts/patch-wasm.sh",
         "build": "tsup",
         "clean": "rm -rf dist",
+        "pretest": "tsup",
         "test": "vitest run"
     },
     "dependencies": {
