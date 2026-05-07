@@ -64,7 +64,7 @@ const sessions = await waitForSessions(adapter, 2000);
 // 5. Sign messages via the paired wallet
 if (sessions.length > 0) {
     const session = sessions[0];
-    const signer = createSessionSigner(session, ["my-terminal-app", 0]);
+    const signer = createSessionSigner(session, adapter);
     // use signer with polkadot-api transactions
 }
 ```
@@ -83,34 +83,37 @@ Creates a terminal adapter backed by the host-papp SDK.
 - `storageDir?` -- override the on-disk session directory (defaults to `~/.polkadot-apps/`). Useful in tests and containerised environments.
 
 **Returns** a `TerminalAdapter` with:
-- `appId` -- the value you passed in (re-exposed for `createSessionSigner`'s convenience overload)
+- `appId` -- the value you passed in (re-exposed so `createSessionSigner` can pull the productId from the adapter)
 - `sso` -- auth component (`.authenticate()`, `.abortAuthentication()`, status subscriptions)
 - `sessions` -- session manager (signing, disconnect)
 - `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Suppresses `@novasamatech/statement-store`'s noisy `Statement subscription error` log for ~50 ms after the call.
 
-### `createSessionSigner(session, productAccountIdOrAdapter): PolkadotSigner`
+### `createSessionSigner(session, adapter): PolkadotSigner`
 
-Creates a `PolkadotSigner` backed by a QR-paired mobile wallet session.
-
-**Signature:** `createSessionSigner(session: UserSession, productAccountIdOrAdapter: [string, number] | TerminalAdapter): PolkadotSigner`
-
-**Parameters:**
-- `session` -- a `UserSession` from `adapter.sessions.sessions`
-- `productAccountIdOrAdapter` -- either an explicit `[productId, derivationIndex]` tuple, **or** the `TerminalAdapter` itself (in which case `[adapter.appId, 0]` is inferred — pass the explicit tuple when you need a derivation index ≠ 0 or a `productId` different from the adapter's `appId`).
-
-> **API change vs upstream:** `@novasamatech/host-papp` 0.7 replaced the wire-format `address` field with `productAccountId: [productId, derivationIndex]`. The upstream `createSessionSigner(session)` signature is **not** present in this package.
+Creates a `PolkadotSigner` backed by a QR-paired mobile wallet session, using the session's **default account** (`derivationIndex: 0`) under the adapter's `appId`. This is the right entry point for ~all CLI flows.
 
 ```ts
 const [session] = adapter.sessions.sessions.read();
-
-// Convenience: infers [adapter.appId, 0]
 const signer = createSessionSigner(session, adapter);
-
-// Explicit: when you need a different productId or derivation index
-const signerExplicit = createSessionSigner(session, ["my-product", 3]);
-
 await contract.publish.tx(domain, cid, { signer, origin });
 ```
+
+### `createSessionSignerForAccount(session, ref): PolkadotSigner`
+
+Escape hatch for signing as a non-default sub-account of a paired session, or as a `productId` that differs from the adapter's `appId`. Most callers don't need this.
+
+`ref` is `{ productId: string; derivationIndex: number }`:
+- `productId` -- dotNS-style identifier of the requesting product. In normal usage this equals the adapter's `appId`; pass a different value only if you have an explicit reason.
+- `derivationIndex` -- BIP32-style child-key index. `0` is the default account; non-zero indices reach additional sub-accounts derived from the same root.
+
+```ts
+const subSigner = createSessionSignerForAccount(session, {
+    productId: "my-product",
+    derivationIndex: 3,
+});
+```
+
+> **Wire format note:** `@novasamatech/host-papp` 0.7 expects `productAccountId: [productId, derivationIndex]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
 
 ### `renderQrCode(data, options?): Promise<string>`
 

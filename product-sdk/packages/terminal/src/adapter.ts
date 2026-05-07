@@ -13,7 +13,7 @@ import {
     SS_PASEO_STABLE_STAGE_ENDPOINTS,
 } from "@novasamatech/host-papp";
 import { createLazyClient, createPapiStatementStoreAdapter } from "@novasamatech/statement-store";
-import { getWsProvider } from "@polkadot-api/ws-provider/node";
+import { getWsProvider } from "@polkadot-api/ws-provider";
 
 import { createNodeStorageAdapter } from "./node-storage.js";
 
@@ -69,8 +69,10 @@ export function createTerminalAdapter(options: TerminalAdapterOptions): Terminal
     const endpoints = options.endpoints ?? SS_PASEO_STABLE_STAGE_ENDPOINTS;
 
     const storage = createNodeStorageAdapter(options.appId, options.storageDir);
+    // ws-provider 0.9 takes endpoints positionally; relies on the global
+    // WebSocket (Node ≥21) unless `websocketClass` is supplied.
     const lazyClient = createLazyClient(
-        getWsProvider({ endpoints, heartbeatTimeout: Number.POSITIVE_INFINITY }),
+        getWsProvider(endpoints, { heartbeatTimeout: Number.POSITIVE_INFINITY }),
     );
     const statementStore = createPapiStatementStoreAdapter(lazyClient);
 

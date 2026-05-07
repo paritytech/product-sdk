@@ -8,10 +8,16 @@
  * @example
  * ```ts
  * const [session] = adapter.sessions.sessions.read();
- * // Convenience overload — infers [adapter.appId, 0] for the default account:
+ *
+ * // Default account — uses [adapter.appId, 0]:
  * const signer = createSessionSigner(session, adapter);
- * // Explicit form — when you need a non-zero derivation index or a different productId:
- * const signer = createSessionSigner(session, ["my-product", 3]);
+ *
+ * // Non-default derivation index, or a different productId:
+ * const subSigner = createSessionSignerForAccount(session, {
+ *     productId: "my-product",
+ *     derivationIndex: 3,
+ * });
+ *
  * await contract.publish.tx(domain, cid, { signer, origin });
  * ```
  */
@@ -21,27 +27,23 @@ import type { UserSession } from "@novasamatech/host-papp";
 import type { TerminalAdapter } from "./adapter.js";
 
 /**
- * Create a `PolkadotSigner` backed by a QR-paired mobile wallet session.
+ * Identifies which sub-account of a paired session should sign.
  *
- * Each signing request is sent to the paired phone for approval.
- * The returned signer can be used anywhere polkadot-api expects a signer.
- *
- * @param session The paired user session.
- * @param productAccountIdOrAdapter Either an explicit
- *   `[productId, derivationIndex]` tuple, or a {@link TerminalAdapter} from which
- *   `[adapter.appId, 0]` is inferred for the default account. Pass the explicit
- *   tuple when you need a derivation index ≠ 0 or a `productId` different from
- *   the adapter's `appId`.
+ * Mirrors the `host-papp` wire format `productAccountId: [productId, derivationIndex]`:
+ * `productId` is the dotNS-style identifier for the requesting product (matches
+ * the adapter's `appId` in normal usage); `derivationIndex` is the BIP32-style
+ * child-key index, where `0` is the session's default account.
  */
-export function createSessionSigner(
-    session: UserSession,
-    productAccountIdOrAdapter: [string, number] | TerminalAdapter,
-): PolkadotSigner {
-    const productAccountId: [string, number] = Array.isArray(productAccountIdOrAdapter)
-        ? productAccountIdOrAdapter
-        : [productAccountIdOrAdapter.appId, 0];
+export interface ProductAccountRef {
+    /** The product identifier. Usually equal to the adapter's `appId`. */
+    productId: string;
+    /** Child-key derivation index. `0` is the default account. */
+    derivationIndex: number;
+}
 
+function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
     const accountId = new Uint8Array(session.remoteAccount.accountId);
+    const productAccountId: [string, number] = [ref.productId, ref.derivationIndex];
 
     return getPolkadotSigner(
         accountId,
@@ -59,6 +61,40 @@ export function createSessionSigner(
             return result.value.signature;
         },
     );
+}
+
+/**
+ * Create a `PolkadotSigner` backed by a QR-paired mobile wallet session,
+ * using the session's **default account** (`derivationIndex: 0`).
+ *
+ * For non-default sub-accounts, use {@link createSessionSignerForAccount}.
+ *
+ * @param session The paired user session.
+ * @param adapter The {@link TerminalAdapter} that loaded the session. Its `appId`
+ *   is used as the `productId` in the wire request.
+ */
+export function createSessionSigner(
+    session: UserSession,
+    adapter: TerminalAdapter,
+): PolkadotSigner {
+    return buildSessionSigner(session, { productId: adapter.appId, derivationIndex: 0 });
+}
+
+/**
+ * Create a `PolkadotSigner` for a specific sub-account of a paired session.
+ *
+ * Use this when you need a derivation index other than `0`, or a `productId`
+ * different from the adapter's `appId`. For the common default-account case,
+ * prefer {@link createSessionSigner}.
+ *
+ * @param session The paired user session.
+ * @param ref The product account to sign as: `{ productId, derivationIndex }`.
+ */
+export function createSessionSignerForAccount(
+    session: UserSession,
+    ref: ProductAccountRef,
+): PolkadotSigner {
+    return buildSessionSigner(session, ref);
 }
 
 if (import.meta.vitest) {
@@ -79,12 +115,17 @@ if (import.meta.vitest) {
         } as unknown as UserSession;
     }
 
+    function fakeAdapter(appId: string): TerminalAdapter {
+        // Only the `appId` field matters for these tests.
+        return { appId } as unknown as TerminalAdapter;
+    }
+
     describe("createSessionSigner", () => {
         test("exposes Sr25519 public key matching remoteAccount.accountId", () => {
             const bytes = Array.from({ length: 32 }, (_, i) => i);
             const signer = createSessionSigner(
                 makeSession(async () => ok({ signature: new Uint8Array() }), bytes),
-                ["test-app", 0],
+                fakeAdapter("test-app"),
             );
             expect(signer.publicKey).toEqual(new Uint8Array(bytes));
         });
@@ -92,19 +133,48 @@ if (import.meta.vitest) {
         test("signBytes returns signature on success", async () => {
             const sig = new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2, 1]);
             const session = makeSession(async () => ok({ signature: sig }));
-            const signer = createSessionSigner(session, ["test-app", 0]);
+            const signer = createSessionSigner(session, fakeAdapter("test-app"));
 
             const out = await signer.signBytes(new Uint8Array([1, 2, 3]));
             expect(out).toEqual(sig);
         });
 
-        test("forwards request as { tag: 'Bytes', value } with productAccountId tuple", async () => {
+        test("forwards request with productAccountId = [adapter.appId, 0]", async () => {
+            const captured: unknown[] = [];
+            const session = makeSession(async (req) => {
+                captured.push(req);
+                return ok({ signature: new Uint8Array([1]) });
+            });
+
+            const signer = createSessionSigner(session, fakeAdapter("inferred-app"));
+            await signer.signBytes(new Uint8Array([1, 2, 3]));
+
+            const req = captured[0] as { productAccountId: [string, number] };
+            expect(req.productAccountId).toEqual(["inferred-app", 0]);
+        });
+
+        test("signBytes throws when mobile signing is rejected", async () => {
+            const session = makeSession(async () => err({ message: "user declined" }));
+            const signer = createSessionSigner(session, fakeAdapter("test-app"));
+
+            await expect(signer.signBytes(new Uint8Array([1]))).rejects.toThrow(
+                "Mobile signing rejected: user declined",
+            );
+        });
+    });
+
+    describe("createSessionSignerForAccount", () => {
+        test("forwards request with the given productId and derivationIndex", async () => {
             const captured: unknown[] = [];
             const session = makeSession(async (req) => {
                 captured.push(req);
                 return ok({ signature: new Uint8Array([42]) });
             });
-            const signer = createSessionSigner(session, ["my-app", 7]);
+
+            const signer = createSessionSignerForAccount(session, {
+                productId: "my-app",
+                derivationIndex: 7,
+            });
 
             // Note: polkadot-api wraps signBytes payloads in <Bytes>...</Bytes>
             // before invoking the underlying callback. We only care here that
@@ -122,29 +192,21 @@ if (import.meta.vitest) {
             expect(req.data.value).toBeInstanceOf(Uint8Array);
         });
 
-        test("signBytes throws when mobile signing is rejected", async () => {
-            const session = makeSession(async () => err({ message: "user declined" }));
-            const signer = createSessionSigner(session, ["test-app", 0]);
-
-            await expect(signer.signBytes(new Uint8Array([1]))).rejects.toThrow(
-                "Mobile signing rejected: user declined",
-            );
-        });
-
-        test("adapter overload infers productAccountId as [adapter.appId, 0]", async () => {
+        test("supports a productId different from any adapter's appId", async () => {
             const captured: unknown[] = [];
             const session = makeSession(async (req) => {
                 captured.push(req);
-                return ok({ signature: new Uint8Array([1]) });
+                return ok({ signature: new Uint8Array([0]) });
             });
-            // Cheapest stand-in for a TerminalAdapter — only the `appId` field matters here.
-            const fakeAdapter = { appId: "inferred-app" } as unknown as TerminalAdapter;
 
-            const signer = createSessionSigner(session, fakeAdapter);
-            await signer.signBytes(new Uint8Array([1, 2, 3]));
+            const signer = createSessionSignerForAccount(session, {
+                productId: "external-product",
+                derivationIndex: 0,
+            });
+            await signer.signBytes(new Uint8Array([1]));
 
             const req = captured[0] as { productAccountId: [string, number] };
-            expect(req.productAccountId).toEqual(["inferred-app", 0]);
+            expect(req.productAccountId).toEqual(["external-product", 0]);
         });
     });
 }

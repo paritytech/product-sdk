@@ -7,7 +7,8 @@ export {
 export type { TerminalAdapterOptions, TerminalAdapter } from "./adapter.js";
 
 // Session Signer
-export { createSessionSigner } from "./signer.js";
+export { createSessionSigner, createSessionSignerForAccount } from "./signer.js";
+export type { ProductAccountRef } from "./signer.js";
 
 // Session helpers
 export { waitForSessions } from "./sessions.js";
