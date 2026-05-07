@@ -15,11 +15,6 @@ export default defineConfig({
     define: {
         "import.meta.vitest": "undefined",
     },
-    external: [
-        "@novasamatech/host-papp",
-        "@novasamatech/statement-store",
-        "@novasamatech/storage-adapter",
-    ],
     onSuccess: async () => {
         copyFileSync(join(here, "src", "loader.mjs"), join(here, "dist", "loader.mjs"));
     },
