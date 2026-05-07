@@ -90,6 +90,7 @@ export interface CoinPaymentHostApi {
     queryPurse(purse: PurseId): Promise<PurseInfo>;
     rebalancePurse(from: PurseId, to: PurseId, amount: Balance): Promise<CoinPaymentOperation<CoinPaymentStatus>>;
     deletePurse(target: PurseId, drainInto: PurseId): Promise<CoinPaymentOperation<CoinPaymentStatus>>;
+    createInvoice?(into: PurseId, amount: Balance): Promise<Invoice>;
     createReceivable(into: PurseId): Promise<Receivable>;
     createCheque(from: PurseId, to: Receivable, amount: Balance): Promise<Cheque>;
     deposit(cheque: Cheque): Promise<CoinPaymentOperation<CoinPaymentStatus>>;

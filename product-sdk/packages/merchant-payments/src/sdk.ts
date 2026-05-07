@@ -138,14 +138,10 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         const existingId = this.invoiceIdempotency.get(request.idempotencyKey);
         if (existingId) return { invoice: structuredClone(this.requireInvoice(record, existingId)) };
 
-        const receivable = await this.options.coinpayment.createReceivable(record.purseId);
-        const { channel, cheque } = await this.options.coinpayment.listenFor(receivable);
-        const invoice: Invoice = {
-            version: 0,
-            handoff: channel,
-            receiver: receivable,
-            amount: parseMinorUnits(record.intent.paymentAmount),
-        };
+        const amount = parseMinorUnits(record.intent.paymentAmount);
+        const preparedInvoice = await this.createCoinPaymentInvoice(record.purseId, amount);
+        const { invoice, cheque } = preparedInvoice;
+        const receivable = invoice.receiver;
         const invoiceSession: MerchantPaymentInvoice = {
             invoiceId: this.id("invoice"),
             intentId: record.intent.intentId,
@@ -167,6 +163,24 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         void this.awaitCheque(record.intent.intentId, invoiceSession.invoiceId, cheque);
         await this.persist();
         return { invoice: structuredClone(invoiceSession) };
+    }
+
+    private async createCoinPaymentInvoice(purseId: PurseId, amount: Balance): Promise<{ invoice: Invoice; cheque: Promise<Cheque> }> {
+        if (this.options.coinpayment.createInvoice) {
+            const invoice = await this.options.coinpayment.createInvoice(purseId, amount);
+            const { cheque } = await this.options.coinpayment.listenFor(invoice.receiver);
+            return { invoice, cheque };
+        }
+
+        const receivable = await this.options.coinpayment.createReceivable(purseId);
+        const { channel, cheque } = await this.options.coinpayment.listenFor(receivable);
+        const invoice: Invoice = {
+            version: 0,
+            handoff: channel,
+            receiver: receivable,
+            amount,
+        };
+        return { invoice, cheque };
     }
 
     subscribeIntentStatus(
