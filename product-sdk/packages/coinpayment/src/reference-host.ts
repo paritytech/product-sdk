@@ -54,8 +54,8 @@ export function installCoinPaymentReferenceHost(
     const win = options.windowLike ?? (globalThis.window as CoinPaymentWindow | undefined);
     if (win) {
         win.ua ??= {};
-        win.ua.coinpayment = host;
-        win.ua.coinPayment = host;
+        win.ua.ext ??= {};
+        win.ua.ext.coinpayment = host;
     }
     return host;
 }

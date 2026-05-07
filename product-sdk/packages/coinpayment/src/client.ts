@@ -12,10 +12,5 @@ export function createCoinPaymentClient(options: CreateCoinPaymentClientOptions 
 }
 
 function resolveHost(windowLike = globalThis.window as CoinPaymentWindow | undefined): CoinPaymentHostApi | undefined {
-    return (
-        windowLike?.ua?.coinpayment ??
-        windowLike?.ua?.coinPayment ??
-        windowLike?.ua?.ext?.coinpayment ??
-        windowLike?.ua?.ext?.coinPayment
-    );
+    return windowLike?.ua?.ext?.coinpayment;
 }

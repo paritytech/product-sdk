@@ -99,11 +99,8 @@ export interface CoinPaymentHostApi {
 
 export interface CoinPaymentWindow {
     ua?: {
-        coinpayment?: CoinPaymentHostApi;
-        coinPayment?: CoinPaymentHostApi;
         ext?: {
             coinpayment?: CoinPaymentHostApi;
-            coinPayment?: CoinPaymentHostApi;
         };
     };
 }
