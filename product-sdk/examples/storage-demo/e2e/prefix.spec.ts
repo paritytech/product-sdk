@@ -5,7 +5,7 @@ import { waitForAppReady } from "./helpers";
  * Prefix namespacing through the Host API path.
  *
  * Exercises:
- *   - createKvStore({ prefix: "demo" }) → keys stored as "demo:key" on the host
+ *   - createLocalKvStore({ prefix: "demo" }) → keys stored as "demo:key" on the host
  *   - Prefixed and unprefixed stores don't collide on the same key name
  *
  * Host API surface tested:
@@ -13,7 +13,7 @@ import { waitForAppReady } from "./helpers";
  *   - hostStorage.readString("demo:key") — prefixed key retrieval
  *   - Key isolation between prefixed and unprefixed stores
  */
-test.describe("@parity/product-sdk-storage via Host API — prefix namespacing", () => {
+test.describe("@parity/product-sdk-local-storage via Host API — prefix namespacing", () => {
     test("prefixed store uses prefix:key format", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

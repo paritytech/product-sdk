@@ -53,7 +53,7 @@ START
 │  YES → @parity/product-sdk-utils
 │
 ├─ Need persistent key-value storage (browser/host)?
-│  YES → @parity/product-sdk-storage
+│  YES → @parity/product-sdk-local-storage
 │
 └─ Need structured logging?
    YES → @parity/product-sdk-logger
@@ -119,7 +119,7 @@ polkadot-api
 @parity/product-sdk-crypto
 @parity/product-sdk-utils
 @parity/product-sdk-keys
-@parity/product-sdk-storage
+@parity/product-sdk-local-storage
 @parity/product-sdk-logger
 polkadot-api
 ```

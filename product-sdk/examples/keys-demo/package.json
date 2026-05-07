@@ -16,7 +16,7 @@
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
-        "@parity/product-sdk-storage": "workspace:*",
+        "@parity/product-sdk-local-storage": "workspace:*",
         "@novasamatech/host-api": "catalog:",
         "@novasamatech/product-sdk": "catalog:"
     },

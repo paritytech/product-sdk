@@ -20,5 +20,5 @@
   - @parity/product-sdk-keys@0.1.0
   - @parity/product-sdk-logger@0.1.0
   - @parity/product-sdk-signer@0.1.0
-  - @parity/product-sdk-storage@0.1.0
+  - @parity/product-sdk-local-storage@0.1.0
   - @parity/product-sdk-tx@0.1.0

@@ -55,7 +55,7 @@ export interface WalletApi {
 }
 
 /** Storage API exposed by the SDK */
-export interface StorageApi {
+export interface LocalStorageApi {
     /** Get a value by key */
     get(key: string): Promise<string | null>;
     /** Set a value by key */
@@ -140,8 +140,8 @@ export interface BulletinApi {
 export interface App {
     /** Wallet/signing operations */
     wallet: WalletApi;
-    /** Key-value storage operations */
-    storage: StorageApi;
+    /** Local Key-value storage operations */
+    localStorage: LocalStorageApi;
     /** Chain interaction operations */
     chain: ChainApi;
     /** Bulletin Chain operations (null if disabled via config) */

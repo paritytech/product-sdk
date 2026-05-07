@@ -12,7 +12,7 @@ export default defineConfig({
         "host/index": "src/host/index.ts",
         "identity/index": "src/identity/index.ts",
         "react/index": "src/react/index.ts",
-        "storage/index": "src/storage/index.ts",
+        "local-storage/index": "src/local-storage/index.ts",
         "wallet/index": "src/wallet/index.ts",
     },
     format: ["esm"],

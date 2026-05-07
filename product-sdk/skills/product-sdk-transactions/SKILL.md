@@ -211,9 +211,9 @@ const raw = km.exportKey();
 
 ```ts
 import { SessionKeyManager } from "@parity/product-sdk-keys";
-import { createKvStore } from "@parity/product-sdk-storage";
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 
-const store = await createKvStore({ prefix: "session-key" });
+const store = await createLocalKvStore({ prefix: "session-key" });
 const skm = new SessionKeyManager({ store, name: "default" });
 
 const info = await skm.getOrCreate();

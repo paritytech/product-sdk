@@ -584,7 +584,7 @@
         }
       }
     },
-    "@parity/product-sdk-storage": {
+    "@parity/product-sdk-local-storage": {
       "entries": {
         ".": {
           "file": "packages/storage/dist/index.js",

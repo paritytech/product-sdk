@@ -14,7 +14,7 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-bulletin` | Upload and retrieve data on the Polkadot Bulletin Chain |
 | `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |
 | `@parity/product-sdk-keys` | Hierarchical key derivation and session key management |
-| `@parity/product-sdk-storage` | Key-value storage with automatic host/browser backend detection |
+| `@parity/product-sdk-local-storage` | Key-value storage with automatic host/browser backend detection |
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
 | `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
 | `@parity/product-sdk-crypto` | Cryptographic primitives — encryption, key derivation, NaCl |
@@ -55,7 +55,7 @@ The `examples/` directory contains 9 demo apps that exercise the SDK packages vi
 | Demo | Tests |
 |------|-------|
 | `host-demo` | Container detection, host localStorage |
-| `storage-demo` | KvStore operations, prefix namespacing |
+| `storage-demo` | LocalKvStore operations, prefix namespacing |
 | `keys-demo` | Key derivation, session key lifecycle |
 | `chain-client-demo` | Preset connections, BYOD, lifecycle |
 | `signer-demo` | Account discovery, signing, permissions |

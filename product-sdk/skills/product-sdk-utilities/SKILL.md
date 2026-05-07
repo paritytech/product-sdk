@@ -18,7 +18,7 @@ Five leaf packages provide foundational utilities. All are pure TypeScript and f
 | SS58/H160 address encoding, validation, conversion | `address` | `@parity/product-sdk-address` |
 | Encryption (AES-GCM, ChaCha20), key derivation (HKDF), NaCl | `crypto` | `@parity/product-sdk-crypto` |
 | Byte encoding, hashing, token formatting (planck) | `utils` | `@parity/product-sdk-utils` |
-| Persistent key-value storage | `storage` | `@parity/product-sdk-storage` |
+| Persistent key-value storage | `storage` | `@parity/product-sdk-local-storage` |
 | Structured logging | `logger` | `@parity/product-sdk-logger` |
 
 ## Quick Start: Address
@@ -76,9 +76,9 @@ formatBalance(10_000_000_000_000n, { symbol: "DOT" }); // "1,000 DOT"
 ## Quick Start: Storage
 
 ```ts
-import { createKvStore } from "@parity/product-sdk-storage";
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 
-const store = await createKvStore({ prefix: "myapp" });
+const store = await createLocalKvStore({ prefix: "myapp" });
 await store.set("theme", "dark");
 const theme = await store.get("theme");
 await store.setJSON("prefs", { lang: "en" });
@@ -117,7 +117,7 @@ configure({ level: "debug", namespaces: ["my-feature"] });
 
 ### Storage
 
-- **Calling `createKvStore` synchronously** - It returns a Promise, always `await`
+- **Calling `createLocalKvStore` synchronously** - It returns a Promise, always `await`
 
 ### Logger
 
@@ -128,5 +128,5 @@ configure({ level: "debug", namespaces: ["my-feature"] });
 - [address-api.md](references/address-api.md) - SS58, H160, display utilities
 - [crypto-api.md](references/crypto-api.md) - AES-GCM, ChaCha20, HKDF, NaCl
 - [utils-api.md](references/utils-api.md) - Encoding, hashing, token formatting
-- [storage-api.md](references/storage-api.md) - KvStore creation and types
+- [storage-api.md](references/storage-api.md) - LocalKvStore creation and types
 - [logger-api.md](references/logger-api.md) - configure, createLogger, types

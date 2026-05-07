@@ -13,4 +13,4 @@
 - Updated dependencies [8a264a5]
   - @parity/product-sdk-address@0.1.0
   - @parity/product-sdk-crypto@0.1.0
-  - @parity/product-sdk-storage@0.1.0
+  - @parity/product-sdk-local-storage@0.1.0

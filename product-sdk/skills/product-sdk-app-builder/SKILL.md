@@ -73,7 +73,7 @@ polkadot-api                        # Core runtime (peer dep of descriptors)
 | Pub/sub messaging | `@parity/product-sdk-statement-store` | product-sdk-statement-store |
 | Address encoding | `@parity/product-sdk-address` | product-sdk-utilities |
 | Encryption | `@parity/product-sdk-crypto` | product-sdk-utilities |
-| KV storage | `@parity/product-sdk-storage` | product-sdk-utilities |
+| KV storage | `@parity/product-sdk-local-storage` | product-sdk-utilities |
 | Logging | `@parity/product-sdk-logger` | product-sdk-utilities |
 
 ### 3. Scaffold Project

@@ -1,6 +1,6 @@
 /**
  * Persistent string and JSON storage exposed by the host container. Most
- * apps reach it indirectly through the Storage package's `KvStore`; reach for
+ * apps reach it indirectly through the Storage package's `LocalKvStore`; reach for
  * it directly via {@link getHostLocalStorage} when you need raw host storage
  * without the KV abstraction.
  */

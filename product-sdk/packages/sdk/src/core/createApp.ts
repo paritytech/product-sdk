@@ -9,13 +9,13 @@ import type {
     App,
     AppConfig,
     WalletApi,
-    StorageApi,
     ChainApi,
     BulletinApi,
     Account,
+    LocalStorageApi,
 } from "./types.js";
 import { configure, createLogger } from "@parity/product-sdk-logger";
-import { createKvStore } from "@parity/product-sdk-storage";
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
 import { BulletinClient, calculateCid, createLazySigner } from "@parity/product-sdk-bulletin";
 import {
@@ -59,7 +59,7 @@ const log = createLogger("app");
  * const { accounts } = await app.wallet.connect();
  *
  * // Use storage
- * await app.storage.set('key', 'value');
+ * await app.localStorage.set('key', 'value');
  *
  * // Use bulletin (check for null if it might be disabled)
  * if (app.bulletin) {
@@ -76,7 +76,7 @@ export async function createApp(config: AppConfig): Promise<App> {
     log.info("Creating Product SDK app", { name: config.name });
 
     // Initialize storage (container-only - will throw if not in container)
-    const kvStore = await createKvStore({ prefix: config.name });
+    const localKvStore = await createLocalKvStore({ prefix: config.name });
 
     // Initialize signer manager
     const signerManager = new SignerManager({
@@ -106,14 +106,14 @@ export async function createApp(config: AppConfig): Promise<App> {
     }
 
     // Create storage API adapter
-    const storageApi: StorageApi = {
-        get: (key) => kvStore.get(key),
-        set: (key, value) => kvStore.set(key, value),
-        getJSON: <T>(key: string) => kvStore.getJSON<T>(key),
-        setJSON: <T>(key: string, value: T) => kvStore.setJSON(key, value),
-        remove: (key) => kvStore.remove(key),
+    const localStorageApi: LocalStorageApi = {
+        get: (key) => localKvStore.get(key),
+        set: (key, value) => localKvStore.set(key, value),
+        getJSON: <T>(key: string) => localKvStore.getJSON<T>(key),
+        setJSON: <T>(key: string, value: T) => localKvStore.setJSON(key, value),
+        remove: (key) => localKvStore.remove(key),
         clear: async () => {
-            // KvStore doesn't have clear - this is a no-op
+            // LocalKvStore doesn't have clear - this is a no-op
             log.debug("clear() is not supported in container storage mode");
         },
     };
@@ -189,7 +189,7 @@ export async function createApp(config: AppConfig): Promise<App> {
 
     return {
         wallet: walletApi,
-        storage: storageApi,
+        localStorage: localStorageApi,
         chain: chainApi,
         bulletin: bulletinApi,
         getAppInfo: () => ({ ...config }),

@@ -222,7 +222,7 @@ importers:
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../../packages/signer
-      '@parity/product-sdk-storage':
+      '@parity/product-sdk-local-storage':
         specifier: workspace:*
         version: link:../../packages/storage
     devDependencies:
@@ -309,7 +309,7 @@ importers:
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../../packages/signer
-      '@parity/product-sdk-storage':
+      '@parity/product-sdk-local-storage':
         specifier: workspace:*
         version: link:../../packages/storage
     devDependencies:
@@ -537,7 +537,7 @@ importers:
       '@parity/product-sdk-crypto':
         specifier: workspace:*
         version: link:../crypto
-      '@parity/product-sdk-storage':
+      '@parity/product-sdk-local-storage':
         specifier: workspace:*
         version: link:../storage
       '@polkadot-labs/hdkd':
@@ -598,7 +598,7 @@ importers:
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
-      '@parity/product-sdk-storage':
+      '@parity/product-sdk-local-storage':
         specifier: workspace:*
         version: link:../storage
       '@parity/product-sdk-tx':
@@ -788,7 +788,7 @@ importers:
       '@parity/product-sdk-statement-store':
         specifier: workspace:*
         version: link:../../packages/statement-store
-      '@parity/product-sdk-storage':
+      '@parity/product-sdk-local-storage':
         specifier: workspace:*
         version: link:../../packages/storage
       '@parity/product-sdk-tx':

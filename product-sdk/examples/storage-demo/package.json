@@ -1,9 +1,9 @@
 {
-    "name": "@parity/product-sdk-storage-demo",
+    "name": "@parity/product-sdk-local-storage-demo",
     "version": "0.0.1",
     "private": true,
     "type": "module",
-    "description": "E2E demo app for @parity/product-sdk-storage — exercises KvStore with host backend auto-detection via the Host API path",
+    "description": "E2E demo app for @parity/product-sdk-local-storage — exercises LocalKvStore with host backend auto-detection via the Host API path",
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
@@ -15,7 +15,7 @@
     "dependencies": {
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
-        "@parity/product-sdk-storage": "workspace:*",
+        "@parity/product-sdk-local-storage": "workspace:*",
         "@novasamatech/host-api": "catalog:",
         "@novasamatech/product-sdk": "catalog:"
     },
