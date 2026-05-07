@@ -75,12 +75,21 @@ export interface ContractDef {
 // biome-ignore lint/suspicious/noEmptyInterface: extended by codegen
 export interface Contracts {}
 
-/** Result from a read-only contract query. */
-export interface QueryResult<T> {
-    success: boolean;
-    value: T;
-    gasRequired?: bigint;
-}
+/**
+ * Result from a read-only contract query.
+ *
+ * On success, `value` is the decoded response and `gasRequired` is the
+ * estimated gas (from the dry-run).
+ *
+ * On failure, `value` is the raw failure payload from the underlying ink-sdk
+ * (typically a tagged enum like `{ type: "Reverted", value: ... }` or
+ * `{ type: "Trapped", ... }`). Surfacing it lets callers diagnose silent
+ * failures instead of seeing `undefined` and being unable to tell whether
+ * the contract reverted, gas estimation failed, or the dry-run never ran.
+ */
+export type QueryResult<T> =
+    | { success: true; value: T; gasRequired: bigint }
+    | { success: false; value: unknown; gasRequired?: bigint };
 
 /** Options for query calls — passed as the last argument after positional args. */
 export interface QueryOptions {

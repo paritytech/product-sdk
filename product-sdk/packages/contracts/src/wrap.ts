@@ -135,9 +135,21 @@ export function wrapContract(
                         data,
                         ...(overrides?.value !== undefined && { value: overrides.value }),
                     });
+                    if (result.success) {
+                        return {
+                            success: true,
+                            value: result.value.response,
+                            gasRequired: result.value.gasRequired,
+                        };
+                    }
+                    // Pass the dry-run's failure payload through. `value` is
+                    // typically a tagged enum (`{ type: "Reverted", … }`,
+                    // `{ type: "Trapped", … }`) — callers narrow on its shape
+                    // to learn why the call failed, instead of receiving a
+                    // bare `undefined` with no signal.
                     return {
-                        success: result.success,
-                        value: result.success ? result.value.response : undefined,
+                        success: false,
+                        value: result.value,
                         gasRequired: result.value?.gasRequired,
                     };
                 },
