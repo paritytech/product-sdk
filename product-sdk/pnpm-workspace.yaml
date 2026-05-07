@@ -4,7 +4,7 @@ packages:
   - "scripts/bench-consumer"
 
 catalog:
-  polkadot-api: ^2.0.2
+  polkadot-api: ^2.1.2
   "@novasamatech/product-sdk": ^0.7.5
   "@novasamatech/sdk-statement": ^0.6.0
   "@novasamatech/host-api": ^0.7.5

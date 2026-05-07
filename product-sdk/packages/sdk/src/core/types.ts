@@ -3,7 +3,7 @@
  */
 
 import type { LogLevel } from "@parity/product-sdk-logger";
-import type { Environment as BulletinEnvironment } from "@parity/product-sdk-bulletin";
+import type { BulletinEnvironment } from "@parity/product-sdk-bulletin";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
 import type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";
 
@@ -119,12 +119,21 @@ export interface ChainApi {
 
 /** Bulletin Chain API exposed by the SDK */
 export interface BulletinApi {
-    /** Upload data to Bulletin Chain */
+    /**
+     * Upload data to Bulletin Chain.
+     *
+     * Requires a wallet to be connected and an account selected. Throws
+     * "No signer available …" otherwise.
+     */
     upload(data: string | Uint8Array): Promise<string>;
-    /** Fetch data by CID */
+    /** Fetch data by CID. */
     fetch(cid: string): Promise<Uint8Array>;
-    /** Compute CID for data without uploading */
-    computeCid(data: string | Uint8Array): string;
+    /**
+     * Compute the CID for data without uploading.
+     *
+     * Async because the underlying hash is computed via Web Crypto.
+     */
+    computeCid(data: string | Uint8Array): Promise<string>;
 }
 
 /** The main App instance returned by createApp */

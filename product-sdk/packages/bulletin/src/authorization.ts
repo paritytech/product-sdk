@@ -3,7 +3,7 @@ import { submitAndWatch, type TxStatus, type WaitFor } from "@parity/product-sdk
 import type { PolkadotSigner } from "polkadot-api";
 import { Enum } from "polkadot-api";
 
-import { BulletinAuthorizationError, BulletinError } from "./errors.js";
+import { BulletinAuthorizationError, ProductBulletinError } from "./errors.js";
 import type { AuthorizationStatus, BulletinApi } from "./types.js";
 
 const log = createLogger("bulletin");
@@ -144,7 +144,7 @@ export interface AuthorizeAccountOptions {
  * @param signer       - Signer for the extrinsic. On `viaSudo: true` this must be the sudo key.
  * @param options      - Optional `viaSudo` flag plus standard submission controls.
  * @returns Block hash where the extrinsic was included.
- * @throws {BulletinError} If `viaSudo: true` is requested but the chain has no `Sudo` pallet.
+ * @throws {ProductBulletinError} If `viaSudo: true` is requested but the chain has no `Sudo` pallet.
  *
  * @example Direct (account self-authorizes — local dev)
  * ```ts
@@ -188,7 +188,7 @@ export async function authorizeAccount(
     });
 
     if (viaSudo && !apiTx.Sudo?.sudo) {
-        throw new BulletinError(
+        throw new ProductBulletinError(
             "viaSudo: true requires the Sudo pallet, which is not available on this network. " +
                 "On production networks (Polkadot, Kusama), authorize_account requires governance or a different mechanism.",
         );
@@ -454,7 +454,7 @@ if (import.meta.vitest) {
             expect(result).toEqual({ blockHash: "0xsudoblock" });
         });
 
-        test("throws BulletinError when viaSudo is true but the chain lacks a Sudo pallet", async () => {
+        test("throws ProductBulletinError when viaSudo is true but the chain lacks a Sudo pallet", async () => {
             const apiWithoutSudo = {
                 tx: {
                     TransactionStorage: {
@@ -476,7 +476,7 @@ if (import.meta.vitest) {
                 { viaSudo: true },
             ).catch((e: unknown) => e);
 
-            expect(err).toBeInstanceOf(BulletinError);
+            expect(err).toBeInstanceOf(ProductBulletinError);
             expect((err as Error).message).toMatch(/Sudo pallet/i);
             // Verify we did NOT proceed to submit anything
             expect(apiWithoutSudo.tx.TransactionStorage.authorize_account).not.toHaveBeenCalled();

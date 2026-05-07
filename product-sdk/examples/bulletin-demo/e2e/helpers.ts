@@ -8,9 +8,8 @@ import { expect, type FrameLocator } from "@playwright/test";
  *   1. Host connection established
  *   2. Signer connected ("connected")
  *   3. Account address resolved (not "-")
- *   4. Upload/query strategies resolved (not "-")
- *   5. BulletinClient connected
- *   6. Upload button enabled
+ *   4. BulletinClient connected
+ *   5. Upload button enabled
  */
 export async function waitForAppReady(
     testHost: TestHost,
@@ -28,16 +27,10 @@ export async function waitForAppReady(
     });
     await expect(frame.locator('[data-testid="account-address"]')).not.toHaveText("-", { timeout });
 
-    // Strategies resolved
-    await expect(frame.locator('[data-testid="upload-strategy"]')).not.toHaveText("-", { timeout });
-    await expect(frame.locator('[data-testid="query-strategy"]')).not.toHaveText("-", { timeout });
-
-    // BulletinClient connected to bulletin chain
     await expect(frame.locator('[data-testid="bulletin-status"]')).toHaveText("connected", {
         timeout,
     });
 
-    // Controls enabled
     await expect(frame.locator('[data-testid="btn-upload"]')).toBeEnabled({ timeout });
 
     return frame;

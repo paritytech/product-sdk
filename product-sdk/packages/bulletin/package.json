@@ -20,8 +20,9 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
+        "@parity/bulletin-sdk": "^0.3.0",
         "@parity/product-sdk-chain-client": "workspace:*",
-        "@parity/product-sdk-crypto": "workspace:*",
+        "@parity/product-sdk-descriptors": "workspace:*",
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",

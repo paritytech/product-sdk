@@ -17,7 +17,7 @@ import type {
 import { configure, createLogger } from "@parity/product-sdk-logger";
 import { createKvStore } from "@parity/product-sdk-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
-import { BulletinClient, computeCid } from "@parity/product-sdk-bulletin";
+import { BulletinClient, calculateCid, createLazySigner } from "@parity/product-sdk-bulletin";
 import {
     createChainClient,
     getClient,
@@ -83,12 +83,20 @@ export async function createApp(config: AppConfig): Promise<App> {
         dappName: config.name,
     });
 
-    // Initialize bulletin client (configurable, defaults to paseo)
+    // Initialize bulletin client (configurable, defaults to paseo).
+    //
+    // The signer is wrapped lazily so the bulletin client can be built before
+    // an account is selected. Uploads will throw a clear error if no signer
+    // is available at submission time. Reads (fetch / fetchJson) don't need
+    // a signer and work regardless.
     const bulletinEnabled = config.bulletin !== false;
     const bulletinEnvironment =
         typeof config.bulletin === "object" ? config.bulletin.environment : "paseo";
     const bulletinClient = bulletinEnabled
-        ? await BulletinClient.create(bulletinEnvironment)
+        ? await BulletinClient.create({
+              environment: bulletinEnvironment,
+              signer: createLazySigner(() => signerManager.getSigner()),
+          })
         : null;
 
     if (bulletinEnabled) {
@@ -150,13 +158,26 @@ export async function createApp(config: AppConfig): Promise<App> {
         ? {
               upload: async (data) => {
                   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-                  const result = await bulletinClient.upload(bytes);
-                  return result.cid;
+                  // Explicitly request a DAG-PB manifest so chunked uploads always
+                  // resolve to a single root CID. Without this, AsyncBulletinClient
+                  // can return `result.cid: undefined` for chunked-without-manifest
+                  // uploads — but BulletinApi.upload promises a string return, and
+                  // app consumers expect a CID they can hand to `fetch(cid)`. Keep
+                  // the defensive null-check below as belt-and-braces in case the
+                  // upstream contract shifts.
+                  const result = await bulletinClient.store(bytes).withManifest(true).send();
+                  if (!result.cid) {
+                      throw new Error(
+                          "Bulletin upload returned no CID despite .withManifest(true). Upstream contract may have shifted — file an issue.",
+                      );
+                  }
+                  return result.cid.toString();
               },
               fetch: (cid) => bulletinClient.fetchBytes(cid),
-              computeCid: (data) => {
+              computeCid: async (data) => {
                   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-                  return computeCid(bytes);
+                  const cid = await calculateCid(bytes);
+                  return cid.toString();
               },
           }
         : null;
