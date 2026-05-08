@@ -192,18 +192,19 @@ const sessions = await waitForSessions(adapter);
 
 **Limits and usage notes.**
 
-- **Signing does not round-trip.** `session.signRaw` goes out over the statement store and expects a real phone to respond. Use this helper for flows that test session discovery, persistence, and logout — not happy-path signing.
+- **Signing does not round-trip.** Both `session.signRaw` and `session.signPayload` go out over the statement store and expect a real phone to respond. Use this helper for flows that test session discovery, persistence, and logout — not happy-path signing.
 - **Expiry tests still work.** The synthesized local account was never registered on the People chain, so any statement-store write from this session fails with `NoAllowanceError`. That's the same error the CLI sees when a previously valid session's on-chain attestation has expired.
 - **No `expiresAt` option.** The on-disk codec has no expiry field; validity lives on chain.
 - **Corrupted-session cases** don't need a helper — `fs.writeFile("<storageDir>/<appId>_SsoSessions.json", "not-hex")` from the test is enough.
 
 ## Signing
 
-After login and attestation, the paired wallet can sign messages via the statement store.
+After login and attestation, the paired wallet can sign both transactions and raw messages via the statement store. The `PolkadotSigner` returned by `createSessionSigner` routes each path to the right host-papp method:
 
-**`signRaw`** works end-to-end: the wallet receives the request, shows a prompt, and returns the signature.
+- **Transactions** (`signTx` from polkadot-api's perspective — what `submitAndWatch`, `signSubmitAndWatch`, contract method calls, etc. invoke) go through `session.signPayload`. Mobile signs the SCALE-encoded extrinsic payload directly, with no envelope wrapping. The chain accepts the resulting signature.
+- **Raw bytes** (`signBytes`) go through `session.signRaw`. Mobile applies the standard `<Bytes>...</Bytes>` anti-phishing wrap before signing — appropriate for arbitrary data, the same behavior `signRaw` has across all Polkadot wallets.
 
-**`signPayload`** (for signing transaction payloads) is not yet functional — the request is submitted but the wallet does not respond. This is a known limitation of the current wallet/protocol version.
+> **Note on a previous bug.** Versions of this package prior to `0.1.1` routed *all* signing through `signRaw`, which caused mobile to wrap SCALE-encoded extrinsic payloads with `<Bytes>...</Bytes>` and produced signatures the chain rejected with `BadProof`. If you hit `BadProof` on every transaction, upgrade.
 
 ## Notes
 
