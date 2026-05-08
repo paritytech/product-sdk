@@ -295,7 +295,9 @@ if (import.meta.vitest) {
         const stubDescriptor = (
             genesis: `0x${string}`,
         ): (typeof CloudStorageNetworks)[CloudStorageEnvironment]["descriptor"] =>
-            ({ genesis }) as unknown as (typeof CloudStorageNetworks)[CloudStorageEnvironment]["descriptor"];
+            ({
+                genesis,
+            }) as unknown as (typeof CloudStorageNetworks)[CloudStorageEnvironment]["descriptor"];
 
         const realPaseo =
             "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea" as `0x${string}`;

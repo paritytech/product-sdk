@@ -17,7 +17,11 @@ import type {
 import { configure, createLogger } from "@parity/product-sdk-logger";
 import { createKvStore } from "@parity/product-sdk-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
-import { CloudStorageClient, calculateCid, createLazySigner } from "@parity/product-sdk-cloud-storage";
+import {
+    CloudStorageClient,
+    calculateCid,
+    createLazySigner,
+} from "@parity/product-sdk-cloud-storage";
 import {
     createChainClient,
     getClient,
@@ -100,7 +104,9 @@ export async function createApp(config: AppConfig): Promise<App> {
         : null;
 
     if (cloudStorageEnabled) {
-        log.debug("Cloud Storage client (Bulletin) initialized", { environment: cloudStorageEnvironment });
+        log.debug("Cloud Storage client (Bulletin) initialized", {
+            environment: cloudStorageEnvironment,
+        });
     } else {
         log.debug("Cloud Storage client disabled");
     }

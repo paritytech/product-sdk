@@ -43,7 +43,9 @@ if (import.meta.vitest) {
         });
 
         test("paseo descriptor has matching genesis", () => {
-            expect(CloudStorageNetworks.paseo.descriptor.genesis).toBe(CloudStorageNetworks.paseo.genesisHash);
+            expect(CloudStorageNetworks.paseo.descriptor.genesis).toBe(
+                CloudStorageNetworks.paseo.genesisHash,
+            );
         });
     });
 }
