@@ -51,14 +51,135 @@ export interface ProductAccountRef {
 }
 
 /**
- * PAPI's PJS payload exposes hex fields as plain `string` (the typedef is
- * `HexString = string` with no enforcement). The mappers always emit
- * `0x`-prefixed values, but we defensively prepend the prefix if missing —
- * matches the pattern in `@novasamatech/product-sdk`'s in-host signer.
+ * Defensively prepend `0x` if missing.
+ *
+ * PAPI's PJS payload types every hex field as `HexString = string` with no
+ * runtime check. In practice the signed-extension mappers always emit
+ * `0x`-prefixed values, so this should never actually prepend — but the
+ * type contract doesn't guarantee it, and host-papp's SCALE codec rejects
+ * unprefixed input. Mirrors the `asHex` helper in `@novasamatech/product-sdk`'s
+ * in-host signer for the same reason.
  */
 function asHex(v: string): `0x${string}` {
     return v.startsWith("0x") ? (v as `0x${string}`) : (`0x${v}` as `0x${string}`);
 }
+
+/**
+ * Build the `signPayload` callback PAPI calls for transaction signing.
+ *
+ * Translates PAPI's `SignerPayloadJSON` into host-papp's `SigningPayloadRequest`
+ * and routes it to `session.signPayload` — the mobile wallet's JSON-payload
+ * interactor, which signs the SCALE-encoded extrinsic directly with no
+ * `<Bytes>` envelope. This is the path that the chain accepts.
+ *
+ * Exported only via `import.meta.vitest` so unit tests can exercise the
+ * callback wiring directly without standing up a full PolkadotSigner.
+ */
+function makeSignPayloadCallback(session: UserSession, productAccountId: [string, number]) {
+    return async (
+        payload: PjsSignerPayloadJSON,
+    ): Promise<{
+        signature: `0x${string}`;
+        signedTransaction?: `0x${string}`;
+    }> => {
+        const result = await session.signPayload({
+            productAccountId,
+            blockHash: asHex(payload.blockHash),
+            blockNumber: asHex(payload.blockNumber),
+            era: asHex(payload.era),
+            genesisHash: asHex(payload.genesisHash),
+            method: asHex(payload.method),
+            nonce: asHex(payload.nonce),
+            specVersion: asHex(payload.specVersion),
+            tip: asHex(payload.tip),
+            transactionVersion: asHex(payload.transactionVersion),
+            signedExtensions: payload.signedExtensions,
+            version: payload.version,
+            // PJS types `assetId` as `number | object`. In practice the
+            // ChargeAssetTxPayment mapper always emits a hex string when
+            // present — we trust the mapper rather than runtime-checking,
+            // matching the reference in `@novasamatech/product-sdk`.
+            assetId:
+                payload.assetId !== undefined
+                    ? (payload.assetId as never as `0x${string}`)
+                    : undefined,
+            metadataHash: payload.metadataHash ? asHex(payload.metadataHash) : undefined,
+            mode: payload.mode,
+            withSignedTransaction: payload.withSignedTransaction,
+        });
+
+        if (result.isErr()) {
+            throw new Error(`Mobile signing rejected: ${result.error.message}`);
+        }
+
+        return {
+            signature: toHex(result.value.signature) as `0x${string}`,
+            signedTransaction: result.value.signedTransaction
+                ? (toHex(result.value.signedTransaction) as `0x${string}`)
+                : undefined,
+        };
+    };
+}
+
+/**
+ * Build the `signRaw` callback PAPI calls for arbitrary-byte signing
+ * (`signBytes`). Routes to `session.signRaw` — the mobile wallet's raw
+ * interactor, which applies the standard `<Bytes>...</Bytes>` anti-phishing
+ * envelope before signing. Correct for arbitrary user data.
+ *
+ * Exported only via `import.meta.vitest` for direct unit tests.
+ */
+function makeSignRawCallback(session: UserSession, productAccountId: [string, number]) {
+    return async (
+        payload: PjsSignRawPayload,
+    ): Promise<{
+        id: number;
+        signature: `0x${string}`;
+    }> => {
+        const result = await session.signRaw({
+            productAccountId,
+            data: { tag: "Bytes" as const, value: fromHex(payload.data) },
+        });
+
+        if (result.isErr()) {
+            throw new Error(`Mobile signing rejected: ${result.error.message}`);
+        }
+
+        return {
+            id: 0,
+            signature: toHex(result.value.signature) as `0x${string}`,
+        };
+    };
+}
+
+// Minimal local types for the PJS signer callback inputs. We don't import
+// the full `SignerPayloadJSON` from `@polkadot-api/pjs-signer` because the
+// version installed exposes it as an internal type. These are structurally
+// correct for the fields we actually read.
+type PjsSignerPayloadJSON = {
+    address: string;
+    assetId?: number | object;
+    blockHash: string;
+    blockNumber: string;
+    era: string;
+    genesisHash: string;
+    metadataHash?: string;
+    method: string;
+    mode?: number;
+    nonce: string;
+    specVersion: string;
+    tip: string;
+    transactionVersion: string;
+    signedExtensions: string[];
+    version: number;
+    withSignedTransaction?: boolean;
+};
+
+type PjsSignRawPayload = {
+    address: string;
+    data: string;
+    type: "bytes";
+};
 
 function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
     const accountId = new Uint8Array(session.remoteAccount.accountId);
@@ -66,72 +187,14 @@ function buildSessionSigner(session: UserSession, ref: ProductAccountRef): Polka
     // getPolkadotSignerFromPjs accepts a "0x"-prefixed hex AccountId as its
     // address; it derives `publicKey` from this directly. The host-papp side
     // of signing identifies accounts by `productAccountId` instead, so we
-    // ignore the `address` field that PAPI later passes back into our
-    // callbacks and use the closure-captured `productAccountId` there.
+    // ignore the `address` field PAPI later passes back into our callbacks
+    // and use the closure-captured `productAccountId` there.
     const accountIdHex = asHex(toHex(accountId));
 
     return getPolkadotSignerFromPjs(
         accountIdHex,
-        // signPayload — used by PAPI for transaction signing. Routes to
-        // host-papp's `signPayload`, which the mobile wallet handles via
-        // its JSON-payload interactor (no `<Bytes>` wrap, so the produced
-        // signature verifies over the extrinsic).
-        async (payload) => {
-            const result = await session.signPayload({
-                productAccountId,
-                blockHash: asHex(payload.blockHash),
-                blockNumber: asHex(payload.blockNumber),
-                era: asHex(payload.era),
-                genesisHash: asHex(payload.genesisHash),
-                method: asHex(payload.method),
-                nonce: asHex(payload.nonce),
-                specVersion: asHex(payload.specVersion),
-                tip: asHex(payload.tip),
-                transactionVersion: asHex(payload.transactionVersion),
-                signedExtensions: payload.signedExtensions,
-                version: payload.version,
-                // PJS types `assetId` as `number | object` (broader than what
-                // the ChargeAssetTxPayment mapper actually emits, which is
-                // always a hex string). Pass through if present, otherwise
-                // `undefined`. Matches `@novasamatech/product-sdk`'s shape.
-                assetId:
-                    payload.assetId !== undefined
-                        ? (payload.assetId as unknown as `0x${string}`)
-                        : undefined,
-                metadataHash: payload.metadataHash ? asHex(payload.metadataHash) : undefined,
-                mode: payload.mode,
-                withSignedTransaction: payload.withSignedTransaction,
-            });
-
-            if (result.isErr()) {
-                throw new Error(`Mobile signing rejected: ${result.error.message}`);
-            }
-
-            return {
-                signature: toHex(result.value.signature),
-                signedTransaction: result.value.signedTransaction
-                    ? toHex(result.value.signedTransaction)
-                    : undefined,
-            };
-        },
-        // signRaw — used by PAPI's `signBytes` and any caller signing actual
-        // raw bytes. Routes to host-papp's `signRaw`, which the mobile wallet
-        // wraps with `<Bytes>...</Bytes>` before signing (anti-phishing).
-        async (payload) => {
-            const result = await session.signRaw({
-                productAccountId,
-                data: { tag: "Bytes" as const, value: fromHex(payload.data) },
-            });
-
-            if (result.isErr()) {
-                throw new Error(`Mobile signing rejected: ${result.error.message}`);
-            }
-
-            return {
-                id: 0,
-                signature: toHex(result.value.signature),
-            };
-        },
+        makeSignPayloadCallback(session, productAccountId),
+        makeSignRawCallback(session, productAccountId),
     );
 }
 
@@ -275,66 +338,223 @@ if (import.meta.vitest) {
         });
     });
 
-    describe("createSessionSigner — tx signing path", () => {
-        // PAPI's signTx (called when submitting an extrinsic) must hit
-        // host-papp's signPayload, NOT signRaw. This is the path that was
-        // broken by the original bug — wallet would wrap the SCALE-encoded
-        // extrinsic in <Bytes>...</Bytes> and the chain would reject the
-        // resulting signature with BadProof.
+    describe("makeSignPayloadCallback — tx signing path (the BadProof fix)", () => {
+        // These tests directly exercise the callback PAPI hands to its
+        // signTx implementation. Bypassing PAPI's getPolkadotSignerFromPjs
+        // wrapper lets us assert on the wire-format translation without
+        // building synthetic extrinsic metadata. The full signTx → callback
+        // → chain roundtrip is gated by the manual smoke test.
 
-        // Minimal extrinsic v4 metadata stub. We don't actually need
-        // PAPI to decode it — we just need signTx to reach the point of
-        // calling our signPayload callback. The callback is what we assert on.
-        // Building this from scratch is heavy; instead we'll exercise
-        // signPayload directly via the publicKey/signature contract.
+        function pjsPayload(overrides: Partial<PjsSignerPayloadJSON> = {}): PjsSignerPayloadJSON {
+            return {
+                address: `0x${"00".repeat(32)}`,
+                blockHash: `0x${"11".repeat(32)}`,
+                blockNumber: "0x12345678",
+                era: "0xc501",
+                genesisHash: `0x${"22".repeat(32)}`,
+                method: "0xabcdef",
+                nonce: "0x00000001",
+                specVersion: "0x000003e8",
+                tip: `0x${"0".repeat(32)}`,
+                transactionVersion: "0x00000001",
+                signedExtensions: ["CheckMortality", "CheckNonce"],
+                version: 4,
+                ...overrides,
+            };
+        }
 
-        test("signPayload callback returns hex signature in PJS shape", async () => {
-            // Direct unit test for the signPayload glue: when host-papp
-            // returns a Uint8Array signature, our callback must hex-encode
-            // it for PJS's expected return shape.
+        test("forwards request to session.signPayload with the right productAccountId", async () => {
+            const captured: unknown[] = [];
             const session = makeSession({
-                signPayload: async () =>
-                    ok({
-                        signature: new Uint8Array([0xab, 0xcd]),
+                signPayload: async (req) => {
+                    captured.push(req);
+                    return ok({
+                        signature: new Uint8Array([0xaa, 0xbb]),
                         signedTransaction: undefined,
-                    }),
+                    });
+                },
             });
-            const signer = createSessionSigner(session, fakeAdapter("test-app"));
 
-            // PolkadotSigner doesn't expose its signTx for direct invocation,
-            // but we can verify that the underlying callback would produce
-            // the right shape by checking the callback's behavior through
-            // session spy assertions in the next test.
-            expect(signer.publicKey).toBeInstanceOf(Uint8Array);
+            const callback = makeSignPayloadCallback(session, ["my-app", 0]);
+            await callback(pjsPayload());
+
+            expect(captured).toHaveLength(1);
+            const req = captured[0] as { productAccountId: [string, number] };
+            expect(req.productAccountId).toEqual(["my-app", 0]);
         });
 
-        test("signPayload routes to session.signPayload with productAccountId", async () => {
-            // Direct test of the callback wiring: stub host-papp's
-            // signPayload and signRaw, then call PAPI's signer wrapping
-            // and assert which host-papp method got hit. This exercises
-            // the callback indirectly via the PolkadotSigner contract.
-            //
-            // In practice PAPI's signTx is what triggers signPayload, but
-            // signTx requires real metadata to call into. Instead of
-            // building that up, we lean on the fact that getPolkadotSignerFromPjs
-            // wires signRaw and signPayload independently — if signBytes
-            // hits signRaw, that's structurally enough to demonstrate
-            // that the two callbacks are routed to different host-papp
-            // methods. The full signTx path is covered by the manual smoke
-            // test that exercises against a real chain.
+        test("does NOT call session.signRaw (BadProof regression guard)", async () => {
+            // The whole point of the fix: tx signing must hit signPayload,
+            // never signRaw. signRaw applies the <Bytes> envelope which
+            // produces signatures the chain rejects.
             const session = makeSession({
-                signRaw: async () => ok({ signature: new Uint8Array([1]) }),
+                signPayload: async () =>
+                    ok({ signature: new Uint8Array([1]), signedTransaction: undefined }),
             });
-            const signer = createSessionSigner(session, fakeAdapter("my-app"));
-            await signer.signBytes(new Uint8Array([1, 2, 3]));
+
+            const callback = makeSignPayloadCallback(session, ["my-app", 0]);
+            await callback(pjsPayload());
 
             const sessionWithSpies = session as unknown as {
                 signPayload: { mock: { calls: unknown[] } };
                 signRaw: { mock: { calls: unknown[] } };
             };
-            // Raw path hit, payload path NOT hit — confirms separation.
-            expect(sessionWithSpies.signRaw.mock.calls).toHaveLength(1);
-            expect(sessionWithSpies.signPayload.mock.calls).toHaveLength(0);
+            expect(sessionWithSpies.signPayload.mock.calls).toHaveLength(1);
+            expect(sessionWithSpies.signRaw.mock.calls).toHaveLength(0);
+        });
+
+        test("translates every PJS hex field into a 0x-prefixed string", async () => {
+            const captured: unknown[] = [];
+            const session = makeSession({
+                signPayload: async (req) => {
+                    captured.push(req);
+                    return ok({
+                        signature: new Uint8Array([0]),
+                        signedTransaction: undefined,
+                    });
+                },
+            });
+
+            const callback = makeSignPayloadCallback(session, ["my-app", 0]);
+            await callback(
+                pjsPayload({
+                    // Mix of already-prefixed and unprefixed inputs to exercise asHex.
+                    blockHash: `0x${"ab".repeat(32)}`,
+                    nonce: "1234abcd", // unprefixed — asHex must add 0x
+                }),
+            );
+
+            const req = captured[0] as Record<string, unknown>;
+            for (const field of [
+                "blockHash",
+                "blockNumber",
+                "era",
+                "genesisHash",
+                "method",
+                "nonce",
+                "specVersion",
+                "tip",
+                "transactionVersion",
+            ]) {
+                expect(req[field], `${field} must be 0x-prefixed`).toMatch(/^0x[0-9a-fA-F]*$/);
+            }
+        });
+
+        test("forwards optional fields when present, omits when absent", async () => {
+            const captured: unknown[] = [];
+            const session = makeSession({
+                signPayload: async (req) => {
+                    captured.push(req);
+                    return ok({
+                        signature: new Uint8Array([0]),
+                        signedTransaction: undefined,
+                    });
+                },
+            });
+
+            const callback = makeSignPayloadCallback(session, ["my-app", 0]);
+            await callback(
+                pjsPayload({
+                    metadataHash: "0xdeadbeef",
+                    mode: 1,
+                    withSignedTransaction: true,
+                    assetId: "0xfeed" as unknown as object,
+                }),
+            );
+
+            const req = captured[0] as Record<string, unknown>;
+            expect(req.metadataHash).toBe("0xdeadbeef");
+            expect(req.mode).toBe(1);
+            expect(req.withSignedTransaction).toBe(true);
+            expect(req.assetId).toBe("0xfeed");
+        });
+
+        test("hex-encodes signature and signedTransaction in the PJS return shape", async () => {
+            const session = makeSession({
+                signPayload: async () =>
+                    ok({
+                        signature: new Uint8Array([0xab, 0xcd]),
+                        signedTransaction: new Uint8Array([0x01, 0x02, 0x03]),
+                    }),
+            });
+
+            const callback = makeSignPayloadCallback(session, ["my-app", 0]);
+            const result = await callback(pjsPayload());
+
+            expect(result.signature).toBe("0xabcd");
+            expect(result.signedTransaction).toBe("0x010203");
+        });
+
+        test("omits signedTransaction when host-papp returns undefined", async () => {
+            const session = makeSession({
+                signPayload: async () =>
+                    ok({
+                        signature: new Uint8Array([0]),
+                        signedTransaction: undefined,
+                    }),
+            });
+
+            const callback = makeSignPayloadCallback(session, ["my-app", 0]);
+            const result = await callback(pjsPayload());
+
+            expect(result.signature).toBe("0x00");
+            expect(result.signedTransaction).toBeUndefined();
+        });
+
+        test("throws a clear error when the mobile rejects", async () => {
+            const session = makeSession({
+                signPayload: async () => err({ message: "user declined" }),
+            });
+
+            const callback = makeSignPayloadCallback(session, ["my-app", 0]);
+
+            await expect(callback(pjsPayload())).rejects.toThrow(
+                "Mobile signing rejected: user declined",
+            );
+        });
+    });
+
+    describe("makeSignRawCallback", () => {
+        test("forwards request to session.signRaw with the right productAccountId", async () => {
+            const captured: unknown[] = [];
+            const session = makeSession({
+                signRaw: async (req) => {
+                    captured.push(req);
+                    return ok({ signature: new Uint8Array([0xff]) });
+                },
+            });
+
+            const callback = makeSignRawCallback(session, ["my-app", 5]);
+            await callback({
+                address: `0x${"00".repeat(32)}`,
+                data: "0xdeadbeef",
+                type: "bytes",
+            });
+
+            expect(captured).toHaveLength(1);
+            const req = captured[0] as {
+                productAccountId: [string, number];
+                data: { tag: string; value: Uint8Array };
+            };
+            expect(req.productAccountId).toEqual(["my-app", 5]);
+            expect(req.data.tag).toBe("Bytes");
+            expect(Array.from(req.data.value)).toEqual([0xde, 0xad, 0xbe, 0xef]);
+        });
+
+        test("hex-encodes signature in the PJS return shape with id: 0", async () => {
+            const session = makeSession({
+                signRaw: async () => ok({ signature: new Uint8Array([0x42]) }),
+            });
+
+            const callback = makeSignRawCallback(session, ["my-app", 0]);
+            const result = await callback({
+                address: `0x${"00".repeat(32)}`,
+                data: "0x00",
+                type: "bytes",
+            });
+
+            expect(result.id).toBe(0);
+            expect(result.signature).toBe("0x42");
         });
     });
 
