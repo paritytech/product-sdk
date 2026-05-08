@@ -16,9 +16,9 @@
             "import": "./dist/address/index.js",
             "types": "./dist/address/index.d.ts"
         },
-        "./bulletin": {
-            "import": "./dist/bulletin/index.js",
-            "types": "./dist/bulletin/index.d.ts"
+        "./cloud-storage": {
+            "import": "./dist/cloud-storage/index.js",
+            "types": "./dist/cloud-storage/index.d.ts"
         },
         "./chain": {
             "import": "./dist/chain/index.js",
@@ -64,7 +64,7 @@
     },
     "dependencies": {
         "@parity/product-sdk-address": "workspace:*",
-        "@parity/product-sdk-bulletin": "workspace:*",
+        "@parity/product-sdk-cloud-storage": "workspace:*",
         "@parity/product-sdk-chain-client": "workspace:*",
         "@parity/product-sdk-contracts": "workspace:*",
         "@parity/product-sdk-crypto": "workspace:*",

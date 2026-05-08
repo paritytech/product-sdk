@@ -10,24 +10,24 @@ const log = createLogger("bulletin");
 /**
  * Fetch raw bytes for a CID via the host's preimage lookup.
  *
- * Container-only by design: the bulletin SDK does not retrieve content
+ * Container-only by design: the Cloud Storage SDK does not retrieve content
  * through public IPFS gateways. Inside a Polkadot Browser / Desktop
  * container, the host's `preimageManager` provides a cached, polling-
  * managed lookup that returns bytes when the underlying IPFS network
  * makes them available. Outside a container, this throws
- * {@link BulletinHostUnavailableError}.
+ * {@link CloudStorageHostUnavailableError}.
  *
- * The bulletin chain stores transaction *metadata* on-chain
+ * The underlying chain stores transaction *metadata* on-chain
  * (`chunk_root`, `content_hash`, `size`, `cid_codec`, `hashing`) — the
  * content bytes themselves live in IPFS and are surfaced through the
  * host's preimage subscription, never via direct gateway fetch.
  *
  * To prove that a CID was stored on-chain (without fetching the bytes),
- * use `verifyOnChain` from `verify.ts`.
+ * use `verifyStored` from `verify.ts`.
  *
  * @param cid     - CIDv1 string to fetch.
  * @param options - Query options (`lookupTimeoutMs` for host).
- * @throws {BulletinHostUnavailableError} If running outside a container.
+ * @throws {CloudStorageHostUnavailableError} If running outside a container.
  */
 export async function queryBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
     const strategy = await resolveQueryStrategy();
@@ -47,7 +47,7 @@ export async function queryJson<T>(cid: string, options?: QueryOptions): Promise
 /**
  * Execute a query using a pre-resolved strategy.
  *
- * Exposed so `BulletinClient` can resolve the strategy once at
+ * Exposed so `CloudStorageClient` can resolve the strategy once at
  * construction time and reuse it across calls without re-detecting
  * the host environment on every fetch.
  *

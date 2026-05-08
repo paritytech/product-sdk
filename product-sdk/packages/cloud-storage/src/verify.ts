@@ -11,14 +11,14 @@
  *
  * Common use case: just-after-upload UX — `await client.store(data).send()`
  * gives you back `{ cid, blockNumber, extrinsicIndex? }`, and a follow-up
- * `verifyOnChain(api, cid, { block: blockNumber })` confirms the metadata
+ * `verifyStored(api, cid, { block: blockNumber })` confirms the metadata
  * landed where expected.
  */
 import { CID } from "multiformats/cid";
 
 import { HashAlgorithm } from "./cid.js";
-import { BulletinCidError } from "./errors.js";
-import type { BulletinApi } from "./types.js";
+import { CloudStorageCidError } from "./errors.js";
+import type { CloudStorageApi } from "./types.js";
 
 /**
  * Match a multihash code in a CID against the chain's `hashing` enum value.
@@ -42,9 +42,9 @@ export interface ChainStoredEntry {
 }
 
 /**
- * Verification options for {@link verifyOnChain}.
+ * Verification options for {@link verifyStored}.
  */
-export interface VerifyOnChainOptions {
+export interface VerifyStoredOptions {
     /**
      * Block number to look up. Pass the `blockNumber` returned from a prior
      * `store(...).send()` for an O(1) lookup.
@@ -63,14 +63,14 @@ export interface VerifyOnChainOptions {
 }
 
 /**
- * Verify that a CID is recorded in the bulletin chain's `Transactions`
- * storage at the given block.
+ * Verify that a CID is recorded in the cloud storage (bulletin chain's `Transactions` storage)
+ * at the given block.
  *
  * Returns the matched entry (with block + index) when the CID's content
  * hash and hashing algorithm both match a `Transactions[block]` entry.
  * Returns `null` when no match is found at that block.
  *
- * @param api     - Typed bulletin API.
+ * @param api     - Typed Cloud Storage API instance.
  * @param cid     - CIDv1 string to look up.
  * @param options - Verification target (block number, optional index).
  *
@@ -78,7 +78,7 @@ export interface VerifyOnChainOptions {
  * ```ts
  * const receipt = await client.store(data).send();
  * if (receipt.blockNumber !== undefined) {
- *   const entry = await verifyOnChain(client.api, receipt.cid!.toString(), {
+ *   const entry = await verifyStored(client.api, receipt.cid!.toString(), {
  *     block: receipt.blockNumber,
  *     index: receipt.extrinsicIndex,
  *   });
@@ -86,10 +86,10 @@ export interface VerifyOnChainOptions {
  * }
  * ```
  */
-export async function verifyOnChain(
-    api: BulletinApi,
+export async function verifyStored(
+    api: CloudStorageApi,
     cid: string,
-    options: VerifyOnChainOptions,
+    options: VerifyStoredOptions,
 ): Promise<ChainStoredEntry | null> {
     const parsed = parseCidForVerify(cid);
 
@@ -97,7 +97,7 @@ export async function verifyOnChain(
         ?.getValue;
     if (!queryFn) {
         throw new Error(
-            "Bulletin API does not expose query.TransactionStorage.Transactions — " +
+            "CloudStorage API does not expose query.TransactionStorage.Transactions — " +
                 "the typed API may be incomplete or the runtime version doesn't match the descriptor.",
         );
     }
@@ -182,14 +182,14 @@ function parseCidForVerify(cid: string): ParsedCid {
     try {
         parsed = CID.parse(cid);
     } catch {
-        throw new BulletinCidError(`Invalid CID: ${cid}`, cid);
+        throw new CloudStorageCidError(`Invalid CID: ${cid}`, cid);
     }
     if (parsed.version !== 1) {
-        throw new BulletinCidError(`Expected CIDv1, got CIDv${parsed.version}`, cid);
+        throw new CloudStorageCidError(`Expected CIDv1, got CIDv${parsed.version}`, cid);
     }
     const hashType = HASH_CODE_TO_ENUM_TYPE[parsed.multihash.code];
     if (!hashType) {
-        throw new BulletinCidError(
+        throw new CloudStorageCidError(
             `Unsupported hash algorithm 0x${parsed.multihash.code.toString(16)}`,
             cid,
         );
@@ -220,7 +220,7 @@ if (import.meta.vitest) {
                     Transactions: { getValue },
                 },
             },
-        } as unknown as BulletinApi;
+        } as unknown as CloudStorageApi;
     }
 
     function makeEntry(
@@ -245,13 +245,13 @@ if (import.meta.vitest) {
         return CID.createV1(0x55, Digest.create(hashCode, digest)).toString();
     }
 
-    describe("verifyOnChain", () => {
+    describe("verifyStored", () => {
         test("returns entry when CID matches at given block", async () => {
             const digest = new Uint8Array(32).fill(0xab);
             const cid = await makeCidWithDigest(digest);
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(digest)]));
 
-            const result = await verifyOnChain(api, cid, { block: 100 });
+            const result = await verifyStored(api, cid, { block: 100 });
             expect(result).toEqual({ block: 100, index: 0, size: 100, blockChunks: 1 });
         });
 
@@ -260,7 +260,7 @@ if (import.meta.vitest) {
             const cid = await makeCidWithDigest(digest);
             const api = makeMockApi(vi.fn().mockResolvedValue(undefined));
 
-            const result = await verifyOnChain(api, cid, { block: 100 });
+            const result = await verifyStored(api, cid, { block: 100 });
             expect(result).toBeNull();
         });
 
@@ -270,7 +270,7 @@ if (import.meta.vitest) {
             const cid = await makeCidWithDigest(targetDigest);
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(otherDigest)]));
 
-            const result = await verifyOnChain(api, cid, { block: 100 });
+            const result = await verifyStored(api, cid, { block: 100 });
             expect(result).toBeNull();
         });
 
@@ -280,7 +280,7 @@ if (import.meta.vitest) {
             const cid = await makeCidWithDigest(digest, 0xb220);
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(digest, "Sha2_256")]));
 
-            const result = await verifyOnChain(api, cid, { block: 100 });
+            const result = await verifyStored(api, cid, { block: 100 });
             expect(result).toBeNull();
         });
 
@@ -298,7 +298,7 @@ if (import.meta.vitest) {
                     ]),
             );
 
-            const result = await verifyOnChain(api, cid, { block: 100 });
+            const result = await verifyStored(api, cid, { block: 100 });
             expect(result?.index).toBe(2);
         });
 
@@ -317,7 +317,7 @@ if (import.meta.vitest) {
                     ]),
             );
 
-            const result = await verifyOnChain(api, cid, { block: 100, index: 0 });
+            const result = await verifyStored(api, cid, { block: 100, index: 0 });
             expect(result).toBeNull();
         });
 
@@ -335,22 +335,22 @@ if (import.meta.vitest) {
                     ]),
             );
 
-            const result = await verifyOnChain(api, cid, { block: 100, index: 2 });
+            const result = await verifyStored(api, cid, { block: 100, index: 2 });
             expect(result?.index).toBe(2);
         });
 
-        test("throws BulletinCidError on invalid CID", async () => {
+        test("throws CloudStorageCidError on invalid CID", async () => {
             const api = makeMockApi(vi.fn());
-            await expect(verifyOnChain(api, "not-a-cid", { block: 1 })).rejects.toThrow(
-                BulletinCidError,
+            await expect(verifyStored(api, "not-a-cid", { block: 1 })).rejects.toThrow(
+                CloudStorageCidError,
             );
         });
 
         test("throws when api lacks the expected query path", async () => {
-            const api = {} as BulletinApi;
+            const api = {} as CloudStorageApi;
             const digest = new Uint8Array(32).fill(0xab);
             const cid = await makeCidWithDigest(digest);
-            await expect(verifyOnChain(api, cid, { block: 1 })).rejects.toThrow(
+            await expect(verifyStored(api, cid, { block: 1 })).rejects.toThrow(
                 /does not expose query/,
             );
         });
@@ -368,7 +368,7 @@ if (import.meta.vitest) {
                 block_chunks: 1,
             };
             const api = makeMockApi(vi.fn().mockResolvedValue([entry]));
-            const result = await verifyOnChain(api, cid, { block: 1 });
+            const result = await verifyStored(api, cid, { block: 1 });
             expect(result).toEqual({ block: 1, index: 0, size: 50, blockChunks: 1 });
         });
 
@@ -377,7 +377,7 @@ if (import.meta.vitest) {
             const cid = await makeCidWithDigest(digest);
             const getValue = vi.fn().mockResolvedValue([makeEntry(digest)]);
             const api = makeMockApi(getValue);
-            await verifyOnChain(api, cid, { block: 42 });
+            await verifyStored(api, cid, { block: 42 });
             expect(getValue).toHaveBeenCalledWith(42);
         });
     });

@@ -4,7 +4,7 @@ import type { PolkadotSigner } from "polkadot-api";
  * Build a `PolkadotSigner` whose underlying signer is resolved on every call.
  *
  * `AsyncBulletinClient` takes a fixed `PolkadotSigner` at construction, but
- * apps often build the bulletin client before any account is selected. This
+ * apps often build the Cloud Storage client before any account is selected. This
  * wrapper defers signer resolution: each call to `signTx` / `signBytes`
  * invokes `getSigner()` and forwards to the result. If the getter returns
  * `null`, calls throw with a clear message.

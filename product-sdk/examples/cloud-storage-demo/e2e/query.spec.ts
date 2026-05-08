@@ -9,7 +9,7 @@ import { waitForAppReady } from "./helpers";
  * fetches via getPreimageManager().lookup, not the older synchronous
  * test seam). Replacing the test rig is tracked as a follow-up.
  */
-test.describe.skip("@parity/product-sdk-bulletin via Host API — query", () => {
+test.describe.skip("@parity/product-sdk-cloud-storage via Host API — query", () => {
     test("seeded preimage is found via host lookup", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearPreimages();

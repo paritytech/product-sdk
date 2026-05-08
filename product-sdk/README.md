@@ -11,7 +11,7 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-tx` | Transaction submission, lifecycle watching, and dev signers |
 | `@parity/product-sdk-signer` | Multi-provider signer manager — Host API and dev accounts |
 | `@parity/product-sdk-contracts` | Typed contract interactions on Polkadot Asset Hub |
-| `@parity/product-sdk-bulletin` | Upload and retrieve data on the Polkadot Bulletin Chain |
+| `@parity/product-sdk-cloud-storage` | Upload and retrieve data via Cloud Storage (currently backed by the Polkadot Bulletin Chain) |
 | `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |
 | `@parity/product-sdk-keys` | Hierarchical key derivation and session key management |
 | `@parity/product-sdk-storage` | Key-value storage with automatic host/browser backend detection |
@@ -61,7 +61,7 @@ The `examples/` directory contains 9 demo apps that exercise the SDK packages vi
 | `signer-demo` | Account discovery, signing, permissions |
 | `tx-demo` | Transaction submission, batching, finalization |
 | `contracts-demo` | Contract queries and submissions |
-| `bulletin-demo` | CID computation, upload, query |
+| `cloud-storage-demo` | CID computation, upload, query |
 | `statement-store-demo` | Publish/subscribe, channels |
 
 ```bash

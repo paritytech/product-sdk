@@ -32,7 +32,7 @@ export type {
     WalletApi,
     StorageApi,
     ChainApi,
-    BulletinApi,
+    CloudStorageApi,
     Account,
     ChainClient,
     ChainDefinition,
@@ -46,4 +46,4 @@ export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-ho
 export { createChainClient } from "@parity/product-sdk-chain-client";
 export { SignerManager } from "@parity/product-sdk-signer";
 export { createKvStore } from "@parity/product-sdk-storage";
-export { BulletinClient, calculateCid } from "@parity/product-sdk-bulletin";
+export { CloudStorageClient, calculateCid } from "@parity/product-sdk-cloud-storage";

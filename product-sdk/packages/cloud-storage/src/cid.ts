@@ -14,10 +14,10 @@
 import { CID } from "multiformats/cid";
 import * as Digest from "multiformats/hashes/digest";
 
-import { BulletinCidError } from "./errors.js";
+import { CloudStorageCidError } from "./errors.js";
 
 /**
- * Hash algorithms supported by the Bulletin Chain.
+ * Hash algorithms supported by Cloud Storage.
  *
  * Values are multihash codes from the multicodec table.
  */
@@ -32,7 +32,7 @@ export const HashAlgorithm = {
 export type HashAlgorithm = (typeof HashAlgorithm)[keyof typeof HashAlgorithm];
 
 /**
- * CID codecs supported by the Bulletin Chain.
+ * CID codecs supported by Cloud Storage.
  */
 export const CidCodec = {
     /** Raw binary — default for single-chunk data. */
@@ -64,24 +64,24 @@ export function hashToCid(
     codec: CidCodec = CidCodec.Raw,
 ): string {
     if (hexHash.length !== EXPECTED_HEX_LENGTH) {
-        throw new BulletinCidError(
+        throw new CloudStorageCidError(
             `Expected a 0x-prefixed 32-byte hex hash (${EXPECTED_HEX_LENGTH} chars), ` +
                 `got ${hexHash.length} chars`,
         );
     }
     if (!/^0x[0-9a-fA-F]{64}$/.test(hexHash)) {
-        throw new BulletinCidError(
+        throw new CloudStorageCidError(
             `Invalid hash format: expected 0x-prefixed 32-byte hex string, got: ${hexHash}`,
         );
     }
     if (!SUPPORTED_HASH_CODES.has(hashCode)) {
-        throw new BulletinCidError(
+        throw new CloudStorageCidError(
             `Unsupported hash algorithm 0x${hashCode.toString(16)}; ` +
                 `expected one of: ${[...SUPPORTED_HASH_CODES].map((c) => `0x${c.toString(16)}`).join(", ")}`,
         );
     }
     if (!SUPPORTED_CODEC_CODES.has(codec)) {
-        throw new BulletinCidError(
+        throw new CloudStorageCidError(
             `Unsupported CID codec 0x${codec.toString(16)}; ` +
                 `expected one of: ${[...SUPPORTED_CODEC_CODES].map((c) => `0x${c.toString(16)}`).join(", ")}`,
         );
@@ -101,13 +101,13 @@ export function cidToPreimageKey(cid: string): `0x${string}` {
     try {
         parsed = CID.parse(cid);
     } catch {
-        throw new BulletinCidError(`Invalid CID: ${cid}`, cid);
+        throw new CloudStorageCidError(`Invalid CID: ${cid}`, cid);
     }
     if (parsed.version !== 1) {
-        throw new BulletinCidError(`Expected CIDv1, got CIDv${parsed.version}`, cid);
+        throw new CloudStorageCidError(`Expected CIDv1, got CIDv${parsed.version}`, cid);
     }
     if (!SUPPORTED_HASH_CODES.has(parsed.multihash.code)) {
-        throw new BulletinCidError(
+        throw new CloudStorageCidError(
             `Unsupported hash algorithm 0x${parsed.multihash.code.toString(16)}; ` +
                 `expected one of: ${[...SUPPORTED_HASH_CODES].map((c) => `0x${c.toString(16)}`).join(", ")}`,
             cid,
@@ -158,26 +158,26 @@ if (import.meta.vitest) {
         });
 
         test("throws on short hex", () => {
-            expect(() => hashToCid("0xabcd" as `0x${string}`)).toThrow(BulletinCidError);
+            expect(() => hashToCid("0xabcd" as `0x${string}`)).toThrow(CloudStorageCidError);
         });
 
         test("throws on long hex", () => {
             const tooLong = `0x${"aa".repeat(33)}` as `0x${string}`;
-            expect(() => hashToCid(tooLong)).toThrow(BulletinCidError);
+            expect(() => hashToCid(tooLong)).toThrow(CloudStorageCidError);
         });
 
         test("throws on non-hex characters", () => {
             const bad = `0x${"zz".repeat(32)}` as `0x${string}`;
-            expect(() => hashToCid(bad)).toThrow(BulletinCidError);
+            expect(() => hashToCid(bad)).toThrow(CloudStorageCidError);
         });
 
         test("throws on unsupported hash algorithm", () => {
-            expect(() => hashToCid(sampleHex, 0x99 as HashAlgorithm)).toThrow(BulletinCidError);
+            expect(() => hashToCid(sampleHex, 0x99 as HashAlgorithm)).toThrow(CloudStorageCidError);
         });
 
         test("throws on unsupported codec", () => {
             expect(() => hashToCid(sampleHex, HashAlgorithm.Blake2b256, 0x99 as CidCodec)).toThrow(
-                BulletinCidError,
+                CloudStorageCidError,
             );
         });
     });
@@ -196,19 +196,19 @@ if (import.meta.vitest) {
         });
 
         test("throws on invalid CID string", () => {
-            expect(() => cidToPreimageKey("not-a-cid")).toThrow(BulletinCidError);
+            expect(() => cidToPreimageKey("not-a-cid")).toThrow(CloudStorageCidError);
         });
 
         test("throws on CIDv0 input", () => {
             const hash = new Uint8Array(32).fill(0xab);
             const cidV0 = CID.create(0, 0x70, Digest.create(HashAlgorithm.Sha2_256, hash));
-            expect(() => cidToPreimageKey(cidV0.toString())).toThrow(BulletinCidError);
+            expect(() => cidToPreimageKey(cidV0.toString())).toThrow(CloudStorageCidError);
         });
 
         test("throws on unsupported hash algorithm", () => {
             const hash = new Uint8Array(32).fill(0xab);
             const cidV1 = CID.createV1(CidCodec.Raw, Digest.create(0x99, hash));
-            expect(() => cidToPreimageKey(cidV1.toString())).toThrow(BulletinCidError);
+            expect(() => cidToPreimageKey(cidV1.toString())).toThrow(CloudStorageCidError);
         });
     });
 }

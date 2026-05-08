@@ -6,7 +6,7 @@
   "dependencies": {
     "@parity/product-sdk": "workspace:*",
     "@parity/product-sdk-address": "workspace:*",
-    "@parity/product-sdk-bulletin": "workspace:*",
+    "@parity/product-sdk-cloud-storage": "workspace:*",
     "@parity/product-sdk-chain-client": "workspace:*",
     "@parity/product-sdk-contracts": "workspace:*",
     "@parity/product-sdk-crypto": "workspace:*",

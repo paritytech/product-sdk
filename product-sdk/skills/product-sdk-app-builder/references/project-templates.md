@@ -263,15 +263,15 @@ main().catch(console.error);
 
 ---
 
-## Bulletin Storage App
+## Cloud Storage App
 
-Upload and retrieve data from the Bulletin Chain.
+Upload and retrieve data from Cloud Storage.
 
 ### package.json
 
 ```json
 {
-  "name": "my-bulletin-app",
+  "name": "my-cloud-storage-app",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -280,7 +280,7 @@ Upload and retrieve data from the Bulletin Chain.
   },
   "dependencies": {
     "@parity/product-sdk-chain-client": "latest",
-    "@parity/product-sdk-bulletin": "latest",
+    "@parity/product-sdk-cloud-storage": "latest",
     "@parity/product-sdk-tx": "latest",
     "polkadot-api": "^2.0.2"
   },
@@ -293,10 +293,10 @@ Upload and retrieve data from the Bulletin Chain.
 ### src/index.ts
 
 ```typescript
-import { BulletinClient } from "@parity/product-sdk-bulletin";
+import { CloudStorageClient } from "@parity/product-sdk-cloud-storage";
 
 async function main() {
-    const bulletin = await BulletinClient.create("paseo");
+    const bulletin = await CloudStorageClient.create("paseo");
 
     // Upload data (must be Uint8Array)
     const data = new TextEncoder().encode(

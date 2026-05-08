@@ -6,12 +6,12 @@ import { waitForAppReady } from "./helpers";
  *
  * SKIPPED: relies on the host-preimage upload path (clicking upload triggers
  * `Uploaded (preimage):` log lines and seeds the test host's preimage store)
- * which was removed when bulletin migrated to AsyncBulletinClient. The CID
+ * which was removed when we migrated to AsyncBulletinClient. The CID
  * round-trip itself is still valid and is covered by the bulletin package's
  * unit tests; reinstating the e2e variant is tracked alongside the upload
  * and query specs.
  */
-test.describe.skip("@parity/product-sdk-bulletin via Host API — CID", () => {
+test.describe.skip("@parity/product-sdk-cloud-storage via Host API — CID", () => {
     test("computeCid produces valid CIDv1 string", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

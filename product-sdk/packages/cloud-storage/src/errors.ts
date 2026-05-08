@@ -1,5 +1,5 @@
 /**
- * Bulletin error types.
+ * Cloud Storage error types.
  *
  * Two error families coexist:
  *
@@ -9,39 +9,39 @@
  *    and `recoveryHint`.
  * 2. **Read-side errors** declared here — host preimage availability /
  *    lookup timeouts / interrupts, plus CID format problems, surfaced by
- *    our retrieval helpers (`fetchBytes`, `fetchJson`, `verifyOnChain`).
+ *    our retrieval helpers (`fetchBytes`, `fetchJson`, `verifyStored`).
  *
  * Catch upstream errors with `instanceof BulletinError`. Catch our read-side
- * errors with `instanceof ProductBulletinError` (or the specific subclass).
+ * errors with `instanceof ProductCloudStorageError` (or the specific subclass).
  */
 export { BulletinError, ErrorCode } from "@parity/bulletin-sdk";
 
 /**
- * Base class for read-side errors raised by `@parity/product-sdk-bulletin`.
+ * Base class for read-side errors raised by `@parity/product-sdk-cloud-storage`.
  *
  * Distinct from upstream `BulletinError` which covers upload/store failures.
  */
-export class ProductBulletinError extends Error {
+export class ProductCloudStorageError extends Error {
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
-        this.name = "ProductBulletinError";
+        this.name = "ProductCloudStorageError";
     }
 }
 
 /**
  * The host preimage API is unavailable.
  *
- * Thrown when bulletin operations require the host container but it's not
+ * Thrown when cloud storage operations require the host container but it's not
  * available. This typically means the SDK is running outside Polkadot
- * Browser / Desktop. The bulletin SDK is container-only by design — see
+ * Browser / Desktop. The Cloud Storage SDK is container-only by design — see
  * the README for the rationale.
  */
-export class BulletinHostUnavailableError extends ProductBulletinError {
+export class CloudStorageHostUnavailableError extends ProductCloudStorageError {
     constructor(operation: "upload" | "query") {
         super(
             `Host preimage API unavailable for ${operation}. Ensure you are running inside a host container (Polkadot Browser / Desktop).`,
         );
-        this.name = "BulletinHostUnavailableError";
+        this.name = "CloudStorageHostUnavailableError";
     }
 }
 
@@ -51,7 +51,7 @@ export class BulletinHostUnavailableError extends ProductBulletinError {
  * The host was unable to retrieve the requested content within the timeout
  * period. The content may still become available later.
  */
-export class BulletinLookupTimeoutError extends ProductBulletinError {
+export class CloudStorageLookupTimeoutError extends ProductCloudStorageError {
     /** The CID that was being looked up. */
     readonly cid: string;
     /** The timeout duration in milliseconds. */
@@ -59,7 +59,7 @@ export class BulletinLookupTimeoutError extends ProductBulletinError {
 
     constructor(cid: string, timeoutMs: number) {
         super(`Host preimage lookup timed out after ${timeoutMs}ms for CID: ${cid}`);
-        this.name = "BulletinLookupTimeoutError";
+        this.name = "CloudStorageLookupTimeoutError";
         this.cid = cid;
         this.timeoutMs = timeoutMs;
     }
@@ -71,13 +71,13 @@ export class BulletinLookupTimeoutError extends ProductBulletinError {
  * The host terminated the lookup subscription, typically after repeated
  * failures or when the host determines the content is unavailable.
  */
-export class BulletinLookupInterruptedError extends ProductBulletinError {
+export class CloudStorageLookupInterruptedError extends ProductCloudStorageError {
     /** The CID that was being looked up. */
     readonly cid: string;
 
     constructor(cid: string) {
         super(`Host preimage lookup was interrupted for CID: ${cid}`);
-        this.name = "BulletinLookupInterruptedError";
+        this.name = "CloudStorageLookupInterruptedError";
         this.cid = cid;
     }
 }
@@ -85,13 +85,13 @@ export class BulletinLookupInterruptedError extends ProductBulletinError {
 /**
  * Invalid CID format or version.
  */
-export class BulletinCidError extends ProductBulletinError {
+export class CloudStorageCidError extends ProductCloudStorageError {
     /** The invalid CID string, if available. */
     readonly cid?: string;
 
     constructor(message: string, cid?: string) {
         super(message);
-        this.name = "BulletinCidError";
+        this.name = "CloudStorageCidError";
         this.cid = cid;
     }
 }
@@ -100,15 +100,15 @@ export class BulletinCidError extends ProductBulletinError {
  * Failed to check authorization status for an account.
  *
  * Wraps RPC or query errors that occur when checking if an account
- * is authorized to store data on the Bulletin Chain.
+ * is authorized to store data in Cloud Storage.
  */
-export class BulletinAuthorizationError extends ProductBulletinError {
+export class CloudStorageAuthorizationError extends ProductCloudStorageError {
     /** The address that was being checked. */
     readonly address: string;
 
     constructor(address: string, cause?: unknown) {
         super(`Failed to check authorization for ${address}`, { cause });
-        this.name = "BulletinAuthorizationError";
+        this.name = "CloudStorageAuthorizationError";
         this.address = address;
     }
 }
@@ -116,45 +116,45 @@ export class BulletinAuthorizationError extends ProductBulletinError {
 if (import.meta.vitest) {
     const { describe, test, expect } = import.meta.vitest;
 
-    describe("ProductBulletinError hierarchy", () => {
-        test("ProductBulletinError extends Error", () => {
-            const err = new ProductBulletinError("test");
+    describe("ProductCloudStorageError hierarchy", () => {
+        test("ProductCloudStorageError extends Error", () => {
+            const err = new ProductCloudStorageError("test");
             expect(err).toBeInstanceOf(Error);
-            expect(err.name).toBe("ProductBulletinError");
+            expect(err.name).toBe("ProductCloudStorageError");
         });
 
-        test("BulletinCidError", () => {
-            const err = new BulletinCidError("bad", "Qmabc");
-            expect(err).toBeInstanceOf(ProductBulletinError);
+        test("CloudStorageCidError", () => {
+            const err = new CloudStorageCidError("bad", "Qmabc");
+            expect(err).toBeInstanceOf(ProductCloudStorageError);
             expect(err.cid).toBe("Qmabc");
         });
 
-        test("BulletinHostUnavailableError", () => {
-            const err = new BulletinHostUnavailableError("query");
-            expect(err).toBeInstanceOf(ProductBulletinError);
+        test("CloudStorageinHostUnavailableError", () => {
+            const err = new CloudStorageHostUnavailableError("query");
+            expect(err).toBeInstanceOf(ProductCloudStorageError);
             expect(err.message).toContain("query");
             expect(err.message).toContain("Host preimage API unavailable");
         });
 
-        test("BulletinLookupTimeoutError", () => {
-            const err = new BulletinLookupTimeoutError("bafyabc123", 30000);
-            expect(err).toBeInstanceOf(ProductBulletinError);
+        test("CloudStorageLookupTimeoutError", () => {
+            const err = new CloudStorageLookupTimeoutError("bafyabc123", 30000);
+            expect(err).toBeInstanceOf(ProductCloudStorageError);
             expect(err.cid).toBe("bafyabc123");
             expect(err.timeoutMs).toBe(30000);
             expect(err.message).toContain("30000ms");
         });
 
-        test("BulletinLookupInterruptedError", () => {
-            const err = new BulletinLookupInterruptedError("bafyabc123");
-            expect(err).toBeInstanceOf(ProductBulletinError);
+        test("CloudStorageLookupInterruptedError", () => {
+            const err = new CloudStorageLookupInterruptedError("bafyabc123");
+            expect(err).toBeInstanceOf(ProductCloudStorageError);
             expect(err.cid).toBe("bafyabc123");
             expect(err.message).toContain("interrupted");
         });
 
-        test("BulletinAuthorizationError carries cause", () => {
+        test("CloudStorageAuthorizationError carries cause", () => {
             const cause = new Error("RPC down");
-            const err = new BulletinAuthorizationError("5GrwvaEF...", cause);
-            expect(err).toBeInstanceOf(ProductBulletinError);
+            const err = new CloudStorageAuthorizationError("5GrwvaEF...", cause);
+            expect(err).toBeInstanceOf(ProductCloudStorageError);
             expect(err.address).toBe("5GrwvaEF...");
             expect(err.cause).toBe(cause);
         });

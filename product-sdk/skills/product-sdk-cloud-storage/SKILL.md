@@ -1,14 +1,14 @@
 ---
-name: product-sdk-bulletin
+name: product-sdk-cloud-storage
 description: >
-  Use when uploading or retrieving data on the Polkadot Bulletin Chain, working with
-  CID-based decentralized storage, IPFS gateway access, or the BulletinClient SDK.
+  Use when uploading or retrieving data via Cloud Storage, working with
+  CID-based decentralized storage, IPFS gateway access, or the CloudStorageClient SDK.
   Covers upload, batch upload, fetch, query, CID computation, and gateway utilities.
 ---
 
-# Product SDK Bulletin Chain
+# Product SDK Cloud Storage
 
-`@parity/product-sdk-bulletin` is a TypeScript SDK for uploading and retrieving data on the Polkadot Bulletin Chain -- a purpose-built parachain for decentralized data storage. Data is content-addressed using CIDv1 (blake2b-256 hash, raw codec) and retrievable via IPFS gateways.
+`@parity/product-sdk-cloud-storage` is a TypeScript SDK for uploading and retrieving data via Cloud Storage -- a purpose-built parachain for decentralized data storage. Data is content-addressed using CIDv1 (blake2b-256 hash, raw codec) and retrievable via IPFS gateways.
 
 ## Key Concepts
 
@@ -20,46 +20,46 @@ description: >
 ## Quick Start: Upload and Fetch
 
 ```ts
-import { BulletinClient } from "@parity/product-sdk-bulletin";
+import { CloudStorageClient } from "@parity/product-sdk-cloud-storage";
 
 // Create a client for the Paseo test network
-const bulletin = await BulletinClient.create("paseo");
+const cloudStorage = await CloudStorageClient.create("paseo");
 
 // Upload data (MUST be Uint8Array, not a string)
-const data = new TextEncoder().encode(JSON.stringify({ title: "Hello Bulletin" }));
-const result = await bulletin.upload(data);
+const data = new TextEncoder().encode(JSON.stringify({ title: "Hello Cloud Storage" }));
+const result = await cloudStorage.upload(data);
 console.log("CID:", result.cid);
 
 // Fetch it back as JSON
-const content = await bulletin.fetchJson<{ title: string }>(result.cid);
-console.log(content.title); // "Hello Bulletin"
+const content = await cloudStorage.fetchJson<{ title: string }>(result.cid);
+console.log(content.title); // "Hello Cloud Storage"
 ```
 
 > **WARNING**: `upload()` expects `Uint8Array`, not strings. Always convert with `new TextEncoder().encode(...)`.
 
-## BulletinClient
+## CloudStorageClient
 
-The `BulletinClient` class bundles a typed Bulletin API and IPFS gateway URL.
+The `CloudStorageClient` class bundles a typed Cloud Storage API and IPFS gateway URL.
 
 ### Creating a Client
 
 ```ts
-import { BulletinClient } from "@parity/product-sdk-bulletin";
+import { CloudStorageClient } from "@parity/product-sdk-cloud-storage";
 
 // From an environment name
-const client = await BulletinClient.create("paseo");
+const client = await CloudStorageClient.create("paseo");
 
 // From explicit API and gateway (custom setups)
-import { getGateway } from "@parity/product-sdk-bulletin";
-const custom = BulletinClient.from(myApi, "https://my-gateway.example/ipfs/");
+import { getGateway } from "@parity/product-sdk-cloud-storage";
+const custom = CloudStorageClient.from(myApi, "https://my-gateway.example/ipfs/");
 ```
 
 ### When to use each entry point
 
 | Method | When to use | Size cost |
 |--------|-------------|-----------|
-| `BulletinClient.create("paseo")` | Quick prototyping | ~6.3 MB (all preset descriptors) |
-| `BulletinClient.from(api, gateway)` | Production apps, BYOD | Only the descriptors you import |
+| `CloudStorageClient.create("paseo")` | Quick prototyping | ~6.3 MB (all preset descriptors) |
+| `CloudStorageClient.from(api, gateway)` | Production apps, BYOD | Only the descriptors you import |
 
 ### Uploading Data
 
@@ -104,7 +104,7 @@ const metadata = await client.fetchJson<{ name: string }>(cid);
 
 ```ts
 // Compute CID without uploading
-const cid = BulletinClient.computeCid(data);
+const cid = CloudStorageClient.computeCid(data);
 
 // Check if CID exists
 const exists = await client.cidExists(cid);
@@ -130,7 +130,7 @@ import {
   getGateway,
   fetchBytes,
   fetchJson,
-} from "@parity/product-sdk-bulletin";
+} from "@parity/product-sdk-cloud-storage";
 ```
 
 ## Common Mistakes
@@ -142,4 +142,4 @@ import {
 
 ## Reference Files
 
-- [bulletin-api.md](references/bulletin-api.md) - Full API surface
+- [cloud-storage-api.md](references/cloud-storage-api.md) - Full API surface

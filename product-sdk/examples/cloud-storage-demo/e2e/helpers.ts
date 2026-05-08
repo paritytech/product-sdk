@@ -8,7 +8,7 @@ import { expect, type FrameLocator } from "@playwright/test";
  *   1. Host connection established
  *   2. Signer connected ("connected")
  *   3. Account address resolved (not "-")
- *   4. BulletinClient connected
+ *   4. CloudStorageClient connected
  *   5. Upload button enabled
  */
 export async function waitForAppReady(

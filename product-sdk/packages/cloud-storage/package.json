@@ -1,7 +1,7 @@
 {
-    "name": "@parity/product-sdk-bulletin",
+    "name": "@parity/product-sdk-cloud-storage",
     "version": "0.1.0",
-    "description": "TypeScript SDK for uploading and retrieving data on the Polkadot Bulletin Chain",
+    "description": "TypeScript SDK for uploading and retrieving data from the Cloud (currently through the Polkadot Bulletin Chain)",
     "type": "module",
     "sideEffects": false,
     "main": "./dist/index.js",

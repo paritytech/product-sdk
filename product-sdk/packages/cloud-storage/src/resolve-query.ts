@@ -4,9 +4,9 @@ import { createLogger } from "@parity/product-sdk-logger";
 
 import { cidToPreimageKey } from "./cid.js";
 import {
-    BulletinHostUnavailableError,
-    BulletinLookupInterruptedError,
-    BulletinLookupTimeoutError,
+    CloudStorageHostUnavailableError,
+    CloudStorageLookupInterruptedError,
+    CloudStorageLookupTimeoutError,
 } from "./errors.js";
 
 const log = createLogger("bulletin");
@@ -14,7 +14,7 @@ const log = createLogger("bulletin");
 const DEFAULT_LOOKUP_TIMEOUT_MS = 30_000;
 
 /**
- * Query strategy for the Bulletin Chain.
+ * Query strategy for Cloud Storage retrieval.
  *
  * The host manages the lookup via its preimage subscription API,
  * which includes local caching and managed IPFS polling.
@@ -25,25 +25,25 @@ export interface QueryStrategy {
 }
 
 /**
- * Determine the query strategy for the Bulletin Chain.
+ * Determine the query strategy for Cloud Storage retrieval.
  *
  * Uses the host preimage lookup API which caches results and manages
  * IPFS polling automatically.
  *
  * @returns The resolved query strategy.
- * @throws {BulletinHostUnavailableError} If the host preimage manager is unavailable.
+ * @throws {CloudStorageHostUnavailableError} If the host preimage manager is unavailable.
  */
 export async function resolveQueryStrategy(): Promise<QueryStrategy> {
     const preimageManager = await getPreimageManager();
     if (preimageManager) {
-        log.info("using host preimage lookup for bulletin queries");
+        log.info("using host preimage lookup for Cloud Storage queries");
         return {
             kind: "host-lookup",
             lookup: (cid, timeoutMs) => lookupViaHost(preimageManager, cid, timeoutMs),
         };
     }
 
-    throw new BulletinHostUnavailableError("query");
+    throw new CloudStorageHostUnavailableError("query");
 }
 
 /**
@@ -81,7 +81,7 @@ export function lookupViaHost(
 
         let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
             settle(() => {
-                reject(new BulletinLookupTimeoutError(cid, timeoutMs));
+                reject(new CloudStorageLookupTimeoutError(cid, timeoutMs));
             });
         }, timeoutMs);
 
@@ -94,7 +94,7 @@ export function lookupViaHost(
 
         const cancelInterrupt = sub.onInterrupt(() => {
             settle(() => {
-                reject(new BulletinLookupInterruptedError(cid));
+                reject(new CloudStorageLookupInterruptedError(cid));
             });
         });
     });
@@ -158,20 +158,20 @@ if (import.meta.vitest) {
             expect(result).toEqual(new Uint8Array([10, 20, 30]));
         });
 
-        test("rejects with BulletinLookupTimeoutError on timeout", async () => {
-            const { BulletinLookupTimeoutError } = await import("./errors.js");
+        test("rejects with CloudStorageLookupTimeoutError on timeout", async () => {
+            const { CloudStorageLookupTimeoutError } = await import("./errors.js");
             const manager = createMockManager("hang");
             const err = await lookupViaHost(manager, testCid, 50).catch((e) => e);
-            expect(err).toBeInstanceOf(BulletinLookupTimeoutError);
+            expect(err).toBeInstanceOf(CloudStorageLookupTimeoutError);
             expect(err.cid).toBe(testCid);
             expect(err.timeoutMs).toBe(50);
         });
 
-        test("rejects with BulletinLookupInterruptedError on interrupt", async () => {
-            const { BulletinLookupInterruptedError } = await import("./errors.js");
+        test("rejects with CloudStorageLookupInterruptedError on interrupt", async () => {
+            const { CloudStorageLookupInterruptedError } = await import("./errors.js");
             const manager = createMockManager("interrupt");
             const err = await lookupViaHost(manager, testCid).catch((e) => e);
-            expect(err).toBeInstanceOf(BulletinLookupInterruptedError);
+            expect(err).toBeInstanceOf(CloudStorageLookupInterruptedError);
             expect(err.cid).toBe(testCid);
         });
 

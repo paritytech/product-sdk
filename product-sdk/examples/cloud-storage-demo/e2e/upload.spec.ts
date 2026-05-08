@@ -5,12 +5,12 @@ import { waitForAppReady } from "./helpers";
  * Upload via the host preimage path.
  *
  * SKIPPED: these tests target the host-preimage upload path that was removed
- * when @parity/product-sdk-bulletin migrated to wrap @parity/bulletin-sdk's
+ * when @parity/product-sdk-cloud-storage migrated to wrap @parity/bulletin-sdk's
  * AsyncBulletinClient (signed TransactionStorage.store extrinsic). The new
  * upload path needs a real bulletin chain (or an extrinsic-aware mock) to
  * exercise; replacing the host-preimage harness is tracked as a follow-up.
  */
-test.describe.skip("@parity/product-sdk-bulletin via Host API — upload", () => {
+test.describe.skip("@parity/product-sdk-cloud-storage via Host API — upload", () => {
     test("upload stores preimage on host", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearPreimages();

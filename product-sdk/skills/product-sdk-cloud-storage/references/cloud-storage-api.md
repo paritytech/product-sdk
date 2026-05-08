@@ -1,28 +1,28 @@
-# Bulletin API Reference
+# Cloud Storage API Reference
 
-Package: `@parity/product-sdk-bulletin`
+Package: `@parity/product-sdk-cloud-storage`
 
-## BulletinClient Class
+## CloudStorageClient Class
 
 ### Static Methods
 
-#### `BulletinClient.create(env)`
+#### `CloudStorageClient.create(env)`
 
 ```ts
-static async create(env: Environment): Promise<BulletinClient>
+static async create(env: Environment): Promise<CloudStorageClient>
 ```
 
 Create from an environment name.
 
-#### `BulletinClient.from(api, gateway)`
+#### `CloudStorageClient.from(api, gateway)`
 
 ```ts
-static from(api: BulletinApi, gateway: string): BulletinClient
+static from(api: CloudStorageApi, gateway: string): CloudStorageClient
 ```
 
 Create from explicit API and gateway.
 
-#### `BulletinClient.computeCid(data)`
+#### `CloudStorageClient.computeCid(data)`
 
 ```ts
 static computeCid(data: Uint8Array): string
@@ -30,7 +30,7 @@ static computeCid(data: Uint8Array): string
 
 Compute CID without uploading.
 
-#### `BulletinClient.hashToCid(hexHash, hashCode?, codec?)`
+#### `CloudStorageClient.hashToCid(hexHash, hashCode?, codec?)`
 
 ```ts
 static hashToCid(hexHash: `0x${string}`, hashCode?: HashAlgorithm, codec?: CidCodec): string

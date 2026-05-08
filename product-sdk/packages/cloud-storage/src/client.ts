@@ -9,49 +9,49 @@ import {
 } from "@parity/bulletin-sdk";
 import { createChainClient, getChainAPI } from "@parity/product-sdk-chain-client";
 import { createLogger } from "@parity/product-sdk-logger";
-import type { PolkadotClient, PolkadotSigner } from "polkadot-api";
+import type { PolkadotSigner } from "polkadot-api";
 
 import { checkAuthorization } from "./authorization.js";
-import type { BulletinChain, BulletinEnvironment } from "./networks.js";
+import type { CloudStorageNetworks, CloudStorageEnvironment } from "./networks.js";
 import { executeQuery } from "./query.js";
 import { resolveQueryStrategy, type QueryStrategy } from "./resolve-query.js";
-import type { AuthorizationStatus, BulletinApi, QueryOptions } from "./types.js";
-import { verifyOnChain, type ChainStoredEntry, type VerifyOnChainOptions } from "./verify.js";
+import type { AuthorizationStatus, CloudStorageApi, QueryOptions } from "./types.js";
+import { verifyStored, type ChainStoredEntry, type VerifyStoredOptions } from "./verify.js";
 
 const log = createLogger("bulletin");
 
 /**
- * Options for {@link BulletinClient.create}.
+ * Options for {@link CloudStorageClient.create}.
  *
  * One of two construction shapes is supported:
  *
  * - **Environment shorthand** — pass an `environment` string keyed by
- *   {@link BulletinChain}. Wires up the chain-client automatically.
+ *   {@link CloudStorageNetworks}. Wires up the chain-client automatically.
  * - **Explicit network** — pass `genesisHash` and `descriptor` directly
- *   (e.g., spread from a {@link BulletinChain} entry, or supply custom
+ *   (e.g., spread from a {@link CloudStorageNetworks} entry, or supply custom
  *   values for a private chain).
  */
-export type CreateBulletinClientOptions =
-    | (CreateBulletinClientCommon & { environment: BulletinEnvironment })
-    | (CreateBulletinClientCommon & {
+export type CreateCloudStorageClientOptions =
+    | (CreateCloudStorageClientCommon & { environment: CloudStorageEnvironment })
+    | (CreateCloudStorageClientCommon & {
           genesisHash: `0x${string}`;
-          descriptor: (typeof BulletinChain)[BulletinEnvironment]["descriptor"];
+          descriptor: (typeof CloudStorageNetworks)[CloudStorageEnvironment]["descriptor"];
       });
 
-interface CreateBulletinClientCommon {
+interface CreateCloudStorageClientCommon {
     /** Signer for transaction submission. Required — every store needs a signer. */
     signer: PolkadotSigner;
-    /** Optional config forwarded to {@link AsyncBulletinClient}. */
+    /** Optional config forwarded to the upstream client. */
     config?: Partial<ClientConfig>;
 }
 
 /**
- * Ergonomic entry point for Bulletin Chain operations.
+ * Ergonomic entry point for Cloud Storage operations.
  *
- * Wraps {@link AsyncBulletinClient} from `@parity/bulletin-sdk` (which handles
+ * Wraps the upstream `@parity/bulletin-sdk` client (which handles
  * chunking, DAG-PB manifests, CID calculation, and progress events) and adds:
  *
- * - **Network presets** via {@link BulletinClient.create} and {@link BulletinChain}.
+ * - **Network presets** via {@link CloudStorageClient.create} and {@link CloudStorageNetworks}.
  * - **Read helpers** ({@link fetchBytes}, {@link fetchJson}) routed through
  *   the host's preimage subscription — upstream is upload-only and the SDK
  *   is container-only by design (no public-gateway fetches).
@@ -61,7 +61,7 @@ interface CreateBulletinClientCommon {
  * For uploads, mirror upstream's fluent builders:
  *
  * ```ts
- * const client = await BulletinClient.create({ environment: "paseo", signer });
+ * const client = await CloudStorageClient.create({ environment: "paseo", signer });
  * const result = await client.store(data).send();
  * ```
  *
@@ -75,17 +75,17 @@ interface CreateBulletinClientCommon {
  *   .send();
  * ```
  */
-export class BulletinClient {
+export class CloudStorageClient {
     /** Underlying upstream client — exposed for power users. */
     readonly inner: AsyncBulletinClient;
-    /** Typed Bulletin Chain API. */
-    readonly api: BulletinApi;
+    /** Typed CloudStorage API. */
+    readonly api: CloudStorageApi;
 
     /** Lazy-resolved host-preimage query strategy, cached for the client lifetime. */
     private queryStrategyPromise: Promise<QueryStrategy> | null = null;
 
     /** Constructed via {@link create} or {@link from}. */
-    private constructor(inner: AsyncBulletinClient, api: BulletinApi) {
+    private constructor(inner: AsyncBulletinClient, api: CloudStorageApi) {
         this.inner = inner;
         this.api = api;
     }
@@ -108,17 +108,17 @@ export class BulletinClient {
      * @example
      * ```ts
      * // Shorthand
-     * const client = await BulletinClient.create({ environment: "paseo", signer });
+     * const client = await CloudStorageClient.create({ environment: "paseo", signer });
      *
      * // Explicit (custom network)
-     * const client = await BulletinClient.create({
-     *   ...BulletinChain.paseo,
+     * const client = await CloudStorageClient.create({
+     *   ...CloudStorageNetworks.paseo,
      *   signer,
      *   config: { defaultChunkSize: 1 << 20 },
      * });
      * ```
      */
-    static async create(options: CreateBulletinClientOptions): Promise<BulletinClient> {
+    static async create(options: CreateCloudStorageClientOptions): Promise<CloudStorageClient> {
         if ("environment" in options) {
             const chain = await getChainAPI(options.environment);
             const inner = new AsyncBulletinClient(
@@ -128,10 +128,10 @@ export class BulletinClient {
                 options.config,
                 () => chain.destroy(),
             );
-            log.info("BulletinClient created (environment shorthand)", {
+            log.info("CloudStorageClient created (environment shorthand)", {
                 environment: options.environment,
             });
-            return new BulletinClient(inner, chain.bulletin);
+            return new CloudStorageClient(inner, chain.bulletin);
         }
 
         // Explicit form — caller owns the descriptor choice. We still need a
@@ -147,7 +147,7 @@ export class BulletinClient {
         // option shape for future RPC-direct paths.
         if (descriptor.genesis && genesisHash.toLowerCase() !== descriptor.genesis.toLowerCase()) {
             throw new Error(
-                `BulletinClient.create: genesisHash (${genesisHash}) does not match descriptor.genesis (${descriptor.genesis}). These must refer to the same network — check that you're pairing the right descriptor with the right genesis hash.`,
+                `CloudStorageClient.create: genesisHash (${genesisHash}) does not match descriptor.genesis (${descriptor.genesis}). These must refer to the same network — check that you're pairing the right descriptor with the right genesis hash.`,
             );
         }
         const chain = await createChainClient({
@@ -161,8 +161,8 @@ export class BulletinClient {
             config,
             () => chain.destroy(),
         );
-        log.info("BulletinClient created (explicit network)");
-        return new BulletinClient(inner, chain.bulletin);
+        log.info("CloudStorageClient created (explicit network)");
+        return new CloudStorageClient(inner, chain.bulletin);
     }
 
     /**
@@ -173,8 +173,8 @@ export class BulletinClient {
      * — this client's {@link destroy} only tears down the upstream's
      * `onDestroy` hook.
      */
-    static from(inner: AsyncBulletinClient, api: BulletinApi): BulletinClient {
-        return new BulletinClient(inner, api);
+    static from(inner: AsyncBulletinClient, api: CloudStorageApi): CloudStorageClient {
+        return new CloudStorageClient(inner, api);
     }
 
     // ─── Upload + authorization (forwarded to upstream) ────────────────
@@ -210,11 +210,11 @@ export class BulletinClient {
      * Fetch raw bytes for a CID via the host's preimage lookup.
      *
      * Container-only — outside a Polkadot Browser / Desktop host this
-     * throws {@link BulletinHostUnavailableError}. The chain stores
+     * throws {@link CloudStorageHostUnavailableError}. The chain stores
      * content metadata (`content_hash`, size, codec) but the bytes
      * themselves are surfaced through the host's preimage subscription.
      *
-     * Use {@link verifyOnChain} if you only need to confirm a CID was
+     * Use {@link verifyStored} if you only need to confirm a CID was
      * recorded on-chain (no byte fetch).
      */
     async fetchBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
@@ -228,7 +228,7 @@ export class BulletinClient {
         return JSON.parse(new TextDecoder().decode(bytes)) as T;
     }
 
-    /** Pre-flight: check whether `address` can store on the bulletin chain. */
+    /** Pre-flight: check whether `address` can store via Cloud Storage. */
     async checkAuthorization(address: string): Promise<AuthorizationStatus> {
         return checkAuthorization(this.api, address);
     }
@@ -238,13 +238,13 @@ export class BulletinClient {
      *
      * Common pattern: pass `blockNumber` (and optionally `extrinsicIndex`)
      * from a `store(...).send()` receipt to confirm the upload landed.
-     * See {@link verifyOnChain} for details.
+     * See {@link verifyStored} for details.
      */
-    async verifyOnChain(
+    async verifyStored(
         cid: string,
-        options: VerifyOnChainOptions,
+        options: VerifyStoredOptions,
     ): Promise<ChainStoredEntry | null> {
-        return verifyOnChain(this.api, cid, options);
+        return verifyStored(this.api, cid, options);
     }
 
     /** Tear down the underlying connection. */
@@ -256,13 +256,13 @@ export class BulletinClient {
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    describe("BulletinClient.from", () => {
+    describe("CloudStorageClient.from", () => {
         test("constructs with given inner and api", () => {
             const inner = {
                 destroy: vi.fn().mockResolvedValue(undefined),
             } as unknown as AsyncBulletinClient;
-            const api = {} as BulletinApi;
-            const client = BulletinClient.from(inner, api);
+            const api = {} as CloudStorageApi;
+            const client = CloudStorageClient.from(inner, api);
             expect(client.inner).toBe(inner);
             expect(client.api).toBe(api);
         });
@@ -270,7 +270,7 @@ if (import.meta.vitest) {
         test("destroy delegates to upstream", async () => {
             const destroy = vi.fn().mockResolvedValue(undefined);
             const inner = { destroy } as unknown as AsyncBulletinClient;
-            const client = BulletinClient.from(inner, {} as BulletinApi);
+            const client = CloudStorageClient.from(inner, {} as CloudStorageApi);
             await client.destroy();
             expect(destroy).toHaveBeenCalledOnce();
         });
@@ -280,29 +280,29 @@ if (import.meta.vitest) {
             const inner = {
                 store: vi.fn().mockReturnValue(builder),
             } as unknown as AsyncBulletinClient;
-            const client = BulletinClient.from(inner, {} as BulletinApi);
+            const client = CloudStorageClient.from(inner, {} as CloudStorageApi);
             const data = new Uint8Array([1, 2, 3]);
             expect(client.store(data)).toBe(builder);
             expect(inner.store).toHaveBeenCalledWith(data);
         });
     });
 
-    describe("BulletinClient.create (BYOD genesis assertion)", () => {
+    describe("CloudStorageClient.create (BYOD genesis assertion)", () => {
         // Stand-in descriptor with a known genesis. The full PAPI descriptor
         // type is a `ChainDefinition` with a deep type-level shape; the cast
         // below is fine for the assertion test because we never actually
         // reach createChainClient.
         const stubDescriptor = (
             genesis: `0x${string}`,
-        ): (typeof BulletinChain)[BulletinEnvironment]["descriptor"] =>
-            ({ genesis }) as unknown as (typeof BulletinChain)[BulletinEnvironment]["descriptor"];
+        ): (typeof CloudStorageNetworks)[CloudStorageEnvironment]["descriptor"] =>
+            ({ genesis }) as unknown as (typeof CloudStorageNetworks)[CloudStorageEnvironment]["descriptor"];
 
         const realPaseo =
             "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea" as `0x${string}`;
 
         test("throws when genesisHash and descriptor.genesis disagree", async () => {
             await expect(
-                BulletinClient.create({
+                CloudStorageClient.create({
                     genesisHash:
                         "0x0000000000000000000000000000000000000000000000000000000000000001",
                     descriptor: stubDescriptor(realPaseo),

@@ -38,7 +38,7 @@ START
 │     YES → createContract (same ergonomics, no manifest)
 │
 ├─ Need decentralized data storage (files, JSON, blobs)?
-│  YES → @parity/product-sdk-bulletin
+│  YES → @parity/product-sdk-cloud-storage
 │
 ├─ Need real-time pub/sub messaging (ephemeral, ≤512 bytes)?
 │  YES → @parity/product-sdk-statement-store
@@ -95,7 +95,7 @@ polkadot-api
 ### Data Storage App (upload/download files)
 ```
 @parity/product-sdk-chain-client
-@parity/product-sdk-bulletin
+@parity/product-sdk-cloud-storage
 @parity/product-sdk-tx
 polkadot-api
 ```
@@ -113,7 +113,7 @@ polkadot-api
 @parity/product-sdk-contracts
 @parity/product-sdk-tx
 @parity/product-sdk-signer
-@parity/product-sdk-bulletin
+@parity/product-sdk-cloud-storage
 @parity/product-sdk-statement-store
 @parity/product-sdk-address
 @parity/product-sdk-crypto

@@ -1,23 +1,23 @@
 /**
- * Entry point for the @parity/product-sdk-bulletin demo.
+ * Entry point for the @parity/product-sdk-cloud-storage demo.
  *
- * Wires up SignerManager (account discovery) + BulletinClient (against the
- * bulletin chain via @parity/bulletin-sdk's AsyncBulletinClient).
+ * Wires up SignerManager (account discovery) + CloudStorageClient (against the
+ * cloud storage via @parity/bulletin-sdk's AsyncBulletinClient).
  *
  * Flow:
  *   1. SignerManager.connect() → HostProvider → account
- *   2. BulletinClient.create() with a lazy signer
+ *   2. CloudStorageClient.create() with a lazy signer
  *   3. .store(data).send() → signed TransactionStorage.store extrinsic
  *   4. .fetchBytes(cid) → host preimage subscription (container-only)
  */
 
 import { SignerManager } from "@parity/product-sdk-signer";
 import {
-    BulletinClient,
+    CloudStorageClient,
     calculateCid,
     cidToPreimageKey,
     createLazySigner,
-} from "@parity/product-sdk-bulletin";
+} from "@parity/product-sdk-cloud-storage";
 
 import { appendLog, getEl } from "./ui.js";
 
@@ -49,7 +49,7 @@ function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void
 // ── App state ────────────────────────────────────────────────────────
 const SS58_PREFIX = 0;
 const manager = new SignerManager({ ss58Prefix: SS58_PREFIX, dappName: "bulletin-demo" });
-let bulletinClient: BulletinClient | null = null;
+let bulletinClient: CloudStorageClient | null = null;
 
 // ── UI subscriptions ─────────────────────────────────────────────────
 manager.subscribe((state) => {
@@ -61,7 +61,7 @@ manager.subscribe((state) => {
 // ── Actions ──────────────────────────────────────────────────────────
 $btnUpload.addEventListener("click", async () => {
     if (!bulletinClient) {
-        log("BulletinClient not ready", "err");
+        log("CloudStorageClient not ready", "err");
         return;
     }
     const text = $uploadInput.value || "hello";
@@ -90,7 +90,7 @@ $btnUpload.addEventListener("click", async () => {
 
 $btnQuery.addEventListener("click", async () => {
     if (!bulletinClient) {
-        log("BulletinClient not ready", "err");
+        log("CloudStorageClient not ready", "err");
         return;
     }
     const cid = $queryCidInput.value;
@@ -136,19 +136,19 @@ async function init() {
     }
     log(`Signer ready: ${accounts[0].address}`, "ok");
 
-    // Step 2: create BulletinClient with a lazy signer that resolves
+    // Step 2: create CloudStorageClient with a lazy signer that resolves
     // through the SignerManager on every sign call.
-    log("Creating BulletinClient…");
+    log("Creating CloudStorageClient…");
     try {
-        bulletinClient = await BulletinClient.create({
+        bulletinClient = await CloudStorageClient.create({
             environment: "paseo",
             signer: createLazySigner(() => manager.getSigner()),
         });
         $bulletinStatus.textContent = "connected";
-        log("BulletinClient ready", "ok");
+        log("CloudStorageClient ready", "ok");
     } catch (err) {
         $bulletinStatus.textContent = "error";
-        log(`BulletinClient init failed: ${(err as Error).message}`, "err");
+        log(`CloudStorageClient init failed: ${(err as Error).message}`, "err");
         return;
     }
 

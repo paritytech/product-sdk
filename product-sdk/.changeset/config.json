@@ -8,7 +8,7 @@
     "baseBranch": "main",
     "updateInternalDependencies": "patch",
     "ignore": [
-        "@parity/product-sdk-bulletin-demo",
+        "@parity/product-sdk-cloud-storage-demo",
         "@parity/product-sdk-chain-client-demo",
         "@parity/product-sdk-contracts-demo",
         "@parity/product-sdk-host-demo",

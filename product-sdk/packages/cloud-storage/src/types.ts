@@ -1,13 +1,13 @@
 import type { BulletinTypedApi } from "@parity/bulletin-sdk";
 
-/** Typed API for the Bulletin Chain (re-export from upstream). */
-export type BulletinApi = BulletinTypedApi;
+/** Typed API for the Cloud Storage (re-export from upstream BulletinTypedApi). */
+export type CloudStorageApi = BulletinTypedApi;
 
 /** Re-exported environment string from chain-client. */
 export type { Environment } from "@parity/product-sdk-chain-client";
 
-/**
- * Authorization status for a Bulletin Chain account.
+/** //TODO: Come back to this (code docs might need update)
+ * Authorization status for a Cloud Storage account.
  *
  * Returned by {@link checkAuthorization} as a pre-flight check before storing
  * data. Consumers can use this to show "not authorized" or "insufficient quota"
@@ -25,7 +25,7 @@ export interface AuthorizationStatus {
 }
 
 /**
- * Options for {@link BulletinClient.fetchBytes} / {@link BulletinClient.fetchJson}.
+ * Options for {@link CloudStorageClient.fetchBytes} / {@link CloudStorageClient.fetchJson}.
  */
 export interface QueryOptions {
     /**

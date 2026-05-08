@@ -3,10 +3,10 @@ import { submitAndWatch, type TxStatus, type WaitFor } from "@parity/product-sdk
 import type { PolkadotSigner } from "polkadot-api";
 import { Enum } from "polkadot-api";
 
-import { BulletinAuthorizationError, ProductBulletinError } from "./errors.js";
-import type { AuthorizationStatus, BulletinApi } from "./types.js";
+import { CloudStorageAuthorizationError, ProductCloudStorageError } from "./errors.js";
+import type { AuthorizationStatus, CloudStorageApi } from "./types.js";
 
-const log = createLogger("bulletin");
+const log = createLogger("cloudStorage");
 
 const NOT_AUTHORIZED: AuthorizationStatus = Object.freeze({
     authorized: false,
@@ -16,37 +16,37 @@ const NOT_AUTHORIZED: AuthorizationStatus = Object.freeze({
 });
 
 /**
- * Check whether an account is authorized to store data on the Bulletin Chain.
+ * Check whether an account is authorized to store data in Cloud Storage.
  *
  * Queries `TransactionStorage.Authorizations` for the given address and returns
  * the raw authorization quota. Use this as a pre-flight check before calling
- * {@link upload} to provide clear UX ("not authorized" / "insufficient quota")
+ * {@link CloudStorageClient.store} to provide clear UX ("not authorized" / "insufficient quota")
  * instead of letting the transaction fail mid-execution.
  *
  * The expiration block number is returned as-is — the chain enforces expiration
  * at submission time, so callers can optionally compare against the current
  * block for display purposes.
  *
- * @param api     - Typed Bulletin Chain API instance.
+ * @param api     - Typed Cloud Storage API instance.
  * @param address - SS58-encoded account address to check.
  * @returns Authorization status with remaining quota.
  *
  * @example
  * ```ts
- * import { checkAuthorization } from "@parity/product-sdk-bulletin";
+ * import { checkAuthorization } from "@parity/product-sdk-cloud-storage";
  *
  * const auth = await checkAuthorization(api, address);
  * if (!auth.authorized) {
- *     console.error("Account is not authorized for bulletin storage");
+ *     console.error("Account is not authorized for cloud storage");
  * } else if (auth.remainingBytes < BigInt(fileBytes.length)) {
  *     console.error(`Insufficient quota: ${auth.remainingBytes} bytes remaining`);
  * }
  * ```
  *
- * @see {@link BulletinClient.checkAuthorization} for the client method equivalent.
+ * @see {@link CloudStorageClient.checkAuthorization} for the client method equivalent.
  */
 export async function checkAuthorization(
-    api: BulletinApi,
+    api: CloudStorageApi,
     address: string,
 ): Promise<AuthorizationStatus> {
     let auth;
@@ -57,7 +57,7 @@ export async function checkAuthorization(
         );
     } catch (error) {
         log.error("checkAuthorization: query failed", { address, error });
-        throw new BulletinAuthorizationError(address, error);
+        throw new CloudStorageAuthorizationError(address, error);
     }
 
     if (!auth) {
@@ -89,7 +89,7 @@ export interface AuthorizeAccountOptions {
     /**
      * Wrap the extrinsic in `Sudo.sudo(...)` before submission. Default: `false`.
      *
-     * Use `true` on networks where granting bulletin storage authorization
+     * Use `true` on networks where granting cloud storage authorization
      * requires sudo permissions (most production / managed test networks).
      * Use `false` (default) when the account self-authorizes — typical for
      * local development chains.
@@ -104,11 +104,11 @@ export interface AuthorizeAccountOptions {
 }
 
 /**
- * Grant an account authorization to store data on the Bulletin Chain.
+ * Grant an account authorization to store data in Cloud Storage.
  *
  * Submits a `TransactionStorage.authorize_account` extrinsic, optionally
  * wrapped in `Sudo.sudo(...)` for networks that require sudo to grant
- * authorization. Mirrors the call shape of {@link upload} — top-level
+ * authorization. Mirrors the call shape of {@link CloudStorageClient.store} — top-level
  * function, takes an explicit signer, returns a block hash on success.
  *
  * Pair with {@link checkAuthorization} for a typical "check, grant if
@@ -137,18 +137,18 @@ export interface AuthorizeAccountOptions {
  * Note: `AuthorizationScope::Preimage` uses `set` semantics in the same
  * pallet. This helper is for account-scope authorization only.
  *
- * @param api          - Typed Bulletin Chain API instance.
+ * @param api          - Typed Cloud Storage API instance.
  * @param who          - SS58-encoded account to authorize.
  * @param transactions - Number of transactions to **add** to the account's allowance.
  * @param bytes        - Byte budget to **add** to the account's allowance.
  * @param signer       - Signer for the extrinsic. On `viaSudo: true` this must be the sudo key.
  * @param options      - Optional `viaSudo` flag plus standard submission controls.
  * @returns Block hash where the extrinsic was included.
- * @throws {ProductBulletinError} If `viaSudo: true` is requested but the chain has no `Sudo` pallet.
+ * @throws {ProductCloudStorageError} If `viaSudo: true` is requested but the chain has no `Sudo` pallet.
  *
  * @example Direct (account self-authorizes — local dev)
  * ```ts
- * import { authorizeAccount } from "@parity/product-sdk-bulletin";
+ * import { authorizeAccount } from "@parity/product-sdk-cloud-storage";
  *
  * await authorizeAccount(api, address, 100, 100n * 1024n * 1024n, signer);
  * ```
@@ -161,10 +161,10 @@ export interface AuthorizeAccountOptions {
  * ```
  *
  * @see {@link checkAuthorization} for the read counterpart.
- * @see {@link BulletinClient.authorizeAccount} for the client method equivalent.
+ * @see {@link CloudStorageClient.authorizeAccount} for the client method equivalent.
  */
 export async function authorizeAccount(
-    api: BulletinApi,
+    api: CloudStorageApi,
     who: string,
     transactions: number,
     bytes: bigint,
@@ -173,10 +173,10 @@ export async function authorizeAccount(
 ): Promise<{ blockHash: string }> {
     const { viaSudo = false, waitFor, timeoutMs, onStatus } = options;
 
-    // Single `as any` cast for the whole function. `BulletinApi` is upstream-
+    // Single `as any` cast for the whole function. `CloudStorageApi` is upstream-
     // typed as `TypedApi<any>` (see types.ts), so member access is loose by
     // design. Same pattern as upload.ts:57 — narrowing it requires retyping
-    // BulletinApi against a bundled descriptor (out of scope here).
+    // CloudStorageApi against a bundled descriptor (out of scope here).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const apiTx = (api as any).tx;
 
@@ -188,7 +188,7 @@ export async function authorizeAccount(
     });
 
     if (viaSudo && !apiTx.Sudo?.sudo) {
-        throw new ProductBulletinError(
+        throw new ProductCloudStorageError(
             "viaSudo: true requires the Sudo pallet, which is not available on this network. " +
                 "On production networks (Polkadot, Kusama), authorize_account requires governance or a different mechanism.",
         );
@@ -232,7 +232,7 @@ if (import.meta.vitest) {
                     },
                 },
             },
-        } as unknown as BulletinApi;
+        } as unknown as CloudStorageApi;
     }
 
     describe("checkAuthorization", () => {
@@ -291,7 +291,7 @@ if (import.meta.vitest) {
             expect(status.expiration).toBe(12345);
         });
 
-        test("throws BulletinAuthorizationError when query fails", async () => {
+        test("throws CloudStorageAuthorizationError when query fails", async () => {
             const api = {
                 query: {
                     TransactionStorage: {
@@ -300,11 +300,11 @@ if (import.meta.vitest) {
                         },
                     },
                 },
-            } as unknown as BulletinApi;
+            } as unknown as CloudStorageApi;
 
             const err = await checkAuthorization(api, "5GrwvaEF...").catch((e: unknown) => e);
-            expect(err).toBeInstanceOf(BulletinAuthorizationError);
-            const error = err as BulletinAuthorizationError;
+            expect(err).toBeInstanceOf(CloudStorageAuthorizationError);
+            const error = err as CloudStorageAuthorizationError;
             expect(error.address).toBe("5GrwvaEF...");
             expect(error.cause).toBeInstanceOf(Error);
             expect((error.cause as Error).message).toBe("RPC connection lost");
@@ -318,7 +318,7 @@ if (import.meta.vitest) {
                         Authorizations: { getValue },
                     },
                 },
-            } as unknown as BulletinApi;
+            } as unknown as CloudStorageApi;
 
             await checkAuthorization(api, "5GrwvaEF...");
 
@@ -380,7 +380,7 @@ if (import.meta.vitest) {
             const { api } = createMockApiForAuthorize();
 
             await authorizeAccount(
-                api as unknown as BulletinApi,
+                api as unknown as CloudStorageApi,
                 "5GrwvaEF...",
                 100,
                 1_000_000n,
@@ -398,7 +398,7 @@ if (import.meta.vitest) {
             const { api } = createMockApiForAuthorize();
 
             await authorizeAccount(
-                api as unknown as BulletinApi,
+                api as unknown as CloudStorageApi,
                 "5GrwvaEF...",
                 10,
                 100n,
@@ -412,7 +412,7 @@ if (import.meta.vitest) {
             const { api } = createMockApiForAuthorize("0xdeadbeef");
 
             const result = await authorizeAccount(
-                api as unknown as BulletinApi,
+                api as unknown as CloudStorageApi,
                 "5GrwvaEF...",
                 10,
                 100n,
@@ -426,7 +426,7 @@ if (import.meta.vitest) {
             const { api, fakeTx } = createMockApiForAuthorize();
 
             await authorizeAccount(
-                api as unknown as BulletinApi,
+                api as unknown as CloudStorageApi,
                 "5GrwvaEF...",
                 10,
                 100n,
@@ -443,7 +443,7 @@ if (import.meta.vitest) {
             const { api } = createMockApiForAuthorize("0xsudoblock");
 
             const result = await authorizeAccount(
-                api as unknown as BulletinApi,
+                api as unknown as CloudStorageApi,
                 "5GrwvaEF...",
                 10,
                 100n,
@@ -454,7 +454,7 @@ if (import.meta.vitest) {
             expect(result).toEqual({ blockHash: "0xsudoblock" });
         });
 
-        test("throws ProductBulletinError when viaSudo is true but the chain lacks a Sudo pallet", async () => {
+        test("throws ProductCloudStorageError when viaSudo is true but the chain lacks a Sudo pallet", async () => {
             const apiWithoutSudo = {
                 tx: {
                     TransactionStorage: {
@@ -468,7 +468,7 @@ if (import.meta.vitest) {
             };
 
             const err = await authorizeAccount(
-                apiWithoutSudo as unknown as BulletinApi,
+                apiWithoutSudo as unknown as CloudStorageApi,
                 "5GrwvaEF...",
                 10,
                 100n,
@@ -476,7 +476,7 @@ if (import.meta.vitest) {
                 { viaSudo: true },
             ).catch((e: unknown) => e);
 
-            expect(err).toBeInstanceOf(ProductBulletinError);
+            expect(err).toBeInstanceOf(ProductCloudStorageError);
             expect((err as Error).message).toMatch(/Sudo pallet/i);
             // Verify we did NOT proceed to submit anything
             expect(apiWithoutSudo.tx.TransactionStorage.authorize_account).not.toHaveBeenCalled();

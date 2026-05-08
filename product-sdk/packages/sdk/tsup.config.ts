@@ -4,7 +4,7 @@ export default defineConfig({
     entry: {
         index: "src/index.ts",
         "address/index": "src/address/index.ts",
-        "bulletin/index": "src/bulletin/index.ts",
+        "cloud-storage/index": "src/cloud-storage/index.ts",
         "chain/index": "src/chain/index.ts",
         "contracts/index": "src/contracts/index.ts",
         "core/index": "src/core/index.ts",
