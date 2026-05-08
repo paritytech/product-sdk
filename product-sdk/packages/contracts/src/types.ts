@@ -1,9 +1,9 @@
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
-import type { SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
+import type { BatchableCall, SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
 import type { SignerManager } from "@parity/product-sdk-signer";
 
 // Re-export from the tx package — single source of truth.
-export type { TxResult, SubmitOptions } from "@parity/product-sdk-tx";
+export type { TxResult, SubmitOptions, BatchableCall } from "@parity/product-sdk-tx";
 
 // ---------------------------------------------------------------------------
 // cdm.json schema
@@ -15,12 +15,18 @@ export interface CdmJsonTarget {
     bulletin: string;
 }
 
-/** A deployed contract's on-chain address, ABI, and metadata CID. */
+/**
+ * A deployed contract's on-chain address, ABI, and optional metadata CID.
+ *
+ * `metadataCid` is optional because real-world cdm.json files (e.g.
+ * `paritytech/playground-cli/cdm.json`) don't always include it — only
+ * `version`, `address`, and `abi` are load-bearing for `getContract()`.
+ */
 export interface CdmJsonContract {
     version: number;
     address: HexString;
     abi: AbiEntry[];
-    metadataCid: string;
+    metadataCid?: string;
 }
 
 /** A project's `cdm.json` manifest: declared targets, runtime dependencies, and per-target contract deployments. */
@@ -91,6 +97,20 @@ export interface TxOptions extends SubmitOptions {
     storageDepositLimit?: bigint;
 }
 
+/**
+ * Options for `.prepare()` — subset of {@link TxOptions}.
+ *
+ * Signer and submission lifecycle options (`signer`, `waitFor`, `timeoutMs`,
+ * `mortalityPeriod`, `onStatus`) are intentionally absent — those belong to
+ * the batch submission, not the individual prepared call.
+ */
+export interface PrepareOptions {
+    origin?: SS58String;
+    value?: bigint;
+    gasLimit?: Weight;
+    storageDepositLimit?: bigint;
+}
+
 /** Mutable defaults shared across all contract handles from a manager. */
 export interface ContractDefaults {
     origin?: SS58String;
@@ -152,5 +172,28 @@ export type Contract<C extends ContractDef> = {
          * defaultSigner. Throws {@link ContractSignerMissingError} if none available.
          */
         tx: (...args: [...C["methods"][K]["args"], opts?: TxOptions]) => Promise<TxResult>;
+        /**
+         * Prepare the method as a {@link BatchableCall} — returns a handle
+         * consumable by `batchSubmitAndWatch` from `@parity/product-sdk-tx`
+         * without signing or submitting.
+         *
+         * Use this to group multiple contract calls (or contract calls mixed
+         * with other transactions on the same chain) into a single atomic
+         * `Utility.batch_all` transaction:
+         *
+         * ```ts
+         * import { batchSubmitAndWatch } from "@parity/product-sdk-tx";
+         *
+         * const a = contract.transfer.prepare(addr1, 100n);
+         * const b = contract.transfer.prepare(addr2, 200n);
+         * await batchSubmitAndWatch([a, b], api, signer);
+         * ```
+         *
+         * Origin is resolved the same way as `.tx()` but falls back to the
+         * dev address for dry-run gas estimation if no signer context is
+         * available (prepare does not require a signer; the batch submission
+         * does).
+         */
+        prepare: (...args: [...C["methods"][K]["args"], opts?: PrepareOptions]) => BatchableCall;
     };
 };

@@ -6,9 +6,11 @@ import { DEV_PHRASE, ss58Address } from "@polkadot-labs/hdkd-helpers";
 import { ContractSignerMissingError } from "./errors.js";
 import type {
     AbiEntry,
+    BatchableCall,
     Contract,
     ContractDef,
     ContractDefaults,
+    PrepareOptions,
     QueryOptions,
     TxOptions,
 } from "./types.js";
@@ -168,6 +170,27 @@ export function wrapContract(
                         timeoutMs: overrides?.timeoutMs,
                         mortalityPeriod: overrides?.mortalityPeriod,
                         onStatus: overrides?.onStatus,
+                    });
+                },
+
+                prepare: (...args: unknown[]): BatchableCall => {
+                    const { positionalArgs, overrides } = extractOverrides<PrepareOptions>(
+                        argNames,
+                        args,
+                    );
+                    const data = positionalToNamed(argNames, positionalArgs);
+                    // prepare() doesn't require a signer — origin here is for
+                    // dry-run gas estimation; the batch's signer replaces it
+                    // as the dispatched origin at submission.
+                    const origin = resolveOrigin(defaults, overrides?.origin, true)!;
+                    return inkContract.send(methodName, {
+                        data,
+                        origin,
+                        ...(overrides?.value !== undefined && { value: overrides.value }),
+                        ...(overrides?.gasLimit && { gasLimit: overrides.gasLimit }),
+                        ...(overrides?.storageDepositLimit !== undefined && {
+                            storageDepositLimit: overrides.storageDepositLimit,
+                        }),
                     });
                 },
             };
@@ -334,6 +357,158 @@ if (import.meta.vitest) {
                 signerManager: mockSigner({}),
             };
             expect(resolveSigner(defaults)).toBe(fakeSigner);
+        });
+    });
+
+    describe("wrapContract — prepare", () => {
+        // .prepare() port from polkadot-apps@4b60d19. Asserts that the
+        // method returns a BatchableCall consumable by batchSubmitAndWatch
+        // without going through submission, doesn't require a signer, and
+        // forwards the gas/value overrides the same way `.tx()` does.
+
+        const abi: AbiEntry[] = [
+            {
+                type: "function",
+                name: "increment",
+                inputs: [],
+                outputs: [],
+                stateMutability: "nonpayable",
+            },
+            {
+                type: "function",
+                name: "add",
+                inputs: [{ name: "n", type: "uint32" }],
+                outputs: [],
+                stateMutability: "nonpayable",
+            },
+        ];
+
+        test("prepare returns ink send result without submitting", () => {
+            let sendCapture: any;
+            const fakeSendResult = { waited: Promise.resolve({ decodedCall: { pallet: "X" } }) };
+            const fakeInk = {
+                send: (method: string, args: any) => {
+                    sendCapture = { method, args };
+                    return fakeSendResult;
+                },
+            };
+            const wrapped = wrapContract(fakeInk, abi, { origin: "5Alice" as any });
+
+            const result = wrapped.add.prepare(42);
+            expect(sendCapture.method).toBe("add");
+            expect(sendCapture.args.data).toEqual({ n: 42 });
+            expect(sendCapture.args.origin).toBe("5Alice");
+            expect(result).toBe(fakeSendResult);
+        });
+
+        test("prepare does not require a signer", () => {
+            const fakeInk = {
+                send: () => ({ waited: Promise.resolve({ decodedCall: {} }) }),
+            };
+            const wrapped = wrapContract(fakeInk, abi, {});
+            // No signer, no signerManager, no default origin — should still work
+            expect(() => wrapped.increment.prepare()).not.toThrow();
+        });
+
+        test("prepare uses fallback origin for dry-run gas estimation", () => {
+            let captured: any;
+            const fakeInk = {
+                send: (_: string, args: any) => {
+                    captured = args;
+                    return { waited: Promise.resolve({ decodedCall: {} }) };
+                },
+            };
+            const wrapped = wrapContract(fakeInk, abi, {});
+
+            wrapped.increment.prepare();
+            expect(captured.origin).toBe(QUERY_FALLBACK_ORIGIN);
+        });
+
+        test("prepare forwards value, gasLimit, storageDepositLimit", () => {
+            let captured: any;
+            const fakeInk = {
+                send: (_: string, args: any) => {
+                    captured = args;
+                    return { waited: Promise.resolve({ decodedCall: {} }) };
+                },
+            };
+            const wrapped = wrapContract(fakeInk, abi, { origin: "5A" as any });
+
+            const gasLimit = { ref_time: 1_000_000n, proof_size: 1024n };
+            wrapped.add.prepare(7, {
+                value: 500n,
+                gasLimit,
+                storageDepositLimit: 999n,
+            });
+            expect(captured.data).toEqual({ n: 7 });
+            expect(captured.value).toBe(500n);
+            expect(captured.gasLimit).toBe(gasLimit);
+            expect(captured.storageDepositLimit).toBe(999n);
+        });
+
+        test("prepare override origin wins over signerManager and default", () => {
+            let captured: any;
+            const fakeInk = {
+                send: (_: string, args: any) => {
+                    captured = args;
+                    return { waited: Promise.resolve({ decodedCall: {} }) };
+                },
+            };
+            const wrapped = wrapContract(fakeInk, abi, {
+                origin: "5Default" as any,
+                signerManager: mockSigner({ address: "5Source" }),
+            });
+
+            wrapped.increment.prepare({ origin: "5Override" as any });
+            expect(captured.origin).toBe("5Override");
+        });
+
+        test("prepare result is consumable by batchSubmitAndWatch", async () => {
+            const { batchSubmitAndWatch } = await import("@parity/product-sdk-tx");
+            const prepared = [
+                { waited: Promise.resolve({ decodedCall: { call: "one" } }) },
+                { waited: Promise.resolve({ decodedCall: { call: "two" } }) },
+            ];
+            const fakeInk = {
+                send: (_: string, _args: any) => prepared.shift()!,
+            };
+            const wrapped = wrapContract(fakeInk, abi, { origin: "5A" as any });
+
+            const a = wrapped.increment.prepare();
+            const b = wrapped.add.prepare(1);
+
+            const captured: unknown[][] = [];
+            const fakeApi = {
+                tx: {
+                    Utility: {
+                        batch_all: (args: { calls: unknown[] }) => {
+                            captured.push(args.calls);
+                            return {
+                                signSubmitAndWatch: () => ({
+                                    subscribe: (h: any) => {
+                                        h.next({ type: "signed", txHash: "0xb" });
+                                        h.next({
+                                            type: "txBestBlocksState",
+                                            txHash: "0xb",
+                                            found: true,
+                                            ok: true,
+                                            events: [],
+                                            block: { hash: "0xblk", number: 1, index: 0 },
+                                        });
+                                        return { unsubscribe: () => {} };
+                                    },
+                                }),
+                            };
+                        },
+                    },
+                },
+            } as any;
+
+            const result = await batchSubmitAndWatch([a, b], fakeApi, {
+                publicKey: new Uint8Array(32),
+            } as any);
+            expect(result.ok).toBe(true);
+            expect(captured[0]).toEqual([{ call: "one" }, { call: "two" }]);
         });
     });
 }

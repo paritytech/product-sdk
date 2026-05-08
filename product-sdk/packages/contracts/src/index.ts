@@ -28,6 +28,8 @@ export type {
     QueryOptions,
     TxOptions,
     TxResult,
+    PrepareOptions,
+    BatchableCall,
     ContractDefaults,
     ContractManagerOptions,
     ContractOptions,
