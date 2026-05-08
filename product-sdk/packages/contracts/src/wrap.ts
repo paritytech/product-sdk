@@ -468,6 +468,196 @@ if (import.meta.vitest) {
         });
     });
 
+    describe("wrapContract — PAPI 2.x boundary (HexString / Uint8Array contract)", () => {
+        // The codegen now emits `HexString` for `bytes` and `SizedHex<N>` for
+        // `bytesN`. These tests pin the runtime side: when a caller passes a
+        // hex string for those args, the SDK must hand PAPI a `0x…` `dest`
+        // and a `Uint8Array` `data` — anything else trips PAPI 2.x's
+        // `isCompatible` check or its codecs. We capture the arguments PAPI
+        // receives and assert on their concrete shapes.
+        const ADDRESS_INPUT = "0x0102030405060708090a0b0c0d0e0f1011121314";
+
+        type Captured = {
+            dryRun: Parameters<ContractRuntime["dryRunCall"]> | null;
+            tx: { dest: unknown; data: unknown } | null;
+        };
+
+        function mockRuntime(captured: Captured): ContractRuntime {
+            const successfulDryRun: ContractRuntime["dryRunCall"] = async (...args) => {
+                captured.dryRun = args;
+                return {
+                    weight_consumed: { ref_time: 0n, proof_size: 0n },
+                    weight_required: { ref_time: 1n, proof_size: 1n },
+                    storage_deposit: { type: "Charge", value: 7n },
+                    max_storage_deposit: { type: "Charge", value: 7n },
+                    gas_consumed: 0n,
+                    result: { success: true, value: { flags: 0, data: new Uint8Array(0) } },
+                };
+            };
+            return {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: (args: { dest: unknown; data: unknown }) => {
+                                captured.tx = { dest: args.dest, data: args.data };
+                                return {
+                                    signSubmitAndWatch: () => ({
+                                        subscribe: (handlers: {
+                                            next: (event: unknown) => void;
+                                        }) => {
+                                            queueMicrotask(() => {
+                                                handlers.next({
+                                                    type: "txBestBlocksState",
+                                                    txHash: "0xdeadbeef",
+                                                    found: true,
+                                                    ok: true,
+                                                    events: [],
+                                                    block: {
+                                                        hash: "0xblock",
+                                                        number: 1,
+                                                        index: 0,
+                                                    },
+                                                });
+                                            });
+                                            return { unsubscribe: () => {} };
+                                        },
+                                    }),
+                                };
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: successfulDryRun,
+            };
+        }
+
+        const fakeSigner = {
+            publicKey: new Uint8Array(32),
+        } as unknown as PolkadotSigner;
+        const origin = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+
+        test("`bytesN` argument: hex string is forwarded as 0x-string dest and Uint8Array calldata", async () => {
+            // Solidity: function setHash(bytes32 hash) — exercises the
+            // `bytesN` codegen branch (now `SizedHex<N>`). The argument here
+            // is what a user following the generated types would pass.
+            const abi: AbiEntry[] = [
+                {
+                    type: "function",
+                    name: "setHash",
+                    inputs: [{ name: "hash", type: "bytes32" }],
+                    outputs: [],
+                    stateMutability: "nonpayable",
+                },
+            ];
+
+            const captured: Captured = { dryRun: null, tx: null };
+            const wrapped = wrapContract(mockRuntime(captured), ADDRESS_INPUT, abi, {
+                signer: fakeSigner,
+                origin,
+            });
+
+            const hash = "0x1111111111111111111111111111111111111111111111111111111111111111";
+            await (
+                wrapped as unknown as { setHash: { tx: (h: string) => Promise<unknown> } }
+            ).setHash.tx(hash);
+
+            // PAPI's compat check rejects anything that isn't a `0x…` string
+            // for an H160 dest. The class-based `FixedSizeBinary` would fail.
+            expect(captured.dryRun?.[1]).toBe(ADDRESS_INPUT);
+            expect(typeof captured.dryRun?.[1]).toBe("string");
+
+            // Variable-length calldata must arrive as a `Uint8Array`. The
+            // ABI selector for `setHash(bytes32)` is `0xa61eb053`, followed
+            // by the 32-byte argument right-padded into a 32-byte word.
+            const calldata = captured.dryRun?.[5] as Uint8Array;
+            expect(calldata).toBeInstanceOf(Uint8Array);
+            expect(calldata.byteLength).toBe(4 + 32);
+            expect(Array.from(calldata.slice(4, 36))).toEqual(Array(32).fill(0x11));
+
+            // The same pair flows into the typed extrinsic — a class instance
+            // here would silently mis-encode under PAPI 2.x.
+            expect(captured.tx?.dest).toBe(ADDRESS_INPUT);
+            expect(captured.tx?.data).toBeInstanceOf(Uint8Array);
+        });
+
+        test("variable `bytes` argument: hex string round-trips through viem to Uint8Array calldata", async () => {
+            // Solidity: function store(bytes data) — exercises the `bytes`
+            // codegen branch (now `HexString`).
+            const abi: AbiEntry[] = [
+                {
+                    type: "function",
+                    name: "store",
+                    inputs: [{ name: "data", type: "bytes" }],
+                    outputs: [],
+                    stateMutability: "nonpayable",
+                },
+            ];
+
+            const captured: Captured = { dryRun: null, tx: null };
+            const wrapped = wrapContract(mockRuntime(captured), ADDRESS_INPUT, abi, {
+                signer: fakeSigner,
+                origin,
+            });
+
+            await (
+                wrapped as unknown as { store: { tx: (b: string) => Promise<unknown> } }
+            ).store.tx("0xdeadbeef");
+
+            const calldata = captured.dryRun?.[5] as Uint8Array;
+            expect(calldata).toBeInstanceOf(Uint8Array);
+            // Selector + length-32-word + offset-32-word + padded 4-byte payload (32-byte word).
+            expect(calldata.byteLength).toBe(4 + 32 * 3);
+            // 0xdeadbeef sits at the start of the third 32-byte word.
+            const payloadStart = 4 + 32 * 2;
+            expect(Array.from(calldata.slice(payloadStart, payloadStart + 4))).toEqual([
+                0xde, 0xad, 0xbe, 0xef,
+            ]);
+        });
+
+        test("query() decodes a `bytesN` return value back to the original hex string", async () => {
+            // Solidity: function getHash() returns (bytes32). The dry-run
+            // result's `data` is a raw `Uint8Array` under PAPI 2.x — wrap
+            // must hand it to viem's decoder unwrapped.
+            const abi: AbiEntry[] = [
+                {
+                    type: "function",
+                    name: "getHash",
+                    inputs: [],
+                    outputs: [{ name: "", type: "bytes32" }],
+                    stateMutability: "view",
+                },
+            ];
+
+            // 32-byte word filled with 0x22 — what the chain returns for a
+            // hypothetical `bytes32` reading.
+            const responseBytes = new Uint8Array(32).fill(0x22);
+            const runtime: ContractRuntime = {
+                api: {} as unknown as ContractRuntime["api"],
+                dryRunCall: async () => ({
+                    weight_consumed: { ref_time: 0n, proof_size: 0n },
+                    weight_required: { ref_time: 0n, proof_size: 0n },
+                    storage_deposit: { type: "Refund", value: 0n },
+                    max_storage_deposit: { type: "Refund", value: 0n },
+                    gas_consumed: 0n,
+                    result: { success: true, value: { flags: 0, data: responseBytes } },
+                }),
+            };
+
+            const wrapped = wrapContract(runtime, ADDRESS_INPUT, abi, { origin });
+            const result = await (
+                wrapped as unknown as {
+                    getHash: { query: () => Promise<{ success: boolean; value: unknown }> };
+                }
+            ).getHash.query();
+
+            expect(result.success).toBe(true);
+            // viem decodes `bytes32` as a `0x…` hex string.
+            expect(result.value).toBe(
+                "0x2222222222222222222222222222222222222222222222222222222222222222",
+            );
+        });
+    });
+
     describe("wrapContract — tx dry-run failure", () => {
         const abi: AbiEntry[] = [
             {
