@@ -65,10 +65,18 @@ export async function checkAuthorization(
         return NOT_AUTHORIZED;
     }
 
+    // After polkadot-bulletin-chain PR #448 (e543696, 2026-04-30), AuthorizationExtent's
+    // `transactions` and `bytes` fields are *consumed counters*; the granted allowance moved
+    // to `transactions_allowance` / `bytes_allowance`. Compute remaining = allowance − consumed
+    // so the public `remainingTransactions` / `remainingBytes` contract stays semantically
+    // honest.
     const status: AuthorizationStatus = {
         authorized: true,
-        remainingTransactions: auth.extent.transactions,
-        remainingBytes: auth.extent.bytes,
+        remainingTransactions: auth.extent.transactions_allowance - auth.extent.transactions,
+        // `auth` is `any` (TypedApi<any> upstream — see line 53). TS narrows
+        // `any - any` to `number`, so cast each u64 operand to bigint to keep
+        // the subtraction in bigint space. Runtime values are bigints from PAPI.
+        remainingBytes: (auth.extent.bytes_allowance as bigint) - (auth.extent.bytes as bigint),
         expiration: auth.expiration,
     };
 
@@ -246,9 +254,15 @@ if (import.meta.vitest) {
             expect(status.expiration).toBe(0);
         });
 
-        test("returns authorization with full quota", async () => {
+        test("returns authorization with full quota (fresh authorize, nothing consumed)", async () => {
             const api = createMockApi({
-                extent: { transactions: 10, bytes: 1_000_000n },
+                extent: {
+                    transactions: 0,
+                    transactions_allowance: 10,
+                    bytes: 0n,
+                    bytes_permanent: 0n,
+                    bytes_allowance: 1_000_000n,
+                },
                 expiration: 999,
             });
             const status = await checkAuthorization(api, "5GrwvaEF...");
@@ -259,9 +273,15 @@ if (import.meta.vitest) {
             expect(status.expiration).toBe(999);
         });
 
-        test("returns authorization with zero transactions remaining", async () => {
+        test("returns authorization with zero transactions remaining (fully consumed)", async () => {
             const api = createMockApi({
-                extent: { transactions: 0, bytes: 1_000_000n },
+                extent: {
+                    transactions: 5,
+                    transactions_allowance: 5,
+                    bytes: 0n,
+                    bytes_permanent: 0n,
+                    bytes_allowance: 1_000_000n,
+                },
                 expiration: 999,
             });
             const status = await checkAuthorization(api, "5GrwvaEF...");
@@ -270,9 +290,15 @@ if (import.meta.vitest) {
             expect(status.remainingTransactions).toBe(0);
         });
 
-        test("returns authorization with zero bytes remaining", async () => {
+        test("returns authorization with zero bytes remaining (fully consumed)", async () => {
             const api = createMockApi({
-                extent: { transactions: 5, bytes: 0n },
+                extent: {
+                    transactions: 0,
+                    transactions_allowance: 5,
+                    bytes: 1_000n,
+                    bytes_permanent: 0n,
+                    bytes_allowance: 1_000n,
+                },
                 expiration: 999,
             });
             const status = await checkAuthorization(api, "5GrwvaEF...");
@@ -281,9 +307,33 @@ if (import.meta.vitest) {
             expect(status.remainingBytes).toBe(0n);
         });
 
+        test("returns remaining = allowance − consumed when partially used", async () => {
+            const api = createMockApi({
+                extent: {
+                    transactions: 3,
+                    transactions_allowance: 10,
+                    bytes: 250_000n,
+                    bytes_permanent: 0n,
+                    bytes_allowance: 1_000_000n,
+                },
+                expiration: 999,
+            });
+            const status = await checkAuthorization(api, "5GrwvaEF...");
+
+            expect(status.authorized).toBe(true);
+            expect(status.remainingTransactions).toBe(7); // 10 − 3
+            expect(status.remainingBytes).toBe(750_000n); // 1M − 250K
+        });
+
         test("preserves expiration block number", async () => {
             const api = createMockApi({
-                extent: { transactions: 1, bytes: 500n },
+                extent: {
+                    transactions: 0,
+                    transactions_allowance: 1,
+                    bytes: 0n,
+                    bytes_permanent: 0n,
+                    bytes_allowance: 500n,
+                },
                 expiration: 12345,
             });
             const status = await checkAuthorization(api, "5GrwvaEF...");

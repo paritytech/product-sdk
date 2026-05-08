@@ -6,7 +6,7 @@
             "wsUrl": "wss://paseo-bulletin-rpc.polkadot.io",
             "metadata": "../../.papi/metadata/bulletin.scale",
             "genesis": "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea",
-            "codeHash": "0xb1d08a90f72ba20c542f968083aca0a387286affc586ba95fe43a657b639c716"
+            "codeHash": "0xd248224df107ca81267a5a4d0671bb9618dbb1a43fae7fad6ba2331a45a10ac5"
         }
     }
 }
