@@ -33,15 +33,23 @@ const $activeProvider = getEl<HTMLSpanElement>("active-provider");
 const $accountAddress = getEl<HTMLSpanElement>("account-address");
 const $reportDateInput = getEl<HTMLInputElement>("report-date-input");
 const $reportCidInput = getEl<HTMLInputElement>("report-cid-input");
+const $queryShopInput = getEl<HTMLInputElement>("query-shop-input");
 const $btnQueryOwner = getEl<HTMLButtonElement>("btn-query-owner");
+const $btnQueryReportCount = getEl<HTMLButtonElement>("btn-query-report-count");
+const $btnQueryAllDates = getEl<HTMLButtonElement>("btn-query-all-dates");
+const $btnQueryCid = getEl<HTMLButtonElement>("btn-query-cid");
 const $btnStoreReport = getEl<HTMLButtonElement>("btn-store-report");
 const $contractLog = getEl<HTMLElement>("contract-log");
 
 function setControlsEnabled(enabled: boolean): void {
     $btnQueryOwner.disabled = !enabled;
+    $btnQueryReportCount.disabled = !enabled;
+    $btnQueryAllDates.disabled = !enabled;
+    $btnQueryCid.disabled = !enabled;
     $btnStoreReport.disabled = !enabled;
     $reportDateInput.disabled = !enabled;
     $reportCidInput.disabled = !enabled;
+    $queryShopInput.disabled = !enabled;
 }
 
 function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void {
@@ -89,6 +97,79 @@ $btnQueryOwner.addEventListener("click", async () => {
         }
     } catch (err) {
         log(`query failed: ${(err as Error).message}`, "err");
+    }
+});
+
+/**
+ * Query helpers that exercise the PAPI 2.x codec boundary end-to-end:
+ *   - viem encodes the `address` arg as a `0x…` hex string into the
+ *     calldata `Uint8Array`,
+ *   - PAPI's `ReviveApi.call` returns a `Uint8Array`,
+ *   - viem decodes it back to the typed JS value.
+ *
+ * The default shop address is the zero address, so the results are
+ * deterministic regardless of accumulated chain state.
+ */
+$btnQueryReportCount.addEventListener("click", async () => {
+    if (!contractManager) {
+        log("Contract manager not ready", "err");
+        return;
+    }
+    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
+    log(`Querying getReportCount(${shop})…`);
+    try {
+        const contract = contractManager.getContract("@t3rminal/bulletin-index");
+        const result = await contract.getReportCount.query(shop);
+        if (result.success) {
+            log(`reportCount: ${result.value}`, "ok");
+        } else {
+            log("getReportCount query failed (dry-run success=false)", "err");
+        }
+    } catch (err) {
+        log(`getReportCount failed: ${(err as Error).message}`, "err");
+    }
+});
+
+$btnQueryAllDates.addEventListener("click", async () => {
+    if (!contractManager) {
+        log("Contract manager not ready", "err");
+        return;
+    }
+    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
+    log(`Querying getAllDates(${shop})…`);
+    try {
+        const contract = contractManager.getContract("@t3rminal/bulletin-index");
+        const result = await contract.getAllDates.query(shop);
+        if (result.success) {
+            // Stringify so the test can match a stable representation of the
+            // decoded `string[]` regardless of how arrays render in the DOM.
+            log(`allDates: ${JSON.stringify(result.value)}`, "ok");
+        } else {
+            log("getAllDates query failed (dry-run success=false)", "err");
+        }
+    } catch (err) {
+        log(`getAllDates failed: ${(err as Error).message}`, "err");
+    }
+});
+
+$btnQueryCid.addEventListener("click", async () => {
+    if (!contractManager) {
+        log("Contract manager not ready", "err");
+        return;
+    }
+    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
+    const date = $reportDateInput.value || "2026-01-01";
+    log(`Querying getCID(${shop}, "${date}")…`);
+    try {
+        const contract = contractManager.getContract("@t3rminal/bulletin-index");
+        const result = await contract.getCID.query(shop, date);
+        if (result.success) {
+            log(`cid: ${JSON.stringify(result.value)}`, "ok");
+        } else {
+            log("getCID query failed (dry-run success=false)", "err");
+        }
+    } catch (err) {
+        log(`getCID failed: ${(err as Error).message}`, "err");
     }
 });
 
