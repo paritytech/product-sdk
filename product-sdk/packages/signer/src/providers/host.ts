@@ -957,4 +957,32 @@ if (import.meta.vitest) {
             expect(formatError({ tag: "v1", value: "code-42" })).toBe("v1 (code-42)");
         });
     });
+
+    describe("RemotePermission codec interop", () => {
+        // Smoke test that the wire payload we build (`ChainSubmit`) round-trips
+        // through the real host-api codec. The previous bug shipped
+        // `TransactionSubmit`, which the codec rejects — locking this in here
+        // catches a regression at the codec layer without needing the host.
+        test("encodes ChainSubmit payload without throwing", async () => {
+            const { RemotePermission } = await import("@novasamatech/host-api");
+            const payload = { tag: "ChainSubmit" as const, value: undefined };
+            const encoded = RemotePermission.enc(payload);
+            expect(encoded).toBeInstanceOf(Uint8Array);
+            const decoded = RemotePermission.dec(encoded);
+            expect(decoded.tag).toBe("ChainSubmit");
+        });
+
+        test("rejects the legacy TransactionSubmit tag", async () => {
+            const { RemotePermission } = await import("@novasamatech/host-api");
+            // `TransactionSubmit` is not a valid variant in v1 — the codec
+            // should refuse to encode it. This proves the codec actually
+            // validates tags (so test 1 isn't a tautology).
+            expect(() =>
+                RemotePermission.enc({
+                    tag: "TransactionSubmit",
+                    value: undefined,
+                } as never),
+            ).toThrow();
+        });
+    });
 }
