@@ -19,12 +19,3 @@ No `setTimeout` wall-clock guesswork, no `console.error` monkey-patch, no `proce
 ### API change
 
 `destroy()` now returns `Promise<void>` instead of `void`. Awaiting is recommended (`await adapter.destroy()`) but not required — callers that ignore the return value get fire-and-forget shape. **Marked as `minor`** because the type signature changed (added a return value), even though the change is structurally additive: TypeScript callers ignoring the return continue to type-check.
-
-### Tests
-
-9 new tests in `adapter.ts` (previously zero) covering both helpers:
-
-- `wrapLazyClient` — passes `getClient`/`getRequestFn`/`disconnect` through unchanged; wrapped subscribe's teardown invokes the inner teardown; `awaitPendingUnsubs` resolves after all wrapped teardowns settle; resolves immediately when no pending unsubs; an unsubscribe whose teardown throws still tracks and resolves (so `destroy` doesn't hang).
-- `teardown` — orders dispose → drain → disconnect; disconnect runs even with no pending unsubs; logs warning if disconnect throws (doesn't propagate); awaits pending unsubs before calling disconnect (verified by intercepting `disconnect` and asserting the unsub has actually resolved).
-
-Manual smoke tests updated to `await adapter.destroy()` for the cleanest shutdown.

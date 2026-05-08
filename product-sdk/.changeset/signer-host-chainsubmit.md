@@ -29,12 +29,4 @@ Misleading — it suggested a host-side rejection when in fact it was a schema m
   - After: `error: "v1 → GenericError: Unknown error: inner[tag] is not a function"`
 - All log lines mentioning the old `TransactionSubmit` tag now reference `ChainSubmit`.
 
-### Tests
-
-15 new tests in `host.ts` (was 7):
-
-- **ChainSubmit permission request (7)**: regression guard asserting the wire format is exactly `{ version: "v1", value: { tag: "ChainSubmit", value: undefined } }` (no `TransactionSubmit` tag); behavior when `sdk.hostApi` is unavailable; opt-out via `requestChainSubmitPermission: false`; deprecated `requestTransactionSubmitPermission` alias still works; `connect()` succeeds even when permission rejects; `connect()` succeeds even when the codec throws (the original bug).
-- **`formatError` (6)**: primitive errors; inner `Error` shape with name + message under the outer tag; redundant `"Error"` name stripped; recursion through nested tagged enums; outer tag alone when value is undefined; tag with primitive inner value.
-- **`RemotePermission` codec interop (2)**: encodes the new `ChainSubmit` payload through the real `@novasamatech/host-api` codec without throwing and decodes back to the same tag; the legacy `TransactionSubmit` tag throws on encode (proves the codec actually validates tags, so the positive case isn't a tautology). This catches "we wrote the wrong tag again" regressions at the codec layer without needing a live host.
-
 Severity: cosmetic in isolation (`connect()` returned ok and signing actually worked because the permission was effectively no-op'd) — but every product app on these versions emitted a misleading warning per connect, and anyone debugging downstream signing failures got pointed at the wrong layer. Fix is a one-tag rename plus better error formatting.

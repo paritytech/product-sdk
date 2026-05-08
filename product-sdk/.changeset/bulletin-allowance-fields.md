@@ -12,8 +12,4 @@
 - `checkAuthorization` now computes `remaining = allowance − consumed` for both transactions and bytes, restoring the public `AuthorizationStatus` contract semantics.
 - Bulletin chain metadata regenerated against the new struct so `auth.extent.transactions_allowance` / `bytes_allowance` are typed at compile time. `@parity/product-sdk-descriptors` patch-bumps to ship the regenerated `bulletin.scale` blob and the matching generated TypeScript.
 
-### Tests
-
-In-source vitest cases updated to use the new `AuthorizationExtent` shape with separate consumed and allowance fields. New test added: `returns remaining = allowance − consumed when partially used` covering the partial-consumption arithmetic that the previous behavior masked.
-
 No public API changes — `AuthorizationStatus.remainingTransactions` / `remainingBytes` keep the same names and semantics; the on-chain decode path is the only thing that moved.

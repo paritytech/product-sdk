@@ -8,13 +8,6 @@ The signer built `PolkadotSigner` via `getPolkadotSigner` with a single callback
 
 Switched to `getPolkadotSignerFromPjs` from `polkadot-api/pjs-signer`, which takes separate `signPayload` and `signRaw` callbacks. Tx signing now routes through `session.signPayload` (mobile's payload interactor — no `<Bytes>` wrap, signs the actual extrinsic) and raw-byte signing keeps using `session.signRaw` (anti-phishing wrap intact).
 
-No public API changes — `createSessionSigner(session, adapter)` and `createSessionSignerForAccount(session, ref)` keep their signatures. Internal routing is the only thing that changed.
-
-Test coverage:
-- The two callbacks are extracted as named internal helpers (`makeSignPayloadCallback`, `makeSignRawCallback`) so unit tests can invoke them directly with synthetic PJS payloads — directly exercising the path the bug was on.
-- New `makeSignPayloadCallback` tests cover: productAccountId forwarding, hex normalization across all 9 hex fields (mixed prefixed/unprefixed inputs), optional-field passthrough (assetId / metadataHash / mode / withSignedTransaction), hex-encoding of the returned signature and signedTransaction, omitted-`signedTransaction` path, regression guard that the path does NOT call `session.signRaw`, and clear error propagation when mobile rejects.
-- New `makeSignRawCallback` tests cover productAccountId forwarding, the bytes payload translation (PJS hex → host-papp `Uint8Array`), and hex-encoding of the returned signature with `id: 0`.
-- Existing raw-path tests preserved.
-- Full end-to-end tx signing roundtrip is still gated on the manual smoke test (`packages/terminal/manual-tests/qr-pair-and-sign-tx.mjs`) since CI cannot exercise a real phone.
+No public API changes — `createSessionSigner(session, adapter)` and `createSessionSignerForAccount(session, ref)` keep their signatures. Internal routing is the only thing that changed. The two callbacks are extracted as named internal helpers (`makeSignPayloadCallback`, `makeSignRawCallback`) so the path the bug was on can be exercised directly. Full end-to-end tx signing roundtrip is still gated on the manual smoke test (`packages/terminal/manual-tests/qr-pair-and-sign-tx.mjs`) since CI cannot exercise a real phone.
 
 Bundle size impact: `dist/index.js` grows from ~10.7 KB to ~19.4 KB. The increase is the metadata-decoder helpers required by the PJS adapter to translate PAPI's signer payload contract into the wire format host-papp expects, plus the now-named callback helpers (kept top-level rather than inlined for testability). `polkadot-api/pjs-signer` itself is externalized.
