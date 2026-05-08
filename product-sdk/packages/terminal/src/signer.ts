@@ -50,6 +50,16 @@ export interface ProductAccountRef {
     derivationIndex: number;
 }
 
+/**
+ * PAPI's PJS payload exposes hex fields as plain `string` (the typedef is
+ * `HexString = string` with no enforcement). The mappers always emit
+ * `0x`-prefixed values, but we defensively prepend the prefix if missing —
+ * matches the pattern in `@novasamatech/product-sdk`'s in-host signer.
+ */
+function asHex(v: string): `0x${string}` {
+    return v.startsWith("0x") ? (v as `0x${string}`) : (`0x${v}` as `0x${string}`);
+}
+
 function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
     const accountId = new Uint8Array(session.remoteAccount.accountId);
     const productAccountId: [string, number] = [ref.productId, ref.derivationIndex];
@@ -58,7 +68,7 @@ function buildSessionSigner(session: UserSession, ref: ProductAccountRef): Polka
     // of signing identifies accounts by `productAccountId` instead, so we
     // ignore the `address` field that PAPI later passes back into our
     // callbacks and use the closure-captured `productAccountId` there.
-    const accountIdHex = `0x${toHex(accountId).replace(/^0x/, "")}` as const;
+    const accountIdHex = asHex(toHex(accountId));
 
     return getPolkadotSignerFromPjs(
         accountIdHex,
@@ -69,26 +79,26 @@ function buildSessionSigner(session: UserSession, ref: ProductAccountRef): Polka
         async (payload) => {
             const result = await session.signPayload({
                 productAccountId,
-                blockHash: payload.blockHash as `0x${string}`,
-                blockNumber: payload.blockNumber as `0x${string}`,
-                era: payload.era as `0x${string}`,
-                genesisHash: payload.genesisHash as `0x${string}`,
-                method: payload.method as `0x${string}`,
-                nonce: payload.nonce as `0x${string}`,
-                specVersion: payload.specVersion as `0x${string}`,
-                tip: payload.tip as `0x${string}`,
-                transactionVersion: payload.transactionVersion as `0x${string}`,
+                blockHash: asHex(payload.blockHash),
+                blockNumber: asHex(payload.blockNumber),
+                era: asHex(payload.era),
+                genesisHash: asHex(payload.genesisHash),
+                method: asHex(payload.method),
+                nonce: asHex(payload.nonce),
+                specVersion: asHex(payload.specVersion),
+                tip: asHex(payload.tip),
+                transactionVersion: asHex(payload.transactionVersion),
                 signedExtensions: payload.signedExtensions,
                 version: payload.version,
-                // PJS exposes assetId as `number | object` but the
-                // ChargeAssetTxPayment mapper always populates it as a
-                // `0x`-prefixed hex string when present. Accept that shape
-                // and forward; otherwise pass through `undefined`.
+                // PJS types `assetId` as `number | object` (broader than what
+                // the ChargeAssetTxPayment mapper actually emits, which is
+                // always a hex string). Pass through if present, otherwise
+                // `undefined`. Matches `@novasamatech/product-sdk`'s shape.
                 assetId:
-                    typeof payload.assetId === "string"
-                        ? (payload.assetId as `0x${string}`)
+                    payload.assetId !== undefined
+                        ? (payload.assetId as unknown as `0x${string}`)
                         : undefined,
-                metadataHash: payload.metadataHash as `0x${string}` | undefined,
+                metadataHash: payload.metadataHash ? asHex(payload.metadataHash) : undefined,
                 mode: payload.mode,
                 withSignedTransaction: payload.withSignedTransaction,
             });
