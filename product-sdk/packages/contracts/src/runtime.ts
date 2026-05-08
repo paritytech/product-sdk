@@ -1,5 +1,4 @@
-import type { PolkadotClient, PolkadotSigner, SS58String } from "polkadot-api";
-import { type Binary, FixedSizeBinary } from "@polkadot-api/substrate-bindings";
+import type { HexString, PolkadotClient, PolkadotSigner, SS58String } from "polkadot-api";
 import type { SubmittableTransaction, Weight, TxResult } from "@parity/product-sdk-tx";
 import { ensureAccountMapped } from "@parity/product-sdk-tx";
 import { ss58ToH160 } from "@parity/product-sdk-address";
@@ -8,18 +7,26 @@ import { ss58ToH160 } from "@parity/product-sdk-address";
  * Result of a `Revive.call` extrinsic — present on the typed API as
  * `api.tx.Revive.call(args)`. Returned object is a PAPI submittable that
  * `submitAndWatch` consumes natively.
+ *
+ * `dest` is an H160 hex string and `data` is a raw `Uint8Array`: this matches
+ * what `polkadot-api` ≥2.0 codecs accept and produce. The class-based
+ * `Binary` / `FixedSizeBinary` wrappers from `@polkadot-api/substrate-bindings`
+ * 0.12 are *not* accepted by PAPI 2.x's compatibility check.
  */
 export type ReviveCallTx = (args: {
-    dest: FixedSizeBinary<20>;
+    dest: HexString;
     value: bigint;
     weight_limit: Weight;
     storage_deposit_limit: bigint;
-    data: Binary;
+    data: Uint8Array;
 }) => SubmittableTransaction;
 
 /**
  * Dry-run result returned by `ReviveApi.call`. Mirrors the shape exposed by
  * descriptors (`paseo-asset-hub`, `polkadot-asset-hub`, `kusama-asset-hub`).
+ *
+ * `data` is a raw `Uint8Array` because PAPI ≥2.0 dropped the `Binary` class
+ * wrapper for `Vec<u8>` codecs.
  */
 export interface ReviveDryRunResult {
     weight_consumed: Weight;
@@ -32,7 +39,7 @@ export interface ReviveDryRunResult {
      * dispatch error as the chain encoded it.
      */
     result:
-        | { success: true; value: { flags: number; data: Binary } }
+        | { success: true; value: { flags: number; data: Uint8Array } }
         | { success: false; value: unknown };
 }
 
@@ -47,7 +54,7 @@ export interface ReviveTypedApi {
     query: {
         Revive: {
             OriginalAccount: {
-                getValue(address: FixedSizeBinary<20>): Promise<SS58String | undefined>;
+                getValue(address: HexString): Promise<SS58String | undefined>;
             };
         };
     };
@@ -55,11 +62,11 @@ export interface ReviveTypedApi {
         ReviveApi: {
             call(
                 origin: SS58String,
-                dest: FixedSizeBinary<20>,
+                dest: HexString,
                 value: bigint,
                 gas_limit: Weight | undefined,
                 storage_deposit_limit: bigint | undefined,
-                input_data: Binary,
+                input_data: Uint8Array,
             ): Promise<ReviveDryRunResult>;
         };
     };
@@ -78,11 +85,11 @@ export interface ReviveTypedApi {
  */
 export type ReviveDryRunCall = (
     origin: SS58String,
-    dest: FixedSizeBinary<20>,
+    dest: HexString,
     value: bigint,
     gas_limit: Weight | undefined,
     storage_deposit_limit: bigint | undefined,
-    input_data: Binary,
+    input_data: Uint8Array,
 ) => Promise<ReviveDryRunResult>;
 
 /**
@@ -205,9 +212,8 @@ export async function ensureContractAccountMapped(
 ): Promise<TxResult | null> {
     const checker = {
         addressIsMapped: async (addr: string): Promise<boolean> => {
-            const h160 = ss58ToH160(addr);
-            const dest = FixedSizeBinary.fromHex(h160.slice(2)) as FixedSizeBinary<20>;
-            return (await runtime.api.query.Revive.OriginalAccount.getValue(dest)) !== undefined;
+            const h160 = ss58ToH160(addr) as HexString;
+            return (await runtime.api.query.Revive.OriginalAccount.getValue(h160)) !== undefined;
         },
     };
     return ensureAccountMapped(address, signer, checker, runtime.api, options);

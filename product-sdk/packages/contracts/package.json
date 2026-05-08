@@ -35,7 +35,6 @@
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
-        "@polkadot-api/substrate-bindings": "catalog:",
         "@polkadot-labs/hdkd-helpers": "catalog:",
         "polkadot-api": "catalog:",
         "viem": "catalog:"

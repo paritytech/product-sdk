@@ -21,9 +21,6 @@ catalogs:
     '@playwright/test':
       specifier: ^1.50.0
       version: 1.59.1
-    '@polkadot-api/substrate-bindings':
-      specifier: ^0.12.0
-      version: 0.12.0
     '@polkadot-api/substrate-client':
       specifier: ^0.7.0
       version: 0.7.0
@@ -480,9 +477,6 @@ importers:
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
-      '@polkadot-api/substrate-bindings':
-        specifier: 'catalog:'
-        version: 0.12.0
       '@polkadot-labs/hdkd-helpers':
         specifier: 'catalog:'
         version: 0.0.27

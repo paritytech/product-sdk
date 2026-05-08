@@ -1,5 +1,4 @@
-import type { PolkadotSigner, SS58String } from "polkadot-api";
-import { Binary, FixedSizeBinary } from "@polkadot-api/substrate-bindings";
+import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
 import { encodeFunctionData, decodeFunctionResult, type Abi as ViemAbi } from "viem";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 import { seedToAccount } from "@parity/product-sdk-keys";
@@ -77,13 +76,27 @@ function resolveSigner(
     return override ?? defaults.signerManager?.getSigner() ?? defaults.signer;
 }
 
-/** Convert a 0x-prefixed H160 string to the 20-byte FixedSizeBinary descriptors expect. */
-function addressToFixedBinary(address: string): FixedSizeBinary<20> {
+/**
+ * Normalise a contract address to a `0x`-prefixed 20-byte hex string —
+ * the shape PAPI ≥2.0 codecs and compat checks accept for `[u8; 20]` args.
+ * Accepts the prefix being absent and re-adds it.
+ */
+function normalizeContractAddress(address: string): HexString {
     const hex = address.startsWith("0x") ? address.slice(2) : address;
     if (hex.length !== 40) {
         throw new Error(`Expected 20-byte H160 contract address, got ${hex.length / 2} bytes`);
     }
-    return FixedSizeBinary.fromHex(hex);
+    return `0x${hex.toLowerCase()}` as HexString;
+}
+
+/** Convert a `0x`-prefixed hex string to a `Uint8Array`. */
+function hexToBytes(hex: HexString): Uint8Array {
+    const stripped = hex.slice(2);
+    const out = new Uint8Array(stripped.length / 2);
+    for (let i = 0; i < out.length; i++) {
+        out[i] = Number.parseInt(stripped.slice(i * 2, i * 2 + 2), 16);
+    }
+    return out;
 }
 
 /**
@@ -131,7 +144,7 @@ export function wrapContract(
     defaults: ContractDefaults,
 ): Contract<ContractDef> {
     const methodArgs = buildMethodArgMap(abi);
-    const dest = addressToFixedBinary(address);
+    const dest = normalizeContractAddress(address);
 
     return new Proxy({} as Record<string, unknown>, {
         get(_, methodName: string) {
@@ -148,9 +161,7 @@ export function wrapContract(
                     const origin = resolveOrigin(defaults, overrides?.origin, true)!;
                     const value = overrides?.value ?? 0n;
 
-                    const calldata = Binary.fromHex(
-                        encodeCalldata(abi, methodName, positionalArgs),
-                    );
+                    const calldata = hexToBytes(encodeCalldata(abi, methodName, positionalArgs));
 
                     const dryRun = await runtime.dryRunCall(
                         origin,
@@ -169,11 +180,7 @@ export function wrapContract(
                         };
                     }
 
-                    const decoded = decodeReturn(
-                        abi,
-                        methodName,
-                        dryRun.result.value.data.asBytes(),
-                    );
+                    const decoded = decodeReturn(abi, methodName, dryRun.result.value.data);
                     return {
                         success: true,
                         value: decoded,
@@ -196,9 +203,7 @@ export function wrapContract(
                         (ss58Address(signer.publicKey) as SS58String);
 
                     const value = overrides?.value ?? 0n;
-                    const calldata = Binary.fromHex(
-                        encodeCalldata(abi, methodName, positionalArgs),
-                    );
+                    const calldata = hexToBytes(encodeCalldata(abi, methodName, positionalArgs));
 
                     // Dry-run for weight + storage deposit unless the caller
                     // supplied explicit overrides for both. We dry-run even
@@ -314,19 +319,31 @@ if (import.meta.vitest) {
         });
     });
 
-    describe("addressToFixedBinary", () => {
+    describe("normalizeContractAddress", () => {
         test("accepts 0x-prefixed H160", () => {
-            const a = addressToFixedBinary("0x1234567890abcdef1234567890abcdef12345678");
-            expect(a.asHex().toLowerCase()).toBe("0x1234567890abcdef1234567890abcdef12345678");
+            expect(normalizeContractAddress("0x1234567890abcdef1234567890ABCDEF12345678")).toBe(
+                "0x1234567890abcdef1234567890abcdef12345678",
+            );
         });
 
-        test("accepts unprefixed hex", () => {
-            const a = addressToFixedBinary("aabbccddeeff00112233445566778899aabbccdd");
-            expect(a.asBytes().byteLength).toBe(20);
+        test("accepts unprefixed hex and re-adds the 0x prefix", () => {
+            expect(normalizeContractAddress("aabbccddeeff00112233445566778899aabbccdd")).toBe(
+                "0xaabbccddeeff00112233445566778899aabbccdd",
+            );
         });
 
         test("rejects wrong length", () => {
-            expect(() => addressToFixedBinary("0x1234")).toThrow(/20-byte/);
+            expect(() => normalizeContractAddress("0x1234")).toThrow(/20-byte/);
+        });
+    });
+
+    describe("hexToBytes", () => {
+        test("decodes 0x-prefixed hex to bytes", () => {
+            expect(Array.from(hexToBytes("0xdeadbeef"))).toEqual([0xde, 0xad, 0xbe, 0xef]);
+        });
+
+        test("returns an empty array for the empty hex literal", () => {
+            expect(hexToBytes("0x").byteLength).toBe(0);
         });
     });
 
