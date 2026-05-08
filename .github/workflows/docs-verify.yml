@@ -1,0 +1,57 @@
+name: "docs: Verify Build"
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "product-sdk/**"
+            - "docs/**"
+            - ".github/workflows/docs-verify.yml"
+    pull_request:
+        branches: [main]
+        paths:
+            - "product-sdk/**"
+            - "docs/**"
+            - ".github/workflows/docs-verify.yml"
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        name: "docs: Verify Generate & Build"
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: "pnpm"
+                  cache-dependency-path: |
+                      product-sdk/pnpm-lock.yaml
+                      docs/pnpm-lock.yaml
+
+            - name: Install SDK deps
+              working-directory: product-sdk
+              run: pnpm install --frozen-lockfile
+
+            - name: Build SDK packages
+              working-directory: product-sdk
+              run: pnpm build
+
+            - name: Install docs deps
+              working-directory: docs
+              run: pnpm install --frozen-lockfile
+
+            - name: Generate API Reference docs
+              working-directory: docs
+              run: pnpm docs:generate
+
+            - name: Build static site
+              working-directory: docs
+              run: pnpm build
