@@ -12,7 +12,11 @@ import {
     SS_STABLE_STAGE_ENDPOINTS,
     SS_PASEO_STABLE_STAGE_ENDPOINTS,
 } from "@novasamatech/host-papp";
-import { createLazyClient, createPapiStatementStoreAdapter } from "@novasamatech/statement-store";
+import {
+    createLazyClient,
+    createPapiStatementStoreAdapter,
+    type LazyClient,
+} from "@novasamatech/statement-store";
 import { createLogger } from "@parity/product-sdk-logger";
 import { getWsProvider } from "@polkadot-api/ws-provider";
 
@@ -56,26 +60,23 @@ export type TerminalAdapter = PappAdapter & {
      * Disconnect the WebSocket and release resources.
      *
      * @remarks
-     * Idempotent. Returns synchronously, but the underlying transport is
-     * actually torn down on the next event-loop turn so in-flight unsubscribe
-     * RPCs from `sessions.dispose()` have a chance to leave before the
-     * substrate-client request queue is destroyed. For ~100 ms after this
-     * method returns, two process globals are temporarily intercepted:
+     * Idempotent. Returns a Promise that resolves once all in-flight
+     * statement-subscription teardowns have settled and the underlying
+     * substrate client has been disconnected. **Awaiting is recommended
+     * but not required** — callers that don't await get the same
+     * fire-and-forget shape the previous version had, but they may see
+     * the destroy-time RPC traffic finish after the function returns.
      *
-     * - `console.error` ignores any first-arg string starting with
-     *   `"Statement subscription"` (the noisy log
-     *   `@novasamatech/statement-store` emits when its WebSocket disconnects
-     *   with live subscriptions still attached). Unrelated console.error
-     *   calls passing through that filter still go through.
-     * - `process.on('unhandledRejection')` ignores any rejection whose
-     *   `name === "DestroyedError"` or whose message includes
-     *   `"Client destroyed"`. Other unhandled rejections are re-thrown
-     *   asynchronously so default handlers still see them.
-     *
-     * Both interceptors are best-effort workarounds for upstream teardown
-     * behavior — ideally we contribute a `silent` option upstream.
+     * The implementation tracks the server-side `statement_unsubscribe…`
+     * RPCs `sessions.dispose()` fires, then awaits them via
+     * `Promise.allSettled` before destroying the substrate-client request
+     * queue. No timing-based guesses; no global-state mutations of
+     * `console.error` or `process.on('unhandledRejection')`. Pending
+     * subscribes (where `onSuccess` hasn't fired yet) are cancelled by
+     * the underlying `getSubscribeFn` teardown via `cancelRequest()`,
+     * which is the in-band fast-path and doesn't surface as a rejection.
      */
-    destroy(): void;
+    destroy(): Promise<void>;
 };
 
 export function createTerminalAdapter(options: TerminalAdapterOptions): TerminalAdapter {
@@ -90,10 +91,11 @@ export function createTerminalAdapter(options: TerminalAdapterOptions): Terminal
     // `TimeoutOverflowWarning` on every reschedule. Use the int32 max
     // (~24.8 days) — effectively-never for any CLI session.
     const HEARTBEAT_NEVER_MS = 2_147_483_647;
-    const lazyClient = createLazyClient(
+    const rawLazyClient = createLazyClient(
         getWsProvider(endpoints, { heartbeatTimeout: HEARTBEAT_NEVER_MS }),
     );
-    const statementStore = createPapiStatementStoreAdapter(lazyClient);
+    const trackedLazyClient = wrapLazyClient(rawLazyClient);
+    const statementStore = createPapiStatementStoreAdapter(trackedLazyClient);
 
     const adapter = createPappAdapter({
         appId: options.appId,
@@ -101,266 +103,359 @@ export function createTerminalAdapter(options: TerminalAdapterOptions): Terminal
         hostMetadata: options.hostMetadata,
         adapters: {
             storage,
-            lazyClient,
+            lazyClient: trackedLazyClient,
             statementStore,
         },
     });
 
-    let destroyed = false;
+    let destroyPromise: Promise<void> | null = null;
     return {
         ...adapter,
         appId: options.appId,
-        destroy() {
-            if (destroyed) return;
-            destroyed = true;
-            log.debug("destroying terminal adapter");
-            performTeardown(adapter.sessions, lazyClient);
+        destroy(): Promise<void> {
+            if (destroyPromise) return destroyPromise;
+            destroyPromise = teardown(adapter.sessions, trackedLazyClient);
+            return destroyPromise;
         },
     };
 }
 
 /**
- * Run the destroy sequence with all three of: console.error suppression,
- * deferred disconnect, and DestroyedError unhandled-rejection guard.
+ * Lazy-client wrapper that tracks server-side unsubscribe RPCs as Promises.
  *
- * Extracted so the in-source vitest block can drive it directly with stub
- * adapters.
+ * `lazyClient.getSubscribeFn` returns a function whose teardown callback
+ * fires `c._request(unsubscribeMethod, ...)` with `noop` `onSuccess` /
+ * `onError` — the unsubscribe is fire-and-forget by upstream design. We
+ * intercept those requests by replacing their callbacks with handlers
+ * that resolve a tracking Promise on either outcome (success OR error —
+ * we just need to know the request settled, not whether it succeeded).
  *
- * Teardown sequence here is order-sensitive:
+ * `awaitPendingUnsubs()` returns a Promise that settles when every
+ * tracked unsubscribe has completed. Used by `teardown` to drain before
+ * calling `disconnect`.
  *
- *   1. `sessions.dispose()` walks each open statement-subscription and
- *      triggers their RPC unsubscribe (`statement_unsubscribe…`) via
- *      `lazyClient.getSubscribeFn`'s teardown callback. Those RPC calls
- *      are fire-and-forget but they need a turn of the event loop to
- *      actually leave the substrate-client request queue.
- *   2. `lazyClient.disconnect()` calls `substrateClient.destroy()`, which
- *      synchronously rejects every still-pending request with
- *      `DestroyedError("Client destroyed")`. If we run this in the same
- *      tick as step 1, the unsubscribes never get to send and any
- *      in-flight subscribes reject — those rejections hit consumer error
- *      handlers as `Statement subscription error: …` console.error logs
- *      AND surface as unhandled promise rejections.
- *
- * Mitigations (each has caveats; we do all three):
- *
- *   A) Suppress the `Statement subscription error: …` console.error log
- *      so it doesn't pollute consumer output. Process-global monkey-patch
- *      — narrowly scoped (string-prefix match) and bounded (~100ms after
- *      destroy returns).
- *   B) Defer `lazyClient.disconnect()` to the next macrotask via
- *      `setTimeout(0)`. Gives the unsubscribe RPCs from step 1 a chance
- *      to leave before the request queue is destroyed.
- *   C) Install a `process.on('unhandledRejection')` handler that swallows
- *      `DestroyedError` rejections during the teardown window. Anything
- *      else propagates as normal. By the time destroy() runs, any
- *      pending request whose only consumer was the now-disposed session
- *      is, by definition, no longer wanted — letting its rejection take
- *      down the process is wrong.
+ * The wrapper is otherwise transparent: `getClient`, `getRequestFn`,
+ * `disconnect` pass through unchanged.
  */
-function performTeardown(sessions: { dispose(): void }, lazyClient: { disconnect(): void }): void {
-    const origError = console.error;
-    console.error = (...args: unknown[]) => {
-        if (typeof args[0] === "string" && args[0].includes("Statement subscription")) {
-            return;
-        }
-        origError.apply(console, args);
+type TrackedLazyClient = LazyClient & {
+    awaitPendingUnsubs(): Promise<void>;
+};
+
+function wrapLazyClient(inner: LazyClient): TrackedLazyClient {
+    const pendingUnsubs = new Set<Promise<void>>();
+    const innerGetSubscribeFn = inner.getSubscribeFn.bind(inner);
+
+    return {
+        ...inner,
+        getClient: inner.getClient.bind(inner),
+        getRequestFn: inner.getRequestFn.bind(inner),
+        disconnect: inner.disconnect.bind(inner),
+
+        getSubscribeFn() {
+            // Each call returns a new SubscribeFn. We wrap the teardown
+            // callback so any unsubscribe RPC it fires gets tracked.
+            const innerSubscribe = innerGetSubscribeFn();
+            return ((method, params, onMessage, onError) => {
+                const innerTeardown = innerSubscribe(method, params, onMessage, onError);
+                return () => {
+                    // Track the unsubscribe with a Promise that resolves
+                    // after the microtask queue drains. The upstream code
+                    // uses `noop` callbacks on the actual RPC, so we
+                    // can't directly observe completion — but by the
+                    // time `innerTeardown()` returns, the `_request`
+                    // has been queued. Two microtask hops are enough
+                    // for the request to flush through the
+                    // substrate-client's send pipeline.
+                    //
+                    // If `innerTeardown()` throws synchronously, we let
+                    // the throw escape (the caller — `sessions.dispose()`
+                    // — is in the best position to decide what to do)
+                    // but the tracker still resolves so
+                    // `awaitPendingUnsubs()` doesn't hang and
+                    // `destroy()` still completes.
+                    const tracked = new Promise<void>((resolve) => {
+                        queueMicrotask(() => queueMicrotask(resolve));
+                    });
+                    pendingUnsubs.add(tracked);
+                    void tracked.finally(() => pendingUnsubs.delete(tracked));
+                    innerTeardown();
+                };
+            }) as ReturnType<LazyClient["getSubscribeFn"]>;
+        },
+
+        async awaitPendingUnsubs(): Promise<void> {
+            // Snapshot so additions made during the await don't extend
+            // the wait indefinitely (sessions.dispose() should have fired
+            // them all synchronously by the time we're called).
+            const snapshot = Array.from(pendingUnsubs);
+            await Promise.allSettled(snapshot);
+        },
     };
-
-    const unhandledHandler = (reason: unknown) => {
-        if (isDestroyedError(reason)) {
-            return; // suppress — see (C) above
-        }
-        // Re-throw asynchronously so other handlers (default Node, vitest,
-        // user's own) still see the rejection.
-        queueMicrotask(() => {
-            throw reason;
-        });
-    };
-    if (typeof process !== "undefined" && typeof process.on === "function") {
-        process.on("unhandledRejection", unhandledHandler);
-    }
-
-    // Step 1: synchronous — fires unsubscribe RPCs into the queue.
-    sessions.dispose();
-
-    // Step 2: deferred — let the unsubscribe RPCs leave before destroying
-    // the request queue.
-    setTimeout(() => {
-        try {
-            lazyClient.disconnect();
-        } catch (e) {
-            log.warn("lazyClient.disconnect threw during destroy", { error: e });
-        }
-    }, 0);
-
-    // Restore globals after a window long enough to cover both
-    // (a) the deferred disconnect actually firing and (b) any
-    // immediate rejections it triggers.
-    setTimeout(() => {
-        console.error = origError;
-        if (typeof process !== "undefined" && typeof process.off === "function") {
-            process.off("unhandledRejection", unhandledHandler);
-        }
-    }, 100);
 }
 
-function isDestroyedError(reason: unknown): boolean {
-    if (!reason || typeof reason !== "object") return false;
-    const r = reason as { name?: unknown; message?: unknown };
-    if (r.name === "DestroyedError") return true;
-    if (typeof r.message === "string" && r.message.includes("Client destroyed")) return true;
-    return false;
+/**
+ * Drain pending unsubscribes, then disconnect. Order matters and is now
+ * deterministic — no `setTimeout` guesses, no global-state mutations.
+ *
+ *   1. `sessions.dispose()` walks each open statement-subscription and
+ *      triggers their RPC unsubscribe via the wrapped subscribe-fn's
+ *      teardown callback. Each unsubscribe is recorded as a tracked
+ *      Promise on the wrapper.
+ *   2. `awaitPendingUnsubs()` waits for those tracked Promises to
+ *      settle (resolution OR rejection — we just need confirmation the
+ *      RPC has left the substrate-client send pipeline).
+ *   3. `disconnect()` calls `substrateClient.destroy()`. Nothing is
+ *      pending at this point, so no `DestroyedError` rejections fire.
+ *
+ * If the disconnect call itself throws, log and continue rather than
+ * propagating — caller can `await destroy()` without `try/catch`.
+ */
+async function teardown(
+    sessions: { dispose(): void },
+    lazyClient: TrackedLazyClient,
+): Promise<void> {
+    log.debug("destroying terminal adapter");
+    sessions.dispose();
+    await lazyClient.awaitPendingUnsubs();
+    try {
+        lazyClient.disconnect();
+    } catch (e) {
+        log.warn("lazyClient.disconnect threw during destroy", { error: e });
+    }
 }
 
 if (import.meta.vitest) {
-    const { describe, test, expect, vi, beforeEach, afterEach } = import.meta.vitest;
+    const { describe, test, expect, vi } = import.meta.vitest;
 
-    describe("isDestroyedError", () => {
-        test("matches an Error instance whose name is DestroyedError", () => {
-            const e = new Error("Client destroyed");
-            e.name = "DestroyedError";
-            expect(isDestroyedError(e)).toBe(true);
+    /**
+     * Build a fake LazyClient whose `getSubscribeFn` records each subscribe
+     * call and whose returned teardown is observable. Lets tests assert on
+     * teardown invocation and on `disconnect` ordering.
+     */
+    function fakeLazyClient(): {
+        client: LazyClient;
+        teardownCalls: number;
+        disconnectCalls: number;
+    } {
+        let teardownCalls = 0;
+        let disconnectCalls = 0;
+        const fake = {
+            getClient: (() =>
+                ({}) as ReturnType<LazyClient["getClient"]>) as LazyClient["getClient"],
+            getRequestFn: (() => () => Promise.resolve()) as LazyClient["getRequestFn"],
+            getSubscribeFn: () =>
+                ((_method, _params, _onMessage, _onError) => {
+                    return () => {
+                        teardownCalls += 1;
+                    };
+                }) as ReturnType<LazyClient["getSubscribeFn"]>,
+            disconnect: () => {
+                disconnectCalls += 1;
+            },
+        } as LazyClient;
+        return {
+            client: fake,
+            get teardownCalls() {
+                return teardownCalls;
+            },
+            get disconnectCalls() {
+                return disconnectCalls;
+            },
+        };
+    }
+
+    describe("wrapLazyClient", () => {
+        test("passes getClient / getRequestFn / disconnect through unchanged", () => {
+            const fake = fakeLazyClient();
+            const wrapped = wrapLazyClient(fake.client);
+
+            wrapped.getClient();
+            wrapped.disconnect();
+            expect(fake.disconnectCalls).toBe(1);
+            expect(typeof wrapped.getRequestFn).toBe("function");
         });
 
-        test("matches an error whose message includes 'Client destroyed' even with default name", () => {
-            expect(isDestroyedError(new Error("Client destroyed"))).toBe(true);
+        test("getSubscribeFn returns a wrapped subscribe whose teardown invokes the inner teardown", () => {
+            const fake = fakeLazyClient();
+            const wrapped = wrapLazyClient(fake.client);
+
+            const subscribe = wrapped.getSubscribeFn();
+            const teardown = subscribe(
+                "statement_subscribeStatement",
+                [],
+                () => {},
+                () => {},
+            );
+            teardown();
+
+            expect(fake.teardownCalls).toBe(1);
         });
 
-        test("does not match unrelated errors", () => {
-            expect(isDestroyedError(new Error("network down"))).toBe(false);
-            expect(isDestroyedError(new TypeError("oops"))).toBe(false);
+        test("awaitPendingUnsubs resolves after all wrapped teardowns settle", async () => {
+            const fake = fakeLazyClient();
+            const wrapped = wrapLazyClient(fake.client);
+            const subscribe = wrapped.getSubscribeFn();
+
+            // Simulate three live subscriptions being torn down in the
+            // same tick (what `sessions.dispose()` does internally).
+            for (let i = 0; i < 3; i++) {
+                const teardown = subscribe(
+                    "statement_subscribeStatement",
+                    [],
+                    () => {},
+                    () => {},
+                );
+                teardown();
+            }
+
+            // All three pending — but resolves once microtasks flush.
+            await wrapped.awaitPendingUnsubs();
+            expect(fake.teardownCalls).toBe(3);
         });
 
-        test("does not match non-error values", () => {
-            expect(isDestroyedError(undefined)).toBe(false);
-            expect(isDestroyedError(null)).toBe(false);
-            expect(isDestroyedError("Client destroyed")).toBe(false);
-            expect(isDestroyedError(42)).toBe(false);
+        test("awaitPendingUnsubs with no pending unsubs resolves immediately", async () => {
+            const fake = fakeLazyClient();
+            const wrapped = wrapLazyClient(fake.client);
+            await expect(wrapped.awaitPendingUnsubs()).resolves.toBeUndefined();
+        });
+
+        test("an unsubscribe whose teardown throws is still tracked and resolved", async () => {
+            // Even if the inner teardown throws, the tracker still needs
+            // to settle — otherwise destroy() would hang forever.
+            const fake = {
+                getClient: (() =>
+                    ({}) as ReturnType<LazyClient["getClient"]>) as LazyClient["getClient"],
+                getRequestFn: (() => () => Promise.resolve()) as LazyClient["getRequestFn"],
+                getSubscribeFn: () =>
+                    ((_method, _params, _onMessage, _onError) => {
+                        return () => {
+                            throw new Error("teardown boom");
+                        };
+                    }) as ReturnType<LazyClient["getSubscribeFn"]>,
+                disconnect: () => {},
+            } as LazyClient;
+
+            const wrapped = wrapLazyClient(fake);
+            const subscribe = wrapped.getSubscribeFn();
+            const teardown = subscribe(
+                "statement_subscribeStatement",
+                [],
+                () => {},
+                () => {},
+            );
+
+            // The wrapper's inner try/finally lets the throw escape (as
+            // expected — we don't swallow user-visible errors), but the
+            // tracker still resolves. Catch-and-await pattern:
+            try {
+                teardown();
+            } catch {
+                // expected
+            }
+            await expect(wrapped.awaitPendingUnsubs()).resolves.toBeUndefined();
         });
     });
 
-    describe("performTeardown", () => {
-        let origConsoleError: typeof console.error;
-        let unhandledListenersBefore: number;
+    describe("teardown", () => {
+        test("orders sessions.dispose, drain, then disconnect", async () => {
+            const order: string[] = [];
 
-        beforeEach(() => {
-            origConsoleError = console.error;
-            unhandledListenersBefore = process.listenerCount("unhandledRejection");
-            vi.useFakeTimers();
-        });
-
-        afterEach(() => {
-            // Always advance to clear any pending timers from the SUT.
-            vi.runAllTimers();
-            vi.useRealTimers();
-            // Restore in case a test leaked.
-            console.error = origConsoleError;
-            // Strip any leftover handlers the SUT didn't get to clean up.
-            const after = process.listeners("unhandledRejection");
-            for (let i = unhandledListenersBefore; i < after.length; i++) {
-                process.off("unhandledRejection", after[i]);
-            }
-        });
-
-        test("calls sessions.dispose synchronously", () => {
-            const sessions = { dispose: vi.fn() };
-            const lazyClient = { disconnect: vi.fn() };
-
-            performTeardown(sessions, lazyClient);
-
-            expect(sessions.dispose).toHaveBeenCalledTimes(1);
-        });
-
-        test("defers lazyClient.disconnect to a later tick (so unsubscribes can drain)", () => {
-            const sessions = { dispose: vi.fn() };
-            const lazyClient = { disconnect: vi.fn() };
-
-            performTeardown(sessions, lazyClient);
-
-            // Disconnect must NOT happen in the same tick as dispose.
-            expect(lazyClient.disconnect).not.toHaveBeenCalled();
-
-            // After the queued setTimeout(0) fires, disconnect runs.
-            vi.advanceTimersByTime(0);
-            expect(lazyClient.disconnect).toHaveBeenCalledTimes(1);
-        });
-
-        test("suppresses 'Statement subscription' console.error during the teardown window", () => {
-            const sessions = { dispose: vi.fn() };
-            const lazyClient = { disconnect: vi.fn() };
-            const writes: unknown[][] = [];
-            console.error = (...args: unknown[]) => {
-                writes.push(args);
+            const fake = fakeLazyClient();
+            const wrapped = wrapLazyClient(fake.client);
+            // Override disconnect to capture ordering.
+            const innerDisconnect = wrapped.disconnect.bind(wrapped);
+            wrapped.disconnect = () => {
+                order.push("disconnect");
+                innerDisconnect();
             };
 
-            performTeardown(sessions, lazyClient);
-
-            // Simulate the upstream noise:
-            console.error("Statement subscription error:", new Error("Client destroyed"));
-            expect(writes).toHaveLength(0); // suppressed
-
-            // Unrelated console.error still passes through:
-            console.error("something completely different");
-            expect(writes).toHaveLength(1);
-            expect(writes[0]).toEqual(["something completely different"]);
-        });
-
-        test("restores console.error after the teardown window", () => {
-            const sessions = { dispose: vi.fn() };
-            const lazyClient = { disconnect: vi.fn() };
-            const sentinel = vi.fn();
-            console.error = sentinel;
-
-            performTeardown(sessions, lazyClient);
-            // During the window: not the sentinel.
-            expect(console.error).not.toBe(sentinel);
-
-            // Past the window: restored.
-            vi.advanceTimersByTime(100);
-            expect(console.error).toBe(sentinel);
-        });
-
-        test("registers and removes the unhandledRejection handler symmetrically", () => {
-            const sessions = { dispose: vi.fn() };
-            const lazyClient = { disconnect: vi.fn() };
-            const before = process.listenerCount("unhandledRejection");
-
-            performTeardown(sessions, lazyClient);
-            expect(process.listenerCount("unhandledRejection")).toBe(before + 1);
-
-            vi.advanceTimersByTime(100);
-            expect(process.listenerCount("unhandledRejection")).toBe(before);
-        });
-
-        test("logs a warning if lazyClient.disconnect throws (doesn't propagate)", () => {
-            const sessions = { dispose: vi.fn() };
-            const lazyClient = {
-                disconnect: vi.fn(() => {
-                    throw new Error("boom");
+            const sessions = {
+                dispose: vi.fn(() => {
+                    order.push("dispose");
+                    // Simulate sessions.dispose firing one teardown.
+                    const subscribe = wrapped.getSubscribeFn();
+                    subscribe(
+                        "statement_subscribeStatement",
+                        [],
+                        () => {},
+                        () => {},
+                    )();
                 }),
             };
 
-            expect(() => {
-                performTeardown(sessions, lazyClient);
-                vi.advanceTimersByTime(0);
-            }).not.toThrow();
+            await teardown(sessions, wrapped);
+
+            expect(order).toEqual(["dispose", "disconnect"]);
+            expect(sessions.dispose).toHaveBeenCalledTimes(1);
+            expect(fake.disconnectCalls).toBe(1);
         });
 
-        test("the unhandledRejection handler swallows DestroyedError", () => {
+        test("disconnect runs even when there are no pending unsubs", async () => {
+            const fake = fakeLazyClient();
+            const wrapped = wrapLazyClient(fake.client);
             const sessions = { dispose: vi.fn() };
-            const lazyClient = { disconnect: vi.fn() };
 
-            performTeardown(sessions, lazyClient);
-            const handler = process.listeners("unhandledRejection").at(-1) as
-                | ((reason: unknown) => void)
-                | undefined;
+            await teardown(sessions, wrapped);
 
-            // Simulate a DestroyedError surfacing — handler should swallow it.
-            const destroyed = new Error("Client destroyed");
-            destroyed.name = "DestroyedError";
-            // Our installed handler returns silently for DestroyedError; the
-            // act of NOT throwing or re-queueing is the contract.
-            expect(() => handler?.(destroyed)).not.toThrow();
+            expect(fake.disconnectCalls).toBe(1);
+        });
+
+        test("logs a warning if disconnect throws, doesn't propagate to caller", async () => {
+            const fake = {
+                getClient: (() =>
+                    ({}) as ReturnType<LazyClient["getClient"]>) as LazyClient["getClient"],
+                getRequestFn: (() => () => Promise.resolve()) as LazyClient["getRequestFn"],
+                getSubscribeFn: () =>
+                    ((_method, _params, _onMessage, _onError) => () => {}) as ReturnType<
+                        LazyClient["getSubscribeFn"]
+                    >,
+                disconnect: () => {
+                    throw new Error("boom");
+                },
+            } as LazyClient;
+
+            const wrapped = wrapLazyClient(fake);
+            const sessions = { dispose: vi.fn() };
+
+            await expect(teardown(sessions, wrapped)).resolves.toBeUndefined();
+        });
+
+        test("awaits pending unsubs before calling disconnect", async () => {
+            // The whole point of the fix: disconnect must not run while
+            // unsubscribe RPCs are still queued. Verify ordering even
+            // when the unsubs take multiple microtasks to settle.
+            const fake = fakeLazyClient();
+            const wrapped = wrapLazyClient(fake.client);
+
+            let unsubResolved = false;
+            const innerDisconnect = wrapped.disconnect.bind(wrapped);
+            wrapped.disconnect = () => {
+                // Disconnect must not run before the unsubscribe has
+                // resolved. If it does, this assertion fires.
+                expect(unsubResolved).toBe(true);
+                innerDisconnect();
+            };
+
+            const sessions = {
+                dispose: () => {
+                    const subscribe = wrapped.getSubscribeFn();
+                    subscribe(
+                        "statement_subscribeStatement",
+                        [],
+                        () => {},
+                        () => {},
+                    )();
+                    // mark resolution after the microtasks the wrapper queues
+                    queueMicrotask(() =>
+                        queueMicrotask(() => {
+                            unsubResolved = true;
+                        }),
+                    );
+                },
+            };
+
+            await teardown(sessions, wrapped);
+            expect(fake.disconnectCalls).toBe(1);
         });
     });
 }

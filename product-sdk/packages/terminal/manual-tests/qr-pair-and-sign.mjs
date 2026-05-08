@@ -254,11 +254,11 @@ try {
     }
 
     // ── Final: destroy() ─────────────────────────────────────────────────
-    step("Destroy adapter (should be quiet — no `Statement subscription error`)");
+    step("Destroy adapter (await — drains pending unsubscribes before disconnect)");
     try {
-        adapter.destroy();
-        ok("destroy() returned without throwing");
-        info("If you see no red `Statement subscription error` lines below, log suppression is working.");
+        await adapter.destroy();
+        ok("destroy() resolved cleanly");
+        info("No `Statement subscription error` lines should appear — pending unsubscribes drained before disconnect.");
     } catch (e) {
         fail("destroy() threw", e);
     }
