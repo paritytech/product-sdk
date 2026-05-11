@@ -25,6 +25,10 @@
         "./polkadot-asset-hub": {
             "types": "./chains/polkadot-asset-hub/generated/dist/index.d.ts",
             "import": "./chains/polkadot-asset-hub/generated/dist/index.js"
+        },
+        "./previewnet-asset-hub": {
+            "types": "./chains/previewnet-asset-hub/generated/dist/index.d.ts",
+            "import": "./chains/previewnet-asset-hub/generated/dist/index.js"
         }
     },
     "scripts": {
