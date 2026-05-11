@@ -159,6 +159,7 @@ if (import.meta.vitest) {
         polkadot_asset_hub: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
         kusama_asset_hub: "0x48239ef607d7928874027a43a67689209727dfb3d3dc5e5b03a39bdc2eda771a",
         paseo_asset_hub: "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
+        previewnet_asset_hub: "0x860d75a890388e2ad02c54aa451264d04af89765773a51cd56868b4293c7867c",
         bulletin: "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea",
         individuality: "0xd01475fde5d0592989b7715ae1d2e89fdb4f8c7688c09c850d75e1d4bdb47d64",
     } as const;
@@ -216,24 +217,31 @@ if (import.meta.vitest) {
         expect(descriptors.individuality.genesis).toBe(GENESIS.individuality);
     });
 
-    test("loadDescriptors returns descriptors for previewnet", async () => {
+    test("loadDescriptors returns descriptors with genesis hashes for previewnet", async () => {
         const descriptors = await loadDescriptors("previewnet");
         expect(descriptors).toBeDefined();
         expect(descriptors.assetHub).toBeDefined();
         expect(descriptors.bulletin).toBeDefined();
         expect(descriptors.individuality).toBeDefined();
+        expect(descriptors.assetHub.genesis).toBe(GENESIS.previewnet_asset_hub);
+        expect(descriptors.bulletin.genesis).toBe(GENESIS.bulletin);
+        expect(descriptors.individuality.genesis).toBe(GENESIS.individuality);
     });
 
     test("loadDescriptors returns correct asset hub per environment", async () => {
         const polkadot = await loadDescriptors("polkadot");
         const kusama = await loadDescriptors("kusama");
         const paseo = await loadDescriptors("paseo");
+        const previewnet = await loadDescriptors("previewnet");
         expect(polkadot.assetHub.genesis).toBe(GENESIS.polkadot_asset_hub);
         expect(kusama.assetHub.genesis).toBe(GENESIS.kusama_asset_hub);
         expect(paseo.assetHub.genesis).toBe(GENESIS.paseo_asset_hub);
+        expect(previewnet.assetHub.genesis).toBe(GENESIS.previewnet_asset_hub);
         // bulletin and individuality are the same across environments
         expect(polkadot.bulletin.genesis).toBe(paseo.bulletin.genesis);
         expect(polkadot.individuality.genesis).toBe(paseo.individuality.genesis);
+        expect(previewnet.bulletin.genesis).toBe(paseo.bulletin.genesis);
+        expect(previewnet.individuality.genesis).toBe(paseo.individuality.genesis);
     });
 
     // --- AVAILABLE_ENVIRONMENTS ---
