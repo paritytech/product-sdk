@@ -28,8 +28,12 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
  * Create a multi-chain client with user-provided descriptors and RPC endpoints.
  *
  * Returns fully-typed APIs for each chain plus raw `PolkadotClient` access via `.raw`.
- * Connections use host routing (via `@parity/product-sdk-host`) when inside a container,
- * falling back to direct WebSocket RPC.
+ * Connections route through the host provider (`@parity/product-sdk-host`) — the SDK
+ * is designed to run exclusively inside a host container (Polkadot Browser / Desktop).
+ * Throws if no host provider is available; there is no direct-WebSocket fallback.
+ *
+ * The `config.rpcs` field is currently unused at runtime (kept for API compatibility
+ * and BYOD documentation), since the host owns the chain connection.
  *
  * Results are cached by genesis-hash fingerprint — calling with the same descriptors
  * returns the same instance.
