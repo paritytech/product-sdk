@@ -328,6 +328,25 @@ async function cmdCompare(args) {
                 rows.push({ name, subpath: sub, severity: "ok", note: "new entry" });
                 continue;
             }
+            // Base errored, head succeeded — surface as informational
+            // rather than read the null → N KB jump as a regression.
+            if (b.bundled?.error && !h.bundled?.error) {
+                rows.push({
+                    name,
+                    subpath: sub,
+                    severity: "ok",
+                    note: "now measurable",
+                    bundledBefore: null,
+                    bundledAfter: h.bundled?.raw ?? null,
+                    deltaBytes: null,
+                    deltaPct: null,
+                    shipGzipBefore: b.ship?.gzip ?? null,
+                    shipGzipAfter: h.ship?.gzip ?? null,
+                    shakeBefore: b.shakeRatio ?? null,
+                    shakeAfter: h.shakeRatio ?? null,
+                });
+                continue;
+            }
             const beforeBundled = b.bundled?.raw ?? 0;
             const afterBundled = h.bundled?.raw ?? 0;
             const deltaB = afterBundled - beforeBundled;
@@ -369,10 +388,14 @@ function classify(pct, bytes, baseBytes) {
     if (bytes <= 0) return "ok";
     // For deps-dominated entries (>100 KB baseline) a 5 KB swing is noise —
     // gate on percentage only. Absolute thresholds apply to small entries
-    // where a 5 KB add is a meaningful regression.
+    // where a 5 KB add is a meaningful regression. Below a 10 KB baseline
+    // we drop the percentage rule entirely and govern by absolute bytes alone
     const useAbsolute = baseBytes < 100 * 1024;
-    if (pct >= THRESHOLDS.fail.pct || (useAbsolute && bytes >= THRESHOLDS.fail.bytes)) return "fail";
-    if (pct >= THRESHOLDS.warn.pct || (useAbsolute && bytes >= THRESHOLDS.warn.bytes)) return "warn";
+    const usePercent = baseBytes >= 10 * 1024;
+    const pctFails = usePercent && pct >= THRESHOLDS.fail.pct;
+    const pctWarns = usePercent && pct >= THRESHOLDS.warn.pct;
+    if (pctFails || (useAbsolute && bytes >= THRESHOLDS.fail.bytes)) return "fail";
+    if (pctWarns || (useAbsolute && bytes >= THRESHOLDS.warn.bytes)) return "warn";
     return "ok";
 }
 
@@ -436,7 +459,8 @@ function renderDiffMd(rows, ctx) {
     lines.push(``);
 
     const changed = rows.filter(
-        (r) => r.severity !== "ok" || (r.deltaBytes != null && r.deltaBytes !== 0),
+        (r) =>
+            r.severity !== "ok" || (r.deltaBytes != null && r.deltaBytes !== 0) || r.note != null,
     );
 
     if (changed.length === 0) {
@@ -470,7 +494,7 @@ function renderDiffMd(rows, ctx) {
 
     lines.push(``);
     lines.push(
-        `Thresholds — warn: ≥${THRESHOLDS.warn.pct}% or ≥${fmt(THRESHOLDS.warn.bytes)} · fail: ≥${THRESHOLDS.fail.pct}% or ≥${fmt(THRESHOLDS.fail.bytes)} (bundled).`,
+        `Thresholds — warn: ≥${THRESHOLDS.warn.pct}% or ≥${fmt(THRESHOLDS.warn.bytes)} · fail: ≥${THRESHOLDS.fail.pct}% or ≥${fmt(THRESHOLDS.fail.bytes)} (bundled). Percentage only applies once the baseline is ≥ 10 KB.`,
     );
     return `${lines.join("\n")}\n`;
 }
