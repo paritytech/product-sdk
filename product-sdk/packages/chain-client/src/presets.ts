@@ -8,14 +8,15 @@ import type { ChainClient } from "./types.js";
 import type { polkadot_asset_hub as PolkadotAssetHubDef } from "@parity/product-sdk-descriptors/polkadot-asset-hub";
 import type { kusama_asset_hub as KusamaAssetHubDef } from "@parity/product-sdk-descriptors/kusama-asset-hub";
 import type { paseo_asset_hub as PaseoAssetHubDef } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+import type { previewnet_asset_hub as PreviewnetAssetHubDef } from "@parity/product-sdk-descriptors/previewnet-asset-hub";
 import type { bulletin as BulletinDef } from "@parity/product-sdk-descriptors/bulletin";
 import type { individuality as IndividualityDef } from "@parity/product-sdk-descriptors/individuality";
 
 /** Known network environment with built-in descriptors and RPC endpoints. */
-export type Environment = "polkadot" | "kusama" | "paseo";
+export type Environment = "polkadot" | "kusama" | "paseo" | "previewnet";
 
 /** Environments where all chains (asset hub, bulletin, individuality) are live. */
-const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo"]);
+const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo", "previewnet"]);
 
 const rpcs = {
     polkadot: {
@@ -42,6 +43,11 @@ const rpcs = {
         bulletin: [...BULLETIN_RPCS.paseo],
         individuality: ["wss://paseo-people-next-rpc.polkadot.io"],
     },
+    previewnet: {
+        assetHub: ["wss://previewnet.substrate.dev/asset-hub"],
+        bulletin: [...BULLETIN_RPCS.previewnet],
+        individuality: ["wss://previewnet.substrate.dev/people"],
+    },
 } as const;
 
 /**
@@ -54,6 +60,7 @@ async function loadDescriptors(env: Environment) {
         polkadot: () => import("@parity/product-sdk-descriptors/polkadot-asset-hub"),
         kusama: () => import("@parity/product-sdk-descriptors/kusama-asset-hub"),
         paseo: () => import("@parity/product-sdk-descriptors/paseo-asset-hub"),
+        previewnet: () => import("@parity/product-sdk-descriptors/previewnet-asset-hub"),
     }[env]();
 
     const [ahMod, { bulletin }, { individuality }] = await Promise.all([
@@ -68,8 +75,11 @@ async function loadDescriptors(env: Environment) {
             ? ahMod.polkadot_asset_hub
             : "kusama_asset_hub" in ahMod
               ? ahMod.kusama_asset_hub
-              : (ahMod as typeof import("@parity/product-sdk-descriptors/paseo-asset-hub"))
-                    .paseo_asset_hub;
+              : "paseo_asset_hub" in ahMod
+                ? ahMod.paseo_asset_hub
+                : (
+                      ahMod as typeof import("@parity/product-sdk-descriptors/previewnet-asset-hub")
+                  ).previewnet_asset_hub;
 
     return { assetHub, bulletin, individuality };
 }
@@ -79,6 +89,7 @@ type AssetHubDescriptors = {
     polkadot: typeof PolkadotAssetHubDef;
     kusama: typeof KusamaAssetHubDef;
     paseo: typeof PaseoAssetHubDef;
+    previewnet: typeof PreviewnetAssetHubDef;
 };
 
 /** The chain shape returned by {@link getChainAPI} for a given environment. */
@@ -167,7 +178,7 @@ if (import.meta.vitest) {
     // --- RPC config ---
 
     test("rpcs defined for all environments", () => {
-        for (const env of ["polkadot", "kusama", "paseo"] as const) {
+        for (const env of ["polkadot", "kusama", "paseo", "previewnet"] as const) {
             const envRpcs = rpcs[env];
             expect(envRpcs.assetHub.length).toBeGreaterThan(0);
         }
@@ -175,6 +186,12 @@ if (import.meta.vitest) {
 
     test("paseo has RPCs for all chains", () => {
         const envRpcs = rpcs.paseo;
+        expect(envRpcs.bulletin.length).toBeGreaterThan(0);
+        expect(envRpcs.individuality.length).toBeGreaterThan(0);
+    });
+
+    test("previewnet has RPCs for all chains", () => {
+        const envRpcs = rpcs.previewnet;
         expect(envRpcs.bulletin.length).toBeGreaterThan(0);
         expect(envRpcs.individuality.length).toBeGreaterThan(0);
     });
@@ -199,6 +216,14 @@ if (import.meta.vitest) {
         expect(descriptors.individuality.genesis).toBe(GENESIS.individuality);
     });
 
+    test("loadDescriptors returns descriptors for previewnet", async () => {
+        const descriptors = await loadDescriptors("previewnet");
+        expect(descriptors).toBeDefined();
+        expect(descriptors.assetHub).toBeDefined();
+        expect(descriptors.bulletin).toBeDefined();
+        expect(descriptors.individuality).toBeDefined();
+    });
+
     test("loadDescriptors returns correct asset hub per environment", async () => {
         const polkadot = await loadDescriptors("polkadot");
         const kusama = await loadDescriptors("kusama");
@@ -213,8 +238,9 @@ if (import.meta.vitest) {
 
     // --- AVAILABLE_ENVIRONMENTS ---
 
-    test("only paseo is currently available", () => {
+    test("paseo and previewnet are currently available", () => {
         expect(AVAILABLE_ENVIRONMENTS.has("paseo")).toBe(true);
+        expect(AVAILABLE_ENVIRONMENTS.has("previewnet")).toBe(true);
         expect(AVAILABLE_ENVIRONMENTS.has("polkadot")).toBe(false);
         expect(AVAILABLE_ENVIRONMENTS.has("kusama")).toBe(false);
     });
