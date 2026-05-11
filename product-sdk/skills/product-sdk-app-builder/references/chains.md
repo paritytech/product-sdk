@@ -76,11 +76,11 @@ const client = await getChainAPI("paseo");
 ```typescript
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-import { bulletin } from "@parity/product-sdk-descriptors/bulletin";
+import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
 
 // Only import what you need
 const client = await createChainClient({
-    chains: { assetHub: paseo_asset_hub, bulletin },
+    chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
     rpcs: {
         assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
         bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
@@ -96,8 +96,15 @@ const client = await createChainClient({
 | Previewnet Asset Hub | `@parity/product-sdk-descriptors/previewnet-asset-hub` | ~1.2 MB |
 | Polkadot Asset Hub | `@parity/product-sdk-descriptors/polkadot-asset-hub` | ~1.2 MB |
 | Kusama Asset Hub | `@parity/product-sdk-descriptors/kusama-asset-hub` | ~1.2 MB |
-| Bulletin | `@parity/product-sdk-descriptors/bulletin` | ~912 KB |
-| Individuality | `@parity/product-sdk-descriptors/individuality` | ~800 KB |
+| Paseo Bulletin | `@parity/product-sdk-descriptors/paseo-bulletin` | ~912 KB |
+| Previewnet Bulletin | `@parity/product-sdk-descriptors/previewnet-bulletin` | ~912 KB |
+| Paseo Individuality | `@parity/product-sdk-descriptors/paseo-individuality` | ~800 KB |
+| Previewnet Individuality | `@parity/product-sdk-descriptors/previewnet-individuality` | ~800 KB |
+
+Bulletin and individuality ship a separate descriptor per environment so that
+`descriptor.genesis` matches the live chain instance. The runtime is the same
+across environments today (all Paseo runtime), but each is a distinct
+deployment with its own genesis block.
 
 ## SS58 Prefixes
 

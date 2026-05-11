@@ -23,34 +23,40 @@ npm install @parity/product-sdk-descriptors polkadot-api
 Always use subpath imports to load only the chains you need:
 
 ```typescript
-// CORRECT - loads only bulletin (~912 KB)
-import { bulletin } from "@parity/product-sdk-descriptors/bulletin";
+// CORRECT - loads only paseo bulletin (~912 KB)
+import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
 
 // WRONG - would load all chains (not supported)
-import { bulletin } from "@parity/product-sdk-descriptors";
+import { paseo_bulletin } from "@parity/product-sdk-descriptors";
 ```
 
 ## Available Chains
 
-| Chain | Import Path | Runtime |
-|-------|-------------|---------|
-| Paseo Asset Hub | `@parity/product-sdk-descriptors/paseo-asset-hub` | `paseo_asset_hub` |
+Every chain is namespaced by environment so `descriptor.genesis` matches the
+live chain instance.
+
+| Chain | Import Path | Export Name |
+|-------|-------------|-------------|
 | Polkadot Asset Hub | `@parity/product-sdk-descriptors/polkadot-asset-hub` | `polkadot_asset_hub` |
 | Kusama Asset Hub | `@parity/product-sdk-descriptors/kusama-asset-hub` | `kusama_asset_hub` |
-| Bulletin | `@parity/product-sdk-descriptors/bulletin` | `bulletin` |
-| Individuality | `@parity/product-sdk-descriptors/individuality` | `individuality` |
+| Paseo Asset Hub | `@parity/product-sdk-descriptors/paseo-asset-hub` | `paseo_asset_hub` |
+| Previewnet Asset Hub | `@parity/product-sdk-descriptors/previewnet-asset-hub` | `previewnet_asset_hub` |
+| Paseo Bulletin | `@parity/product-sdk-descriptors/paseo-bulletin` | `paseo_bulletin` |
+| Previewnet Bulletin | `@parity/product-sdk-descriptors/previewnet-bulletin` | `previewnet_bulletin` |
+| Paseo Individuality | `@parity/product-sdk-descriptors/paseo-individuality` | `paseo_individuality` |
+| Previewnet Individuality | `@parity/product-sdk-descriptors/previewnet-individuality` | `previewnet_individuality` |
 
 ## Usage with createChainClient
 
 ```typescript
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-import { bulletin } from "@parity/product-sdk-descriptors/bulletin";
+import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
 
 const client = await createChainClient({
     chains: {
         assetHub: paseo_asset_hub,
-        bulletin: bulletin,
+        bulletin: paseo_bulletin,
     },
     rpcs: {
         assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],

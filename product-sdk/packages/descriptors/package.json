@@ -6,14 +6,6 @@
     "type": "module",
     "sideEffects": false,
     "exports": {
-        "./bulletin": {
-            "types": "./chains/bulletin/generated/dist/index.d.ts",
-            "import": "./chains/bulletin/generated/dist/index.js"
-        },
-        "./individuality": {
-            "types": "./chains/individuality/generated/dist/index.d.ts",
-            "import": "./chains/individuality/generated/dist/index.js"
-        },
         "./kusama-asset-hub": {
             "types": "./chains/kusama-asset-hub/generated/dist/index.d.ts",
             "import": "./chains/kusama-asset-hub/generated/dist/index.js"
@@ -22,6 +14,14 @@
             "types": "./chains/paseo-asset-hub/generated/dist/index.d.ts",
             "import": "./chains/paseo-asset-hub/generated/dist/index.js"
         },
+        "./paseo-bulletin": {
+            "types": "./chains/paseo-bulletin/generated/dist/index.d.ts",
+            "import": "./chains/paseo-bulletin/generated/dist/index.js"
+        },
+        "./paseo-individuality": {
+            "types": "./chains/paseo-individuality/generated/dist/index.d.ts",
+            "import": "./chains/paseo-individuality/generated/dist/index.js"
+        },
         "./polkadot-asset-hub": {
             "types": "./chains/polkadot-asset-hub/generated/dist/index.d.ts",
             "import": "./chains/polkadot-asset-hub/generated/dist/index.js"
@@ -29,6 +29,14 @@
         "./previewnet-asset-hub": {
             "types": "./chains/previewnet-asset-hub/generated/dist/index.d.ts",
             "import": "./chains/previewnet-asset-hub/generated/dist/index.js"
+        },
+        "./previewnet-bulletin": {
+            "types": "./chains/previewnet-bulletin/generated/dist/index.d.ts",
+            "import": "./chains/previewnet-bulletin/generated/dist/index.js"
+        },
+        "./previewnet-individuality": {
+            "types": "./chains/previewnet-individuality/generated/dist/index.d.ts",
+            "import": "./chains/previewnet-individuality/generated/dist/index.js"
         }
     },
     "scripts": {

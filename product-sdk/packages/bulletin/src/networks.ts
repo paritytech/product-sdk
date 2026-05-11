@@ -1,19 +1,20 @@
 /**
  * Known Bulletin Chain networks.
  *
- * Pairs each environment with the genesis hash and the PAPI descriptor needed
- * to construct an `AsyncBulletinClient`. Re-uses the descriptor exported by
- * `@parity/product-sdk-descriptors/bulletin` — the bulletin descriptor is the
- * same across all environments today, so the difference between entries is
- * the genesis hash (and, downstream, the chain RPC URL).
+ * Each environment pairs its genesis hash with a per-environment PAPI descriptor.
+ * Bulletin and individuality share the Paseo runtime today, but every environment
+ * is a separate chain instance with its own genesis — so descriptors are now
+ * generated per-environment to keep `descriptor.genesis` aligned with the live
+ * chain instance the consumer connects to.
  */
-import { bulletin as bulletinDescriptor } from "@parity/product-sdk-descriptors/bulletin";
+import { paseo_bulletin as paseoBulletinDescriptor } from "@parity/product-sdk-descriptors/paseo-bulletin";
+import { previewnet_bulletin as previewnetBulletinDescriptor } from "@parity/product-sdk-descriptors/previewnet-bulletin";
 
 export interface BulletinNetwork {
     /** Genesis hash of the bulletin chain on this environment. */
     genesisHash: `0x${string}`;
     /** PAPI descriptor for typed API access. */
-    descriptor: typeof bulletinDescriptor;
+    descriptor: typeof paseoBulletinDescriptor | typeof previewnetBulletinDescriptor;
 }
 
 /**
@@ -27,11 +28,11 @@ export interface BulletinNetwork {
 export const BulletinChain = {
     paseo: {
         genesisHash: "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea",
-        descriptor: bulletinDescriptor,
+        descriptor: paseoBulletinDescriptor,
     },
     previewnet: {
         genesisHash: "0xf37fa1f1450ea120edbf64c3fc447f671a00e1f1095a698f42eeec073c7ee487",
-        descriptor: bulletinDescriptor,
+        descriptor: previewnetBulletinDescriptor,
     },
 } as const satisfies Record<string, BulletinNetwork>;
 
@@ -54,16 +55,21 @@ if (import.meta.vitest) {
             expect(BulletinChain.previewnet.genesisHash).toMatch(/^0x[a-f0-9]{64}$/);
         });
 
+        test("previewnet descriptor has matching genesis", () => {
+            expect(BulletinChain.previewnet.descriptor.genesis).toBe(
+                BulletinChain.previewnet.genesisHash,
+            );
+        });
+
         test("paseo and previewnet are distinct chain instances", () => {
             // Same runtime, separate deployments — genesis hashes must differ.
             expect(BulletinChain.previewnet.genesisHash).not.toBe(BulletinChain.paseo.genesisHash);
         });
 
-        test("paseo and previewnet share the bulletin descriptor", () => {
-            // Bulletin runtime is identical across environments today; only the
-            // chain instance (genesis) differs. If the descriptor ever needs to
-            // diverge, this assertion will catch it.
-            expect(BulletinChain.previewnet.descriptor).toBe(BulletinChain.paseo.descriptor);
+        test("paseo and previewnet use distinct descriptors", () => {
+            // Per-environment descriptors so descriptor.genesis matches the
+            // live chain instance, not a shared reference.
+            expect(BulletinChain.previewnet.descriptor).not.toBe(BulletinChain.paseo.descriptor);
         });
     });
 }

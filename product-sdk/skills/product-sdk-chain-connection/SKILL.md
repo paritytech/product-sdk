@@ -152,7 +152,7 @@ destroyAll();
 
 3. **Not cleaning up** — Call `client.destroy()` when done to close WebSocket connections.
 
-4. **Barrel importing descriptors** — Use subpath imports: `@parity/product-sdk-descriptors/bulletin`, NOT `@parity/product-sdk-descriptors`.
+4. **Barrel importing descriptors** — Use subpath imports: `@parity/product-sdk-descriptors/paseo-bulletin`, NOT `@parity/product-sdk-descriptors`.
 
 5. **Missing polkadot-api** — It's a peer dependency. Always install it alongside chain-client.
 

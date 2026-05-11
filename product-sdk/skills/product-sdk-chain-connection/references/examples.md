@@ -183,19 +183,19 @@ client.destroy();
 ```typescript
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-import { bulletin } from "@parity/product-sdk-descriptors/bulletin";
-import { individuality } from "@parity/product-sdk-descriptors/individuality";
+import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
+import { paseo_individuality } from "@parity/product-sdk-descriptors/paseo-individuality";
 
 const client = await createChainClient({
     chains: {
         assetHub: paseo_asset_hub,
-        bulletin: bulletin,
-        individuality: individuality,
+        bulletin: paseo_bulletin,
+        individuality: paseo_individuality,
     },
     rpcs: {
         assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
         bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
-        individuality: ["wss://paseo-individuality-rpc.polkadot.io"],
+        individuality: ["wss://paseo-people-next-rpc.polkadot.io"],
     },
 });
 

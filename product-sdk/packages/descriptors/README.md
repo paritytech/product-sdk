@@ -9,8 +9,15 @@ PAPI-generated chain descriptors for the Polkadot ecosystem. These provide fully
 | Polkadot Asset Hub | `@parity/product-sdk-descriptors/polkadot-asset-hub` | Production |
 | Kusama Asset Hub | `@parity/product-sdk-descriptors/kusama-asset-hub` | Production |
 | Paseo Asset Hub | `@parity/product-sdk-descriptors/paseo-asset-hub` | Testnet |
-| Bulletin | `@parity/product-sdk-descriptors/bulletin` | Testnet |
-| Individuality | `@parity/product-sdk-descriptors/individuality` | Testnet |
+| Previewnet Asset Hub | `@parity/product-sdk-descriptors/previewnet-asset-hub` | Dev (zombienet) |
+| Paseo Bulletin | `@parity/product-sdk-descriptors/paseo-bulletin` | Testnet |
+| Previewnet Bulletin | `@parity/product-sdk-descriptors/previewnet-bulletin` | Dev (zombienet) |
+| Paseo Individuality | `@parity/product-sdk-descriptors/paseo-individuality` | Testnet |
+| Previewnet Individuality | `@parity/product-sdk-descriptors/previewnet-individuality` | Dev (zombienet) |
+
+Bulletin and individuality ship a separate descriptor per environment so that
+`descriptor.genesis` matches the live chain instance. The underlying runtime is
+shared today (all Paseo runtime), but the chain instances are distinct deployments.
 
 ## Usage
 

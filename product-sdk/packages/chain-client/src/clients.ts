@@ -41,11 +41,11 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
  * @example
  * ```ts
  * import { createChainClient } from "@parity/product-sdk-chain-client";
- * import { paseo_asset_hub } from "./descriptors/paseo-asset-hub";
- * import { bulletin } from "./descriptors/bulletin";
+ * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+ * import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
  *
  * const client = await createChainClient({
- *     chains: { assetHub: paseo_asset_hub, bulletin },
+ *     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
  *     rpcs: {
  *         assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
  *         bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],

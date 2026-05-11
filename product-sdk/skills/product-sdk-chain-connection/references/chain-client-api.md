@@ -54,12 +54,12 @@ async function createChainClient<C extends ChainMap>(config: ChainClientConfig<C
 ```typescript
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-import { bulletin } from "@parity/product-sdk-descriptors/bulletin";
+import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
 
 const client = await createChainClient({
     chains: {
         assetHub: paseo_asset_hub,
-        bulletin: bulletin,
+        bulletin: paseo_bulletin,
     },
     rpcs: {
         assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],

@@ -175,7 +175,7 @@ See [references/chains.md](references/chains.md) for full details.
 ## Common Mistakes
 
 1. **Missing `polkadot-api`** — It's a peer dependency of `@parity/product-sdk-descriptors`. Always install it.
-2. **Barrel import of descriptors** — Use `@parity/product-sdk-descriptors/bulletin`, NOT `@parity/product-sdk-descriptors`.
+2. **Barrel import of descriptors** — Use `@parity/product-sdk-descriptors/paseo-bulletin`, NOT `@parity/product-sdk-descriptors`.
 3. **Using unavailable environments** — Only `"paseo"` and `"previewnet"` work. `"polkadot"` and `"kusama"` throw.
 4. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return a Promise. Always `await` it.
 5. **Not cleaning up** — Call `client.destroy()` or `destroyAll()` when done to close WebSocket connections.
