@@ -2,15 +2,16 @@
 
 ## Environments
 
-The SDK supports three environments, each with its own set of chains:
+The SDK supports four environments, each with its own set of chains:
 
 | Environment | Status | Asset Hub | Bulletin | Individuality |
 |-------------|--------|-----------|----------|---------------|
 | **paseo** (testnet) | Available | Yes | Yes | Yes |
+| **previewnet** (dev) | Available | Yes | Yes | Yes |
 | polkadot (mainnet) | Planned | Planned | Planned | Planned |
 | kusama (canary) | Planned | Planned | Planned | Planned |
 
-> **WARNING:** Only the `"paseo"` environment is currently available. Using `"polkadot"` or `"kusama"` will throw an error.
+> **WARNING:** Only the `"paseo"` and `"previewnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
 
 ## Chain Properties
 
@@ -35,6 +36,28 @@ The SDK supports three environments, each with its own set of chains:
 - **Token**: None (no native token)
 - **RPC**: `wss://paseo-individuality-rpc.polkadot.io`
 - **Features**: Identity, personhood verification
+
+### Previewnet Asset Hub
+
+- **Chain ID**: `previewnet_asset_hub`
+- **Token**: PAS (zombienet dev token, Paseo runtime)
+- **Decimals**: 10
+- **RPC**: `wss://previewnet.substrate.dev/asset-hub`
+- **Features**: Same surface as Paseo Asset Hub (Paseo runtime); short-lived dev deployment.
+
+### Previewnet Bulletin
+
+- **Chain ID**: `bulletin` (descriptor shared across environments)
+- **Token**: None
+- **RPC**: `wss://previewnet.substrate.dev/bulletin`
+- **Features**: Decentralized data storage, CID-based content addressing.
+
+### Previewnet Individuality (People)
+
+- **Chain ID**: `individuality` (descriptor shared across environments)
+- **Token**: None
+- **RPC**: `wss://previewnet.substrate.dev/people`
+- **Features**: Identity, personhood verification. Also hosts the `statement_*` RPC for the statement store on previewnet.
 
 ## Descriptor Imports
 
@@ -70,6 +93,7 @@ const client = await createChainClient({
 | Chain | Import Path | Bundle Size |
 |-------|-------------|-------------|
 | Paseo Asset Hub | `@parity/product-sdk-descriptors/paseo-asset-hub` | ~1.2 MB |
+| Previewnet Asset Hub | `@parity/product-sdk-descriptors/previewnet-asset-hub` | ~1.2 MB |
 | Polkadot Asset Hub | `@parity/product-sdk-descriptors/polkadot-asset-hub` | ~1.2 MB |
 | Kusama Asset Hub | `@parity/product-sdk-descriptors/kusama-asset-hub` | ~1.2 MB |
 | Bulletin | `@parity/product-sdk-descriptors/bulletin` | ~912 KB |
