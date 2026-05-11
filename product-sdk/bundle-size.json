@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-07T22:14:38.258Z",
+  "generatedAt": "2026-05-11T08:15:50.182Z",
   "node": "v22.19.0",
   "esbuild": "0.25.12",
   "packages": {
@@ -94,18 +94,16 @@
             "brotli": 91
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "raw": 193495,
+            "gzip": 69819,
+            "brotli": 50448
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "raw": 154548,
+            "gzip": 57132,
+            "brotli": 40037
           },
-          "shakeRatio": null
+          "shakeRatio": 0.7987
         },
         "./core": {
           "file": "packages/sdk/dist/core/index.js",
@@ -136,14 +134,14 @@
             "brotli": 94
           },
           "bundled": {
-            "raw": 73478,
-            "gzip": 25379,
-            "brotli": 20405
+            "raw": 73468,
+            "gzip": 25367,
+            "brotli": 20380
           },
           "shaken": {
-            "raw": 34170,
-            "gzip": 11674,
-            "brotli": 8857
+            "raw": 34160,
+            "gzip": 11678,
+            "brotli": 8803
           },
           "shakeRatio": 0.465
         },
@@ -174,9 +172,9 @@
             "brotli": 995
           },
           "bundled": {
-            "raw": 51343,
-            "gzip": 18081,
-            "brotli": 14440
+            "raw": 51333,
+            "gzip": 18086,
+            "brotli": 14460
           },
           "shaken": {
             "raw": 1158,
@@ -322,65 +320,59 @@
         ".": {
           "file": "packages/contracts/dist/index.js",
           "ship": {
-            "raw": 20842,
-            "gzip": 5237,
-            "brotli": 4645
+            "raw": 11338,
+            "gzip": 3309,
+            "brotli": 2898
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "raw": 193495,
+            "gzip": 69819,
+            "brotli": 50448
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "raw": 154548,
+            "gzip": 57132,
+            "brotli": 40037
           },
-          "shakeRatio": null
+          "shakeRatio": 0.7987
         },
         "./codegen": {
           "file": "packages/contracts/dist/codegen.js",
           "ship": {
-            "raw": 222,
-            "gzip": 155,
-            "brotli": 139
+            "raw": 2963,
+            "gzip": 1107,
+            "brotli": 991
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "raw": 2458,
+            "gzip": 1202,
+            "brotli": 1041
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "raw": 1414,
+            "gzip": 730,
+            "brotli": 652
           },
-          "shakeRatio": null
+          "shakeRatio": 0.5753
         },
         "./pvm": {
           "file": "packages/contracts/dist/pvm.js",
           "ship": {
-            "raw": 226,
+            "raw": 189,
             "gzip": 137,
-            "brotli": 134
+            "brotli": 110
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "raw": 1220,
+            "gzip": 628,
+            "brotli": 538
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 1 error:\npackages/contracts/dist/chunk-RK5K5MVH.js:34:36: ERROR: Could not resolve \"fs/promises\""
+            "raw": 759,
+            "gzip": 429,
+            "brotli": 377
           },
-          "shakeRatio": null
+          "shakeRatio": 0.6221
         }
       }
     },
@@ -394,14 +386,14 @@
             "brotli": 1339
           },
           "bundled": {
-            "raw": 73478,
-            "gzip": 25379,
-            "brotli": 20405
+            "raw": 73468,
+            "gzip": 25367,
+            "brotli": 20380
           },
           "shaken": {
-            "raw": 34170,
-            "gzip": 11674,
-            "brotli": 8857
+            "raw": 34160,
+            "gzip": 11678,
+            "brotli": 8803
           },
           "shakeRatio": 0.465
         }
@@ -544,14 +536,14 @@
             "brotli": 1709
           },
           "bundled": {
-            "raw": 191349,
-            "gzip": 68255,
-            "brotli": 48895
+            "raw": 191339,
+            "gzip": 68249,
+            "brotli": 48808
           },
           "shaken": {
-            "raw": 140106,
-            "gzip": 50713,
-            "brotli": 37739
+            "raw": 140096,
+            "gzip": 50695,
+            "brotli": 37724
           },
           "shakeRatio": 0.7322
         }
@@ -662,13 +654,13 @@
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 4 errors:\nnode_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs.js:1:22: ERROR: No loader is configured for \".wasm\" files: node_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs_bg.wasm\npackages/terminal/dist/chunk-5MCLSFKQ.js:4:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:5:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:6:24: ERROR: Could not resolve \"os\""
+            "error": "Build failed with 1 error:\nnode_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs.js:1:22: ERROR: No loader is configured for \".wasm\" files: node_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs_bg.wasm"
           },
           "shaken": {
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 4 errors:\nnode_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs.js:1:22: ERROR: No loader is configured for \".wasm\" files: node_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs_bg.wasm\npackages/terminal/dist/chunk-5MCLSFKQ.js:4:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:5:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:6:24: ERROR: Could not resolve \"os\""
+            "error": "Build failed with 1 error:\nnode_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs.js:1:22: ERROR: No loader is configured for \".wasm\" files: node_modules/.pnpm/verifiablejs@1.2.0/node_modules/verifiablejs/pkg-bundler/verifiablejs_bg.wasm"
           },
           "shakeRatio": null
         },
@@ -683,7 +675,7 @@
             "raw": null,
             "gzip": null,
             "brotli": null,
-            "error": "Build failed with 3 errors:\npackages/terminal/dist/register.js:2:25: ERROR: Could not resolve \"module\"\npackages/terminal/dist/register.js:3:30: ERROR: Could not resolve \"url\"\npackages/terminal/dist/register.js:4:30: ERROR: Could not resolve \"path\""
+            "error": "Build failed with 1 error:\npackages/terminal/dist/register.js:2:25: ERROR: Could not resolve \"module\""
           },
           "shaken": {
             "raw": null,
@@ -701,18 +693,16 @@
             "brotli": 2305
           },
           "bundled": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 5 errors:\npackages/terminal/dist/chunk-5MCLSFKQ.js:4:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:5:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:6:24: ERROR: Could not resolve \"os\"\npackages/terminal/dist/testing.js:24:33: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/testing.js:25:21: ERROR: Could not resolve \"path\""
+            "raw": 104475,
+            "gzip": 41881,
+            "brotli": 35634
           },
           "shaken": {
-            "raw": null,
-            "gzip": null,
-            "brotli": null,
-            "error": "Build failed with 5 errors:\npackages/terminal/dist/chunk-5MCLSFKQ.js:4:21: ERROR: Could not resolve \"path\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:5:51: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/chunk-5MCLSFKQ.js:6:24: ERROR: Could not resolve \"os\"\npackages/terminal/dist/testing.js:24:33: ERROR: Could not resolve \"fs/promises\"\npackages/terminal/dist/testing.js:25:21: ERROR: Could not resolve \"path\""
+            "raw": 104338,
+            "gzip": 41797,
+            "brotli": 35553
           },
-          "shakeRatio": null
+          "shakeRatio": 0.9987
         }
       }
     },

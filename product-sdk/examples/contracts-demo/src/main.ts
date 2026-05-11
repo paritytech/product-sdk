@@ -21,7 +21,7 @@
 
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
-import { ContractManager } from "@parity/product-sdk-contracts";
+import { ContractManager, ensureContractAccountMapped } from "@parity/product-sdk-contracts";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 import cdm from "./cdm.json";
@@ -260,6 +260,31 @@ async function init() {
         log("ContractManager ready (@t3rminal/bulletin-index)", "ok");
     } catch (err) {
         log(`ContractManager failed: ${(err as Error).message}`, "err");
+        return;
+    }
+
+    // `pallet-revive` rejects `Revive.call` from any SS58 origin that hasn't
+    // been mapped to its derived H160 via `Revive.map_account()`. The helper
+    // is idempotent — short-circuits on a storage hit — so the first-time
+    // path costs one signature and subsequent boots are free.
+    try {
+        const signer = manager.getSigner();
+        if (signer) {
+            log("Ensuring account is mapped on pallet-revive…");
+            const mapped = await ensureContractAccountMapped(
+                contractManager.getRuntime(),
+                accounts[0].address,
+                signer,
+            );
+            log(
+                mapped === null
+                    ? "Account already mapped (no signature needed)"
+                    : `Account mapped in block #${mapped.block.number}`,
+                "ok",
+            );
+        }
+    } catch (err) {
+        log(`ensureContractAccountMapped failed: ${(err as Error).message}`, "err");
         return;
     }
 

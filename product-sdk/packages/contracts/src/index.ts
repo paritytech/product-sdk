@@ -21,8 +21,10 @@ export type {
     ReviveDryRunResult,
     ReviveDryRunCall,
 } from "./runtime.js";
-export { generateContractTypes, resolveContractTypeInputs } from "./codegen.js";
-export type { ContractTypeInput } from "./codegen.js";
+// Build-time codegen helpers (`generateContractTypes`, `resolveContractTypeInputs`)
+// live behind the `@parity/product-sdk-contracts/codegen` subpath. Keeping them
+// off the runtime entry prevents pulling Node-only `fs/os/path` dynamic imports
+// (via `pvm.ts`) into browser bundles that only need `ContractManager`.
 export {
     ContractError,
     ContractSignerMissingError,

@@ -213,7 +213,7 @@ export function wrapContract(
                     // shouldn't pay gas on a tx the chain already rejected.
                     let weightLimit = overrides?.gasLimit;
                     let storageDepositLimit = overrides?.storageDepositLimit;
-                    if (!weightLimit || storageDepositLimit === undefined) {
+                    if (weightLimit === undefined || storageDepositLimit === undefined) {
                         const dryRun = await runtime.dryRunCall(
                             origin,
                             dest,
@@ -721,6 +721,136 @@ if (import.meta.vitest) {
                 methodName: "increment",
                 dispatchError,
             });
+        });
+
+        test("skips dry-run entirely when both gasLimit and storageDepositLimit overrides are passed", async () => {
+            // When the caller supplies both weight and storage-deposit
+            // overrides, `.tx()` should go straight to the extrinsic builder
+            // — no RPC round-trip, no revert pre-check. We assert this by
+            // wiring both `dryRunCall` and `apis.ReviveApi.call` to throw if
+            // invoked, and checking the tx still lands.
+            let txArgs: { weight_limit: unknown; storage_deposit_limit: unknown } | null = null;
+            const runtime: ContractRuntime = {
+                api: {
+                    apis: {
+                        ReviveApi: {
+                            call: () => {
+                                throw new Error(
+                                    "ReviveApi.call must NOT be invoked when both overrides are passed",
+                                );
+                            },
+                        },
+                    },
+                    tx: {
+                        Revive: {
+                            call: (args: {
+                                weight_limit: unknown;
+                                storage_deposit_limit: unknown;
+                            }) => {
+                                txArgs = {
+                                    weight_limit: args.weight_limit,
+                                    storage_deposit_limit: args.storage_deposit_limit,
+                                };
+                                return {
+                                    signSubmitAndWatch: () => ({
+                                        subscribe: (handlers: {
+                                            next: (event: unknown) => void;
+                                        }) => {
+                                            queueMicrotask(() => {
+                                                handlers.next({
+                                                    type: "txBestBlocksState",
+                                                    txHash: "0xdeadbeef",
+                                                    found: true,
+                                                    ok: true,
+                                                    events: [],
+                                                    block: {
+                                                        hash: "0xblock",
+                                                        number: 1,
+                                                        index: 0,
+                                                    },
+                                                });
+                                            });
+                                            return { unsubscribe: () => {} };
+                                        },
+                                    }),
+                                };
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: () => {
+                    throw new Error(
+                        "dryRunCall must NOT be invoked when both overrides are passed",
+                    );
+                },
+            };
+
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {
+                signer: fakeSigner,
+                origin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
+            });
+
+            const overrideWeight = { ref_time: 1234n, proof_size: 56n };
+            const overrideDeposit = 7890n;
+            await (
+                wrapped as unknown as {
+                    increment: { tx: (opts: unknown) => Promise<unknown> };
+                }
+            ).increment.tx({
+                gasLimit: overrideWeight,
+                storageDepositLimit: overrideDeposit,
+            });
+
+            expect(txArgs).toEqual({
+                weight_limit: overrideWeight,
+                storage_deposit_limit: overrideDeposit,
+            });
+        });
+
+        test("missing storageDepositLimit override still triggers the dry-run", async () => {
+            // Half-overrides don't bypass: if the caller passes `gasLimit`
+            // but not `storageDepositLimit`, the SDK must still dry-run to
+            // size the deposit AND to fail fast on revert. The previous
+            // `!weightLimit` check was correct here; the tightening to
+            // `=== undefined` keeps this branch intact for any future
+            // refactor that touches the guard.
+            let dryRunInvoked = false;
+            const runtime: ContractRuntime = {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: () => {
+                                throw new Error("Revive.call must not run — dry-run failed");
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: async () => {
+                    dryRunInvoked = true;
+                    return {
+                        weight_consumed: { ref_time: 0n, proof_size: 0n },
+                        weight_required: { ref_time: 0n, proof_size: 0n },
+                        storage_deposit: { type: "Refund", value: 0n },
+                        max_storage_deposit: { type: "Refund", value: 0n },
+                        gas_consumed: 0n,
+                        result: { success: false, value: { type: "ContractReverted" } },
+                    };
+                },
+            };
+
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {
+                signer: fakeSigner,
+                origin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
+            });
+
+            await expect(
+                (
+                    wrapped as unknown as {
+                        increment: { tx: (opts: unknown) => Promise<unknown> };
+                    }
+                ).increment.tx({ gasLimit: { ref_time: 1n, proof_size: 1n } }),
+            ).rejects.toMatchObject({ name: "ContractDryRunFailedError" });
+            expect(dryRunInvoked).toBe(true);
         });
     });
 }

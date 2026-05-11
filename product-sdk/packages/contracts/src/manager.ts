@@ -130,6 +130,18 @@ export class ContractManager {
     getAddress(library: string): HexString {
         return this.getContractData(library).address;
     }
+
+    /**
+     * Get the underlying {@link ContractRuntime} backing this manager.
+     *
+     * Useful when a consumer needs to call helpers that take a runtime
+     * directly — most commonly {@link ensureContractAccountMapped} at app
+     * boot. Avoids the alternative of building a second runtime against the
+     * same client and descriptor.
+     */
+    getRuntime(): ContractRuntime {
+        return this.runtime;
+    }
 }
 
 /**

@@ -218,3 +218,74 @@ export async function ensureContractAccountMapped(
     };
     return ensureAccountMapped(address, signer, checker, runtime.api, options);
 }
+
+if (import.meta.vitest) {
+    const { test, expect, describe, vi } = import.meta.vitest;
+
+    describe("ensureContractAccountMapped", () => {
+        // Pin the wiring: storage hit ⇒ short-circuit to null without
+        // submitting; H160 (not SS58) is what reaches the storage query.
+        const aliceSs58 = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+        const fakeSigner = { publicKey: new Uint8Array(32) } as unknown as PolkadotSigner;
+
+        function makeRuntime(opts: {
+            mapped: boolean;
+            mapAccount?: () => SubmittableTransaction;
+        }): {
+            runtime: ContractRuntime;
+            getValue: ReturnType<typeof vi.fn>;
+            mapAccount: ReturnType<typeof vi.fn>;
+        } {
+            const getValue = vi.fn(async () =>
+                opts.mapped ? ("5mappedSs58" as SS58String) : undefined,
+            );
+            const mapAccount = vi.fn(() => {
+                if (opts.mapAccount) return opts.mapAccount();
+                throw new Error("map_account must NOT be invoked when address is already mapped");
+            });
+            const runtime: ContractRuntime = {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: () => {
+                                throw new Error("Revive.call is unrelated to mapping");
+                            },
+                            map_account: mapAccount,
+                        },
+                    },
+                    query: {
+                        Revive: {
+                            OriginalAccount: { getValue },
+                        },
+                    },
+                    apis: {
+                        ReviveApi: {
+                            call: () => {
+                                throw new Error("ReviveApi.call is unrelated to mapping");
+                            },
+                        },
+                    },
+                } as unknown as ReviveTypedApi,
+                dryRunCall: () => {
+                    throw new Error("dryRunCall is unrelated to mapping");
+                },
+            };
+            return { runtime, getValue, mapAccount };
+        }
+
+        test("returns null without submitting when storage already has the mapping", async () => {
+            const { runtime, getValue, mapAccount } = makeRuntime({ mapped: true });
+            const result = await ensureContractAccountMapped(runtime, aliceSs58, fakeSigner);
+
+            expect(result).toBeNull();
+            // The H160 derivation hands a `0x…` hex string to the storage
+            // query — not the SS58 address. If the wiring ever forwards the
+            // SS58 by accident, this assertion catches it.
+            expect(getValue).toHaveBeenCalledTimes(1);
+            const passedAddress = getValue.mock.calls[0][0] as string;
+            expect(passedAddress.startsWith("0x")).toBe(true);
+            expect(passedAddress.length).toBe(2 + 40);
+            expect(mapAccount).not.toHaveBeenCalled();
+        });
+    });
+}

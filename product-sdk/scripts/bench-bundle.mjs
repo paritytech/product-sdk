@@ -133,7 +133,25 @@ async function bundleSize({ entryPath, packageName, treeShake }) {
             treeShaking: true,
             absWorkingDir: WORKSPACE_ROOT,
             logLevel: "silent",
-            external: ["node:*"],
+            // Externalise both `node:`-prefixed and bare Node built-ins:
+            // tsup/esbuild can strip the `node:` prefix on dynamic imports
+            // in library output (e.g. contracts/src/pvm.ts), so matching
+            // only `node:*` misses the rewritten form.
+            external: [
+                "node:*",
+                "fs",
+                "fs/promises",
+                "path",
+                "os",
+                "crypto",
+                "stream",
+                "util",
+                "url",
+                "buffer",
+                "events",
+                "child_process",
+                "worker_threads",
+            ],
         });
         return rawSizes(outFile);
     } catch (err) {

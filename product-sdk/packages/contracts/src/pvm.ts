@@ -62,6 +62,22 @@ export async function loadPvmContractAbi(path: string): Promise<AbiEntry[]> {
 }
 
 /**
+ * Read the `.polkavm` bytecode artifact produced by `cargo pvm-contract build`.
+ *
+ * Returned bytes are ready to hand to `Revive.instantiate_with_code` (or to
+ * any future deploy helper layered on top of it). Use this when you already
+ * have an ABI in hand (e.g. inline or fetched separately) and only need the
+ * PolkaVM blob — otherwise prefer {@link loadPvmContractArtifacts}.
+ *
+ * Node-only.
+ */
+export async function loadPvmContractCode(path: string): Promise<Uint8Array> {
+    const { readFile } = await import("node:fs/promises");
+    const buf = await readFile(path);
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+}
+
+/**
  * Read both the `.abi.json` and `.polkavm` artifacts produced by
  * `cargo pvm-contract build` for a given base path.
  *
@@ -72,15 +88,11 @@ export async function loadPvmContractAbi(path: string): Promise<AbiEntry[]> {
  * Node-only.
  */
 export async function loadPvmContractArtifacts(basePath: string): Promise<PvmContractArtifacts> {
-    const { readFile } = await import("node:fs/promises");
-    const [abiBuf, codeBuf] = await Promise.all([
-        readFile(`${basePath}.abi.json`),
-        readFile(`${basePath}.polkavm`),
+    const [abi, bytecode] = await Promise.all([
+        loadPvmContractAbi(`${basePath}.abi.json`),
+        loadPvmContractCode(`${basePath}.polkavm`),
     ]);
-    return {
-        abi: parsePvmContractAbi(abiBuf),
-        bytecode: new Uint8Array(codeBuf.buffer, codeBuf.byteOffset, codeBuf.byteLength),
-    };
+    return { abi, bytecode };
 }
 
 if (import.meta.vitest) {
@@ -197,6 +209,12 @@ if (import.meta.vitest) {
             expect(out.abi).toEqual(sampleAbi);
             expect(out.bytecode).toBeInstanceOf(Uint8Array);
             expect(Array.from(out.bytecode)).toEqual(Array.from(fakeBytecode));
+        });
+
+        test("loadPvmContractCode reads only the .polkavm blob", async () => {
+            const code = await loadPvmContractCode(`${base}.polkavm`);
+            expect(code).toBeInstanceOf(Uint8Array);
+            expect(Array.from(code)).toEqual(Array.from(fakeBytecode));
         });
 
         test("loadPvmContractAbi rejects a missing file", async () => {
