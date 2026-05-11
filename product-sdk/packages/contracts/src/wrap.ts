@@ -6,11 +6,13 @@ import { createLogger } from "@parity/product-sdk-logger";
 import { DEV_PHRASE, ss58Address } from "@polkadot-labs/hdkd-helpers";
 import { ContractSignerMissingError, ContractDryRunFailedError } from "./errors.js";
 import type { ContractRuntime } from "./runtime.js";
+import type { BatchableCall, SubmittableTransaction } from "@parity/product-sdk-tx";
 import type {
     AbiEntry,
     Contract,
     ContractDef,
     ContractDefaults,
+    PrepareOptions,
     QueryOptions,
     QueryResult,
     TxOptions,
@@ -129,6 +131,60 @@ function decodeReturn(abi: AbiEntry[], methodName: string, returnData: Uint8Arra
 }
 
 /**
+ * Shared pre-submit pipeline for `.tx()` and `.prepare()`:
+ *
+ *   1. Encode the calldata via viem.
+ *   2. If either gas/storage override is missing, dry-run via
+ *      `runtime.dryRunCall` to size the missing limit(s) and fail fast on
+ *      revert / OOG / `AccountNotMapped`. Skipped when both are provided.
+ *   3. Build the `Revive.call` extrinsic via the typed API.
+ *
+ * Returned `SubmittableTransaction` is what `.tx()` hands to `submitAndWatch`
+ * and what `.prepare()` returns as a `BatchableCall`.
+ */
+async function buildReviveCall(
+    runtime: ContractRuntime,
+    dest: HexString,
+    abi: AbiEntry[],
+    methodName: string,
+    positionalArgs: unknown[],
+    origin: SS58String,
+    overrides: PrepareOptions | TxOptions | undefined,
+): Promise<SubmittableTransaction> {
+    const value = overrides?.value ?? 0n;
+    const calldata = hexToBytes(encodeCalldata(abi, methodName, positionalArgs));
+
+    let weightLimit = overrides?.gasLimit;
+    let storageDepositLimit = overrides?.storageDepositLimit;
+    if (weightLimit === undefined || storageDepositLimit === undefined) {
+        const dryRun = await runtime.dryRunCall(
+            origin,
+            dest,
+            value,
+            undefined,
+            undefined,
+            calldata,
+        );
+        if (!dryRun.result.success) {
+            throw new ContractDryRunFailedError(methodName, dryRun.result.value);
+        }
+        weightLimit = weightLimit ?? dryRun.weight_required;
+        if (storageDepositLimit === undefined) {
+            storageDepositLimit =
+                dryRun.storage_deposit.type === "Charge" ? dryRun.storage_deposit.value : 0n;
+        }
+    }
+
+    return runtime.api.tx.Revive.call({
+        dest,
+        value,
+        weight_limit: weightLimit,
+        storage_deposit_limit: storageDepositLimit,
+        data: calldata,
+    });
+}
+
+/**
  * Build a typed contract handle backed by direct `Revive` extrinsic +
  * `ReviveApi` runtime API calls. The Solidity ABI codec runs through `viem`.
  *
@@ -202,45 +258,15 @@ export function wrapContract(
                         resolveOrigin(defaults, overrides?.origin) ??
                         (ss58Address(signer.publicKey) as SS58String);
 
-                    const value = overrides?.value ?? 0n;
-                    const calldata = hexToBytes(encodeCalldata(abi, methodName, positionalArgs));
-
-                    // Dry-run for weight + storage deposit unless the caller
-                    // supplied explicit overrides for both. We dry-run even
-                    // when both are provided would be wasteful, but if either
-                    // is missing we use the dry-run to fill it in AND to fail
-                    // fast on revert / OOG / AccountNotMapped — the caller
-                    // shouldn't pay gas on a tx the chain already rejected.
-                    let weightLimit = overrides?.gasLimit;
-                    let storageDepositLimit = overrides?.storageDepositLimit;
-                    if (weightLimit === undefined || storageDepositLimit === undefined) {
-                        const dryRun = await runtime.dryRunCall(
-                            origin,
-                            dest,
-                            value,
-                            undefined,
-                            undefined,
-                            calldata,
-                        );
-                        if (!dryRun.result.success) {
-                            throw new ContractDryRunFailedError(methodName, dryRun.result.value);
-                        }
-                        weightLimit = weightLimit ?? dryRun.weight_required;
-                        if (storageDepositLimit === undefined) {
-                            storageDepositLimit =
-                                dryRun.storage_deposit.type === "Charge"
-                                    ? dryRun.storage_deposit.value
-                                    : 0n;
-                        }
-                    }
-
-                    const tx = runtime.api.tx.Revive.call({
+                    const tx = await buildReviveCall(
+                        runtime,
                         dest,
-                        value,
-                        weight_limit: weightLimit,
-                        storage_deposit_limit: storageDepositLimit,
-                        data: calldata,
-                    });
+                        abi,
+                        methodName,
+                        positionalArgs,
+                        origin,
+                        overrides,
+                    );
 
                     return submitAndWatch(tx, signer, {
                         waitFor: overrides?.waitFor,
@@ -248,6 +274,30 @@ export function wrapContract(
                         mortalityPeriod: overrides?.mortalityPeriod,
                         onStatus: overrides?.onStatus,
                     });
+                },
+
+                prepare: async (...args: unknown[]): Promise<BatchableCall> => {
+                    // `.prepare()` builds the same `Revive.call` extrinsic as
+                    // `.tx()` but stops before submission — the returned
+                    // SubmittableTransaction is a BatchableCall consumable
+                    // by `batchSubmitAndWatch`. Origin defaults to the dev
+                    // address (Alice) for dry-run gas estimation since no
+                    // signer is required at prepare time; the batch's signer
+                    // replaces the dispatched origin at submission.
+                    const { positionalArgs, overrides } = extractOverrides<PrepareOptions>(
+                        argNames,
+                        args,
+                    );
+                    const origin = resolveOrigin(defaults, overrides?.origin, true)!;
+                    return buildReviveCall(
+                        runtime,
+                        dest,
+                        abi,
+                        methodName,
+                        positionalArgs,
+                        origin,
+                        overrides,
+                    );
                 },
             };
         },
@@ -851,6 +901,327 @@ if (import.meta.vitest) {
                 ).increment.tx({ gasLimit: { ref_time: 1n, proof_size: 1n } }),
             ).rejects.toMatchObject({ name: "ContractDryRunFailedError" });
             expect(dryRunInvoked).toBe(true);
+        });
+    });
+
+    describe("wrapContract — prepare (batch composition)", () => {
+        // `.prepare()` is the revive-runtime port of the polkadot-apps
+        // batching helper. These tests pin the contract the rest of the
+        // SDK relies on:
+        //
+        //   - returns a `SubmittableTransaction` that doubles as a
+        //     `BatchableCall` (has `.decodedCall` / forwards through
+        //     `batchSubmitAndWatch`'s `resolveDecodedCall`),
+        //   - never invokes `submitAndWatch`,
+        //   - sizes weight + storage via the dry-run unless the caller
+        //     supplies both overrides,
+        //   - bubbles a dry-run failure as `ContractDryRunFailedError`
+        //     before the extrinsic is built,
+        //   - requires no signer (the batch's signer dispatches).
+        const abi: AbiEntry[] = [
+            {
+                type: "function",
+                name: "increment",
+                inputs: [],
+                outputs: [],
+                stateMutability: "nonpayable",
+            },
+            {
+                type: "function",
+                name: "add",
+                inputs: [{ name: "n", type: "uint32" }],
+                outputs: [],
+                stateMutability: "nonpayable",
+            },
+        ];
+        const ADDRESS = "0x0102030405060708090a0b0c0d0e0f1011121314";
+
+        test("builds a Revive.call submittable without signing or dry-running when both overrides given", async () => {
+            let txArgs: {
+                dest: unknown;
+                value: unknown;
+                weight_limit: unknown;
+                storage_deposit_limit: unknown;
+                data: unknown;
+            } | null = null;
+            const captured: { dryRun: boolean } = { dryRun: false };
+            const sentinelDecodedCall = { pallet: "Revive", call: "call" };
+            const runtime: ContractRuntime = {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: (args: typeof txArgs) => {
+                                txArgs = args;
+                                // Real PAPI returns a SubmittableTransaction
+                                // with `.decodedCall`; the field is what
+                                // `batchSubmitAndWatch` reads to assemble
+                                // the `Utility.batch_all` payload.
+                                return {
+                                    decodedCall: sentinelDecodedCall,
+                                    signSubmitAndWatch: () => {
+                                        throw new Error(
+                                            "prepare must NOT sign or submit — caller batches the result",
+                                        );
+                                    },
+                                };
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: async () => {
+                    captured.dryRun = true;
+                    throw new Error("prepare must NOT dry-run when both overrides are given");
+                },
+            };
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {});
+
+            const overrideWeight = { ref_time: 99n, proof_size: 11n };
+            const result = await (
+                wrapped as unknown as {
+                    add: {
+                        prepare: (n: number, opts: unknown) => Promise<{ decodedCall: unknown }>;
+                    };
+                }
+            ).add.prepare(7, {
+                gasLimit: overrideWeight,
+                storageDepositLimit: 42n,
+                value: 5n,
+            });
+
+            // SubmittableTransaction is a valid BatchableCall —
+            // `batchSubmitAndWatch` reads `.decodedCall` off it.
+            expect(result.decodedCall).toBe(sentinelDecodedCall);
+
+            // Override values flowed straight through to the extrinsic.
+            expect(txArgs).toEqual({
+                dest: ADDRESS,
+                value: 5n,
+                weight_limit: overrideWeight,
+                storage_deposit_limit: 42n,
+                // viem-encoded `add(uint32)` calldata: 4-byte selector +
+                // 32-byte argument. We don't assert the byte-level layout
+                // here (covered in the bytesN boundary tests).
+                data: expect.any(Uint8Array),
+            });
+            expect(captured.dryRun).toBe(false);
+        });
+
+        test("dry-runs to fill the missing limits when overrides are partial", async () => {
+            let dryRunCalls = 0;
+            const txArgs: { weight_limit: unknown; storage_deposit_limit: unknown }[] = [];
+            const runtime: ContractRuntime = {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: (args: {
+                                weight_limit: unknown;
+                                storage_deposit_limit: unknown;
+                            }) => {
+                                txArgs.push(args);
+                                return { decodedCall: { sentinel: true } };
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: async () => {
+                    dryRunCalls += 1;
+                    return {
+                        weight_consumed: { ref_time: 0n, proof_size: 0n },
+                        weight_required: { ref_time: 123n, proof_size: 7n },
+                        storage_deposit: { type: "Charge", value: 99n },
+                        max_storage_deposit: { type: "Charge", value: 99n },
+                        gas_consumed: 0n,
+                        result: { success: true, value: { flags: 0, data: new Uint8Array(0) } },
+                    };
+                },
+            };
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {});
+
+            // Only gasLimit override → dry-run still fires to size storage.
+            await (
+                wrapped as unknown as {
+                    increment: { prepare: (opts?: unknown) => Promise<unknown> };
+                }
+            ).increment.prepare({ gasLimit: { ref_time: 10n, proof_size: 1n } });
+
+            // Only storageDepositLimit → dry-run still fires to size weight.
+            await (
+                wrapped as unknown as {
+                    increment: { prepare: (opts?: unknown) => Promise<unknown> };
+                }
+            ).increment.prepare({ storageDepositLimit: 0n });
+
+            // Nothing → dry-run fills both.
+            await (
+                wrapped as unknown as {
+                    increment: { prepare: (opts?: unknown) => Promise<unknown> };
+                }
+            ).increment.prepare();
+
+            expect(dryRunCalls).toBe(3);
+            // First call kept the gasLimit override; second kept the
+            // storageDepositLimit override; third filled both from the
+            // dry-run result.
+            expect(txArgs[0]?.weight_limit).toEqual({ ref_time: 10n, proof_size: 1n });
+            expect(txArgs[0]?.storage_deposit_limit).toBe(99n);
+            expect(txArgs[1]?.weight_limit).toEqual({ ref_time: 123n, proof_size: 7n });
+            expect(txArgs[1]?.storage_deposit_limit).toBe(0n);
+            expect(txArgs[2]?.weight_limit).toEqual({ ref_time: 123n, proof_size: 7n });
+            expect(txArgs[2]?.storage_deposit_limit).toBe(99n);
+        });
+
+        test("does not require a signer; falls back to dev origin for the dry-run", async () => {
+            let capturedOrigin: string | undefined;
+            const runtime: ContractRuntime = {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: () => ({ decodedCall: { sentinel: true } }),
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: async (origin) => {
+                    capturedOrigin = origin;
+                    return {
+                        weight_consumed: { ref_time: 0n, proof_size: 0n },
+                        weight_required: { ref_time: 1n, proof_size: 1n },
+                        storage_deposit: { type: "Refund", value: 0n },
+                        max_storage_deposit: { type: "Refund", value: 0n },
+                        gas_consumed: 0n,
+                        result: { success: true, value: { flags: 0, data: new Uint8Array(0) } },
+                    };
+                },
+            };
+            // No signer / signerManager / defaultOrigin set.
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {});
+
+            await expect(
+                (
+                    wrapped as unknown as {
+                        increment: { prepare: () => Promise<unknown> };
+                    }
+                ).increment.prepare(),
+            ).resolves.toMatchObject({ decodedCall: { sentinel: true } });
+
+            // Origin must have been resolved without throwing — falls
+            // back to the dev address (Alice) for dry-run gas estimation.
+            expect(capturedOrigin).toBe(QUERY_FALLBACK_ORIGIN);
+        });
+
+        test("throws ContractDryRunFailedError before constructing the extrinsic on revert", async () => {
+            const dispatchError = { type: "Module", value: { type: "ContractReverted" } };
+            const runtime: ContractRuntime = {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: () => {
+                                throw new Error(
+                                    "Revive.call must NOT be invoked on a failing dry-run",
+                                );
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: async () => ({
+                    weight_consumed: { ref_time: 0n, proof_size: 0n },
+                    weight_required: { ref_time: 0n, proof_size: 0n },
+                    storage_deposit: { type: "Refund", value: 0n },
+                    max_storage_deposit: { type: "Refund", value: 0n },
+                    gas_consumed: 0n,
+                    result: { success: false, value: dispatchError },
+                }),
+            };
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {});
+
+            await expect(
+                (
+                    wrapped as unknown as { increment: { prepare: () => Promise<unknown> } }
+                ).increment.prepare(),
+            ).rejects.toMatchObject({
+                name: "ContractDryRunFailedError",
+                methodName: "increment",
+                dispatchError,
+            });
+        });
+
+        test("prepared calls flow through batchSubmitAndWatch end-to-end", async () => {
+            // Asserts the integration contract: two prepared calls
+            // resolve into a `Utility.batch_all({ calls: [...] })`
+            // payload of their `.decodedCall` values.
+            const { batchSubmitAndWatch } = await import("@parity/product-sdk-tx");
+            const decodedCalls = [
+                { pallet: "Revive", method: "call", value: "one" },
+                { pallet: "Revive", method: "call", value: "two" },
+            ];
+            let nextCall = 0;
+            const runtime: ContractRuntime = {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: () => ({ decodedCall: decodedCalls[nextCall++] }),
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: async () => ({
+                    weight_consumed: { ref_time: 0n, proof_size: 0n },
+                    weight_required: { ref_time: 1n, proof_size: 1n },
+                    storage_deposit: { type: "Refund", value: 0n },
+                    max_storage_deposit: { type: "Refund", value: 0n },
+                    gas_consumed: 0n,
+                    result: { success: true, value: { flags: 0, data: new Uint8Array(0) } },
+                }),
+            };
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {});
+
+            const a = await (
+                wrapped as unknown as { increment: { prepare: () => Promise<BatchableCall> } }
+            ).increment.prepare();
+            const b = await (
+                wrapped as unknown as {
+                    add: { prepare: (n: number) => Promise<BatchableCall> };
+                }
+            ).add.prepare(1);
+
+            let batchCalls: unknown[] | null = null;
+            const fakeApi = {
+                tx: {
+                    Utility: {
+                        batch_all: (args: { calls: unknown[] }) => {
+                            batchCalls = args.calls;
+                            return {
+                                signSubmitAndWatch: () => ({
+                                    subscribe: (h: {
+                                        next: (event: unknown) => void;
+                                    }) => {
+                                        queueMicrotask(() => {
+                                            h.next({
+                                                type: "txBestBlocksState",
+                                                txHash: "0xb",
+                                                found: true,
+                                                ok: true,
+                                                events: [],
+                                                block: {
+                                                    hash: "0xblk",
+                                                    number: 1,
+                                                    index: 0,
+                                                },
+                                            });
+                                        });
+                                        return { unsubscribe: () => {} };
+                                    },
+                                }),
+                            };
+                        },
+                    },
+                },
+            } as unknown as Parameters<typeof batchSubmitAndWatch>[1];
+
+            const result = await batchSubmitAndWatch([a, b], fakeApi, {
+                publicKey: new Uint8Array(32),
+            } as unknown as Parameters<typeof batchSubmitAndWatch>[2]);
+
+            expect(result.ok).toBe(true);
+            expect(batchCalls).toEqual(decodedCalls);
         });
     });
 }

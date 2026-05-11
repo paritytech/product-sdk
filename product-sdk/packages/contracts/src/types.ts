@@ -1,9 +1,9 @@
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
-import type { SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
+import type { BatchableCall, SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
 import type { SignerManager } from "@parity/product-sdk-signer";
 
 // Re-export from the tx package — single source of truth.
-export type { TxResult, SubmitOptions } from "@parity/product-sdk-tx";
+export type { TxResult, SubmitOptions, BatchableCall } from "@parity/product-sdk-tx";
 
 // ---------------------------------------------------------------------------
 // cdm.json schema
@@ -102,6 +102,20 @@ export interface TxOptions extends SubmitOptions {
     storageDepositLimit?: bigint;
 }
 
+/**
+ * Options for `.prepare()` — subset of {@link TxOptions}.
+ *
+ * Signer and submission lifecycle options (`signer`, `waitFor`, `timeoutMs`,
+ * `mortalityPeriod`, `onStatus`) are intentionally absent — those belong to
+ * the batch submission, not the individual prepared call.
+ */
+export interface PrepareOptions {
+    origin?: SS58String;
+    value?: bigint;
+    gasLimit?: Weight;
+    storageDepositLimit?: bigint;
+}
+
 /** Mutable defaults shared across all contract handles from a manager. */
 export interface ContractDefaults {
     origin?: SS58String;
@@ -163,5 +177,32 @@ export type Contract<C extends ContractDef> = {
          * defaultSigner. Throws {@link ContractSignerMissingError} if none available.
          */
         tx: (...args: [...C["methods"][K]["args"], opts?: TxOptions]) => Promise<TxResult>;
+        /**
+         * Prepare the method as a {@link BatchableCall} — returns the same
+         * submittable that `.tx()` would build, but without signing or
+         * submitting. Consumable directly by `batchSubmitAndWatch` from
+         * `@parity/product-sdk-tx`:
+         *
+         * ```ts
+         * import { batchSubmitAndWatch } from "@parity/product-sdk-tx";
+         *
+         * const a = contract.transfer.prepare(addr1, 100n);
+         * const b = contract.transfer.prepare(addr2, 200n);
+         * await batchSubmitAndWatch([a, b], api, signer);
+         * ```
+         *
+         * Sizing: when either `gasLimit` or `storageDepositLimit` is
+         * omitted, `.prepare()` runs a `ReviveApi.call` dry-run (same as
+         * `.tx()`) against the dev fallback origin to fill the missing
+         * field(s) — pass both to skip the dry-run entirely. A failing
+         * dry-run throws {@link ContractDryRunFailedError} before the
+         * call is constructed.
+         *
+         * `.prepare()` does not require a signer; the batch's signer
+         * replaces the dispatched origin at submission.
+         */
+        prepare: (
+            ...args: [...C["methods"][K]["args"], opts?: PrepareOptions]
+        ) => Promise<BatchableCall>;
     };
 };
