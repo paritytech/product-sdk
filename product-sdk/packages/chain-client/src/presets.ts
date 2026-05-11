@@ -77,9 +77,8 @@ async function loadDescriptors(env: Environment) {
               ? ahMod.kusama_asset_hub
               : "paseo_asset_hub" in ahMod
                 ? ahMod.paseo_asset_hub
-                : (
-                      ahMod as typeof import("@parity/product-sdk-descriptors/previewnet-asset-hub")
-                  ).previewnet_asset_hub;
+                : (ahMod as typeof import("@parity/product-sdk-descriptors/previewnet-asset-hub"))
+                      .previewnet_asset_hub;
 
     return { assetHub, bulletin, individuality };
 }
