@@ -29,6 +29,10 @@ export const BulletinChain = {
         genesisHash: "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea",
         descriptor: bulletinDescriptor,
     },
+    previewnet: {
+        genesisHash: "0xf37fa1f1450ea120edbf64c3fc447f671a00e1f1095a698f42eeec073c7ee487",
+        descriptor: bulletinDescriptor,
+    },
 } as const satisfies Record<string, BulletinNetwork>;
 
 /** Network keys with built-in presets in {@link BulletinChain}. */
@@ -44,6 +48,22 @@ if (import.meta.vitest) {
 
         test("paseo descriptor has matching genesis", () => {
             expect(BulletinChain.paseo.descriptor.genesis).toBe(BulletinChain.paseo.genesisHash);
+        });
+
+        test("previewnet has a valid genesis hash", () => {
+            expect(BulletinChain.previewnet.genesisHash).toMatch(/^0x[a-f0-9]{64}$/);
+        });
+
+        test("paseo and previewnet are distinct chain instances", () => {
+            // Same runtime, separate deployments — genesis hashes must differ.
+            expect(BulletinChain.previewnet.genesisHash).not.toBe(BulletinChain.paseo.genesisHash);
+        });
+
+        test("paseo and previewnet share the bulletin descriptor", () => {
+            // Bulletin runtime is identical across environments today; only the
+            // chain instance (genesis) differs. If the descriptor ever needs to
+            // diverge, this assertion will catch it.
+            expect(BulletinChain.previewnet.descriptor).toBe(BulletinChain.paseo.descriptor);
         });
     });
 }
