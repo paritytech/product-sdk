@@ -95,7 +95,9 @@ jobs:
                     git diff -- pnpm-workspace.yaml | grep -E '^[+-]\s+"@novasamatech' || true
                     echo '```'
                     echo
-                    echo "Review, add a changeset if a re-release is wanted, then merge."
+                    echo "Changelog: https://github.com/paritytech/triangle-js-sdks/blob/main/CHANGELOG.md"
+                    echo
+                    echo "Reviewer: please check the changelog and confirm no other changes are needed in this repo beyond the version bump."
                     echo "PR_BODY_EOF"
                   } >> $GITHUB_OUTPUT
 
