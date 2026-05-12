@@ -57,8 +57,8 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
  * const fee = await client.bulletin.query.TransactionStorage.ByteFee.getValue();
  *
  * // Raw client for advanced use (e.g., a ContractRuntime for pallet-revive contracts)
- * import { createContractRuntime } from "@parity/product-sdk-contracts";
- * const runtime = createContractRuntime(client.assetHub);
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+ * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  *
  * // Cleanup
  * client.destroy();

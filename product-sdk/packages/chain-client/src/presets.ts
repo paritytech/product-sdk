@@ -170,8 +170,9 @@ export type PresetChains<E extends Environment> = PresetDescriptors[E];
  * const fee = await client.bulletin.query.TransactionStorage.ByteFee.getValue();
  *
  * // Raw client for advanced use (e.g., a ContractRuntime for pallet-revive contracts)
- * import { createContractRuntime } from "@parity/product-sdk-contracts";
- * const runtime = createContractRuntime(client.assetHub);
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+ * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+ * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  *
  * client.destroy();
  * ```

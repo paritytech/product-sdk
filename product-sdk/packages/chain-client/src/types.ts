@@ -53,8 +53,8 @@ export interface ChainClientConfig<
  * const account = await client.assetHub.query.System.Account.getValue(addr);
  *
  * // Raw client for advanced use (e.g., a ContractRuntime for pallet-revive contracts)
- * import { createContractRuntime } from "@parity/product-sdk-contracts";
- * const runtime = createContractRuntime(client.assetHub);
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+ * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  * ```
  */
 export type ChainClient<TChains extends Record<string, ChainDefinition>> = {
