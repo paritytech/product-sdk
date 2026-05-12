@@ -116,6 +116,13 @@ function encodeCalldata(abi: AbiEntry[], methodName: string, args: unknown[]): `
 /**
  * Decode a successful query's return data via the Solidity ABI codec.
  * Returns `undefined` for void methods.
+ *
+ * Shape note: viem hands back the raw value for single-output methods and a
+ * positional array for multi-output ones. The codegen pairs in
+ * `generateMethodResponseType` surface multi-output returns as a named
+ * object (`{name1: T1; name2: T2}`), so we assemble that object here from
+ * viem's array. Single-output and Solidity-tuple outputs (which viem
+ * already returns as a named object) pass through untouched.
  */
 function decodeReturn(abi: AbiEntry[], methodName: string, returnData: Uint8Array): unknown {
     if (returnData.byteLength === 0) return undefined;
@@ -123,11 +130,22 @@ function decodeReturn(abi: AbiEntry[], methodName: string, returnData: Uint8Arra
     for (let i = 0; i < returnData.byteLength; i++) {
         hex += returnData[i].toString(16).padStart(2, "0");
     }
-    return decodeFunctionResult({
+    const decoded = decodeFunctionResult({
         abi: abi as unknown as ViemAbi,
         functionName: methodName,
         data: hex as `0x${string}`,
     });
+
+    const entry = abi.find((e) => e.type === "function" && e.name === methodName);
+    const outputs = entry?.outputs ?? [];
+    if (outputs.length <= 1 || !Array.isArray(decoded)) return decoded;
+    // Fall back to positional `_0`, `_1`, … when outputs are unnamed —
+    // matches generateMethodResponseType's naming policy.
+    const obj: Record<string, unknown> = {};
+    for (let i = 0; i < outputs.length; i++) {
+        obj[outputs[i].name || `_${i}`] = decoded[i];
+    }
+    return obj;
 }
 
 /**
@@ -445,6 +463,77 @@ if (import.meta.vitest) {
 
         test("returns undefined for empty data", () => {
             expect(decodeReturn(abi, "add", new Uint8Array(0))).toBeUndefined();
+        });
+
+        test("multi-output method: assembles named object from viem's positional array", () => {
+            // viem hands back `[balance, nonce]` for multi-output methods,
+            // but `generateMethodResponseType` surfaces this as
+            // `{ balance: bigint; nonce: bigint }`. decodeReturn should
+            // bridge the two so the runtime shape matches the codegen type.
+            const multiAbi: AbiEntry[] = [
+                {
+                    type: "function",
+                    name: "info",
+                    inputs: [],
+                    outputs: [
+                        { name: "balance", type: "uint256" },
+                        { name: "nonce", type: "uint256" },
+                    ],
+                    stateMutability: "view",
+                },
+            ];
+            const buf = new Uint8Array(64);
+            buf[31] = 7;
+            buf[63] = 11;
+            expect(decodeReturn(multiAbi, "info", buf)).toEqual({ balance: 7n, nonce: 11n });
+        });
+
+        test("multi-output method with unnamed outputs: falls back to _0, _1, …", () => {
+            // Mirrors generateMethodResponseType's `_${i}` policy when an
+            // output has no name in the ABI.
+            const unnamedAbi: AbiEntry[] = [
+                {
+                    type: "function",
+                    name: "stats",
+                    inputs: [],
+                    outputs: [
+                        { name: "", type: "uint256" },
+                        { name: "", type: "uint256" },
+                    ],
+                    stateMutability: "view",
+                },
+            ];
+            const buf = new Uint8Array(64);
+            buf[31] = 1;
+            buf[63] = 2;
+            expect(decodeReturn(unnamedAbi, "stats", buf)).toEqual({ _0: 1n, _1: 2n });
+        });
+
+        test("Solidity tuple output: viem already returns a named object — pass through", () => {
+            // Single tuple-type output: viem builds the named object itself
+            // from the component names, so decodeReturn must not double-wrap.
+            const tupleAbi: AbiEntry[] = [
+                {
+                    type: "function",
+                    name: "info",
+                    inputs: [],
+                    outputs: [
+                        {
+                            name: "result",
+                            type: "tuple",
+                            components: [
+                                { name: "balance", type: "uint256" },
+                                { name: "nonce", type: "uint256" },
+                            ],
+                        },
+                    ],
+                    stateMutability: "view",
+                },
+            ];
+            const buf = new Uint8Array(64);
+            buf[31] = 7;
+            buf[63] = 11;
+            expect(decodeReturn(tupleAbi, "info", buf)).toEqual({ balance: 7n, nonce: 11n });
         });
     });
 
