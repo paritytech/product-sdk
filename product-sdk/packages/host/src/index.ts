@@ -54,3 +54,13 @@ export type {
     AllocationOutcome,
     Statement,
 } from "./truapi.js";
+
+// Type aliases derived from @novasamatech/host-api codecs
+export type {
+    AllocatableResource,
+    AllocatableResourceTag,
+    AllocationOutcome,
+    AllocationOutcomeTag,
+    RemotePermission,
+    RemotePermissionTag,
+} from "./host-api-types.js";
