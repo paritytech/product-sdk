@@ -124,7 +124,7 @@ async function init() {
     try {
         byodClient = await createChainClient({
             chains: { assetHub: paseo_asset_hub },
-            rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+            rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
         });
         log("BYOD connected", "ok");
 

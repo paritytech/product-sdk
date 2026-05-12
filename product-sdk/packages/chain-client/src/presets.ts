@@ -41,12 +41,9 @@ const rpcs = {
         individuality: [] as string[],
     },
     paseo: {
-        assetHub: [
-            "wss://asset-hub-paseo-rpc.n.dwellir.com",
-            "wss://sys.ibp.network/asset-hub-paseo",
-        ],
+        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
         bulletin: [...BULLETIN_RPCS.paseo],
-        individuality: ["wss://paseo-people-next-rpc.polkadot.io"],
+        individuality: ["wss://paseo-people-next-system-rpc.polkadot.io"],
     },
     previewnet: {
         assetHub: ["wss://previewnet.substrate.dev/asset-hub"],
@@ -214,11 +211,11 @@ if (import.meta.vitest) {
     const GENESIS = {
         polkadot_asset_hub: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
         kusama_asset_hub: "0x48239ef607d7928874027a43a67689209727dfb3d3dc5e5b03a39bdc2eda771a",
-        paseo_asset_hub: "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
+        paseo_asset_hub: "0x173cea9df45656cf612c8b8ece56e04e9a693c69cfaac47d3628dae735067af8",
         previewnet_asset_hub: "0x860d75a890388e2ad02c54aa451264d04af89765773a51cd56868b4293c7867c",
-        paseo_bulletin: "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea",
+        paseo_bulletin: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
         previewnet_bulletin: "0xf37fa1f1450ea120edbf64c3fc447f671a00e1f1095a698f42eeec073c7ee487",
-        paseo_individuality: "0xa22a2424d2cbf561eaecf7da8b1b548fa9d1939f60265e942b1049616a012f71",
+        paseo_individuality: "0x053e1a785bb0990b98768124d9609e963d9ca3558f5ac6e90a4297aaa0a0bd4b",
         previewnet_individuality:
             "0xbf3a38ecba96d2f647bc12198011b9e4f0ba3a7e2a190597205cbe238f5c125d",
     } as const;

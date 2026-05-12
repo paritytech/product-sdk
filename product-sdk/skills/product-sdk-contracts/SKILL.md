@@ -20,7 +20,7 @@ import cdmJson from "./cdm.json";
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
 const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
@@ -54,7 +54,7 @@ const abi = [
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
 const counter = await createContractFromClient(

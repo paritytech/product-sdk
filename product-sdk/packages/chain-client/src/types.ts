@@ -23,8 +23,8 @@ export type Environment = "polkadot" | "kusama" | "paseo" | "previewnet" | "loca
  * const client = await createChainClient({
  *     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
  *     rpcs: {
- *         assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
- *         bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
+ *         assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
+ *         bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
  *     },
  * });
  * ```

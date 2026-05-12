@@ -31,7 +31,7 @@ import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 const balance = await client.assetHub.query.System.Account.getValue("5GrwvaEF...");
 client.destroy();

@@ -20,21 +20,21 @@ The SDK supports four environments, each with its own set of chains:
 - **Chain ID**: `paseo_asset_hub`
 - **Token**: PAS (testnet DOT)
 - **Decimals**: 10
-- **RPC**: `wss://sys.ibp.network/asset-hub-paseo`
+- **RPC**: `wss://paseo-asset-hub-next-rpc.polkadot.io`
 - **Features**: Native balances, assets, NFTs, smart contracts (pallet-revive)
 
 ### Paseo Bulletin
 
-- **Chain ID**: `bulletin`
+- **Chain ID**: `paseo_bulletin`
 - **Token**: None (no native token)
-- **RPC**: `wss://paseo-bulletin-rpc.polkadot.io`
+- **RPC**: `wss://paseo-bulletin-next-rpc.polkadot.io`
 - **Features**: Decentralized data storage, CID-based content addressing
 
 ### Paseo Individuality
 
-- **Chain ID**: `individuality`
+- **Chain ID**: `paseo_individuality`
 - **Token**: None (no native token)
-- **RPC**: `wss://paseo-individuality-rpc.polkadot.io`
+- **RPC**: `wss://paseo-people-next-system-rpc.polkadot.io`
 - **Features**: Identity, personhood verification
 
 ### Previewnet Asset Hub
@@ -47,14 +47,14 @@ The SDK supports four environments, each with its own set of chains:
 
 ### Previewnet Bulletin
 
-- **Chain ID**: `bulletin` (descriptor shared across environments)
+- **Chain ID**: `previewnet_bulletin`
 - **Token**: None
 - **RPC**: `wss://previewnet.substrate.dev/bulletin`
 - **Features**: Decentralized data storage, CID-based content addressing.
 
 ### Previewnet Individuality (People)
 
-- **Chain ID**: `individuality` (descriptor shared across environments)
+- **Chain ID**: `previewnet_individuality`
 - **Token**: None
 - **RPC**: `wss://previewnet.substrate.dev/people`
 - **Features**: Identity, personhood verification. Also hosts the `statement_*` RPC for the statement store on previewnet.
@@ -82,8 +82,8 @@ import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
     rpcs: {
-        assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
-        bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
+        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
+        bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
     },
 });
 ```

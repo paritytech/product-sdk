@@ -3,10 +3,10 @@
     "descriptorPath": "generated",
     "entries": {
         "paseo_individuality": {
-            "wsUrl": "wss://paseo-people-next-rpc.polkadot.io",
+            "wsUrl": "wss://paseo-people-next-system-rpc.polkadot.io",
             "metadata": "../../.papi/metadata/paseo_individuality.scale",
-            "genesis": "0xa22a2424d2cbf561eaecf7da8b1b548fa9d1939f60265e942b1049616a012f71",
-            "codeHash": "0x0e48da626edc33a96d18d81fdc5eebe5d6a9b624af4ca4b9dbcc1345a3b03bb6"
+            "genesis": "0x053e1a785bb0990b98768124d9609e963d9ca3558f5ac6e90a4297aaa0a0bd4b",
+            "codeHash": "0x91e28d5969622cc8886330091460b8eed140f63433da6aa6c105e36502ea05be"
         }
     }
 }

@@ -128,7 +128,7 @@ const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
     rpcs: {
         assetHub: [
-            "wss://sys.ibp.network/asset-hub-paseo",
+            "wss://paseo-asset-hub-next-rpc.polkadot.io",
             "wss://asset-hub-paseo.dotters.network",
         ],
     },
@@ -166,7 +166,7 @@ import { createInkSdk } from "@polkadot-api/sdk-ink";
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
 // Create InkSdk from raw client
@@ -193,9 +193,9 @@ const client = await createChainClient({
         individuality: paseo_individuality,
     },
     rpcs: {
-        assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
-        bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
-        individuality: ["wss://paseo-people-next-rpc.polkadot.io"],
+        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
+        bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
+        individuality: ["wss://paseo-people-next-system-rpc.polkadot.io"],
     },
 });
 

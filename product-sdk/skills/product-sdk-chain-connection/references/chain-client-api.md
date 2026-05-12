@@ -62,8 +62,8 @@ const client = await createChainClient({
         bulletin: paseo_bulletin,
     },
     rpcs: {
-        assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
-        bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
+        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
+        bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
     },
 });
 

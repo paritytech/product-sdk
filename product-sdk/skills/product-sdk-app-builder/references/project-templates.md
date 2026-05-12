@@ -233,7 +233,7 @@ const counterAbi = [
 async function main() {
     const client = await createChainClient({
         chains: { assetHub: paseo_asset_hub },
-        rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+        rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
     });
 
     const signerManager = new SignerManager();
@@ -360,7 +360,7 @@ async function main() {
 
     const client = new StatementStoreClient({
         appName: "my-messaging-app",
-        endpoint: "wss://paseo-bulletin-rpc.polkadot.io",
+        endpoint: "wss://paseo-bulletin-next-rpc.polkadot.io",
     });
 
     await client.connect({

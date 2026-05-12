@@ -27,7 +27,7 @@ export interface BulletinNetwork {
  */
 export const BulletinChain = {
     paseo: {
-        genesisHash: "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea",
+        genesisHash: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
         descriptor: paseoBulletinDescriptor,
     },
     previewnet: {

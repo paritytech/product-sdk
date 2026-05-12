@@ -3,10 +3,10 @@
     "descriptorPath": "generated",
     "entries": {
         "paseo_bulletin": {
-            "wsUrl": "wss://paseo-bulletin-rpc.polkadot.io",
+            "wsUrl": "wss://paseo-bulletin-next-rpc.polkadot.io",
             "metadata": "../../.papi/metadata/paseo_bulletin.scale",
-            "genesis": "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea",
-            "codeHash": "0xd248224df107ca81267a5a4d0671bb9618dbb1a43fae7fad6ba2331a45a10ac5"
+            "genesis": "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
+            "codeHash": "0x4fe167698d8a654b0d832ffa2b22471689331b278d93e1802b4f3d469b807d5a"
         }
     }
 }

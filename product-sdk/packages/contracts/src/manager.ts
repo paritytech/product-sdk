@@ -31,7 +31,7 @@ import type {
  *
  * const client = await createChainClient({
  *     chains: { assetHub: paseo_asset_hub },
- *     rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+ *     rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
  * });
  * const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
  * const manager = new ContractManager(cdmJson, inkSdk, {
@@ -99,7 +99,7 @@ export class ContractManager {
      *
      * const client = await createChainClient({
      *     chains: { assetHub: paseo_asset_hub },
-     *     rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+     *     rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
      * });
      * const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
      *     signerManager,
@@ -220,7 +220,7 @@ if (import.meta.vitest) {
     const playgroundCdm: CdmJson = {
         targets: {
             acc2c3b5e912b762: {
-                "asset-hub": "wss://asset-hub-paseo-rpc.n.dwellir.com",
+                "asset-hub": "wss://paseo-asset-hub-next-rpc.polkadot.io",
                 bulletin: "https://paseo-ipfs.polkadot.io/ipfs",
             },
         },
