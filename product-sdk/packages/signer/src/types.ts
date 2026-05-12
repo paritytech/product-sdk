@@ -1,6 +1,11 @@
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { SS58String } from "@parity/product-sdk-address";
+import type {
+    AllocatableResource,
+    AllocationOutcome,
+    Result as HostResult,
+} from "@parity/product-sdk-host";
 
 import type { SignerError } from "./errors.js";
 
@@ -105,7 +110,57 @@ export interface SignerManagerOptions {
      * Set to `null` to disable persistence entirely.
      */
     persistence?: AccountPersistence | null;
+    /**
+     * Callback fired exactly when the manager transitions to `connected`
+     * with a selected account — not on subsequent state mutations while
+     * still connected. Fires again after auto-reconnect, so a fresh host
+     * session re-runs the callback.
+     *
+     * Common use: request product permissions / resource allocations
+     * once per session. The `ctx` exposes a pre-bound
+     * `requestPermissions` helper plus an `AbortSignal` that fires if the
+     * user disconnects or destroys the manager mid-flight.
+     *
+     * Errors thrown from `onConnect` are logged but do not affect the
+     * connected state — the next reconnect retries.
+     *
+     * @example
+     * ```ts
+     * new SignerManager({
+     *   onConnect: async (account, { requestPermissions, signal }) => {
+     *     const result = await requestPermissions([
+     *       { tag: "SmartContractAllowance", value: account.publicKey.length },
+     *       { tag: "AutoSigning", value: undefined },
+     *     ]);
+     *     if (!result.ok || result.value.some(o => o.tag !== "Allocated")) {
+     *       logWarning("partial permissions", result);
+     *     }
+     *   },
+     * });
+     * ```
+     */
+    onConnect?: OnConnect;
 }
+
+/** Context passed to the `onConnect` callback. */
+export interface ConnectContext {
+    /**
+     * Aborted when the manager disconnects or is destroyed while the
+     * callback is still running. Pass through to `fetch` / cancellation
+     * primitives so mid-flight work stops promptly.
+     */
+    signal: AbortSignal;
+    /**
+     * Request a batch of host resource allocations. Bound shorthand for
+     * `requestProductPermissions` from `@parity/product-sdk-host`.
+     */
+    requestPermissions: (
+        resources: AllocatableResource[],
+    ) => Promise<HostResult<AllocationOutcome[], string>>;
+}
+
+/** Callback signature for {@link SignerManagerOptions.onConnect}. */
+export type OnConnect = (account: SignerAccount, ctx: ConnectContext) => void | Promise<void>;
 
 if (import.meta.vitest) {
     const { test, expect, describe } = import.meta.vitest;
