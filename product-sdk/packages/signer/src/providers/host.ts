@@ -1,4 +1,5 @@
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
+import { formatHostError } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 
 import {
@@ -262,7 +263,7 @@ export class HostProvider implements SignerProvider {
                     (account) => account,
                     (error) => {
                         throw new Error(
-                            `Host rejected product account request: ${formatError(error)}`,
+                            `Host rejected product account request: ${formatHostError(error)}`,
                         );
                     },
                 )) as RawAccount;
@@ -332,7 +333,7 @@ export class HostProvider implements SignerProvider {
                 .match(
                     (result) => result,
                     (error) => {
-                        throw new Error(`Host rejected alias request: ${formatError(error)}`);
+                        throw new Error(`Host rejected alias request: ${formatHostError(error)}`);
                     },
                 )) as ContextualAlias;
 
@@ -372,7 +373,7 @@ export class HostProvider implements SignerProvider {
                     (result) => result,
                     (error) => {
                         throw new Error(
-                            `Host rejected Ring VRF proof request: ${formatError(error)}`,
+                            `Host rejected Ring VRF proof request: ${formatHostError(error)}`,
                         );
                     },
                 )) as Uint8Array;
@@ -416,7 +417,7 @@ export class HostProvider implements SignerProvider {
             rawAccounts = (await provider.getLegacyAccounts().match(
                 (accounts) => accounts,
                 (error) => {
-                    throw new Error(`Host rejected account request: ${formatError(error)}`);
+                    throw new Error(`Host rejected account request: ${formatHostError(error)}`);
                 },
             )) as RawAccount[];
         } catch (cause) {
@@ -463,7 +464,7 @@ export class HostProvider implements SignerProvider {
                     },
                     (error) => {
                         log.warn("ChainSubmit permission rejected by host", {
-                            error: formatError(error),
+                            error: formatHostError(error),
                         });
                     },
                 );
@@ -512,50 +513,6 @@ export class HostProvider implements SignerProvider {
             };
         });
     }
-}
-
-/**
- * Format a host-error for logging.
- *
- * host-api errors come back as `{ tag: "v1", value: <inner> }` where the
- * inner can be either another tagged enum (with its own tag/value) or a
- * plain `Error`-shaped object surfacing client-side codec failures
- * (e.g. `GenericError: inner[tag] is not a function` when the SDK
- * encodes a request the codec doesn't understand).
- *
- * Walking the value side as well as the tag means schema drift between
- * host-api versions and the SDK produces something more diagnostic than
- * just the outermost wrapper tag.
- */
-function formatError(error: unknown): string {
-    if (!error || typeof error !== "object") return String(error);
-    const e = error as Record<string, unknown>;
-    if (!("tag" in e)) return String(error);
-
-    const outerTag = String(e.tag);
-    const inner = e.value;
-
-    // Inner is an Error-shaped object with name/message — surface those.
-    if (inner && typeof inner === "object") {
-        const innerObj = inner as Record<string, unknown>;
-        if (typeof innerObj.message === "string") {
-            const innerName =
-                typeof innerObj.name === "string" && innerObj.name !== "Error"
-                    ? `${innerObj.name}: `
-                    : "";
-            return `${outerTag} → ${innerName}${innerObj.message}`;
-        }
-        // Inner is a nested tagged-enum — recurse.
-        if ("tag" in innerObj) {
-            return `${outerTag} → ${formatError(inner)}`;
-        }
-    }
-
-    // Inner is a primitive or absent — fall back to the outer tag alone.
-    if (inner !== undefined) {
-        return `${outerTag} (${String(inner)})`;
-    }
-    return outerTag;
 }
 
 if (import.meta.vitest) {
@@ -898,63 +855,6 @@ if (import.meta.vitest) {
 
             const result = await provider.connect();
             expect(result.ok).toBe(true);
-        });
-    });
-
-    describe("formatError", () => {
-        // Direct unit tests for the helper. The previous implementation
-        // collapsed any tagged-enum error to its outer tag — losing the
-        // inner reason. The fix surfaces the inner Error-shape (name +
-        // message) and recurses through nested tagged enums.
-
-        test("returns a string for a primitive error", () => {
-            expect(formatError("Rejected")).toBe("Rejected");
-            expect(formatError(42)).toBe("42");
-            expect(formatError(null)).toBe("null");
-            expect(formatError(undefined)).toBe("undefined");
-        });
-
-        test("surfaces inner Error name + message under the outer tag", () => {
-            // Simulates the exact shape the original bug produced:
-            // `{ tag: "v1", value: { name: "GenericError", message: "..." } }`
-            const wrapped = {
-                tag: "v1",
-                value: {
-                    name: "GenericError",
-                    message: "Unknown error: inner[tag] is not a function",
-                },
-            };
-            const out = formatError(wrapped);
-            expect(out).toContain("v1");
-            expect(out).toContain("GenericError");
-            expect(out).toContain("inner[tag] is not a function");
-        });
-
-        test("strips the redundant 'Error' name when the inner is a plain Error", () => {
-            const wrapped = {
-                tag: "v1",
-                value: { name: "Error", message: "boom" },
-            };
-            expect(formatError(wrapped)).toBe("v1 → boom");
-        });
-
-        test("recurses through nested tagged-enum errors", () => {
-            const wrapped = {
-                tag: "v1",
-                value: { tag: "Inner", value: { name: "NestedErr", message: "deep" } },
-            };
-            expect(formatError(wrapped)).toContain("v1");
-            expect(formatError(wrapped)).toContain("Inner");
-            expect(formatError(wrapped)).toContain("NestedErr");
-            expect(formatError(wrapped)).toContain("deep");
-        });
-
-        test("returns just the outer tag when value is undefined", () => {
-            expect(formatError({ tag: "PermissionDenied" })).toBe("PermissionDenied");
-        });
-
-        test("formats a primitive inner value alongside the tag", () => {
-            expect(formatError({ tag: "v1", value: "code-42" })).toBe("v1 (code-42)");
         });
     });
 

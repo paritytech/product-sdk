@@ -64,3 +64,7 @@ export type {
     RemotePermission,
     RemotePermissionTag,
 } from "./host-api-types.js";
+
+// Higher-level permission wrappers
+export { requestProductPermissions, requestPermission, formatHostError } from "./permissions.js";
+export type { Result } from "./permissions.js";
