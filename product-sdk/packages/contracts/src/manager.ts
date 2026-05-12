@@ -221,7 +221,7 @@ if (import.meta.vitest) {
         targets: {
             acc2c3b5e912b762: {
                 "asset-hub": "wss://paseo-asset-hub-next-rpc.polkadot.io",
-                bulletin: "https://paseo-ipfs.polkadot.io/ipfs",
+                bulletin: "https://paseo-bulletin-next-ipfs.polkadot.io",
             },
         },
         dependencies: {

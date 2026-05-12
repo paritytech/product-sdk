@@ -141,7 +141,7 @@ Top-level shape:
   "targets": {
     "<targetHash>": {
       "asset-hub": "wss://paseo-asset-hub-next-rpc.polkadot.io",
-      "bulletin": "https://paseo-ipfs.polkadot.io/ipfs"
+      "bulletin": "https://paseo-bulletin-next-ipfs.polkadot.io"
     }
   },
   "dependencies": {
