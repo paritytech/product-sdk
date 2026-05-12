@@ -7,6 +7,7 @@ E2E demo app for `@parity/product-sdk-signer`. Extends the [`tx-demo`](../tx-dem
 - `SignerManager.connect()` against the Host API path (auto-requests `TransactionSubmit` permission).
 - `SignerManager.subscribe(state => …)` propagates state changes when the test host swaps the active account via `testHost.switchAccount()`.
 - `SignerManager.signRaw(bytes)` round-trips through the host's `handleSignRaw` handler.
+- `onConnect` lifecycle hook fires once per connect transition (not per state mutation) and refires after reconnect. The demo callback calls `ctx.requestPermissions([...])` to surface a typed `Result<AllocationOutcome[], string>` from `@parity/product-sdk-host`.
 - Permission rejection via `testHost.setPermissionBehavior("reject-all")` / `revokePermission("TransactionSubmit")` — verifies the error surfaces cleanly through the `Result` type, not as a bare throw.
 - `disconnect()` + `connect()` lifecycle from a user click.
 
@@ -48,6 +49,7 @@ pnpm --filter "@parity/product-sdk-signer-demo" test:e2e:ui  # debug mode
 | `e2e/lifecycle.spec.ts` | Disconnect → reconnect → sign again |
 | `e2e/product-account.spec.ts` | `getProductAccount` resolves mapped identifiers |
 | `e2e/persistence.spec.ts` | Selected account survives page reload via `hostLocalStorage` |
+| `e2e/onconnect.spec.ts` | `onConnect` fires once per session, refires on reconnect, `ctx.requestPermissions` resolves |
 
 ## Notes
 
