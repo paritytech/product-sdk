@@ -65,7 +65,7 @@ polkadot-api                        # Core runtime (peer dep of descriptors)
 
 | Feature | Package | Skill |
 |---------|---------|-------|
-| Smart contracts (Solidity/ink!) | `@parity/product-sdk-contracts` | product-sdk-contracts |
+| Smart contracts (PolkaVM/Solidity) | `@parity/product-sdk-contracts` | product-sdk-contracts |
 | Submit transactions | `@parity/product-sdk-tx` | product-sdk-transactions |
 | Wallet connection (Talisman, Polkadot.js, Host API) | `@parity/product-sdk-signer` | product-sdk-transactions |
 | Key derivation | `@parity/product-sdk-keys` | product-sdk-transactions |
@@ -124,7 +124,7 @@ npm install
 
 Invoke the relevant domain skill(s) based on the selected packages:
 - **product-sdk-chain-connection** — for connecting and querying chains
-- **product-sdk-contracts** — for smart contracts (ContractManager, createContract, InkSdk, codegen)
+- **product-sdk-contracts** — for smart contracts (ContractManager, createContract, ContractRuntime, codegen)
 - **product-sdk-transactions** — for submitting transactions, signing, keys
 - **product-sdk-bulletin** — for Bulletin Chain data storage
 - **product-sdk-statement-store** — for pub/sub messaging
@@ -157,7 +157,7 @@ node dist/index.js # Run the app
 - Chains not in the preset list
 - Minimal bundle size
 
-Both return the same `ChainClient` type with `.raw` access for advanced use (e.g., `createInkSdk`).
+Both return the same `ChainClient` type with `.raw` access for advanced use (e.g., `createContractRuntime`).
 
 ## Environments and Chains
 
@@ -179,7 +179,7 @@ See [references/chains.md](references/chains.md) for full details.
 3. **Using unavailable environments** — Only `"paseo"` and `"previewnet"` work. `"polkadot"` and `"kusama"` throw.
 4. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return a Promise. Always `await` it.
 5. **Not cleaning up** — Call `client.destroy()` or `destroyAll()` when done to close WebSocket connections.
-6. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create InkSdk yourself: `createInkSdk(client.raw.assetHub, { atBest: true })`, or use `ContractManager.fromClient()` for convenience.
+6. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create ContractRuntime yourself: `createContractRuntime(client.raw.assetHub, { atBest: true })`, or use `ContractManager.fromClient()` for convenience.
 7. **Dev signers in production** — `createDevSigner("Alice")` is testnet-only. Use `SignerManager` for production.
 8. **Wrong signer type** — `PolkadotSigner` (tx), `StatementSignerWithKey` (statement-store), and `SignerManager` (wallet UI) are distinct.
 

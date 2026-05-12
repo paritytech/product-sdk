@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-storage",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "description": "Key-value storage abstraction with automatic host/browser backend detection",
     "type": "module",
     "sideEffects": false,

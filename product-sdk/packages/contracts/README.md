@@ -1,6 +1,6 @@
 # @parity/product-sdk-contracts
 
-Typed contract interactions on Polkadot Asset Hub. Resolve deployed contracts from a `cdm.json` manifest, get fully-typed handles for `query`, `tx`, and batched `prepare` calls — all backed by the ink SDK.
+Typed contract interactions on Polkadot Asset Hub. Resolve deployed contracts from a `cdm.json` manifest (or directly from `cargo pvm-contract build` artefacts), get fully-typed handles for `query`, `tx`, and batched `prepare` calls — backed by `pallet-revive` via PAPI typed APIs, with viem providing the Solidity ABI codec.
 
 ## Install
 
@@ -10,7 +10,7 @@ pnpm add @parity/product-sdk-contracts
 
 ## Quick start (with cdm.json)
 
-The `cdm.json` flow is the primary path. A `cdm.json` manifest in your project root pins each contract to an address + ABI per target chain; `ContractManager.fromClient(cdm, api)` resolves them at runtime.
+The `cdm.json` flow is the primary path. A `cdm.json` manifest in your project root pins each contract to an address + ABI per target chain; `ContractManager.fromClient(cdm, client, descriptor)` resolves them at runtime.
 
 ```ts
 import { createChainClient } from "@parity/product-sdk-chain-client";
@@ -27,7 +27,7 @@ const client = await createChainClient({
 const signerManager = new SignerManager();
 await signerManager.connect();
 
-const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
+const manager = ContractManager.fromClient(cdmJson, client.raw.assetHub, paseo_asset_hub, {
     signerManager,
 });
 
@@ -43,14 +43,15 @@ await registry.publish.tx("my-app00", "ipfs://...", 0);
 
 ## `ContractManager` API
 
-### `ContractManager.fromClient(cdmJson, client, options?)`
+### `ContractManager.fromClient(cdmJson, client, descriptor, options?)`
 
-Async factory. Lazy-imports `@polkadot-api/sdk-ink` (~4 MB) only when called, so the install footprint stays small for callers who never resolve contracts.
+Synchronous factory. Builds a `ContractRuntime` internally that wires the typed API (for extrinsics + storage) and the unsafe API (for the `ReviveApi.call` dry-run, sidesteps compat-token drift when the descriptor lags a runtime upgrade) on the same `PolkadotClient`.
 
 | Param | Type | Notes |
 | --- | --- | --- |
 | `cdmJson` | `CdmJson` | Imported `cdm.json` |
 | `client` | `PolkadotClient` | E.g. `client.raw.assetHub` |
+| `descriptor` | `ChainDefinition` | E.g. `paseo_asset_hub` from `@parity/product-sdk-descriptors` |
 | `options.signerManager?` | `SignerManager` | Resolves signer + origin from the logged-in account |
 | `options.defaultOrigin?` | `SS58String` | Static fallback origin for queries |
 | `options.defaultSigner?` | `PolkadotSigner` | Static fallback signer for txs |
@@ -95,6 +96,23 @@ Order, highest wins:
 
 Throws `ContractSignerMissingError` from `.tx()` if no signer is available. `.query()` and `.prepare()` never need a signer.
 
+## Account mapping (`pallet-revive` prerequisite)
+
+`pallet-revive` requires every signing SS58 account to have a registered `OriginalAccount` mapping to its derived H160 before `Revive.call` extrinsics from it are accepted. Call `ensureContractAccountMapped(runtime, address, signer)` once at app boot per signing account — it's idempotent (reads `Revive.OriginalAccount` first, short-circuits with `null` if already mapped) so the worst case is one extra storage read on every boot.
+
+```ts
+import { ensureContractAccountMapped } from "@parity/product-sdk-contracts";
+
+await ensureContractAccountMapped(manager.getRuntime(), address, signer);
+// safe to call manager.getContract(...).<method>.tx({ signer }) from here
+```
+
+Without this, every fresh-account `.tx()` fails the pre-flight dry-run with `AccountNotMapped` before signing.
+
+## Dry-run preflight
+
+Every `.tx()` runs a `ReviveApi.call` dry-run first to size `weight_limit` / `storage_deposit_limit` and to fail fast on revert, OOG, or `AccountNotMapped` before any signing happens. Throws `ContractDryRunFailedError` (with the chain's `dispatchError`) when the dry-run reports failure — caller pays no gas on a tx the chain already rejected. Pass both `gasLimit` and `storageDepositLimit` overrides on `TxOptions` to skip the dry-run entirely.
+
 ## Batching with `.prepare()`
 
 Use `.prepare()` to build `BatchableCall` handles consumable by `batchSubmitAndWatch` from `@parity/product-sdk-tx`. Combine multiple contract calls — or contract calls mixed with other Asset Hub transactions — into a single atomic `Utility.batch_all` extrinsic.
@@ -118,9 +136,11 @@ If you don't have a `cdm.json` (or want to test against a contract not yet in yo
 
 ```ts
 import { createContractFromClient } from "@parity/product-sdk-contracts";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
-const counter = await createContractFromClient(
+const counter = createContractFromClient(
     client.raw.assetHub,
+    paseo_asset_hub,
     "0xC472...",
     counterAbi,
     { signerManager },
@@ -130,7 +150,9 @@ const { value } = await counter.getCount.query();
 await counter.increment.tx();
 ```
 
-`createContract` is the same but takes a pre-created `InkSdk` if you want to control when `@polkadot-api/sdk-ink` loads.
+`createContract` is the same but takes a pre-built `ContractRuntime` (from `createContractRuntime` / `createContractRuntimeFromClient`) instead of a raw `PolkadotClient` + descriptor. Use it when you want to share a single runtime across multiple contract handles or wire your own dry-run path.
+
+For projects that build with `cargo pvm-contract` and don't want to maintain a `cdm.json`, the `@parity/product-sdk-contracts/pvm` subpath exports `parsePvmContractAbi`, `loadPvmContractAbi`, `loadPvmContractCode`, and `loadPvmContractArtifacts` — load the ABI (and bytecode for deployment) directly from the toolchain's `<name>.release.abi.json` / `<name>.release.polkavm` output.
 
 ## cdm.json schema
 
@@ -170,11 +192,15 @@ A real-world example: [`paritytech/playground-cli/cdm.json`](https://github.com/
 `generateContractTypes(...)` (from `@parity/product-sdk-contracts/codegen`) emits a `.d.ts` that augments the package's `Contracts` interface so `manager.getContract("@org/name")` returns a fully-typed handle:
 
 ```ts
-import { generateContractTypes } from "@parity/product-sdk-contracts/codegen";
-import cdm from "./cdm.json";
+import { generateContractTypes, resolveContractTypeInputs } from "@parity/product-sdk-contracts/codegen";
 import { writeFileSync } from "node:fs";
 
-const src = generateContractTypes(cdm);
+// Mix inline ABIs (from your cdm.json) and cargo-pvm-contract build artefacts.
+const resolved = await resolveContractTypeInputs([
+    { library: "@example/counter", abiPath: "./target/counter.release.abi.json" },
+    { library: "@example/inline", abi: inlineAbi },
+]);
+const src = generateContractTypes(resolved);
 writeFileSync(".cdm/contracts.d.ts", src);
 ```
 
@@ -188,21 +214,30 @@ Without codegen, `getContract()` still works — methods are accessible but unty
 | --- | --- |
 | `ContractNotFoundError` | `getContract(name)` and `name` isn't in the manifest for the active target |
 | `ContractSignerMissingError` | `.tx()` called with no signer + no signerManager + no defaultSigner |
-| Generic | ABI decode failures, RPC errors, gas estimation failures — surface from the underlying ink SDK |
+| `ContractDryRunFailedError` | `.tx()` pre-flight `ReviveApi.call` reported failure — `dispatchError` carries the chain's encoded error (e.g. `ContractReverted`, `OutOfGas`, `AccountNotMapped`) |
+| Generic | viem ABI decode failures, RPC errors, weight/storage-limit estimation failures — surface from the underlying PAPI typed API |
 
 ## Public API
 
 ```ts
+// `@parity/product-sdk-contracts` (browser-safe runtime entry)
 export {
     ContractManager,
     createContract,
     createContractFromClient,
-    generateContractTypes,
+    createContractRuntime,
+    createContractRuntimeFromClient,
+    ensureContractAccountMapped,
     ContractError,
     ContractSignerMissingError,
     ContractNotFoundError,
+    ContractDryRunFailedError,
 };
 export type {
+    ContractRuntime,
+    ReviveTypedApi,
+    ReviveDryRunResult,
+    ReviveDryRunCall,
     CdmJson,
     CdmJsonTarget,
     CdmJsonContract,
@@ -221,4 +256,17 @@ export type {
     ContractManagerOptions,
     ContractOptions,
 };
+
+// `@parity/product-sdk-contracts/codegen` (Node-only — build tooling)
+export { generateContractTypes, resolveContractTypeInputs };
+export type { ContractTypeInput };
+
+// `@parity/product-sdk-contracts/pvm` (Node-only — cargo-pvm-contract artefact loaders)
+export {
+    parsePvmContractAbi,
+    loadPvmContractAbi,
+    loadPvmContractCode,
+    loadPvmContractArtifacts,
+};
+export type { PvmContractArtifacts };
 ```

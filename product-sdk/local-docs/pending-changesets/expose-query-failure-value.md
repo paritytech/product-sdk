@@ -10,12 +10,12 @@ A failed contract query used to return `{ success: false, value: undefined, gasR
 
 ```ts
 type QueryResult<T> =
-    | { success: true; value: T; gasRequired: bigint }
-    | { success: false; value: unknown; gasRequired?: bigint };
+    | { success: true; value: T; gasRequired: Weight }
+    | { success: false; value: unknown; gasRequired?: Weight };
 ```
 
-- **Success branch** — unchanged shape; `gasRequired` is now guaranteed non-optional.
-- **Failure branch** — `value` carries the raw payload the runtime returned (typically a tagged enum like `{ type: "Reverted", value: ... }` or `{ type: "Trapped", ... }`). Inspect its shape to decide how to react.
+- **Success branch** — `gasRequired` is now guaranteed non-optional (was `Weight | undefined`).
+- **Failure branch** — `value` carries the dispatch-error payload `pallet-revive` returned. Typically narrows as a tagged enum (`{ type: "Module", value: ... }`, `{ type: "ContractReverted" }`, `{ type: "AccountNotMapped" }` — see the Revive pallet error variants). `gasRequired` stays populated when the runtime reported a weight; it's optional because some failure modes don't carry one.
 
 ### Breaking changes
 
@@ -39,6 +39,16 @@ const r = await contract.query.foo();
 if (r.success) {
     processResponse(r.value);
 } else {
-    handleFailure(r.value); // typed as `unknown` — narrow on shape
+    // r.value is `unknown` — narrow on the dispatch-error shape:
+    if (
+        typeof r.value === "object" &&
+        r.value !== null &&
+        "type" in r.value &&
+        r.value.type === "ContractReverted"
+    ) {
+        handleRevert();
+    } else {
+        handleOtherFailure(r.value);
+    }
 }
 ```

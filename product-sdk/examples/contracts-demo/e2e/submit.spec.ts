@@ -9,7 +9,7 @@ import { waitForAppReady } from "./helpers";
  * contract is permissionless: any caller stores a report indexed by
  * msg.sender. It exercises the full host-signing path:
  *
- *   ContractManager → inkSdk.getContract().send() → submitAndWatch()
+ *   ContractManager → ReviveApi.call (dry-run) → Revive.call → submitAndWatch()
  *     → host.handleSignPayload (TransactionSubmit permission)
  *       → pallet_revive::call on Paseo Asset Hub
  *

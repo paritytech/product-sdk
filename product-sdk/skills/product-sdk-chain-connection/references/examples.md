@@ -157,23 +157,23 @@ console.log("Finalized block:", finalizedHead.hash);
 client.destroy();
 ```
 
-## Create InkSdk for Contracts
+## Create ContractRuntime for Contracts
 
 ```typescript
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-import { createInkSdk } from "@polkadot-api/sdk-ink";
+import { createContractRuntime } from "@parity/product-sdk-contracts";
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
     rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
-// Create InkSdk from raw client
-const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+// Create ContractRuntime from raw client
+const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 
 // Use with @parity/product-sdk-contracts
-// const contract = createContract(inkSdk, address, abi);
+// const contract = createContract(runtime, address, abi);
 
 client.destroy();
 ```

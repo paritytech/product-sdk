@@ -37,7 +37,8 @@ export interface CdmJson {
 }
 
 // ---------------------------------------------------------------------------
-// ABI types (Solidity-compatible, used by both Ink!/PolkaVM and Solidity)
+// ABI types (Solidity-compatible — emitted by cargo-pvm-contract and any
+// Solidity toolchain targeting pallet-revive)
 // ---------------------------------------------------------------------------
 
 /** An ABI parameter or return value, with support for nested tuple and struct types. */
@@ -79,17 +80,23 @@ export interface Contracts {}
  * Result from a read-only contract query.
  *
  * On success, `value` is the decoded response and `gasRequired` is the
- * estimated gas (from the dry-run).
+ * `Weight` consumed by `ReviveApi.call`'s dry-run — consumable directly by
+ * `Revive.call`'s `weight_limit` parameter.
  *
- * On failure, `value` is the raw failure payload from the underlying ink-sdk
- * (typically a tagged enum like `{ type: "Reverted", value: ... }` or
- * `{ type: "Trapped", ... }`). Surfacing it lets callers diagnose silent
- * failures instead of seeing `undefined` and being unable to tell whether
- * the contract reverted, gas estimation failed, or the dry-run never ran.
+ * On failure, `value` carries the raw dispatch-error payload the runtime
+ * returned (typically a tagged enum like `{ type: "Module", value: ... }`,
+ * `{ type: "ContractReverted" }`, or `{ type: "AccountNotMapped" }` — see the
+ * `Revive` pallet error variants). Surfacing it lets callers narrow on shape
+ * to diagnose silent failures instead of seeing `undefined` and being unable
+ * to tell whether the contract reverted, gas estimation failed, or the
+ * dry-run never ran. `gasRequired` is still populated when the runtime
+ * reported a weight even though the call ultimately failed (e.g. a revert
+ * after partial execution); it's optional because some failure modes don't
+ * carry one.
  */
 export type QueryResult<T> =
-    | { success: true; value: T; gasRequired: bigint }
-    | { success: false; value: unknown; gasRequired?: bigint };
+    | { success: true; value: T; gasRequired: Weight }
+    | { success: false; value: unknown; gasRequired?: Weight };
 
 /** Options for query calls — passed as the last argument after positional args. */
 export interface QueryOptions {
@@ -182,13 +189,10 @@ export type Contract<C extends ContractDef> = {
          */
         tx: (...args: [...C["methods"][K]["args"], opts?: TxOptions]) => Promise<TxResult>;
         /**
-         * Prepare the method as a {@link BatchableCall} — returns a handle
-         * consumable by `batchSubmitAndWatch` from `@parity/product-sdk-tx`
-         * without signing or submitting.
-         *
-         * Use this to group multiple contract calls (or contract calls mixed
-         * with other transactions on the same chain) into a single atomic
-         * `Utility.batch_all` transaction:
+         * Prepare the method as a {@link BatchableCall} — returns the same
+         * submittable that `.tx()` would build, but without signing or
+         * submitting. Consumable directly by `batchSubmitAndWatch` from
+         * `@parity/product-sdk-tx`:
          *
          * ```ts
          * import { batchSubmitAndWatch } from "@parity/product-sdk-tx";
@@ -198,11 +202,18 @@ export type Contract<C extends ContractDef> = {
          * await batchSubmitAndWatch([a, b], api, signer);
          * ```
          *
-         * Origin is resolved the same way as `.tx()` but falls back to the
-         * dev address for dry-run gas estimation if no signer context is
-         * available (prepare does not require a signer; the batch submission
-         * does).
+         * Sizing: when either `gasLimit` or `storageDepositLimit` is
+         * omitted, `.prepare()` runs a `ReviveApi.call` dry-run (same as
+         * `.tx()`) against the dev fallback origin to fill the missing
+         * field(s) — pass both to skip the dry-run entirely. A failing
+         * dry-run throws {@link ContractDryRunFailedError} before the
+         * call is constructed.
+         *
+         * `.prepare()` does not require a signer; the batch's signer
+         * replaces the dispatched origin at submission.
          */
-        prepare: (...args: [...C["methods"][K]["args"], opts?: PrepareOptions]) => BatchableCall;
+        prepare: (
+            ...args: [...C["methods"][K]["args"], opts?: PrepareOptions]
+        ) => Promise<BatchableCall>;
     };
 };

@@ -43,7 +43,7 @@ export interface ChainClientConfig<
  *
  * Each key from your config maps to a fully-typed PAPI {@link TypedApi}.
  * Access raw `PolkadotClient` instances via `.raw` for advanced use cases
- * like creating an `InkSdk` for contract interactions.
+ * like creating a `ContractRuntime` for pallet-revive contract interactions.
  *
  * @typeParam TChains - The chain descriptor record used to create this client.
  *
@@ -52,15 +52,15 @@ export interface ChainClientConfig<
  * // Typed API access — fully typed from your descriptors
  * const account = await client.assetHub.query.System.Account.getValue(addr);
  *
- * // Raw client for advanced use (e.g., InkSdk for contracts)
- * import { createInkSdk } from "@polkadot-api/sdk-ink";
- * const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+ * // Raw client for advanced use (e.g., a ContractRuntime for pallet-revive contracts)
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+ * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  * ```
  */
 export type ChainClient<TChains extends Record<string, ChainDefinition>> = {
     [K in string & keyof TChains]: TypedApi<TChains[K]>;
 } & {
-    /** Raw `PolkadotClient` instances, keyed by chain name. Use for advanced APIs like `createInkSdk`. */
+    /** Raw `PolkadotClient` instances, keyed by chain name. Use for advanced APIs like `createContractRuntime`. */
     raw: { [K in string & keyof TChains]: PolkadotClient };
     /** Destroy all connections managed by this client. */
     destroy: () => void;

@@ -24,8 +24,11 @@ export async function waitForAppReady(
     });
     await expect(frame.locator('[data-testid="account-address"]')).not.toHaveText("-", { timeout });
 
-    // ContractManager ready → both buttons enabled
+    // ContractManager ready → action buttons enabled
     await expect(frame.locator('[data-testid="btn-query-owner"]')).toBeEnabled({ timeout });
+    await expect(frame.locator('[data-testid="btn-query-report-count"]')).toBeEnabled({ timeout });
+    await expect(frame.locator('[data-testid="btn-query-all-dates"]')).toBeEnabled({ timeout });
+    await expect(frame.locator('[data-testid="btn-query-cid"]')).toBeEnabled({ timeout });
     await expect(frame.locator('[data-testid="btn-store-report"]')).toBeEnabled({ timeout });
 
     return frame;

@@ -169,9 +169,10 @@ export type PresetChains<E extends Environment> = PresetDescriptors[E];
  * const account = await client.assetHub.query.System.Account.getValue(addr);
  * const fee = await client.bulletin.query.TransactionStorage.ByteFee.getValue();
  *
- * // Raw client for advanced use (e.g., InkSdk for contracts)
- * import { createInkSdk } from "@polkadot-api/sdk-ink";
- * const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+ * // Raw client for advanced use (e.g., a ContractRuntime for pallet-revive contracts)
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+ * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+ * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  *
  * client.destroy();
  * ```
