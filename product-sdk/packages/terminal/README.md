@@ -201,10 +201,10 @@ const sessions = await waitForSessions(adapter);
 
 After login and attestation, the paired wallet can sign both transactions and raw messages via the statement store. The `PolkadotSigner` returned by `createSessionSigner` routes each path to the right host-papp method:
 
-- **Transactions** (`signTx` from polkadot-api's perspective — what `submitAndWatch`, `signSubmitAndWatch`, contract method calls, etc. invoke) go through `session.signPayload`. Mobile signs the SCALE-encoded extrinsic payload directly, with no envelope wrapping. The chain accepts the resulting signature.
-- **Raw bytes** (`signBytes`) go through `session.signRaw`. Mobile applies the standard `<Bytes>...</Bytes>` anti-phishing wrap before signing — appropriate for arbitrary data, the same behavior `signRaw` has across all Polkadot wallets.
+- **Transactions** (`signTx` from polkadot-api's perspective — what `submitAndWatch`, `signSubmitAndWatch`, contract method calls, etc. invoke) go through `session.signRaw` with the `Payload` tag. polkadot-api assembles the full SCALE-encoded signing payload from runtime metadata — `callData ‖ extras ‖ additionalSigneds` for every signed extension the chain declares — and hands the bytes to the wallet as an opaque hex blob. The wallet signs the payload as-is, with no envelope wrapping. Any signed extension declared by the runtime (including extensions polkadot-api doesn't know about, e.g. `AsPgas` on Paseo Next v2) survives end-to-end because the wallet doesn't inspect the bytes — it just signs them.
+- **Raw bytes** (`signBytes`) go through `session.signRaw` with the `Bytes` tag. Mobile applies the standard `<Bytes>...</Bytes>` anti-phishing wrap before signing — appropriate for arbitrary data, the same behavior `signRaw` has across all Polkadot wallets.
 
-> **Note on a previous bug.** Versions of this package prior to `0.1.1` routed *all* signing through `signRaw`, which caused mobile to wrap SCALE-encoded extrinsic payloads with `<Bytes>...</Bytes>` and produced signatures the chain rejected with `BadProof`. If you hit `BadProof` on every transaction, upgrade.
+> **Note on previous bugs.** Versions prior to `0.1.1` routed *all* signing through `signRaw` with no tag distinction, producing `BadProof`-rejected signatures. Versions `0.1.1` through `0.2.x` then used `polkadot-api/pjs-signer`, which threw `PJS does not support this signed-extension: <name>` on any extension outside its eight built-in mappers (notably `AsPgas`). The current path bypasses both pitfalls.
 
 ## Notes
 
