@@ -291,3 +291,16 @@ After the spec passes self-review, **ask the user to review it**:
 
 Wait for explicit approval. If changes are requested, make them and
 re-run the self-review. Only proceed once the user approves.
+
+## Phase 4 — Hand-off
+
+Once the spec is approved by the user:
+
+1. Invoke `superpowers:writing-plans` with the spec path as input.
+2. `writing-plans` produces an implementation plan at
+   `docs/superpowers/plans/YYYY-MM-DD-migrate-<repo>-to-product-sdk.md`.
+3. The user then picks an executor:
+   - `superpowers:subagent-driven-development` (recommended), or
+   - `superpowers:executing-plans`.
+
+This skill ends here. Do not attempt to execute the plan yourself.
