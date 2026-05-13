@@ -314,3 +314,27 @@ Apply the fix when the symptom appears; reference the gotcha number
 (G1–G11) from the spec when applicable. The most frequently relevant
 are: G1 (JSON-RPC overrides, **always** required), G7 (`bulletin: false`
 when Bulletin out of scope), G10 (descriptors bump).
+
+## References
+
+This skill composes with — and does not duplicate — the seven existing
+SDK skills:
+
+- `product-sdk-app-builder` — bootstrap, `createApp`, scaffolding
+- `product-sdk-chain-connection` — `chain-client`, presets, BYOD,
+  descriptors
+- `product-sdk-transactions` — tx + signer + keys (3 packages)
+- `product-sdk-utilities` — address + crypto + utils + storage + logger
+  (5 packages)
+- `product-sdk-bulletin` — `BulletinClient`, upload / fetch, CID
+- `product-sdk-contracts` — `ContractManager`, `createContract`,
+  `cdm.json`
+- `product-sdk-statement-store` — host / local modes, topics,
+  `ChannelStore`
+
+For the actual "how to use package X" content, point the spec reader
+at the owning skill rather than restating the API.
+
+Hand-off targets (superpowers):
+
+- `superpowers:writing-plans` — Phase 4 hand-off
