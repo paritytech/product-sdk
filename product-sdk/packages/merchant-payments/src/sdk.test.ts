@@ -2,7 +2,7 @@ import { installCoinPaymentReferenceHost } from "@parity/product-sdk-coinpayment
 import { describe, expect, test } from "vitest";
 import { MemoryMerchantPaymentRecordStore } from "./memory-store.js";
 import { createMerchantPaymentsSdk } from "./sdk.js";
-import { MerchantPaymentException } from "./types.js";
+import type { MerchantPaymentException } from "./types.js";
 
 const scope = {
     merchantId: "merchant-demo",
@@ -25,7 +25,11 @@ describe("merchant payments SDK over CoinPayment", () => {
             scope,
             saleAmount: { currency: "USD", value: "12.50" },
             paymentAsset: "dotUSD",
-            context: { appKind: "terminal", externalReference: "ticket-123", displayReference: "A123" },
+            context: {
+                appKind: "terminal",
+                externalReference: "ticket-123",
+                displayReference: "A123",
+            },
             idempotencyKey: "ticket-123:intent",
         });
         const paidEvents: string[] = [];
@@ -243,9 +247,13 @@ describe("merchant payments SDK over CoinPayment", () => {
             coinpayment: installCoinPaymentReferenceHost({ initialMainBalance: 5000 }),
         });
         const errors: MerchantPaymentException[] = [];
-        sdk.subscribeIntentStatus({ intentId: "missing" }, () => {}, (error) => {
-            errors.push(error);
-        });
+        sdk.subscribeIntentStatus(
+            { intentId: "missing" },
+            () => {},
+            (error) => {
+                errors.push(error);
+            },
+        );
 
         await eventually(async () => {
             expect(errors).toMatchObject([{ code: "intentNotFound" }]);

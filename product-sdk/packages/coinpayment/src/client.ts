@@ -5,12 +5,20 @@ export interface CreateCoinPaymentClientOptions {
     windowLike?: CoinPaymentWindow;
 }
 
-export function createCoinPaymentClient(options: CreateCoinPaymentClientOptions = {}): CoinPaymentHostApi {
+export function createCoinPaymentClient(
+    options: CreateCoinPaymentClientOptions = {},
+): CoinPaymentHostApi {
     const host = options.host ?? resolveHost(options.windowLike);
-    if (!host) throw new CoinPaymentException("userAgentCapabilityUnavailable", "CoinPayment user-agent API is unavailable");
+    if (!host)
+        throw new CoinPaymentException(
+            "userAgentCapabilityUnavailable",
+            "CoinPayment user-agent API is unavailable",
+        );
     return host;
 }
 
-function resolveHost(windowLike = globalThis.window as CoinPaymentWindow | undefined): CoinPaymentHostApi | undefined {
+function resolveHost(
+    windowLike = globalThis.window as CoinPaymentWindow | undefined,
+): CoinPaymentHostApi | undefined {
     return windowLike?.ua?.ext?.coinpayment;
 }

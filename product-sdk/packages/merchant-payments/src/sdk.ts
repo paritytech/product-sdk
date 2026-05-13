@@ -68,7 +68,9 @@ interface PersistedState {
 
 const STORE_KEY = "merchant-payments:v1";
 
-export function createMerchantPaymentsSdk(options: MerchantPaymentsSdkOptions): MerchantPaymentsSdk {
+export function createMerchantPaymentsSdk(
+    options: MerchantPaymentsSdkOptions,
+): MerchantPaymentsSdk {
     return new DefaultMerchantPaymentsSdk(options);
 }
 
@@ -80,8 +82,14 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
     private readonly intentIdempotency = new Map<string, IdempotencyRecord>();
     private readonly invoiceIdempotency = new Map<string, IdempotencyRecord>();
     private readonly refundIdempotency = new Map<string, IdempotencyRecord>();
-    private readonly intentSubscribers = new Map<string, Set<(item: MerchantPaymentStatusEvent) => void>>();
-    private readonly refundSubscribers = new Map<string, Set<(item: MerchantPaymentRefundStatusEvent) => void>>();
+    private readonly intentSubscribers = new Map<
+        string,
+        Set<(item: MerchantPaymentStatusEvent) => void>
+    >();
+    private readonly refundSubscribers = new Map<
+        string,
+        Set<(item: MerchantPaymentRefundStatusEvent) => void>
+    >();
     private loaded?: Promise<void>;
     private nextId = 1;
 
@@ -89,13 +97,16 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         this.store = options.recordStore ?? new MemoryMerchantPaymentRecordStore();
     }
 
-    async createIntent(request: MerchantPaymentIntentCreate): Promise<MerchantPaymentIntentCreateResponse> {
+    async createIntent(
+        request: MerchantPaymentIntentCreate,
+    ): Promise<MerchantPaymentIntentCreateResponse> {
         await this.load();
         validateIntent(request);
         const fingerprint = stableFingerprint(request);
         const existing = this.intentIdempotency.get(request.idempotencyKey);
         if (existing) {
-            if (existing.fingerprint !== fingerprint) throw new MerchantPaymentException("idempotencyConflict");
+            if (existing.fingerprint !== fingerprint)
+                throw new MerchantPaymentException("idempotencyConflict");
             return { intent: structuredClone(this.requireIntent(existing.id).intent) };
         }
 
@@ -112,7 +123,10 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
             paymentAsset: request.paymentAsset,
             fxQuote,
             status: { invoice: "none", payment: "quoted", receipt: "none", refund: "none" },
-            createdBy: this.options.actor ?? { principalId: "merchant-operator", deviceId: request.scope.productInstanceId },
+            createdBy: this.options.actor ?? {
+                principalId: "merchant-operator",
+                deviceId: request.scope.productInstanceId,
+            },
             createdAtMs: now,
             expiresAtMs: request.expiresAtMs,
         };
@@ -136,7 +150,9 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         return structuredClone(this.requireIntent(request.intentId).intent);
     }
 
-    async createInvoice(request: MerchantPaymentInvoiceCreate): Promise<MerchantPaymentInvoiceCreateResponse> {
+    async createInvoice(
+        request: MerchantPaymentInvoiceCreate,
+    ): Promise<MerchantPaymentInvoiceCreateResponse> {
         await this.load();
         const record = this.requireIntent(request.intentId);
         if (record.intent.status.payment === "paid" || record.intent.status.payment === "failed") {
@@ -155,7 +171,8 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         const fingerprint = stableFingerprint(request);
         const existingId = this.invoiceIdempotency.get(request.idempotencyKey);
         if (existingId) {
-            if (existingId.fingerprint !== fingerprint) throw new MerchantPaymentException("idempotencyConflict");
+            if (existingId.fingerprint !== fingerprint)
+                throw new MerchantPaymentException("idempotencyConflict");
             return { invoice: structuredClone(this.requireInvoice(record, existingId.id)) };
         }
 
@@ -176,7 +193,10 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         };
         record.invoices.set(invoiceSession.invoiceId, invoiceSession);
         record.receivableInvoiceId = invoiceSession.invoiceId;
-        this.invoiceIdempotency.set(request.idempotencyKey, { fingerprint, id: invoiceSession.invoiceId });
+        this.invoiceIdempotency.set(request.idempotencyKey, {
+            fingerprint,
+            id: invoiceSession.invoiceId,
+        });
         record.intent.status.invoice = "ready";
         record.intent.status.payment = "pending";
         this.pushIntentEvent(record, { kind: "invoice", status: "ready" }, Date.now());
@@ -186,7 +206,10 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         return { invoice: structuredClone(invoiceSession) };
     }
 
-    private async createCoinPaymentInvoice(purseId: PurseId, amount: Balance): Promise<{ invoice: Invoice; cheque: Promise<Cheque> }> {
+    private async createCoinPaymentInvoice(
+        purseId: PurseId,
+        amount: Balance,
+    ): Promise<{ invoice: Invoice; cheque: Promise<Cheque> }> {
         const receivable = await this.options.coinpayment.createReceivable(purseId);
         const { channel, cheque } = await this.options.coinpayment.listenFor(receivable);
         const invoice: Invoice = {
@@ -203,19 +226,23 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         callback: (item: MerchantPaymentStatusEvent) => void,
         onError?: (error: MerchantPaymentException) => void,
     ): () => void {
-        void this.load().then(() => {
-            try {
-                const record = this.requireIntent(request.intentId);
-                for (const item of record.events) {
-                    if (item.sequence >= (request.fromSequence ?? 0)) queueMicrotask(() => callback(structuredClone(item)));
+        void this.load().then(
+            () => {
+                try {
+                    const record = this.requireIntent(request.intentId);
+                    for (const item of record.events) {
+                        if (item.sequence >= (request.fromSequence ?? 0))
+                            queueMicrotask(() => callback(structuredClone(item)));
+                    }
+                    const subscribers = this.intentSubscribers.get(request.intentId) ?? new Set();
+                    subscribers.add(callback);
+                    this.intentSubscribers.set(request.intentId, subscribers);
+                } catch (error) {
+                    onError?.(toMerchantError(error));
                 }
-                const subscribers = this.intentSubscribers.get(request.intentId) ?? new Set();
-                subscribers.add(callback);
-                this.intentSubscribers.set(request.intentId, subscribers);
-            } catch (error) {
-                onError?.(toMerchantError(error));
-            }
-        }, (error) => onError?.(toMerchantError(error)));
+            },
+            (error) => onError?.(toMerchantError(error)),
+        );
         return () => this.intentSubscribers.get(request.intentId)?.delete(callback);
     }
 
@@ -224,7 +251,9 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         return { receipt: structuredClone(this.requireIntent(request.intentId).receipt) };
     }
 
-    async createRefundIntent(request: MerchantPaymentRefundIntentCreate): Promise<MerchantPaymentRefundIntentCreateResponse> {
+    async createRefundIntent(
+        request: MerchantPaymentRefundIntentCreate,
+    ): Promise<MerchantPaymentRefundIntentCreateResponse> {
         await this.load();
         const record = this.requireIntent(request.originalIntentId);
         if (record.intent.status.payment !== "paid" || !record.receivableInvoiceId) {
@@ -241,7 +270,8 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         const fingerprint = stableFingerprint(request);
         const existing = this.refundIdempotency.get(request.idempotencyKey);
         if (existing) {
-            if (existing.fingerprint !== fingerprint) throw new MerchantPaymentException("idempotencyConflict");
+            if (existing.fingerprint !== fingerprint)
+                throw new MerchantPaymentException("idempotencyConflict");
             return { refund: structuredClone(this.requireRefund(existing.id).refund) };
         }
 
@@ -289,19 +319,23 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         callback: (item: MerchantPaymentRefundStatusEvent) => void,
         onError?: (error: MerchantPaymentException) => void,
     ): () => void {
-        void this.load().then(() => {
-            try {
-                const record = this.requireRefund(request.refundId);
-                for (const item of record.events) {
-                    if (item.sequence >= (request.fromSequence ?? 0)) queueMicrotask(() => callback(structuredClone(item)));
+        void this.load().then(
+            () => {
+                try {
+                    const record = this.requireRefund(request.refundId);
+                    for (const item of record.events) {
+                        if (item.sequence >= (request.fromSequence ?? 0))
+                            queueMicrotask(() => callback(structuredClone(item)));
+                    }
+                    const subscribers = this.refundSubscribers.get(request.refundId) ?? new Set();
+                    subscribers.add(callback);
+                    this.refundSubscribers.set(request.refundId, subscribers);
+                } catch (error) {
+                    onError?.(toMerchantError(error));
                 }
-                const subscribers = this.refundSubscribers.get(request.refundId) ?? new Set();
-                subscribers.add(callback);
-                this.refundSubscribers.set(request.refundId, subscribers);
-            } catch (error) {
-                onError?.(toMerchantError(error));
-            }
-        }, (error) => onError?.(toMerchantError(error)));
+            },
+            (error) => onError?.(toMerchantError(error)),
+        );
         return () => this.refundSubscribers.get(request.refundId)?.delete(callback);
     }
 
@@ -321,7 +355,11 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         };
     }
 
-    private async awaitCheque(intentId: string, invoiceId: string, chequePromise: Promise<Cheque>): Promise<void> {
+    private async awaitCheque(
+        intentId: string,
+        invoiceId: string,
+        chequePromise: Promise<Cheque>,
+    ): Promise<void> {
         try {
             const cheque = await chequePromise;
             const record = this.requireIntent(intentId);
@@ -354,8 +392,13 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         }
     }
 
-    private applyDepositStatus(record: IntentRecord, invoice: MerchantPaymentInvoice, status: CoinPaymentStatus): void {
-        if (record.intent.status.payment === "paid" || record.intent.status.payment === "failed") return;
+    private applyDepositStatus(
+        record: IntentRecord,
+        invoice: MerchantPaymentInvoice,
+        status: CoinPaymentStatus,
+    ): void {
+        if (record.intent.status.payment === "paid" || record.intent.status.payment === "failed")
+            return;
         if (status.kind === "clearing") {
             this.pushIntentEvent(record, { kind: "payment", status: "pending" }, Date.now());
             if (!this.options.acceptUnfinalizedRisk) return;
@@ -367,7 +410,10 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
             this.pushIntentEvent(record, { kind: "payment", status: "failed" }, Date.now());
             return;
         }
-        if (status.kind === "done" || (status.kind === "clearing" && this.options.acceptUnfinalizedRisk)) {
+        if (
+            status.kind === "done" ||
+            (status.kind === "clearing" && this.options.acceptUnfinalizedRisk)
+        ) {
             const now = Date.now();
             record.intent.status.payment = "paid";
             record.intent.status.receipt = "signed";
@@ -390,13 +436,22 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         refundRecord.refund.clearingReference = clearingReference;
         record.refundedMinor = refundedMinor;
         const originalMinor = parseMinorUnits(record.intent.saleAmount);
-        record.intent.status.refund = refundedMinor >= originalMinor ? "refunded" : "partiallyRefunded";
+        record.intent.status.refund =
+            refundedMinor >= originalMinor ? "refunded" : "partiallyRefunded";
         this.pushRefundStatus(refundRecord, "paid", refundRecord.refund.paidAtMs);
-        this.pushIntentEvent(record, { kind: "refund", status: record.intent.status.refund }, refundRecord.refund.paidAtMs);
+        this.pushIntentEvent(
+            record,
+            { kind: "refund", status: record.intent.status.refund },
+            refundRecord.refund.paidAtMs,
+        );
         void this.persist();
     }
 
-    private buildReceipt(intent: MerchantPaymentIntent, invoice: MerchantPaymentInvoice, acceptedAtMs: number): MerchantPaymentReceipt {
+    private buildReceipt(
+        intent: MerchantPaymentIntent,
+        invoice: MerchantPaymentInvoice,
+        acceptedAtMs: number,
+    ): MerchantPaymentReceipt {
         const id = intent.receiptId ?? this.id("receipt");
         const payload = JSON.stringify({
             id,
@@ -405,7 +460,9 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
             paymentAmount: intent.paymentAmount,
             paymentAsset: intent.paymentAsset,
             invoiceHash: invoice.invoiceHash,
-            clearingReference: intent.clearingReference ? serializeClearingReference(intent.clearingReference) : undefined,
+            clearingReference: intent.clearingReference
+                ? serializeClearingReference(intent.clearingReference)
+                : undefined,
             acceptedAtMs,
         });
         return {
@@ -433,7 +490,11 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         this.pushIntentEvent(record, { kind: "payment", status: "expired" }, Date.now());
     }
 
-    private pushIntentEvent(record: IntentRecord, event: MerchantPaymentEvent, occurredAtMs: number): void {
+    private pushIntentEvent(
+        record: IntentRecord,
+        event: MerchantPaymentEvent,
+        occurredAtMs: number,
+    ): void {
         const item = {
             intentId: record.intent.intentId,
             sequence: record.events.length + 1,
@@ -447,8 +508,17 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         }
     }
 
-    private pushRefundStatus(record: RefundRecord, status: MerchantPaymentRefundIntent["status"], occurredAtMs: number): void {
-        const item = { refundId: record.refund.refundId, sequence: record.events.length + 1, status, occurredAtMs };
+    private pushRefundStatus(
+        record: RefundRecord,
+        status: MerchantPaymentRefundIntent["status"],
+        occurredAtMs: number,
+    ): void {
+        const item = {
+            refundId: record.refund.refundId,
+            sequence: record.events.length + 1,
+            status,
+            occurredAtMs,
+        };
         record.events.push(item);
         for (const subscriber of this.refundSubscribers.get(record.refund.refundId) ?? []) {
             queueMicrotask(() => subscriber(structuredClone(item)));
@@ -459,7 +529,9 @@ class DefaultMerchantPaymentsSdk implements MerchantPaymentsSdk {
         const key = scopeKey(scope);
         const existing = this.purseByScope.get(key);
         if (existing !== undefined) return existing;
-        const purseId = await this.options.coinpayment.createPurse(`${scope.merchantId}/${scope.scopeId}`);
+        const purseId = await this.options.coinpayment.createPurse(
+            `${scope.merchantId}/${scope.scopeId}`,
+        );
         this.purseByScope.set(key, purseId);
         await this.persist();
         return purseId;
@@ -542,8 +614,10 @@ function restoreMap<K, V>(map: Map<K, V>, entries: Array<[K, V]>): void {
 }
 
 function validateIntent(request: MerchantPaymentIntentCreate): void {
-    if (parseMinorUnits(request.saleAmount) <= 0) throw new MerchantPaymentException("invalidAmount");
-    if (request.paymentAsset !== "dotUSD") throw new MerchantPaymentException("unsupportedPaymentAsset");
+    if (parseMinorUnits(request.saleAmount) <= 0)
+        throw new MerchantPaymentException("invalidAmount");
+    if (request.paymentAsset !== "dotUSD")
+        throw new MerchantPaymentException("unsupportedPaymentAsset");
     if (request.saleAmount.currency !== "USD" && request.saleAmount.currency !== "EUR") {
         throw new MerchantPaymentException("unsupportedSaleCurrency");
     }
@@ -555,7 +629,10 @@ function validateIntent(request: MerchantPaymentIntentCreate): void {
     }
 }
 
-function createFxQuote(request: MerchantPaymentIntentCreate, now: number): MerchantPaymentIntent["fxQuote"] {
+function createFxQuote(
+    request: MerchantPaymentIntentCreate,
+    now: number,
+): MerchantPaymentIntent["fxQuote"] {
     if (request.pricingMode !== "eurQuote") return undefined;
     return {
         source: "eurobot",
@@ -567,7 +644,10 @@ function createFxQuote(request: MerchantPaymentIntentCreate, now: number): Merch
     };
 }
 
-function paymentAmountFor(request: MerchantPaymentIntentCreate, quote: MerchantPaymentIntent["fxQuote"]): MoneyAmount {
+function paymentAmountFor(
+    request: MerchantPaymentIntentCreate,
+    quote: MerchantPaymentIntent["fxQuote"],
+): MoneyAmount {
     if (!quote) return request.saleAmount;
     const saleMinor = parseMinorUnits(request.saleAmount);
     const numerator = Number(quote.rateNumerator);
@@ -608,7 +688,13 @@ function isExpired(expiresAtMs: number | undefined): boolean {
 }
 
 function scopeKey(scope: MerchantPaymentIntent["scope"]): string {
-    return [scope.productId, scope.merchantId, scope.scopeId, scope.locationId ?? "", scope.productInstanceId ?? ""].join(":");
+    return [
+        scope.productId,
+        scope.merchantId,
+        scope.scopeId,
+        scope.locationId ?? "",
+        scope.productInstanceId ?? "",
+    ].join(":");
 }
 
 function encodeInvoice(invoice: Invoice): string {
@@ -624,7 +710,9 @@ function serializeInvoice(invoice: Invoice) {
     };
 }
 
-function serializeClearingReference(reference: NonNullable<MerchantPaymentIntent["clearingReference"]>) {
+function serializeClearingReference(
+    reference: NonNullable<MerchantPaymentIntent["clearingReference"]>,
+) {
     return {
         root: bytesToBase64(reference.root),
         leaves: reference.leaves.map(([coin, tx]) => [bytesToBase64(coin), bytesToBase64(tx)]),
@@ -649,9 +737,13 @@ function stableHash(value: string): string {
 function toMerchantError(error: unknown): MerchantPaymentException {
     if (error instanceof MerchantPaymentException) return error;
     if (error instanceof CoinPaymentException) {
-        if (error.code === "userAgentCapabilityUnavailable") return new MerchantPaymentException("userAgentCapabilityUnavailable");
+        if (error.code === "userAgentCapabilityUnavailable")
+            return new MerchantPaymentException("userAgentCapabilityUnavailable");
         if (error.code === "purseNotFound") return new MerchantPaymentException("purseUnavailable");
         return new MerchantPaymentException("internal", error.message);
     }
-    return new MerchantPaymentException("internal", error instanceof Error ? error.message : String(error));
+    return new MerchantPaymentException(
+        "internal",
+        error instanceof Error ? error.message : String(error),
+    );
 }

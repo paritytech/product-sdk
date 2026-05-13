@@ -50,7 +50,10 @@ type ProductIdForReference = string;
 export function installCoinPaymentReferenceHost(
     options: InstallCoinPaymentReferenceHostOptions = {},
 ): CoinPaymentReferenceHost {
-    const host = new InMemoryCoinPaymentReferenceHost(options.productId ?? "reference-product", options.initialMainBalance ?? 1_000_000);
+    const host = new InMemoryCoinPaymentReferenceHost(
+        options.productId ?? "reference-product",
+        options.initialMainBalance ?? 1_000_000,
+    );
     const win = options.windowLike ?? (globalThis.window as CoinPaymentWindow | undefined);
     if (win) {
         win.ua ??= {};
@@ -88,20 +91,34 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
 
     async queryPurse(purse: PurseId): Promise<PurseInfo> {
         const record = this.requirePurse(purse);
-        return { name: record.name, created: record.created, creator: record.creator, balance: record.balance };
+        return {
+            name: record.name,
+            created: record.created,
+            creator: record.creator,
+            balance: record.balance,
+        };
     }
 
-    async rebalancePurse(from: PurseId, to: PurseId, amount: Balance): Promise<CoinPaymentOperation<CoinPaymentStatus>> {
+    async rebalancePurse(
+        from: PurseId,
+        to: PurseId,
+        amount: Balance,
+    ): Promise<CoinPaymentOperation<CoinPaymentStatus>> {
         const source = this.requirePurse(from);
         const target = this.requirePurse(to);
-        if (source.balance < amount) return resolvedOperation(failedStatus("balanceLow", this.makeClearingReference()));
+        if (source.balance < amount)
+            return resolvedOperation(failedStatus("balanceLow", this.makeClearingReference()));
         source.balance -= amount;
         target.balance += amount;
         return clearingOperation(amount, this.makeClearingReference());
     }
 
-    async deletePurse(target: PurseId, drainInto: PurseId): Promise<CoinPaymentOperation<CoinPaymentStatus>> {
-        if (target === MAIN_PURSE) return resolvedOperation(failedStatus("denied", this.makeClearingReference()));
+    async deletePurse(
+        target: PurseId,
+        drainInto: PurseId,
+    ): Promise<CoinPaymentOperation<CoinPaymentStatus>> {
+        if (target === MAIN_PURSE)
+            return resolvedOperation(failedStatus("denied", this.makeClearingReference()));
         const source = this.requirePurse(target);
         const destination = this.requirePurse(drainInto);
         const amount = source.balance;
@@ -141,8 +158,12 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
     async refund(receivable: Receivable): Promise<CoinPaymentOperation<CoinPaymentRefundStatus>> {
         const record = this.requireReceivable(receivable);
         const purse = this.requirePurse(record.purse);
-        if (!record.deposited || record.refunded) return resolvedOperation(failedStatus("receivableNotFound", this.makeClearingReference()));
-        if (purse.balance < record.deposited.amount) return resolvedOperation(failedStatus("balanceLow", this.makeClearingReference()));
+        if (!record.deposited || record.refunded)
+            return resolvedOperation(
+                failedStatus("receivableNotFound", this.makeClearingReference()),
+            );
+        if (purse.balance < record.deposited.amount)
+            return resolvedOperation(failedStatus("balanceLow", this.makeClearingReference()));
         purse.balance -= record.deposited.amount;
         this.requirePurse(MAIN_PURSE).balance += record.deposited.amount;
         record.refunded = true;
@@ -151,7 +172,10 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
 
     async listenFor(receivable: Receivable): Promise<ListenForResult> {
         this.requireReceivable(receivable);
-        const channel = { kind: "standard" as const, sssTopic: this.bytes(`topic:${key(receivable)}`) };
+        const channel = {
+            kind: "standard" as const,
+            sssTopic: this.bytes(`topic:${key(receivable)}`),
+        };
         const cheque = new Promise<Cheque>((resolve) => {
             this.listeners.set(key(channel.sssTopic), { channel, resolve });
         });
@@ -186,7 +210,9 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
     private makeClearingReference(): ClearingReference {
         return {
             root: this.bytes(`root:${this.nextSerial++}`),
-            leaves: [[this.bytes(`coin:${this.nextSerial++}`), this.bytes(`tx:${this.nextSerial++}`)]],
+            leaves: [
+                [this.bytes(`coin:${this.nextSerial++}`), this.bytes(`tx:${this.nextSerial++}`)],
+            ],
         };
     }
 
@@ -197,12 +223,18 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
     }
 }
 
-function clearingOperation(amount: Balance, clearingReference: ClearingReference): CoinPaymentOperation<CoinPaymentStatus> {
+function clearingOperation(
+    amount: Balance,
+    clearingReference: ClearingReference,
+): CoinPaymentOperation<CoinPaymentStatus> {
     const done: CoinPaymentStatus = { kind: "done", cleared: amount, reference: clearingReference };
     return scheduledOperation([{ kind: "clearing", clearing: amount, cleared: 0 }, done], done);
 }
 
-function failedStatus(error: CoinPaymentException["code"], reference: ClearingReference): CoinPaymentStatus {
+function failedStatus(
+    error: CoinPaymentException["code"],
+    reference: ClearingReference,
+): CoinPaymentStatus {
     return { kind: "failed", error, cleared: 0, reference };
 }
 
@@ -216,7 +248,10 @@ function resolvedOperation<TStatus>(status: TStatus): CoinPaymentOperation<TStat
     };
 }
 
-function scheduledOperation<TStatus>(statuses: TStatus[], result: TStatus): CoinPaymentOperation<TStatus> {
+function scheduledOperation<TStatus>(
+    statuses: TStatus[],
+    result: TStatus,
+): CoinPaymentOperation<TStatus> {
     return {
         subscribe(callback) {
             for (const status of statuses) queueMicrotask(() => callback(status));
@@ -239,7 +274,12 @@ if (import.meta.vitest) {
             const purse = await host.createPurse("Store");
             const receivable = await host.createReceivable(purse);
             const { channel, cheque } = await host.listenFor(receivable);
-            const invoice = { version: 0 as const, handoff: channel, receiver: receivable, amount: 125 };
+            const invoice = {
+                version: 0 as const,
+                handoff: channel,
+                receiver: receivable,
+                amount: 125,
+            };
 
             await host.payInvoice(invoice);
             const deposit = await host.deposit(await cheque);
@@ -252,7 +292,12 @@ if (import.meta.vitest) {
             const purse = await host.createPurse("Store");
             const receivable = await host.createReceivable(purse);
             const { channel, cheque } = await host.listenFor(receivable);
-            const invoice = { version: 0 as const, handoff: channel, receiver: receivable, amount: 125 };
+            const invoice = {
+                version: 0 as const,
+                handoff: channel,
+                receiver: receivable,
+                amount: 125,
+            };
 
             await host.payInvoice(invoice);
             await (await host.deposit(await cheque)).result;

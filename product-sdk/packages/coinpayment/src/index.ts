@@ -1,7 +1,10 @@
 export { createCoinPaymentClient } from "./client.js";
 export type { CreateCoinPaymentClientOptions } from "./client.js";
 export { installCoinPaymentReferenceHost } from "./reference-host.js";
-export type { CoinPaymentReferenceHost, InstallCoinPaymentReferenceHostOptions } from "./reference-host.js";
+export type {
+    CoinPaymentReferenceHost,
+    InstallCoinPaymentReferenceHostOptions,
+} from "./reference-host.js";
 export {
     CoinPaymentException,
     MAIN_PURSE,

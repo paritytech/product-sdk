@@ -46,7 +46,14 @@ export interface FxQuote {
 }
 
 export type InvoiceStatus = "none" | "ready" | "expired";
-export type PaymentStatus = "created" | "quoted" | "pending" | "paid" | "expired" | "failed" | "cancelled";
+export type PaymentStatus =
+    | "created"
+    | "quoted"
+    | "pending"
+    | "paid"
+    | "expired"
+    | "failed"
+    | "cancelled";
 export type ReceiptStatus = "none" | "signed" | "delivered";
 export type RefundStatus = "none" | "pending" | "partiallyRefunded" | "refunded" | "failed";
 
@@ -264,16 +271,22 @@ export interface MerchantPaymentsSdkOptions {
 }
 
 export interface MerchantPaymentsSdk {
-    createIntent(request: MerchantPaymentIntentCreate): Promise<MerchantPaymentIntentCreateResponse>;
+    createIntent(
+        request: MerchantPaymentIntentCreate,
+    ): Promise<MerchantPaymentIntentCreateResponse>;
     getIntent(request: MerchantPaymentIntentGet): Promise<MerchantPaymentIntent>;
-    createInvoice(request: MerchantPaymentInvoiceCreate): Promise<MerchantPaymentInvoiceCreateResponse>;
+    createInvoice(
+        request: MerchantPaymentInvoiceCreate,
+    ): Promise<MerchantPaymentInvoiceCreateResponse>;
     subscribeIntentStatus(
         request: MerchantPaymentIntentStatusSubscribe,
         callback: (item: MerchantPaymentStatusEvent) => void,
         onError?: (error: MerchantPaymentException) => void,
     ): () => void;
     getReceipt(request: MerchantPaymentIntentGet): Promise<MerchantPaymentReceiptResponse>;
-    createRefundIntent(request: MerchantPaymentRefundIntentCreate): Promise<MerchantPaymentRefundIntentCreateResponse>;
+    createRefundIntent(
+        request: MerchantPaymentRefundIntentCreate,
+    ): Promise<MerchantPaymentRefundIntentCreateResponse>;
     subscribeRefundStatus(
         request: MerchantPaymentRefundStatusSubscribe,
         callback: (item: MerchantPaymentRefundStatusEvent) => void,
