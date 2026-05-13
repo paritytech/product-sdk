@@ -157,7 +157,12 @@ export interface MerchantPaymentReceiptResponse {
 export interface MerchantPaymentRefundIntentCreate {
     originalIntentId: string;
     refundAmount: MoneyAmount;
-    executionBasis: "originalQuote" | "refundTimeQuote" | "sameAsset";
+    executionBasis:
+        | "originalPaymentReversal"
+        | "originalSaleQuote"
+        | "refundTimeQuote"
+        | "sameAsset"
+        | "merchantLedgerCredit";
     idempotencyKey: string;
 }
 

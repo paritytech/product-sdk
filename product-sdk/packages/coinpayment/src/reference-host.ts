@@ -94,14 +94,14 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
     async rebalancePurse(from: PurseId, to: PurseId, amount: Balance): Promise<CoinPaymentOperation<CoinPaymentStatus>> {
         const source = this.requirePurse(from);
         const target = this.requirePurse(to);
-        if (source.balance < amount) return resolvedOperation({ kind: "failed", error: "balanceLow" });
+        if (source.balance < amount) return resolvedOperation(failedStatus("balanceLow", this.makeClearingReference()));
         source.balance -= amount;
         target.balance += amount;
         return clearingOperation(amount, this.makeClearingReference());
     }
 
     async deletePurse(target: PurseId, drainInto: PurseId): Promise<CoinPaymentOperation<CoinPaymentStatus>> {
-        if (target === MAIN_PURSE) return resolvedOperation({ kind: "failed", error: "denied" });
+        if (target === MAIN_PURSE) return resolvedOperation(failedStatus("denied", this.makeClearingReference()));
         const source = this.requirePurse(target);
         const destination = this.requirePurse(drainInto);
         const amount = source.balance;
@@ -141,13 +141,12 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
     async refund(receivable: Receivable): Promise<CoinPaymentOperation<CoinPaymentRefundStatus>> {
         const record = this.requireReceivable(receivable);
         const purse = this.requirePurse(record.purse);
-        if (!record.deposited || record.refunded) return resolvedOperation({ kind: "failed" });
-        if (purse.balance < record.deposited.amount) return resolvedOperation({ kind: "failed" });
+        if (!record.deposited || record.refunded) return resolvedOperation(failedStatus("receivableNotFound", this.makeClearingReference()));
+        if (purse.balance < record.deposited.amount) return resolvedOperation(failedStatus("balanceLow", this.makeClearingReference()));
         purse.balance -= record.deposited.amount;
         this.requirePurse(MAIN_PURSE).balance += record.deposited.amount;
         record.refunded = true;
-        const done: CoinPaymentRefundStatus = { kind: "done", clearingReference: this.makeClearingReference() };
-        return scheduledOperation([{ kind: "refunding", clearing: record.deposited.amount, cleared: 0 }, done], done);
+        return clearingOperation(record.deposited.amount, this.makeClearingReference());
     }
 
     async listenFor(receivable: Receivable): Promise<ListenForResult> {
@@ -199,8 +198,12 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
 }
 
 function clearingOperation(amount: Balance, clearingReference: ClearingReference): CoinPaymentOperation<CoinPaymentStatus> {
-    const done: CoinPaymentStatus = { kind: "done", clearingReference };
+    const done: CoinPaymentStatus = { kind: "done", cleared: amount, reference: clearingReference };
     return scheduledOperation([{ kind: "clearing", clearing: amount, cleared: 0 }, done], done);
+}
+
+function failedStatus(error: CoinPaymentException["code"], reference: ClearingReference): CoinPaymentStatus {
+    return { kind: "failed", error, cleared: 0, reference };
 }
 
 function resolvedOperation<TStatus>(status: TStatus): CoinPaymentOperation<TStatus> {
@@ -240,8 +243,22 @@ if (import.meta.vitest) {
 
             await host.payInvoice(invoice);
             const deposit = await host.deposit(await cheque);
-            await expect(deposit.result).resolves.toMatchObject({ kind: "done" });
+            await expect(deposit.result).resolves.toMatchObject({ kind: "done", cleared: 125 });
             await expect(host.queryPurse(purse)).resolves.toMatchObject({ balance: 125 });
+        });
+
+        test("uses the same clearing status shape for refunds", async () => {
+            const host = installCoinPaymentReferenceHost({ initialMainBalance: 500 });
+            const purse = await host.createPurse("Store");
+            const receivable = await host.createReceivable(purse);
+            const { channel, cheque } = await host.listenFor(receivable);
+            const invoice = { version: 0 as const, handoff: channel, receiver: receivable, amount: 125 };
+
+            await host.payInvoice(invoice);
+            await (await host.deposit(await cheque)).result;
+            const refund = await host.refund(receivable);
+
+            await expect(refund.result).resolves.toMatchObject({ kind: "done", cleared: 125 });
         });
     });
 }
