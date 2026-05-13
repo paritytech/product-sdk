@@ -10,6 +10,13 @@
 
 import { createLogger } from "@parity/product-sdk-logger";
 
+import { enumValue } from "@novasamatech/host-api";
+import type {
+    AllocatableResource as AllocatableResourceCodec,
+    AllocationOutcome as AllocationOutcomeCodec,
+    CodecType,
+} from "@novasamatech/host-api";
+
 const log = createLogger("host");
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,6 +209,60 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Resource allocation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resource types requestable via {@link requestResourceAllocation}.
+ * Derived from the upstream codec so variant renames surface as compile
+ * errors, not runtime failures.
+ */
+export type AllocatableResource = CodecType<typeof AllocatableResourceCodec>;
+
+/**
+ * Per-resource outcome from {@link requestResourceAllocation}.
+ * The host strips secret payloads from `Allocated` before returning, so
+ * `value` is always `undefined` on the product side.
+ */
+export type AllocationOutcome = CodecType<typeof AllocationOutcomeCodec>;
+
+/**
+ * Request the host to pre-allocate one or more resource allowances.
+ *
+ * The host prompts the user once; subsequent operations covered by the
+ * granted allowance don't re-prompt.
+ *
+ * @param resources - Resources to request.
+ * @returns Per-resource outcomes in the same order as `resources`.
+ * @throws If the host is unavailable or the request fails.
+ *
+ * @example
+ * ```ts
+ * const outcomes = await requestResourceAllocation([
+ *   { tag: "BulletInAllowance", value: undefined },
+ * ]);
+ * if (outcomes[0].tag === "Allocated") { ... }
+ * ```
+ */
+export async function requestResourceAllocation(
+    resources: AllocatableResource[],
+): Promise<AllocationOutcome[]> {
+    const truApi = await getTruApi();
+    if (!truApi) {
+        throw new Error("requestResourceAllocation: TruAPI unavailable");
+    }
+    log.debug("requestResourceAllocation", { resources: resources.map((r) => r.tag) });
+
+    // `.match()` because the host returns a neverthrow ResultAsync, not a Promise.
+    return await truApi.requestResourceAllocation(enumValue("v1", resources)).match(
+        (envelope: { tag: "v1"; value: AllocationOutcome[] }) => envelope.value,
+        (err: unknown) => {
+            throw new Error(`requestResourceAllocation failed: ${JSON.stringify(err)}`);
+        },
+    );
+}
+
 /**
  * One of the user's existing wallet accounts, surfaced through the host and
  * identified by its public key and an optional name. Contrast with
@@ -375,5 +436,17 @@ if (import.meta.vitest) {
     test("enumValue is exported", async () => {
         const { enumValue } = await import("./truapi.js");
         expect(typeof enumValue).toBe("function");
+    });
+
+    test("requestResourceAllocation throws when TruAPI is unavailable", async () => {
+        cachedTruApi = null;
+        const api = await getTruApi();
+        if (api === null) {
+            await expect(
+                requestResourceAllocation([{ tag: "BulletInAllowance", value: undefined }]),
+            ).rejects.toThrow(/TruAPI unavailable/);
+        } else {
+            expect(typeof requestResourceAllocation).toBe("function");
+        }
     });
 }

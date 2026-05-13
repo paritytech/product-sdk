@@ -29,6 +29,7 @@ export {
     getTruApi,
     getPreimageManager,
     getAccountsProvider,
+    requestResourceAllocation,
     // Helpers from @novasamatech/host-api
     enumValue,
     isEnumVariant,
@@ -48,4 +49,6 @@ export type {
     ProductAccount,
     ContextualAlias,
     ResultAsync,
+    AllocatableResource,
+    AllocationOutcome,
 } from "./truapi.js";
