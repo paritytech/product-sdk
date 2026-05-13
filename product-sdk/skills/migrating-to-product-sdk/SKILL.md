@@ -304,3 +304,13 @@ Once the spec is approved by the user:
    - `superpowers:executing-plans`.
 
 This skill ends here. Do not attempt to execute the plan yourself.
+
+## Gotcha catalog
+
+Eleven trap doors observed across three reference migrations. Full
+catalog with cause/symptom/fix per gotcha: see `references/gotchas.md`.
+
+Apply the fix when the symptom appears; reference the gotcha number
+(G1–G11) from the spec when applicable. The most frequently relevant
+are: G1 (JSON-RPC overrides, **always** required), G7 (`bulletin: false`
+when Bulletin out of scope), G10 (descriptors bump).
