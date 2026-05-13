@@ -133,3 +133,58 @@ Include at minimum:
 - `papiVersion`: resolved version from lockfile
 - `tests`: detected test runner + count
 - `existingPr`: link or `null`
+
+## Phase 2 — Decision matrix
+
+For each of the 15 areas below, assign a **status** and pick a
+**sub-pattern**. Status values:
+
+- **yes** — apply this migration in scope
+- **no** — not applicable to this product
+- **deferred** — recognized but punted to a follow-up; record the reason
+- **optional** — simplification opportunity, not strictly required
+
+### The 15 areas
+
+| # | Area | Owning skill | In-scope when | Defer when |
+|---|---|---|---|---|
+| 1 | Bootstrap | `product-sdk-app-builder` | at least one other area is in-scope | n/a |
+| 2 | Chain access | `product-sdk-chain-connection` | `createClient` / `createPapiProvider` / `@polkadot-apps/chain-client` / `@novasamatech/product-sdk` present | target chain not supported by host |
+| 3 | Wallet/Signer | `product-sdk-transactions` | `getAccountsProvider` ∨ hand-rolled wallet injection | demo/mock mode (keep custom adapter) |
+| 4 | Crypto primitives | `product-sdk-utilities` | `tweetnacl` ∨ `@skiff-org/skiff-crypto` ∨ `crypto.subtle.digest` | n/a |
+| 5 | Utils (hex/hashing/planck) | `product-sdk-utilities` | manual `padStart(2,'0')` hex ∨ manual planck formatting | n/a |
+| 6 | Key management | `product-sdk-utilities` + `product-sdk-transactions` | local HKDF ∨ custom `deriveMasterKey`/`deriveDocumentKey` | HKDF info-string mismatch on existing on-chain entries (see G3) |
+| 7 | Address utils | `product-sdk-utilities` | `ss58Encode`/`toGenericSs58`/`h160ToSs58`/`ss58ToH160` ∨ wrapper file | n/a |
+| 8 | App storage | `product-sdk-utilities` | direct `localStorage` / `IndexedDB` ∨ `@parity/host-api` `StorageApi` | non-cross-environment persistence |
+| 9 | Bulletin | `product-sdk-bulletin` | `helia` / `@polkadot-apps/bulletin` ∨ in-browser IPFS | product does not use Bulletin (`bulletin: false`) |
+| 10 | Contracts | `product-sdk-contracts` | `@polkadot-api/sdk-ink` ∨ `createInkSdk` | signer-plumbing refactor still open |
+| 11 | Logger | `product-sdk-utilities` | scattered `console.*` ∨ custom logger | n/a |
+| 12 | Statement Store | `product-sdk-statement-store` | pub/sub pattern ∨ manual statement-store interaction | n/a |
+| 13 | Identity / DotNS | (uses `@parity/product-sdk/identity` directly) | product resolves DotNS names | n/a — **optional** simplification |
+| 14 | PAPI 2.x bump + descriptors | _(this skill)_ | `polkadot-api@^1.x` in lockfile | major version pinning by product policy |
+| 15 | Deps + overrides | _(this skill)_ | at least one other area is in-scope | n/a |
+
+### Sub-pattern selection per area
+
+- **(1) Bootstrap** → `createApp({ name, bulletin: <env|false>, logLevel })` lazy singleton in `lib/app.ts` (or equivalent). If framework is React, **prefer `ProductSDKProvider` + `useWallet`/`useStorage`/`useChain`** from `@parity/product-sdk/react` over a manual singleton — flag as opportunity even when current code is React-based but rolled its own provider. `bulletin: false` is **required** when area 9 is out of scope (default opens an unnecessary WebSocket).
+- **(2) Chain access** → preset path `getChainAPI('paseo')` (zero-config) vs BYOD `createChainClient({ chains, rpcs })`. For container apps, also route via `getHostProvider(genesisHash)` from `@parity/product-sdk-host` with a direct-WS fallback. Cache the chain client **per-chain** so a single failed chain doesn't bring down the others.
+- **(3) Wallet / Signer** → `SignerManager` from `@parity/product-sdk-signer`. If Bulletin (9) is in scope, **also** call `app.wallet.connect()` + `app.wallet.selectAccount(addr)` after the existing connection flow so the App-bound signer is populated (gotcha G2).
+- **(4) Crypto** → `@parity/product-sdk-crypto`: `aesGcmEncryptText`/`Decrypt`, `boxEncrypt`/`Decrypt`, `deriveKey`, `randomBytes`, `nacl` re-export.
+- **(5) Utils** → `@parity/product-sdk-utils`: `bytesToHex`, `hexToBytes`, `utf8ToBytes`, `concatBytes`, `sha256`, `blake2b256`, `keccak256`, `formatPlanck`, `parseToPlanck`, `getBalance`. Prefer the leaf package over the `@parity/product-sdk/crypto` re-exports in new code.
+- **(6) Key management** → `KeyManager.fromSignature(sig, addr, { salt })` + `deriveSymmetricKey('domain:'+id)`. **Verify byte-for-byte** against the legacy implementation before adopting `KeyManager.deriveKeypairs()` — SDK info strings are hardcoded (gotcha G3).
+- **(7) Address** → inline `normalizeSs58`/`isValidSs58`/`toGenericSs58`/`ss58Encode`/`ss58Decode`/`ss58ToH160`/`h160ToSs58`/`accountIdBytes`/`accountIdFromBytes`/`truncateAddress`/`addressesEqual` from `@parity/product-sdk-address`. Delete any thin wrapper file.
+- **(8) App storage** → `createKvStore()` from `@parity/product-sdk-storage`. Migrate direct `localStorage.{get,set,remove}Item` to the resulting `KvStore`.
+- **(9) Bulletin** → drop Helia/IndexedDB stack. Two valid paths: (a) via App — `app.bulletin.upload(bytes)` / `fetch(cid)`; (b) standalone — `BulletinClient.create({ environment, signer })`. Use `.withWaitFor('finalized')` for reorg-safe semantics. Reconstruct block hash via `api.query.System.BlockHash.getValue(blockNumber)` when needed (gotcha G9).
+- **(10) Contracts** → `createContract(runtime, address, abi)` for ad-hoc reads; `ContractManager` with `cdm.json` for full apps. Drop `@polkadot-api/sdk-ink` unless signer plumbing is non-trivial.
+- **(11) Logger** → `configure({ level })` once at bootstrap. Wrap the existing `createLogger(prefix)` so app-level call sites don't change.
+- **(12) Statement Store** → `StatementStoreClient` with `{ mode: 'host', accountId }` inside containers, `{ mode: 'local', signer }` standalone. Use `ChannelStore` for stable two-party streams.
+- **(13) Identity / DotNS** → `resolveDotNs` / `reverseDotNs` from `@parity/product-sdk/identity` instead of writing the contract call by hand. Mark **optional** unless the product already integrates DotNS.
+- **(14) PAPI 2.x + descriptors** → bump `polkadot-api` 1.x → ^2.x plus aligned subpackages (`substrate-bindings`, `substrate-client`, `observable-client`, `metadata-compatibility`, `polkadot-sdk-compat`, `sdk-ink`, `sdk-statement`, `utils`); replace `polkadot-api/ws-provider/web` → `polkadot-api/ws`; replace `Binary.fromBytes`/`.asHex()` with `Binary.toHex(uint8)` and raw `Uint8Array`; rewrite event watching to iterate `watch().{block,events[]}`; bump `.papi/descriptors/package.json` to match.
+- **(15) Deps + overrides** → see `references/deps-and-overrides` block in §5 below for the canonical add/remove/override lists.
+
+### Checkpoint
+
+After populating the matrix, **stop and present it to the user**.
+Format as the compact table shown in §4 of the design spec. Wait for
+explicit approval before advancing to Phase 3. Do not "obvious" your
+way past this.
