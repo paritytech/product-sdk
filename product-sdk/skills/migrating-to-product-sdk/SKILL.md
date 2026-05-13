@@ -11,8 +11,10 @@ description: >
 
 This skill is a **discovery + spec orchestrator**. It does NOT edit code,
 NOT run tests, and NOT commit. Its only output is a written migration
-spec at `docs/superpowers/specs/`. After the spec is approved, it hands
-off to `writing-plans` which produces an executable implementation plan.
+spec at `.claude/migrations/specs/` (project-local — typically gitignored
+so the planning artifact does not get committed to the target repo).
+After the spec is approved, it hands off to `writing-plans` which
+produces an executable implementation plan in `.claude/migrations/plans/`.
 
 The skill composes with the seven existing SDK skills (one per package
 area) and references them by name rather than duplicating their
@@ -209,9 +211,13 @@ approval, immediately begin Phase 3.
 
 Write a per-repo migration spec to:
 
-`docs/superpowers/specs/YYYY-MM-DD-migrate-<repo>-to-product-sdk-design.md`
+`.claude/migrations/specs/YYYY-MM-DD-migrate-<repo>-to-product-sdk-design.md`
 
-Use today's date. If the directory doesn't exist, create it.
+Use today's date. If the directory doesn't exist, create it. The
+`.claude/` path is intentional: it keeps the planning artifact local to
+the user and out of the target repo's tracked tree. If `.claude/` is
+not already in the repo's `.gitignore`, add `.claude/migrations/` to it
+before writing the spec.
 
 ### Spec template
 
@@ -313,8 +319,11 @@ Phase 4.
 Once the spec is approved by the user:
 
 1. Invoke `superpowers:writing-plans` with the spec path as input.
-2. `writing-plans` produces an implementation plan at
-   `docs/superpowers/plans/YYYY-MM-DD-migrate-<repo>-to-product-sdk.md`.
+   Explicitly instruct writing-plans to save the implementation plan
+   to `.claude/migrations/plans/YYYY-MM-DD-migrate-<repo>-to-product-sdk.md`
+   — this overrides its default `docs/superpowers/plans/` location and
+   keeps the plan project-local alongside the spec.
+2. `writing-plans` produces the implementation plan at that path.
 3. The user then picks an executor:
    - `superpowers:subagent-driven-development` (recommended), or
    - `superpowers:executing-plans`.
