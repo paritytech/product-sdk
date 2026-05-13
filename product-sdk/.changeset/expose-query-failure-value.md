@@ -1,4 +1,5 @@
 ---
+"@parity/product-sdk": minor
 "@parity/product-sdk-contracts": minor
 ---
 
