@@ -40,13 +40,19 @@ Invoke when any of:
 
 ## Hard constraints
 
-- ❌ **Never commit.** Not during discovery, not after writing the spec.
-  The user commits manually.
+- ❌ **Never commit, open PRs, or create GitHub issues.** Not during
+  discovery, not after writing the spec. The user does these manually.
 - ❌ **Never edit code.** The skill's role is discovery + spec writing
   only. Code edits happen later in `executing-plans`.
 - ❌ **Never skip a CHECKPOINT.** Both the decision matrix (Phase 2)
   and the spec (Phase 3) require explicit user approval before
   advancing.
+- ❌ **Never resolve unrelated upstream regressions** (e.g. `nuxt` /
+  `unrun` version pins seen in t3ams). Note them as out-of-scope in
+  the spec body if they surface; do not include them in the migration
+  plan.
+- ❌ **Never design key-rotation migrations** for HKDF info-string
+  mismatches. Defer to a separate follow-up spec (see G3).
 - ✅ **Always run discovery first.** No "I already know what this
   repo needs" — every invocation inspects the actual target repo.
 
