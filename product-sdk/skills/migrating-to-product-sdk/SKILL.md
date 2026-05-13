@@ -146,8 +146,8 @@ For each of the 15 areas below, assign a **status** and pick a
 **sub-pattern**. Status values:
 
 - **yes** — apply this migration in scope
-- **no** — not applicable to this product
-- **deferred** — recognized but punted to a follow-up; record the reason
+- **no** — not applicable to this product. Also the correct status when Phase 1 discovery surfaces no evidence of the area's legacy pattern. Do not assume the pattern is present "somewhere" — if grep did not find it, status is **no**.
+- **deferred** — recognized but punted to a follow-up; record the reason. **Only** use this when the pattern IS present in the repo but the migration cannot be applied safely now (e.g., G3 HKDF info-string mismatch with persisted ciphertext). Do not use `deferred` to mean "I'd like to grep more carefully later."
 - **optional** — simplification opportunity, not strictly required
 
 ### The 15 areas
@@ -184,7 +184,7 @@ For each of the 15 areas below, assign a **status** and pick a
 - **(10) Contracts** → `createContract(runtime, address, abi)` for ad-hoc reads; `ContractManager` with `cdm.json` for full apps. Drop `@polkadot-api/sdk-ink` unless signer plumbing is non-trivial.
 - **(11) Logger** → `configure({ level })` once at bootstrap. Wrap the existing `createLogger(prefix)` so app-level call sites don't change.
 - **(12) Statement Store** → `StatementStoreClient` with `{ mode: 'host', accountId }` inside containers, `{ mode: 'local', signer }` standalone. Use `ChannelStore` for stable two-party streams.
-- **(13) Identity / DotNS** → `resolveDotNs` / `reverseDotNs` from `@parity/product-sdk/identity` instead of writing the contract call by hand. Mark **optional** unless the product already integrates DotNS.
+- **(13) Identity / DotNS** → `resolveDotNs` / `reverseDotNs` from `@parity/product-sdk/identity` instead of writing the contract call by hand. Status: **no** when the product does not use DotNS at all (nothing to migrate); **optional** when the product already integrates DotNS via a hand-rolled contract call (simplification opportunity — the hand-rolled call still works; replacing it is a nice-to-have).
 - **(14) PAPI 2.x + descriptors** → bump `polkadot-api` 1.x → ^2.x plus aligned subpackages (`substrate-bindings`, `substrate-client`, `observable-client`, `metadata-compatibility`, `polkadot-sdk-compat`, `sdk-ink`, `sdk-statement`, `utils`); replace `polkadot-api/ws-provider/web` → `polkadot-api/ws`; replace `Binary.fromBytes`/`.asHex()` with `Binary.toHex(uint8)` and raw `Uint8Array`; rewrite event watching to iterate `watch().{block,events[]}`; bump `.papi/descriptors/package.json` to match.
 - **(15) Deps + overrides** → see the "Cross-cutting work → Dependencies and overrides" block in the Phase 3 spec template (below) for the canonical add/remove/override lists.
 
