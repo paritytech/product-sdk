@@ -212,7 +212,7 @@ if (import.meta.vitest) {
     const GENESIS = {
         polkadot_asset_hub: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
         kusama_asset_hub: "0x48239ef607d7928874027a43a67689209727dfb3d3dc5e5b03a39bdc2eda771a",
-        paseo_asset_hub: "0x173cea9df45656cf612c8b8ece56e04e9a693c69cfaac47d3628dae735067af8",
+        paseo_asset_hub: "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
         previewnet_asset_hub: "0x860d75a890388e2ad02c54aa451264d04af89765773a51cd56868b4293c7867c",
         paseo_bulletin: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
         previewnet_bulletin: "0xf37fa1f1450ea120edbf64c3fc447f671a00e1f1095a698f42eeec073c7ee487",
