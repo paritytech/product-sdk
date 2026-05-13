@@ -180,7 +180,7 @@ For each of the 15 areas below, assign a **status** and pick a
 - **(12) Statement Store** → `StatementStoreClient` with `{ mode: 'host', accountId }` inside containers, `{ mode: 'local', signer }` standalone. Use `ChannelStore` for stable two-party streams.
 - **(13) Identity / DotNS** → `resolveDotNs` / `reverseDotNs` from `@parity/product-sdk/identity` instead of writing the contract call by hand. Mark **optional** unless the product already integrates DotNS.
 - **(14) PAPI 2.x + descriptors** → bump `polkadot-api` 1.x → ^2.x plus aligned subpackages (`substrate-bindings`, `substrate-client`, `observable-client`, `metadata-compatibility`, `polkadot-sdk-compat`, `sdk-ink`, `sdk-statement`, `utils`); replace `polkadot-api/ws-provider/web` → `polkadot-api/ws`; replace `Binary.fromBytes`/`.asHex()` with `Binary.toHex(uint8)` and raw `Uint8Array`; rewrite event watching to iterate `watch().{block,events[]}`; bump `.papi/descriptors/package.json` to match.
-- **(15) Deps + overrides** → see `references/deps-and-overrides` block in §5 below for the canonical add/remove/override lists.
+- **(15) Deps + overrides** → see the "Cross-cutting work → Dependencies and overrides" block in the Phase 3 spec template (below) for the canonical add/remove/override lists.
 
 ### Checkpoint
 
@@ -188,3 +188,106 @@ After populating the matrix, **stop and present it to the user**.
 Format as the compact table shown in §4 of the design spec. Wait for
 explicit approval before advancing to Phase 3. Do not "obvious" your
 way past this.
+
+## Phase 3 — Spec writing
+
+Write a per-repo migration spec to:
+
+`docs/superpowers/specs/YYYY-MM-DD-migrate-<repo>-to-product-sdk-design.md`
+
+Use today's date. If the directory doesn't exist, create it.
+
+### Spec template
+
+```markdown
+# Migrate <repo-name> to @parity/product-sdk
+
+## Target
+- Repo: <repo-name>
+- Target SDK version: @parity/product-sdk@^X.Y.Z
+- Target polkadot-api version: ^2.x
+
+## Discovery summary
+- Framework: <next | nuxt | vite | cli | mixed>
+- Container detection: <dual | container-only | standalone>
+- Workspace structure: <single-app | monorepo (N workspaces)>
+- Legacy stacks detected: <list with example files>
+- Tests: <runner + counts>
+- Existing migration issue/PR: <link or none>
+
+## Migration areas
+For each in-scope/deferred/optional area: status, sub-pattern,
+files affected (with paths), owning SDK skill, notes.
+
+### 1. Bootstrap                [yes]
+- Sub-pattern: createApp({ name: '<repo>', bulletin: <env|false> })
+- Files: lib/app.ts (new), N call-sites
+- Owning skill: product-sdk-app-builder
+- Notes: ...
+
+[... one subsection per area from the matrix ...]
+
+## Cross-cutting work
+### PAPI 2.x bump + descriptors
+- Bump polkadot-api 1.x → ^2.x plus aligned subpackages: [list]
+- Import path migrations: ws-provider/web → ws (N files)
+- Binary API: .asHex()/.fromBytes() → Binary.toHex(uint8) / raw Uint8Array
+- Event watching: api.event.X.watch(filter) → watch().{block,events[]} + filter in subscriber
+- .papi/descriptors/package.json bumped to <version>
+
+### Dependencies and overrides
+- Add: [list with versions]
+- Remove (direct): [list]
+- Remains transitive: @novasamatech/product-sdk (via @parity/product-sdk-host)
+- pnpm.overrides (required, copy verbatim from the SDK monorepo root):
+    "@polkadot-api/json-rpc-provider": "^0.2.0"
+    "@polkadot-api/json-rpc-provider-proxy": "^0.4.0"
+  Reason: isolated-install hoisting picks up 0.0.4 stub (empty "main") and
+  0.2.8 proxy with legacy input() signature → "onReady is not a function"
+
+## Verification plan
+- [ ] typecheck clean across N workspaces
+- [ ] lint clean
+- [ ] tests: <X/X unit, Y/Y integration, Z/Z e2e>
+- [ ] build green
+- [ ] manual smoke: <golden-path scenarios specific to this product>
+
+## Recommended ordering
+Phases (each = independent commit-worthy chunk):
+1. Deps + overrides (failure mode contained)
+2. PAPI 2.x adapt (mechanical)
+3. Address utils inline (low risk, deletions)
+4. Crypto + utils swap (mechanical, byte-identical verifiable)
+5. Logger swap (low risk)
+6. Chain access (touches bootstrap)
+7. Bootstrap + Signer (interlocked — must land together)
+8. Bulletin / Storage / Contracts / Statement Store (depend on bootstrap+signer)
+9. Final cleanup + verification
+
+## Out of scope
+[list of intentionally skipped concerns + reasons]
+```
+
+### Self-review checklist
+
+After writing the spec, before the user-review checkpoint, verify:
+
+1. **No placeholders**: search for `TBD` / `TODO` / `FIXME` / `???` and replace each.
+2. **Internal consistency**: do the area subsections match what the
+   decision matrix said? Same statuses, same sub-patterns?
+3. **Scope check**: is this focused enough for one implementation
+   plan, or does it need to be split (e.g., by workspace)?
+4. **Ambiguity check**: can any sub-pattern be interpreted two ways?
+   Pick one and make it explicit.
+
+Fix issues inline. No need to re-review.
+
+### Checkpoint
+
+After the spec passes self-review, **ask the user to review it**:
+
+> "Spec written and saved to `<path>`. Please review it and let me
+> know if you want changes before I hand off to writing-plans."
+
+Wait for explicit approval. If changes are requested, make them and
+re-run the self-review. Only proceed once the user approves.
