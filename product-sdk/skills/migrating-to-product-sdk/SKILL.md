@@ -121,12 +121,6 @@ Check whether the repo already uses `isInsideContainer` or
 standalone). If no, classify by framework: CLI / web-only is
 **standalone**; Polkadot Desktop / Mobile embed is **container-only**.
 
-### Existing migration work
-
-Run: `gh pr list --search 'migrate to @parity/product-sdk in:title'`
-and `gh issue list --search 'migrate to @parity/product-sdk in:title'`.
-Link any matches in the spec.
-
 ### Discovery report shape
 
 The report is an in-memory object the skill carries into Phase 2.
@@ -138,7 +132,6 @@ Include at minimum:
 - `legacyStacks`: list of detected stacks with example files
 - `papiVersion`: resolved version from lockfile
 - `tests`: detected test runner + count
-- `existingPr`: link or `null`
 
 ## Phase 2 — Decision matrix
 
@@ -219,7 +212,6 @@ Use today's date. If the directory doesn't exist, create it.
 - Workspace structure: <single-app | monorepo (N workspaces)>
 - Legacy stacks detected: <list with example files>
 - Tests: <runner + counts>
-- Existing migration issue/PR: <link or none>
 
 ## Migration areas
 For each in-scope/deferred/optional area: status, sub-pattern,
