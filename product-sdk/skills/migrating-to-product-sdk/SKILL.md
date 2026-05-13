@@ -47,10 +47,10 @@ Invoke when any of:
 - ❌ **Never skip a CHECKPOINT.** Both the decision matrix (Phase 2)
   and the spec (Phase 3) require explicit user approval before
   advancing.
-- ❌ **Never resolve unrelated upstream regressions** (e.g. `nuxt` /
-  `unrun` version pins seen in t3ams). Note them as out-of-scope in
-  the spec body if they surface; do not include them in the migration
-  plan.
+- ❌ **Never resolve unrelated upstream regressions.** If you encounter
+  pre-existing upstream bugs (broken transitive deps, framework
+  regressions unrelated to the SDK), note them as out-of-scope in the
+  spec body. Do not include them in the migration plan.
 - ❌ **Never design key-rotation migrations** for HKDF info-string
   mismatches. Defer to a separate follow-up spec (see G3).
 - ✅ **Always run discovery first.** No "I already know what this
@@ -133,6 +133,8 @@ Include at minimum:
 - `papiVersion`: resolved version from lockfile
 - `tests`: detected test runner + count
 
+When the discovery report is complete, immediately proceed to Phase 2.
+
 ## Phase 2 — Decision matrix
 
 For each of the 15 areas below, assign a **status** and pick a
@@ -140,14 +142,14 @@ For each of the 15 areas below, assign a **status** and pick a
 
 - **yes** — apply this migration in scope
 - **no** — not applicable to this product. Also the correct status when Phase 1 discovery surfaces no evidence of the area's legacy pattern. Do not assume the pattern is present "somewhere" — if grep did not find it, status is **no**.
-- **deferred** — recognized but punted to a follow-up; record the reason. **Only** use this when the pattern IS present in the repo but the migration cannot be applied safely now (e.g., G3 HKDF info-string mismatch with persisted ciphertext). Do not use `deferred` to mean "I'd like to grep more carefully later."
+- **deferred** — pattern IS present in the repo but the migration cannot be applied safely now (e.g., G3 HKDF info-string mismatch with persisted ciphertext). Record the reason in the spec's "Out of scope" section — do not create a separate follow-up spec.
 - **optional** — simplification opportunity, not strictly required
 
 ### The 15 areas
 
 | # | Area | Owning skill | In-scope when | Defer when |
 |---|---|---|---|---|
-| 1 | Bootstrap | `product-sdk-app-builder` | at least one other area is in-scope | n/a |
+| 1 | Bootstrap | `product-sdk-app-builder` | at least one other area is in-scope (**evaluate last** — depends on rows 2–15) | n/a |
 | 2 | Chain access | `product-sdk-chain-connection` | `createClient` / `createPapiProvider` / `@polkadot-apps/chain-client` / `@novasamatech/product-sdk` present | target chain not supported by host |
 | 3 | Wallet/Signer | `product-sdk-transactions` | `getAccountsProvider` ∨ hand-rolled wallet injection | demo/mock mode (keep custom adapter) |
 | 4 | Crypto primitives | `product-sdk-utilities` | `tweetnacl` ∨ `@skiff-org/skiff-crypto` ∨ `crypto.subtle.digest` | n/a |
@@ -184,9 +186,24 @@ For each of the 15 areas below, assign a **status** and pick a
 ### Checkpoint
 
 After populating the matrix, **stop and present it to the user**.
-Format as the compact table shown in §4 of the design spec. Wait for
-explicit approval before advancing to Phase 3. Do not "obvious" your
-way past this.
+Format as a compact Markdown table with columns: `#`, `Area`,
+`Status`, `Sub-pattern`, `Notes`. Example shape (rows shown are
+illustrative — yours must reflect the actual repo):
+
+```
+| #  | Area              | Status   | Sub-pattern                                     | Notes                              |
+|----|-------------------|----------|-------------------------------------------------|------------------------------------|
+| 1  | Bootstrap         | yes      | createApp({ name: '<repo>', bulletin: false })  | Singleton in lib/app.ts            |
+| 2  | Chain access      | yes      | getChainAPI('paseo') + getHostProvider fallback | dual; per-chain cache              |
+| 4  | Crypto            | yes      | replace tweetnacl + skiff-adapter               |                                    |
+| 6  | Key management    | deferred | KeyManager.fromSignature only                   | G3 — info-string mismatch persists |
+| 8  | App storage       | no       |                                                 | sessionStorage only                |
+| 13 | Identity / DotNS  | optional | resolveDotNs (hand-rolled call still works)     |                                    |
+```
+
+Wait for explicit user approval before advancing to Phase 3. Do not
+proceed unprompted — even if every status looks obvious. Upon
+approval, immediately begin Phase 3.
 
 ## Phase 3 — Spec writing
 
@@ -237,9 +254,9 @@ files affected (with paths), owning SDK skill, notes.
 - Add: [list with versions]
 - Remove (direct): [list]
 - Remains transitive: @novasamatech/product-sdk (via @parity/product-sdk-host)
-- pnpm.overrides (required, copy verbatim from the SDK monorepo root):
-    "@polkadot-api/json-rpc-provider": "^0.2.0"
-    "@polkadot-api/json-rpc-provider-proxy": "^0.4.0"
+- pnpm.overrides (required):
+    "@polkadot-api/json-rpc-provider": "^0.2.0"          # always; SDK monorepo root has this
+    "@polkadot-api/json-rpc-provider-proxy": "^0.4.0"    # add if legacy 0.2.8 proxy is being hoisted
   Reason: isolated-install hoisting picks up 0.0.4 stub (empty "main") and
   0.2.8 proxy with legacy input() signature → "onReady is not a function"
 
@@ -288,7 +305,8 @@ After the spec passes self-review, **ask the user to review it**:
 > know if you want changes before I hand off to writing-plans."
 
 Wait for explicit approval. If changes are requested, make them and
-re-run the self-review. Only proceed once the user approves.
+re-run the self-review. Once the user approves, immediately invoke
+Phase 4.
 
 ## Phase 4 — Hand-off
 
@@ -315,24 +333,10 @@ when Bulletin out of scope), G10 (descriptors bump).
 
 ## References
 
-This skill composes with — and does not duplicate — the seven existing
-SDK skills:
+For "how to use package X" content, the spec should point the reader
+at the corresponding SDK skill (listed in the intro above) rather than
+restating the API.
 
-- `product-sdk-app-builder` — bootstrap, `createApp`, scaffolding
-- `product-sdk-chain-connection` — `chain-client`, presets, BYOD,
-  descriptors
-- `product-sdk-transactions` — tx + signer + keys (3 packages)
-- `product-sdk-utilities` — address + crypto + utils + storage + logger
-  (5 packages)
-- `product-sdk-bulletin` — `BulletinClient`, upload / fetch, CID
-- `product-sdk-contracts` — `ContractManager`, `createContract`,
-  `cdm.json`
-- `product-sdk-statement-store` — host / local modes, topics,
-  `ChannelStore`
-
-For the actual "how to use package X" content, point the spec reader
-at the owning skill rather than restating the API.
-
-Hand-off targets (superpowers):
+Hand-off target:
 
 - `superpowers:writing-plans` — Phase 4 hand-off
