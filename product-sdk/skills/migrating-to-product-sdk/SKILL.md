@@ -42,8 +42,6 @@ Invoke when any of:
 
 ## Hard constraints
 
-- ❌ **Never commit, open PRs, or create GitHub issues.** Not during
-  discovery, not after writing the spec. The user does these manually.
 - ❌ **Never edit code.** The skill's role is discovery + spec writing
   only. Code edits happen later in `executing-plans`.
 - ❌ **Never skip a CHECKPOINT.** Both the decision matrix (Phase 2)
@@ -55,8 +53,37 @@ Invoke when any of:
   spec body. Do not include them in the migration plan.
 - ❌ **Never design key-rotation migrations** for HKDF info-string
   mismatches. Defer to a separate follow-up spec (see G3).
+- ❌ **Never commit, open PRs, or create GitHub issues by default.**
+  These are mode-gated: see **Launch modes** below. Default mode
+  (`local`) does none of them.
 - ✅ **Always run discovery first.** No "I already know what this
   repo needs" — every invocation inspects the actual target repo.
+
+## Launch modes
+
+By default the skill writes a local spec and does not commit or open
+anything in the target repo. The user can opt into other modes by
+stating intent at invocation. Three modes:
+
+- **`local`** *(default)* — spec written to `.claude/migrations/specs/`,
+  no commit, no issue. Use when planning before deciding.
+- **`commit`** — spec written to `docs/migrations/specs/` (tracked
+  path) AND committed with a single-line message (no co-author
+  trailer). Triggered by user phrasing like "commit the spec",
+  "committa la spec", "commit the migration plan".
+- **`issue`** — spec content used as the body of a new GitHub issue
+  via `gh issue create --title "Migrate to @parity/product-sdk" --body-file <spec-path>`. The spec is also written
+  locally to `.claude/migrations/specs/` for reference. Triggered by
+  phrasing like "open an issue", "apri un'issue", "create a migration
+  issue". Requires `gh` authenticated for the target repo.
+
+If the user's intent is ambiguous, ask once: "Mode? `local` (default,
+no commit/issue), `commit` (commit the spec), or `issue` (open a GitHub
+issue with the spec)?" Default to `local` if no answer.
+
+Modes are **mutually exclusive** in the same invocation. To do both
+"commit the spec" AND "open an issue", run the skill twice or ask the
+user which to do first.
 
 ## Phase 1 — Discovery
 
@@ -209,15 +236,20 @@ approval, immediately begin Phase 3.
 
 ## Phase 3 — Spec writing
 
-Write a per-repo migration spec to:
+Write a per-repo migration spec. The output path depends on the
+**launch mode** (see Launch modes above):
 
-`.claude/migrations/specs/YYYY-MM-DD-migrate-<repo>-to-product-sdk-design.md`
+- **`local`** or **`issue`** mode →
+  `.claude/migrations/specs/YYYY-MM-DD-migrate-<repo>-to-product-sdk-design.md`
+- **`commit`** mode →
+  `docs/migrations/specs/YYYY-MM-DD-migrate-<repo>-to-product-sdk-design.md`
 
-Use today's date. If the directory doesn't exist, create it. The
-`.claude/` path is intentional: it keeps the planning artifact local to
-the user and out of the target repo's tracked tree. If `.claude/` is
-not already in the repo's `.gitignore`, add `.claude/migrations/` to it
-before writing the spec.
+Use today's date. If the directory doesn't exist, create it. For
+`local` / `issue` modes, if `.claude/` is not already in the repo's
+`.gitignore`, add `.claude/migrations/` to it before writing the spec
+(planning artifact stays local). For `commit` mode, the `docs/`
+location is intentional: the spec is tracked alongside other
+documentation.
 
 ### Spec template
 
@@ -341,13 +373,39 @@ Phase 4.
 
 ## Phase 4 — Hand-off
 
-Once the spec is approved by the user:
+Once the spec is approved by the user, perform mode-specific actions
+then hand off to `writing-plans`.
+
+### Mode-specific actions
+
+- **`local`** *(default)*: nothing extra. Proceed to hand-off below.
+- **`commit`**: stage and commit the spec file with a single-line
+  message (no co-author trailer). Use:
+  ```bash
+  git add docs/migrations/specs/<spec-filename>
+  git commit -m "docs(migrations): add @parity/product-sdk migration spec"
+  ```
+  Report the commit hash to the user. Do NOT push — the user pushes
+  manually.
+- **`issue`**: open a GitHub issue with the spec as the body:
+  ```bash
+  gh issue create \
+    --title "Migrate to @parity/product-sdk" \
+    --body-file .claude/migrations/specs/<spec-filename>
+  ```
+  Report the issue URL to the user. If `gh` is not authenticated for
+  the target repo, stop and ask the user to authenticate before
+  retrying (do not silently fall back to a different mode).
+
+### Hand-off
 
 1. Invoke `superpowers:writing-plans` with the spec path as input.
    Explicitly instruct writing-plans to save the implementation plan
    to `.claude/migrations/plans/YYYY-MM-DD-migrate-<repo>-to-product-sdk.md`
    — this overrides its default `docs/superpowers/plans/` location and
-   keeps the plan project-local alongside the spec.
+   keeps the plan project-local. (The plan is always local regardless
+   of the spec's launch mode — it is a working artifact, not a
+   deliverable.)
 2. `writing-plans` produces the implementation plan at that path.
 3. The user then picks an executor:
    - `superpowers:subagent-driven-development` (recommended), or
