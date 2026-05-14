@@ -20,7 +20,7 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
-        "@parity/product-sdk-coinpayment": "workspace:*"
+        "@parity/product-sdk-coin-payment": "workspace:*"
     },
     "devDependencies": {
         "tsup": "catalog:",

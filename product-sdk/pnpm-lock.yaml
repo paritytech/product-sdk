@@ -460,7 +460,11 @@ importers:
         specifier: 'catalog:'
         version: 3.2.4(@types/node@25.6.0)
 
-  packages/coinpayment:
+  packages/coin-payment:
+    dependencies:
+      '@parity/product-sdk-host':
+        specifier: workspace:*
+        version: link:../host
     devDependencies:
       tsup:
         specifier: 'catalog:'
@@ -605,9 +609,9 @@ importers:
 
   packages/merchant-payments:
     dependencies:
-      '@parity/product-sdk-coinpayment':
+      '@parity/product-sdk-coin-payment':
         specifier: workspace:*
-        version: link:../coinpayment
+        version: link:../coin-payment
     devDependencies:
       tsup:
         specifier: 'catalog:'
@@ -630,9 +634,9 @@ importers:
       '@parity/product-sdk-chain-client':
         specifier: workspace:*
         version: link:../chain-client
-      '@parity/product-sdk-coinpayment':
+      '@parity/product-sdk-coin-payment':
         specifier: workspace:*
-        version: link:../coinpayment
+        version: link:../coin-payment
       '@parity/product-sdk-contracts':
         specifier: workspace:*
         version: link:../contracts

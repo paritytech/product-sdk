@@ -1,4 +1,4 @@
-import { installCoinPaymentReferenceHost } from "@parity/product-sdk-coinpayment";
+import { installCoinPaymentReferenceHost } from "@parity/product-sdk-coin-payment";
 import { describe, expect, test } from "vitest";
 import { MemoryMerchantPaymentRecordStore } from "./memory-store.js";
 import { createMerchantPaymentsSdk } from "./sdk.js";

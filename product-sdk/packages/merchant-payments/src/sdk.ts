@@ -5,7 +5,7 @@ import {
     type CoinPaymentStatus,
     type Invoice,
     type PurseId,
-} from "@parity/product-sdk-coinpayment";
+} from "@parity/product-sdk-coin-payment";
 import { MemoryMerchantPaymentRecordStore } from "./memory-store.js";
 import {
     MerchantPaymentException,

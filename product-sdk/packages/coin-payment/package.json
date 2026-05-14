@@ -1,5 +1,5 @@
 {
-    "name": "@parity/product-sdk-coinpayment",
+    "name": "@parity/product-sdk-coin-payment",
     "version": "0.0.0",
     "description": "Product SDK client and reference host for the CoinPayment user-agent API",
     "type": "module",
@@ -18,6 +18,9 @@
         "build": "tsup",
         "test": "vitest",
         "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "@parity/product-sdk-host": "workspace:*"
     },
     "devDependencies": {
         "tsup": "catalog:",

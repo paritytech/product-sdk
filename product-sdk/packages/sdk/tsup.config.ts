@@ -6,7 +6,7 @@ export default defineConfig({
         "address/index": "src/address/index.ts",
         "bulletin/index": "src/bulletin/index.ts",
         "chain/index": "src/chain/index.ts",
-        "coinpayment/index": "src/coinpayment/index.ts",
+        "coin-payment/index": "src/coin-payment/index.ts",
         "contracts/index": "src/contracts/index.ts",
         "core/index": "src/core/index.ts",
         "crypto/index": "src/crypto/index.ts",

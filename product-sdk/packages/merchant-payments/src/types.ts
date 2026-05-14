@@ -5,7 +5,7 @@ import type {
     Invoice,
     PurseId,
     Receivable,
-} from "@parity/product-sdk-coinpayment";
+} from "@parity/product-sdk-coin-payment";
 
 export type PaymentAsset = "dotUSD";
 export type Currency = "USD" | "EUR";

@@ -24,9 +24,9 @@
             "import": "./dist/chain/index.js",
             "types": "./dist/chain/index.d.ts"
         },
-        "./coinpayment": {
-            "import": "./dist/coinpayment/index.js",
-            "types": "./dist/coinpayment/index.d.ts"
+        "./coin-payment": {
+            "import": "./dist/coin-payment/index.js",
+            "types": "./dist/coin-payment/index.d.ts"
         },
         "./contracts": {
             "import": "./dist/contracts/index.js",
@@ -74,7 +74,7 @@
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-bulletin": "workspace:*",
         "@parity/product-sdk-chain-client": "workspace:*",
-        "@parity/product-sdk-coinpayment": "workspace:*",
+        "@parity/product-sdk-coin-payment": "workspace:*",
         "@parity/product-sdk-contracts": "workspace:*",
         "@parity/product-sdk-crypto": "workspace:*",
         "@parity/product-sdk-host": "workspace:*",

@@ -1,6 +1,7 @@
 import {
     CoinPaymentException,
     MAIN_PURSE,
+    type AccountId,
     type Balance,
     type Cheque,
     type ClearingReference,
@@ -11,6 +12,10 @@ import {
     type CoinPaymentWindow,
     type Invoice,
     type ListenForResult,
+    type PaymentBalance,
+    type PaymentPurse,
+    type PaymentReceipt,
+    type PaymentTopUpSource,
     type PurseId,
     type PurseInfo,
     type Receivable,
@@ -188,6 +193,32 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
         return cheque;
     }
 
+    async paymentBalance(purse?: PaymentPurse): Promise<PaymentBalance> {
+        return { available: this.requirePurse(resolvePaymentPurse(purse)).balance };
+    }
+
+    async paymentTopUp(
+        into: PaymentPurse,
+        amount: Balance,
+        source: PaymentTopUpSource,
+    ): Promise<CoinPaymentOperation<CoinPaymentStatus>> {
+        validateTopUpSource(source);
+        const purse = this.requirePurse(resolvePaymentPurse(into));
+        purse.balance += amount;
+        return clearingOperation(amount, this.makeClearingReference());
+    }
+
+    async paymentRequest(
+        from: PaymentPurse,
+        amount: Balance,
+        destination: AccountId,
+    ): Promise<PaymentReceipt> {
+        const purse = this.requirePurse(resolvePaymentPurse(from));
+        if (purse.balance < amount) throw new CoinPaymentException("balanceLow");
+        purse.balance -= amount;
+        return { id: `payment:${key(destination)}:${amount}:${this.nextSerial++}` };
+    }
+
     deliverCheque(channel: TransmissionChannel, cheque: Cheque): void {
         const listener = this.listeners.get(key(channel.sssTopic));
         if (!listener) throw new CoinPaymentException("unsupportedChannel");
@@ -265,6 +296,16 @@ function key(bytes: Uint8Array): string {
     return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function resolvePaymentPurse(purse: PaymentPurse): PurseId {
+    return purse ?? MAIN_PURSE;
+}
+
+function validateTopUpSource(source: PaymentTopUpSource): void {
+    if (source.kind === "privateKey" && source.secret.length === 0) {
+        throw new CoinPaymentException("denied", "private key top-up source is empty");
+    }
+}
+
 if (import.meta.vitest) {
     const { describe, expect, test } = import.meta.vitest;
 
@@ -304,6 +345,31 @@ if (import.meta.vitest) {
             const refund = await host.refund(receivable);
 
             await expect(refund.result).resolves.toMatchObject({ kind: "done", cleared: 125 });
+        });
+
+        test("uses MAIN_PURSE for payment helpers by default", async () => {
+            const host = installCoinPaymentReferenceHost({ initialMainBalance: 500 });
+
+            await expect(host.paymentBalance()).resolves.toEqual({ available: 500 });
+            const receipt = await host.paymentRequest(undefined, 125, new Uint8Array(32));
+
+            expect(receipt.id).toContain("payment:");
+            await expect(host.paymentBalance()).resolves.toEqual({ available: 375 });
+        });
+
+        test("targets selected purse for payment top-up and request helpers", async () => {
+            const host = installCoinPaymentReferenceHost({ initialMainBalance: 500 });
+            const purse = await host.createPurse("Store");
+            const topUp = await host.paymentTopUp(purse, 80, {
+                kind: "productAccount",
+                derivationIndex: 4,
+            });
+            await expect(topUp.result).resolves.toMatchObject({ kind: "done", cleared: 80 });
+
+            await host.paymentRequest(purse, 30, new Uint8Array(32));
+
+            await expect(host.paymentBalance()).resolves.toEqual({ available: 500 });
+            await expect(host.paymentBalance(purse)).resolves.toEqual({ available: 50 });
         });
     });
 }
