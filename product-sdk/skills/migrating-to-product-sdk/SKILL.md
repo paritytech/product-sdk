@@ -266,6 +266,30 @@ files affected (with paths), owning SDK skill, notes.
   Reason: isolated-install hoisting picks up 0.0.4 stub (empty "main") and
   0.2.8 proxy with legacy input() signature → "onReady is not a function"
 
+## Cleanup
+After all in-scope area swaps land and before final verification —
+remove dead code, unused imports, and now-redundant glue. The agent
+must do this explicitly; it does not emerge from the per-area work.
+
+- [ ] Delete orphaned files: wrapper modules replaced by SDK inlines
+      (e.g. `utils/address.ts`), hand-rolled adapters (e.g.
+      `skiff-adapter.ts`), legacy IPFS / Helia glue, `wallet-signer.ts`
+      stubs. Verify zero in-tree references via `git grep` before each
+      deletion.
+- [ ] Remove unused imports across all touched files (run the
+      project's lint/format script and resolve every "unused import"
+      warning, then re-run to confirm clean).
+- [ ] Remove deps that became unused after the migration. For each
+      candidate (e.g. `@polkadot-labs/hdkd-helpers`, `tweetnacl`,
+      `@skiff-org/skiff-crypto`, `helia`, `@polkadot-api/sdk-ink`),
+      confirm zero in-tree consumers with `pnpm why <pkg>` (or
+      equivalent for npm / bun) before removing from `package.json`.
+- [ ] Delete `TODO migrate later` / `FIXME` comments that the
+      migration has now resolved.
+- [ ] Remove commented-out legacy code kept "just in case" during the
+      swap. If tests pass without it, delete it — git history is the
+      backup.
+
 ## Verification plan
 - [ ] typecheck clean across N workspaces
 - [ ] lint clean
@@ -283,7 +307,8 @@ Phases (each = independent commit-worthy chunk):
 6. Chain access (touches bootstrap)
 7. Bootstrap + Signer (interlocked — must land together)
 8. Bulletin / Storage / Contracts / Statement Store (depend on bootstrap+signer)
-9. Final cleanup + verification
+9. Cleanup (see Cleanup section — dead files, unused imports, unused deps)
+10. Final verification (Verification plan checklist)
 
 ## Out of scope
 [list of intentionally skipped concerns + reasons]
