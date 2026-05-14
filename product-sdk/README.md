@@ -87,6 +87,10 @@ pnpm bench           # measure current sizes locally
 pnpm bench:compare   # compare against a saved snapshot (CI uses this)
 ```
 
+## Releasing
+
+Releases are driven by [changesets](https://github.com/changesets/changesets). See [`RELEASES.md`](./RELEASES.md) for the full workflow — including the `pending-changesets/` staging directory for changesets that aren't yet ready to publish.
+
 ## License
 
 Apache-2.0
