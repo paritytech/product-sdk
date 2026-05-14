@@ -30,6 +30,7 @@ export {
     getPreimageManager,
     getAccountsProvider,
     requestResourceAllocation,
+    createProofAuthorized,
     // Helpers from @novasamatech/host-api
     enumValue,
     isEnumVariant,
@@ -51,4 +52,5 @@ export type {
     ResultAsync,
     AllocatableResource,
     AllocationOutcome,
+    Statement,
 } from "./truapi.js";
