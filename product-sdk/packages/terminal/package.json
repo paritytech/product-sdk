@@ -19,6 +19,10 @@
         "./testing": {
             "types": "./dist/testing.d.ts",
             "import": "./dist/testing.js"
+        },
+        "./host": {
+            "types": "./dist/host.d.ts",
+            "import": "./dist/host.js"
         }
     },
     "files": ["dist", "scripts"],
