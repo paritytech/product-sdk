@@ -19,8 +19,9 @@ import {
     pickOnExistingPolicy,
     readCacheEntry,
     saveCache,
+    withCacheLock,
 } from "./host-cache.js";
-import { createSlotAccountSigner } from "./host-signer.js";
+import { buildSignerFromEntry, createSlotAccountSigner } from "./host-signer.js";
 
 // `terminal` namespace matches adapter.ts / node-storage.ts.
 const log = createLogger("terminal");
@@ -90,31 +91,33 @@ export async function requestResourceAllocation(
     resources: AllocatableResource[],
     options: RequestResourceAllocationOptions = {},
 ): Promise<ApAllocationOutcome[]> {
-    const cache = await loadCache(adapter.appId, adapter.storageDir);
-    const onExisting = options.onExisting ?? pickOnExistingPolicy(cache, resources);
-    log.debug("requestResourceAllocation", {
-        productId: adapter.appId,
-        resources: resources.map((r) => r.tag),
-        onExisting,
-        autoPolicy: options.onExisting === undefined,
+    return withCacheLock(adapter.appId, adapter.storageDir, async () => {
+        const cache = await loadCache(adapter.appId, adapter.storageDir);
+        const onExisting = options.onExisting ?? pickOnExistingPolicy(cache, resources);
+        log.debug("requestResourceAllocation", {
+            productId: adapter.appId,
+            resources: resources.map((r) => r.tag),
+            onExisting,
+            autoPolicy: options.onExisting === undefined,
+        });
+
+        const result = await session.requestResourceAllocation({
+            callingProductId: adapter.appId,
+            resources,
+            onExisting,
+        });
+
+        if (result.isErr()) {
+            throw new Error(`requestResourceAllocation failed: ${result.error.message}`);
+        }
+
+        const next = mergeOutcomes(cache, resources, result.value);
+        if (next !== cache) {
+            await saveCache(adapter.appId, next, adapter.storageDir);
+        }
+
+        return result.value;
     });
-
-    const result = await session.requestResourceAllocation({
-        callingProductId: adapter.appId,
-        resources,
-        onExisting,
-    });
-
-    if (result.isErr()) {
-        throw new Error(`requestResourceAllocation failed: ${result.error.message}`);
-    }
-
-    const next = mergeOutcomes(cache, resources, result.value);
-    if (next !== cache) {
-        await saveCache(adapter.appId, next, adapter.storageDir);
-    }
-
-    return result.value;
 }
 
 /**
@@ -149,33 +152,66 @@ export async function ensureSlotAccountSigner(
     adapter: TerminalAdapter,
     resource: AllocatableResource,
 ): Promise<PolkadotSigner> {
-    // Cache check first; SC / AutoSigning throw here (no signer to build).
-    const cached = await createSlotAccountSigner(adapter, resource);
-    if (cached) return cached;
+    // The cache-hit check and the allocation path must share the same
+    // critical section: otherwise two concurrent calls for the same
+    // resource both see an empty cache, then both serialize through the
+    // lock but each issues its own wallet prompt and burns a slot.
+    return withCacheLock(adapter.appId, adapter.storageDir, async () => {
+        // Single loadCache for the whole critical section — we hold the
+        // lock, so no other writer can change disk under us. The fast
+        // cache-hit path and the slow allocate-then-build path both
+        // reuse this in-memory `cache` reference.
+        const cache = await loadCache(adapter.appId, adapter.storageDir);
+        const hit = readCacheEntry(cache, resource);
+        if (hit) return buildSignerFromEntry(hit);
 
-    log.debug("ensureSlotAccountSigner: cache miss, allocating", { resource: resource.tag });
-    const outcomes = await requestResourceAllocation(session, adapter, [resource]);
-    const outcome = outcomes[0];
-    if (!outcome) {
-        // Defensive: wire response is length-matched, so this is unreachable
-        // unless the wire contract breaks.
-        throw new Error(
-            `ensureSlotAccountSigner: protocol violation — empty outcomes for ${resource.tag}`,
-        );
-    }
-    if (outcome.tag !== "Allocated") {
-        throw new Error(`ensureSlotAccountSigner: allocation ${outcome.tag} for ${resource.tag}`);
-    }
+        log.debug("ensureSlotAccountSigner: cache miss, allocating", { resource: resource.tag });
 
-    const fresh = await createSlotAccountSigner(adapter, resource);
-    if (!fresh) {
-        // Unreachable: requestResourceAllocation just wrote the entry.
-        // Kept as a typed-non-null guard against mergeOutcomes regressions.
-        throw new Error(
-            `ensureSlotAccountSigner: allocation succeeded but cache lookup returned null for ${resource.tag}`,
-        );
-    }
-    return fresh;
+        // Inline the wire → merge → save sequence rather than calling the
+        // public `requestResourceAllocation` wrapper. `withCacheLock` is
+        // non-reentrant, so calling the wrapper from inside would deadlock
+        // on the second lock acquisition.
+        const onExisting = pickOnExistingPolicy(cache, [resource]);
+        const result = await session.requestResourceAllocation({
+            callingProductId: adapter.appId,
+            resources: [resource],
+            onExisting,
+        });
+        if (result.isErr()) {
+            throw new Error(`requestResourceAllocation failed: ${result.error.message}`);
+        }
+        const outcomes = result.value;
+        const next = mergeOutcomes(cache, [resource], outcomes);
+        if (next !== cache) {
+            await saveCache(adapter.appId, next, adapter.storageDir);
+        }
+
+        const outcome = outcomes[0];
+        if (!outcome) {
+            // Unreachable: mergeOutcomes throws on length mismatch first.
+            // Kept as a typed-non-null guard.
+            throw new Error(
+                `ensureSlotAccountSigner: protocol violation — empty outcomes for ${resource.tag}`,
+            );
+        }
+        if (outcome.tag !== "Allocated") {
+            throw new Error(
+                `ensureSlotAccountSigner: allocation ${outcome.tag} for ${resource.tag}`,
+            );
+        }
+
+        // Build the signer from the in-memory post-merge cache — no third
+        // disk read.
+        const freshEntry = readCacheEntry(next, resource);
+        if (!freshEntry) {
+            // Unreachable: the entry was just merged in.
+            // Kept as a typed-non-null guard against mergeOutcomes regressions.
+            throw new Error(
+                `ensureSlotAccountSigner: allocation succeeded but cache lookup returned null for ${resource.tag}`,
+            );
+        }
+        return buildSignerFromEntry(freshEntry);
+    });
 }
 
 if (import.meta.vitest) {
@@ -188,6 +224,7 @@ if (import.meta.vitest) {
     // top-level await is only allowed at module top-level (or inside this
     // top-level vitest block), not inside `describe`.
     const { mnemonicToMiniSecret, DEV_PHRASE } = await import("@polkadot-labs/hdkd-helpers");
+    const { toHex } = await import("@polkadot-api/utils");
 
     let testStorageDir: string;
     beforeEach(() => {
@@ -286,7 +323,7 @@ if (import.meta.vitest) {
             const session = makeSession({
                 requestResourceAllocation: async (req) => {
                     captured.push(req);
-                    return ok([]) as StubReturn;
+                    return ok([{ tag: "Rejected" as const, value: undefined }]) as StubReturn;
                 },
             });
 
@@ -305,7 +342,7 @@ if (import.meta.vitest) {
             const session = makeSession({
                 requestResourceAllocation: async (req) => {
                     captured.push(req);
-                    return ok([]) as StubReturn;
+                    return ok([{ tag: "Rejected" as const, value: undefined }]) as StubReturn;
                 },
             });
 
@@ -505,7 +542,20 @@ if (import.meta.vitest) {
             const session = makeSession({
                 requestResourceAllocation: async (req) => {
                     captured.push(req);
-                    return bulletinAllocated(new Uint8Array([1]));
+                    // Length-match the request: 1 or 2 outcomes as needed.
+                    return ok(
+                        req.resources.map((_r, i) =>
+                            i === 0
+                                ? {
+                                      tag: "Allocated" as const,
+                                      value: {
+                                          tag: "BulletInAllowance" as const,
+                                          value: { slotAccountKey: new Uint8Array([1]) },
+                                      },
+                                  }
+                                : { tag: "Rejected" as const, value: undefined },
+                        ),
+                    ) as StubReturn;
                 },
             });
 
@@ -552,6 +602,58 @@ if (import.meta.vitest) {
             await requestResourceAllocation(session, adapter, req);
 
             expect(captured.map((c) => c.onExisting)).toEqual(["Ignore", "Ignore"]);
+        });
+
+        test("parallel calls for different resources both persist their keys (no last-writer-wins)", async () => {
+            // Regression test for the load → wire → save race: without
+            // serialization, both calls snapshot an empty cache, do their
+            // wire round-trip, then save — the second save clobbers the
+            // first. Both keys must end up in the cache.
+            const session = makeSession({
+                requestResourceAllocation: async (req) => {
+                    // Force interleaving: each call yields before responding.
+                    await new Promise((r) => setTimeout(r, 5));
+                    const tag = req.resources[0]?.tag;
+                    return ok([
+                        {
+                            tag: "Allocated" as const,
+                            value:
+                                tag === "BulletInAllowance"
+                                    ? {
+                                          tag: "BulletInAllowance" as const,
+                                          value: { slotAccountKey: new Uint8Array([0xaa]) },
+                                      }
+                                    : {
+                                          tag: "StatementStoreAllowance" as const,
+                                          value: { slotAccountKey: new Uint8Array([0xbb]) },
+                                      },
+                        },
+                    ]) as StubReturn;
+                },
+            });
+            const adapter = fakeAdapter("p");
+
+            await Promise.all([
+                requestResourceAllocation(session, adapter, [
+                    { tag: "BulletInAllowance", value: undefined },
+                ]),
+                requestResourceAllocation(session, adapter, [
+                    { tag: "StatementStoreAllowance", value: undefined },
+                ]),
+            ]);
+
+            expect(
+                await getCachedAllocation(adapter, {
+                    tag: "BulletInAllowance",
+                    value: undefined,
+                }),
+            ).not.toBeNull();
+            expect(
+                await getCachedAllocation(adapter, {
+                    tag: "StatementStoreAllowance",
+                    value: undefined,
+                }),
+            ).not.toBeNull();
         });
 
         test("two appIds maintain independent caches in the same storageDir", async () => {
@@ -697,7 +799,9 @@ if (import.meta.vitest) {
             ).rejects.toThrow(/allocation Rejected for BulletInAllowance/);
         });
 
-        test("empty outcomes array from the wire surfaces as a protocol-violation throw", async () => {
+        test("empty outcomes array from the wire surfaces as a length-mismatch throw", async () => {
+            // mergeOutcomes enforces the length contract and throws before
+            // the downstream `outcomes[0]` defensive guard is reached.
             const session = makeSession({
                 requestResourceAllocation: async () => ok([]) as StubReturn,
             });
@@ -707,7 +811,7 @@ if (import.meta.vitest) {
                     tag: "BulletInAllowance",
                     value: undefined,
                 }),
-            ).rejects.toThrow(/protocol violation — empty outcomes for BulletInAllowance/);
+            ).rejects.toThrow(/length mismatch — requested 1, got 0/);
         });
 
         test("NotAvailable outcome surfaces as a throw", async () => {
@@ -755,6 +859,44 @@ if (import.meta.vitest) {
                 value: undefined,
             });
             expect(cached?.tag).toBe("BulletInAllowance");
+        });
+
+        test("parallel calls for the SAME resource share one allocation (no double-prompt)", async () => {
+            // Regression: previously the cache-hit check ran outside the
+            // lock, so two concurrent same-resource calls both passed it,
+            // then both hit the wire under the serialized lock — burning
+            // two slots and prompting the wallet twice. Both calls must
+            // resolve from a single allocation.
+            const captured: RequestCapture[] = [];
+            const session = makeSession({
+                requestResourceAllocation: async (req) => {
+                    captured.push(req);
+                    // Force a yield so the second caller has a chance to
+                    // race past the cache check if the lock isn't around it.
+                    await new Promise((r) => setTimeout(r, 5));
+                    return bulletinAllocatedResponse();
+                },
+            });
+            const adapter = fakeAdapter("p");
+
+            const [signerA, signerB] = await Promise.all([
+                ensureSlotAccountSigner(session, adapter, {
+                    tag: "BulletInAllowance",
+                    value: undefined,
+                }),
+                ensureSlotAccountSigner(session, adapter, {
+                    tag: "BulletInAllowance",
+                    value: undefined,
+                }),
+            ]);
+
+            // Exactly one wire round-trip — the second caller must observe
+            // the freshly-cached key, not start a second allocation.
+            expect(captured).toHaveLength(1);
+            // Both calls return functioning signers backed by the same key.
+            expect(signerA.publicKey).toBeInstanceOf(Uint8Array);
+            expect(signerB.publicKey).toBeInstanceOf(Uint8Array);
+            expect(toHex(signerA.publicKey)).toBe(toHex(signerB.publicKey));
         });
     });
 }

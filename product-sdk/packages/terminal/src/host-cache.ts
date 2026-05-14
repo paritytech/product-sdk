@@ -116,20 +116,39 @@ export function pickOnExistingPolicy(
 
 /**
  * Merge `Allocated` outcomes into the cache. Non-`Allocated` outcomes
- * leave the cache unchanged.
+ * leave the cache unchanged. Returns the input `cache` reference rather
+ * than a copy when no entry was added, so callers can short-circuit a
+ * disk write via reference equality.
+ *
+ * Throws on length mismatch — `outcomes` must be length-matched with
+ * `requested`. A divergence is a wire contract violation, not data to
+ * silently truncate.
  */
 export function mergeOutcomes(
     cache: AllowanceCacheV1,
     requested: AllocatableResource[],
     outcomes: ApAllocationOutcome[],
 ): AllowanceCacheV1 {
+    if (requested.length !== outcomes.length) {
+        throw new Error(
+            `mergeOutcomes: length mismatch — requested ${requested.length}, got ${outcomes.length}`,
+        );
+    }
     const entries = { ...cache.entries };
-    const n = Math.min(requested.length, outcomes.length);
-    for (let i = 0; i < n; i++) {
+    let mutated = false;
+    for (let i = 0; i < outcomes.length; i++) {
         const req = requested[i];
         const out = outcomes[i];
         if (out.tag !== "Allocated") continue;
         const inner = out.value;
+        // outcomes must align positionally AND by variant with the request.
+        // A divergence is a wire contract violation: throw rather than
+        // silently miscaching a key under the wrong cache slot.
+        if (inner.tag !== req.tag) {
+            throw new Error(
+                `mergeOutcomes: variant mismatch at index ${i} — requested ${req.tag}, got Allocated<${inner.tag}>`,
+            );
+        }
         const key = cacheKey(req);
         switch (inner.tag) {
             case "BulletInAllowance":
@@ -138,11 +157,15 @@ export function mergeOutcomes(
                     tag: inner.tag,
                     slotAccountKey: toHex(inner.value.slotAccountKey),
                 };
+                mutated = true;
                 break;
             case "SmartContractAllowance":
                 // dest comes from the request; the response payload is undefined.
+                // Variant alignment is enforced above, so req.tag is guaranteed
+                // to be SmartContractAllowance here — the cast narrows it.
                 if (req.tag === "SmartContractAllowance") {
                     entries[key] = { tag: "SmartContractAllowance", dest: req.value };
+                    mutated = true;
                 }
                 break;
             case "AutoSigning":
@@ -151,10 +174,11 @@ export function mergeOutcomes(
                     productDerivationSecret: inner.value.productDerivationSecret,
                     productRootPrivateKey: toHex(inner.value.productRootPrivateKey),
                 };
+                mutated = true;
                 break;
         }
     }
-    return { version: 1, entries };
+    return mutated ? { version: 1, entries } : cache;
 }
 
 /** Look up a single cached allocation, or `null` if absent. */
@@ -163,6 +187,35 @@ export function readCacheEntry(
     resource: AllocatableResource,
 ): CachedAllocation | null {
     return cache.entries[cacheKey(resource)] ?? null;
+}
+
+/**
+ * Serialize load/merge/save sequences for the same cache file within a
+ * single process. Without this, parallel `requestResourceAllocation`
+ * calls for *different* resources can race: each snapshots the cache
+ * before the other writes, last writer wins, the loser's key is lost.
+ *
+ * Cross-process races are out of scope here — the Account Holder
+ * serializes per user/product/resource and returns identical bytes
+ * to concurrent callers for the same resource, so two CLI processes
+ * writing the same key converge.
+ */
+const cacheLocks = new Map<string, Promise<unknown>>();
+
+export function withCacheLock<T>(
+    appId: string,
+    storageDir: string | undefined,
+    fn: () => Promise<T>,
+): Promise<T> {
+    const key = cachePath(appId, storageDir);
+    const prev = cacheLocks.get(key) ?? Promise.resolve();
+    // Neutralize a prior rejection so one failure doesn't block subsequent waiters.
+    const next = prev.catch(() => {}).then(fn);
+    cacheLocks.set(
+        key,
+        next.catch(() => {}),
+    );
+    return next;
 }
 
 if (import.meta.vitest) {
@@ -423,6 +476,79 @@ if (import.meta.vitest) {
             });
         });
 
+        test("returns the same cache reference when no Allocated outcomes (no-op)", () => {
+            // Lets callers gate disk writes on reference equality.
+            const cache: AllowanceCacheV1 = {
+                version: 1,
+                entries: {
+                    BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0xaa" },
+                },
+            };
+            const requested: AllocatableResource[] = [
+                { tag: "BulletInAllowance", value: undefined },
+                { tag: "StatementStoreAllowance", value: undefined },
+            ];
+            const outcomes: ApAllocationOutcome[] = [
+                { tag: "Rejected", value: undefined },
+                { tag: "NotAvailable", value: undefined },
+            ];
+            expect(mergeOutcomes(cache, requested, outcomes)).toBe(cache);
+        });
+
+        test("empty inputs return the same cache reference", () => {
+            const cache = emptyCache();
+            expect(mergeOutcomes(cache, [], [])).toBe(cache);
+        });
+
+        test("returns a new object reference when at least one entry is added", () => {
+            const cache = emptyCache();
+            const requested: AllocatableResource[] = [
+                { tag: "BulletInAllowance", value: undefined },
+            ];
+            const outcomes: ApAllocationOutcome[] = [
+                {
+                    tag: "Allocated",
+                    value: {
+                        tag: "BulletInAllowance",
+                        value: { slotAccountKey: new Uint8Array([1]) },
+                    },
+                },
+            ];
+            expect(mergeOutcomes(cache, requested, outcomes)).not.toBe(cache);
+        });
+
+        test("throws when outcomes do not length-match requested", () => {
+            const cache = emptyCache();
+            const requested: AllocatableResource[] = [
+                { tag: "BulletInAllowance", value: undefined },
+                { tag: "StatementStoreAllowance", value: undefined },
+            ];
+            const outcomes: ApAllocationOutcome[] = [{ tag: "Rejected", value: undefined }];
+            expect(() => mergeOutcomes(cache, requested, outcomes)).toThrow(/length mismatch/);
+        });
+
+        test("throws when an Allocated outcome's variant does not match the requested variant", () => {
+            // outcomes must align positionally AND by variant with the
+            // request. Without this guard, a Bulletin key would get stored
+            // under the StatementStoreAllowance cache slot.
+            const cache = emptyCache();
+            const requested: AllocatableResource[] = [
+                { tag: "StatementStoreAllowance", value: undefined },
+            ];
+            const outcomes: ApAllocationOutcome[] = [
+                {
+                    tag: "Allocated",
+                    value: {
+                        tag: "BulletInAllowance",
+                        value: { slotAccountKey: new Uint8Array([0xaa]) },
+                    },
+                },
+            ];
+            expect(() => mergeOutcomes(cache, requested, outcomes)).toThrow(
+                /variant mismatch at index 0 — requested StatementStoreAllowance, got Allocated<BulletInAllowance>/,
+            );
+        });
+
         test("preserves existing entries when merging new ones", () => {
             const cache: AllowanceCacheV1 = {
                 version: 1,
@@ -481,6 +607,45 @@ if (import.meta.vitest) {
             expect(
                 readCacheEntry(cache, { tag: "BulletInAllowance", value: undefined }),
             ).toBeNull();
+        });
+    });
+
+    describe("withCacheLock", () => {
+        test("serializes calls for the same (appId, storageDir)", async () => {
+            const order: string[] = [];
+            const a = withCacheLock("app", storageDir, async () => {
+                order.push("a-start");
+                await new Promise((r) => setTimeout(r, 10));
+                order.push("a-end");
+            });
+            const b = withCacheLock("app", storageDir, async () => {
+                order.push("b-start");
+                order.push("b-end");
+            });
+            await Promise.all([a, b]);
+            expect(order).toEqual(["a-start", "a-end", "b-start", "b-end"]);
+        });
+
+        test("different (appId, storageDir) keys do not block each other", async () => {
+            let bRan = false;
+            const a = withCacheLock("app-a", storageDir, async () => {
+                // b should run while a is still inside the await
+                await new Promise((r) => setTimeout(r, 20));
+                expect(bRan).toBe(true);
+            });
+            const b = withCacheLock("app-b", storageDir, async () => {
+                bRan = true;
+            });
+            await Promise.all([a, b]);
+        });
+
+        test("a rejection in one call does not block subsequent calls on the same key", async () => {
+            const a = withCacheLock("app", storageDir, async () => {
+                throw new Error("boom");
+            });
+            await expect(a).rejects.toThrow("boom");
+            const b = await withCacheLock("app", storageDir, async () => "ok");
+            expect(b).toBe("ok");
         });
     });
 }

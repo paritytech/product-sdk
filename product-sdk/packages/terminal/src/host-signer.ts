@@ -11,7 +11,7 @@ import type { PolkadotSigner } from "polkadot-api";
 import { getPolkadotSigner } from "polkadot-api/signer";
 
 import type { TerminalAdapter } from "./adapter.js";
-import { loadCache, readCacheEntry } from "./host-cache.js";
+import { type CachedAllocation, loadCache, readCacheEntry } from "./host-cache.js";
 import type { AllocatableResource } from "./host.js";
 
 // Wire encoding for slotAccountKey isn't pinned: mobile may send a
@@ -38,6 +38,25 @@ function buildKeypair(secret: Uint8Array): {
 }
 
 /**
+ * Build a `PolkadotSigner` from an already-loaded cache entry. Throws
+ * for SC and AutoSigning — they don't carry a slot account key. See
+ * the module docstring.
+ *
+ * Useful when the caller already holds the cache in memory, e.g. inside
+ * a `withCacheLock` block, and wants to avoid re-reading disk.
+ */
+export function buildSignerFromEntry(entry: CachedAllocation): PolkadotSigner {
+    if (entry.tag !== "BulletInAllowance" && entry.tag !== "StatementStoreAllowance") {
+        throw new Error(
+            `createSlotAccountSigner: ${entry.tag} does not carry a slot account key. Slot-table signing is defined for BulletInAllowance and StatementStoreAllowance only.`,
+        );
+    }
+    const secret = fromHex(entry.slotAccountKey);
+    const { publicKey, sign } = buildKeypair(secret);
+    return getPolkadotSigner(publicKey, "Sr25519", async (data) => sign(data));
+}
+
+/**
  * `PolkadotSigner` backed by the cached slot account key. Returns `null`
  * when nothing's cached for `(adapter.appId, resource)`. Throws for SC
  * and AutoSigning (no slot account key — see module docstring).
@@ -57,18 +76,9 @@ export async function createSlotAccountSigner(
     resource: AllocatableResource,
 ): Promise<PolkadotSigner | null> {
     const cache = await loadCache(adapter.appId, adapter.storageDir);
-    const cached = readCacheEntry(cache, resource);
-    if (!cached) return null;
-
-    if (cached.tag !== "BulletInAllowance" && cached.tag !== "StatementStoreAllowance") {
-        throw new Error(
-            `createSlotAccountSigner: ${cached.tag} does not carry a slot account key. Slot-table signing is defined for BulletInAllowance and StatementStoreAllowance only.`,
-        );
-    }
-
-    const secret = fromHex(cached.slotAccountKey);
-    const { publicKey, sign } = buildKeypair(secret);
-    return getPolkadotSigner(publicKey, "Sr25519", async (data) => sign(data));
+    const entry = readCacheEntry(cache, resource);
+    if (!entry) return null;
+    return buildSignerFromEntry(entry);
 }
 
 if (import.meta.vitest) {

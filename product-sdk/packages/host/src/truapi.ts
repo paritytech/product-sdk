@@ -22,6 +22,22 @@ import type { StatementProof } from "./types.js";
 
 const log = createLogger("host");
 
+/**
+ * Extract a human-readable message from an unknown error. `JSON.stringify`
+ * on `Error` returns `"{}"` because `message` and `stack` are non-enumerable
+ * — without this helper, wire failures surface as `"... failed: {}"` with
+ * zero diagnostic context.
+ */
+function formatError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    if (typeof err === "string") return err;
+    try {
+        return JSON.stringify(err);
+    } catch {
+        return String(err);
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers from @novasamatech/host-api (re-exported from @novasamatech/scale)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,7 +277,9 @@ export async function requestResourceAllocation(
     return await truApi.requestResourceAllocation(enumValue("v1", resources)).match(
         (envelope: { tag: "v1"; value: AllocationOutcome[] }) => envelope.value,
         (err: unknown) => {
-            throw new Error(`requestResourceAllocation failed: ${JSON.stringify(err)}`);
+            throw new Error(`requestResourceAllocation failed: ${formatError(err)}`, {
+                cause: err,
+            });
         },
     );
 }
@@ -341,7 +359,7 @@ export async function createProofAuthorized(statement: Statement): Promise<State
     return await truApi.statementStoreCreateProofAuthorized(enumValue("v1", statement)).match(
         (envelope: { tag: "v1"; value: StatementProof }) => envelope.value,
         (err: unknown) => {
-            throw new Error(`createProofAuthorized failed: ${JSON.stringify(err)}`);
+            throw new Error(`createProofAuthorized failed: ${formatError(err)}`, { cause: err });
         },
     );
 }
