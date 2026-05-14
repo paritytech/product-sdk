@@ -60,8 +60,8 @@ export type TerminalAdapter = PappAdapter & {
      * The on-disk storage directory used for sessions and (when the
      * host-runner facet is in use) for the allowance-key cache the
      * `./host` subpath maintains. `undefined` when the default
-     * `~/.polkadot-apps/` location is in use; set explicitly when the
-     * caller passed `storageDir` to {@link createTerminalAdapter}.
+     * is in use; set explicitly when the caller passed `storageDir` to
+     * {@link createTerminalAdapter}.
      */
     readonly storageDir?: string;
     /**

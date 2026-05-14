@@ -192,7 +192,7 @@ if (import.meta.vitest) {
     let testStorageDir: string;
     beforeEach(() => {
         // Per-test temp dir so cache writes don't leak between tests or
-        // touch the real `~/.polkadot-apps/`. The wrapper inherits
+        // touch the real default storage directory. The wrapper inherits
         // `storageDir` from `adapter.storageDir`; we pin it here.
         testStorageDir = mkdtempSync(pathJoin(tmpdir(), "host-test-"));
         return () => rmSync(testStorageDir, { recursive: true, force: true });
