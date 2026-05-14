@@ -129,6 +129,44 @@ File-based storage adapter for Node.js. Data persists in `storageDir` (defaults 
 
 Waits for the session list to emit at least one entry, or resolves with `[]` after `timeoutMs`.
 
+## Allowance management (`./host` subpath)
+
+For CLIs that need to write to Bulletin / Statement Store / Asset Hub smart contracts: the QR-paired mobile wallet is the Account Holder, the CLI plays the Host role, and `@parity/product-sdk-terminal/host` exposes that Host-runner surface (the [RFC-10](https://github.com/paritytech/triangle-js-sdks/blob/valentunn-rfc-0010/docs/rfcs/0010-allowance.md) Accounts Protocol companion, an on-disk allowance-key cache, and a local sr25519 signer over the cached keys).
+
+```ts
+import {
+    ensureSlotAccountSigner,
+    requestResourceAllocation,
+    getCachedAllocation,
+    createSlotAccountSigner,
+} from "@parity/product-sdk-terminal/host";
+
+// First call prompts the wallet; subsequent calls are wire-free.
+const signer = await ensureSlotAccountSigner(session, adapter, {
+    tag: "BulletInAllowance",
+    value: undefined,
+});
+await bulletinTx.submitAndWatch(signer);
+```
+
+### `ensureSlotAccountSigner(session, adapter, resource): Promise<PolkadotSigner>`
+
+The one call most CLIs want. Cache hit → returns signer; cache miss → allocates via the wallet, then returns signer. Throws on `Rejected` / `NotAvailable`. Slot-table resources only (`BulletInAllowance`, `StatementStoreAllowance`).
+
+### `requestResourceAllocation(session, adapter, resources, options?): Promise<ApAllocationOutcome[]>`
+
+Lower-level: pre-allocate any combination of resources. Granted keys cached at `{storageDir}/{appId}_AllowanceKeys.json` (`0o600`, atomic write). `onExisting` auto-picks `Ignore`/`Increase` based on cache state; override via `options.onExisting`.
+
+### `getCachedAllocation(adapter, resource): Promise<CachedAllocation | null>`
+
+Read-only cache lookup; no wire round-trip.
+
+### `createSlotAccountSigner(adapter, resource): Promise<PolkadotSigner | null>`
+
+Build a `PolkadotSigner` from the cached slot key without round-tripping. Returns `null` if nothing's cached (use `ensureSlotAccountSigner` for the round-trip-if-missing flow).
+
+> **Caveats.** `AutoSigning` currently returns `NotAvailable` on both Android and iOS wallets. Slot renewal at expiry depends on [paritytech/individuality#931](https://github.com/paritytech/individuality/pull/931) (open) — first-time allocation works end-to-end today.
+
 ## Migration from `@polkadot-apps/terminal`
 
 For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing sessions on disk (`~/.polkadot-apps/`) carry over — same `appId`, same path. No re-pairing required for the migration itself.
@@ -245,18 +283,4 @@ Sessions are persisted to `~/.polkadot-apps/` and survive across restarts. The S
 
 - **`KvStore`↔`StorageAdapter` bridge.** This package implements its own file-backed `StorageAdapter` for Node.js (`createNodeStorageAdapter`). Once `@parity/product-sdk-storage` grows a file backend with the same `read/write/clear/subscribe` `ResultAsync` shape, replace `node-storage.ts` with a thin adapter over it.
 - **Codec re-exports from `@parity/product-sdk-statement-store`.** `testing.ts` imports session-account codec helpers (`AccountIdCodec`, `LocalSessionAccountCodec`, etc.) directly from `@novasamatech/statement-store`. Re-exporting them through the in-monorepo wrapper would let this package depend only on workspace siblings.
-- **Embedded host runner for allowance / attestation refresh.** Today this package consumes a paired session and signs against it, but cannot renew the on-chain attestation that gates allowance writes — once it expires the user has to re-do the full QR pairing. The proposed fix is a new `./host` sub-export (in addition to `.`, `./register`, `./testing`) exposing roughly:
-  ```ts
-  // proposed shape — not yet implemented
-  export interface AllowanceManager {
-      isExpired(): boolean;
-      refresh(): ResultAsync<void, Error>;
-      currentAttestation(): ResultAsync<Attestation, Error>;
-  }
-  export function createAllowanceManager(
-      adapter: TerminalAdapter,
-      options?: { hostEndpoint?: string },
-  ): AllowanceManager;
-  ```
-  Implementation should sit on top of `@parity/product-sdk-host`'s container/storage primitives so the host runner is shared with browser/desktop hosts rather than being CLI-specific. This is the gap Tarik flagged as "the CLI might also need to run some kind of host to get allowances".
 - **`@noble/*` major version drift.** This package pins `@noble/{ciphers,curves,hashes}: ^2.x` because upstream `@polkadot-apps/terminal` did, and the `testing.ts` codec helpers use the v2 import paths (`@noble/hashes/blake2.js`, `@noble/curves/nist.js`). The rest of the monorepo is on `^1.x`. Both majors coexist in the lockfile; not a runtime problem today but worth a coordinated bump. Either move the whole monorepo to v2, or rewrite `testing.ts` against v1 paths (`@noble/hashes/blake2b.js` etc.).
