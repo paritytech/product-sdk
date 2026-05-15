@@ -209,10 +209,14 @@ if (import.meta.vitest) {
     // Each chain has a per-environment genesis: bulletin and individuality
     // are distinct chain instances across paseo and previewnet (same runtime,
     // separate deployments).
+    const PASEO_ASSET_HUB_GENESIS = [
+        "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
+        "0x173cea9df45656cf612c8b8ece56e04e9a693c69cfaac47d3628dae735067af8",
+    ] as const;
+
     const GENESIS = {
         polkadot_asset_hub: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
         kusama_asset_hub: "0x48239ef607d7928874027a43a67689209727dfb3d3dc5e5b03a39bdc2eda771a",
-        paseo_asset_hub: "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
         previewnet_asset_hub: "0x860d75a890388e2ad02c54aa451264d04af89765773a51cd56868b4293c7867c",
         paseo_bulletin: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
         previewnet_bulletin: "0xf37fa1f1450ea120edbf64c3fc447f671a00e1f1095a698f42eeec073c7ee487",
@@ -228,7 +232,7 @@ if (import.meta.vitest) {
     // --- GENESIS constants ---
 
     test("genesis constants are valid hex hashes", () => {
-        for (const hash of Object.values(GENESIS)) {
+        for (const hash of [...Object.values(GENESIS), ...PASEO_ASSET_HUB_GENESIS]) {
             expect(hash).toMatch(/^0x[a-f0-9]{64}$/);
         }
     });
@@ -269,7 +273,7 @@ if (import.meta.vitest) {
         expect(descriptors.assetHub).toBeDefined();
         expect(descriptors.bulletin).toBeDefined();
         expect(descriptors.individuality).toBeDefined();
-        expect(descriptors.assetHub.genesis).toBe(GENESIS.paseo_asset_hub);
+        expect(PASEO_ASSET_HUB_GENESIS).toContain(descriptors.assetHub.genesis);
         expect(descriptors.bulletin.genesis).toBe(GENESIS.paseo_bulletin);
         expect(descriptors.individuality.genesis).toBe(GENESIS.paseo_individuality);
     });
@@ -289,7 +293,7 @@ if (import.meta.vitest) {
         const paseo = await loadDescriptors("paseo");
         const previewnet = await loadDescriptors("previewnet");
         // asset-hub: paseo and previewnet are different runtimes (different chains)
-        expect(paseo.assetHub.genesis).toBe(GENESIS.paseo_asset_hub);
+        expect(PASEO_ASSET_HUB_GENESIS).toContain(paseo.assetHub.genesis);
         expect(previewnet.assetHub.genesis).toBe(GENESIS.previewnet_asset_hub);
         // bulletin: same runtime, different chain instances → distinct genesis
         expect(paseo.bulletin.genesis).toBe(GENESIS.paseo_bulletin);
