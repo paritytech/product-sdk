@@ -15,7 +15,11 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         expect(addr!.startsWith(expectedStart)).toBe(true);
     });
 
-    test("submitAndWatch: single remark is signed via the host and lands on-chain", async ({
+    // TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
+    // provider routes through TrUAPI's `signing.createTransaction` instead of
+    // `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
+    // `AsPgas` signed extension.
+    test.skip("submitAndWatch: single remark is signed via the host and lands on-chain", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);
@@ -43,7 +47,13 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         expect(signingLog[0].type).toBe("payload");
     });
 
-    test("batchSubmitAndWatch: three remarks land in a single extrinsic", async ({ testHost }) => {
+    // TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
+    // provider routes through TrUAPI's `signing.createTransaction` instead of
+    // `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
+    // `AsPgas` signed extension.
+    test.skip("batchSubmitAndWatch: three remarks land in a single extrinsic", async ({
+        testHost,
+    }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearSigningLog();
 

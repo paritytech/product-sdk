@@ -12,7 +12,11 @@ import { waitForAppReady } from "./helpers";
  * emit `in-block` before `signed` would fail this spec. We keep the
  * assertion structural (substring indices) rather than flaky-timing-based.
  */
-test.describe("@parity/product-sdk-tx via Host API — onStatus ordering", () => {
+// TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
+// provider routes through TrUAPI's `signing.createTransaction` instead of
+// `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
+// `AsPgas` signed extension. See the tracking issue for the migration plan.
+test.describe.skip("@parity/product-sdk-tx via Host API — onStatus ordering", () => {
     test("signing → broadcasting → in-block transitions fire in order", async ({
         testHost,
     }) => {

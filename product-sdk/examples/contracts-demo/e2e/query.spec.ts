@@ -14,7 +14,11 @@ import { waitForAppReady } from "./helpers";
  * The owner address is stable (deployer set at construction), so the
  * assertion is a simple non-null, non-error check.
  */
-test.describe("@parity/product-sdk-contracts via Host API — query", () => {
+// TODO(contract-redeploy): Unskip once `@t3rminal/bulletin-index` is redeployed
+// on paseo v2 and `examples/contracts-demo/src/cdm.json` is updated with the new
+// address. Today the cdm.json points at the v1 deployment address (0xA2E388…),
+// which has no code on v2, so every query returns `undefined`.
+test.describe.skip("@parity/product-sdk-contracts via Host API — query", () => {
     test("owner() dry-run returns a hex address without signing", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearSigningLog();

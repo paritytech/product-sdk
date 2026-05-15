@@ -18,7 +18,12 @@ import { waitForAppReady } from "./helpers";
  *   - Exactly one payload was signed by the host signer.
  *   - The button re-enables after completion.
  */
-test.describe("@parity/product-sdk-contracts via Host API — submit", () => {
+// TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
+// provider routes through TrUAPI's `signing.createTransaction` instead of
+// `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
+// `AsPgas` signed extension. Also depends on `@t3rminal/bulletin-index` being
+// redeployed on paseo v2 — see the contract-redeploy tracker.
+test.describe.skip("@parity/product-sdk-contracts via Host API — submit", () => {
     test("storeDailyReport tx lands in best block via host signing", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearSigningLog();
