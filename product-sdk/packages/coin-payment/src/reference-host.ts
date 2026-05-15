@@ -160,7 +160,6 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
         if (purse.balance < record.deposited.amount)
             return resolvedOperation(failedStatus("balanceLow", this.makeClearingReference()));
         purse.balance -= record.deposited.amount;
-        this.requirePurse(MAIN_PURSE).balance += record.deposited.amount;
         record.refunded = true;
         return clearingOperation(record.deposited.amount, this.makeClearingReference());
     }
