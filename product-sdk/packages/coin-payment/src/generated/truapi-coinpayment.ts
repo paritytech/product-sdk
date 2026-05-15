@@ -80,6 +80,7 @@ export type PaymentTopUpSource =
 
 export interface PaymentReceipt {
     id: PaymentId;
+    reference: ClearingReference;
 }
 
 export interface StandardTransmissionChannel {
@@ -185,10 +186,15 @@ export type TrUApiListenForItem =
     | { tag: "Channel"; value: TrUApiTransmissionChannel }
     | { tag: "Cheque"; value: TrUApiCheque };
 
+export interface TrUApiPaymentReceipt {
+    id: PaymentId;
+    reference: TrUApiClearingReference;
+}
+
 export interface TrUApiPaymentService {
     paymentBalanceSubscribe(input: { request: { purse?: PurseId } }): TrUApiObservable<PaymentBalance, TrUApiPaymentError>;
     paymentTopUp(request: { into?: PurseId; amount: Balance; source: TrUApiPaymentTopUpSource }): Promise<TrUApiResult<undefined, TrUApiPaymentError>>;
-    paymentRequest(request: { from?: PurseId; amount: Balance; destination: TrUApiBytes }): Promise<TrUApiResult<PaymentReceipt, TrUApiPaymentError>>;
+    paymentRequest(request: { from?: PurseId; amount: Balance; destination: TrUApiBytes }): Promise<TrUApiResult<TrUApiPaymentReceipt, TrUApiPaymentError>>;
 }
 
 export type TrUApiPaymentTopUpSource =

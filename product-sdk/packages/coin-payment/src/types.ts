@@ -40,10 +40,4 @@ import type {
 
 export interface CoinPaymentWindow {
     truapi?: TrUApiCoinPaymentContainer;
-    ua?: {
-        truapi?: TrUApiCoinPaymentContainer;
-        ext?: {
-            coinpayment?: CoinPaymentHostApi;
-        };
-    };
 }

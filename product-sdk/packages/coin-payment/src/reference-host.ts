@@ -9,7 +9,6 @@ import {
     type CoinPaymentOperation,
     type CoinPaymentRefundStatus,
     type CoinPaymentStatus,
-    type CoinPaymentWindow,
     type Invoice,
     type ListenForResult,
     type PaymentBalance,
@@ -46,7 +45,6 @@ export interface CoinPaymentReferenceHost extends CoinPaymentHostApi {
 
 export interface InstallCoinPaymentReferenceHostOptions {
     productId?: ProductIdForReference;
-    windowLike?: CoinPaymentWindow;
     initialMainBalance?: Balance;
 }
 
@@ -55,17 +53,10 @@ type ProductIdForReference = string;
 export function installCoinPaymentReferenceHost(
     options: InstallCoinPaymentReferenceHostOptions = {},
 ): CoinPaymentReferenceHost {
-    const host = new InMemoryCoinPaymentReferenceHost(
+    return new InMemoryCoinPaymentReferenceHost(
         options.productId ?? "reference-product",
         options.initialMainBalance ?? 1_000_000,
     );
-    const win = options.windowLike ?? (globalThis.window as CoinPaymentWindow | undefined);
-    if (win) {
-        win.ua ??= {};
-        win.ua.ext ??= {};
-        win.ua.ext.coinpayment = host;
-    }
-    return host;
 }
 
 class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
@@ -141,7 +132,6 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
 
     async createCheque(from: PurseId, to: Receivable, amount: Balance): Promise<Cheque> {
         const source = this.requirePurse(from);
-        if (!this.receivables.has(key(to))) throw new CoinPaymentException("receivableNotFound");
         if (source.balance < amount) throw new CoinPaymentException("balanceLow");
         source.balance -= amount;
         return {
@@ -216,7 +206,10 @@ class InMemoryCoinPaymentReferenceHost implements CoinPaymentReferenceHost {
         const purse = this.requirePurse(resolvePaymentPurse(from));
         if (purse.balance < amount) throw new CoinPaymentException("balanceLow");
         purse.balance -= amount;
-        return { id: `payment:${key(destination)}:${amount}:${this.nextSerial++}` };
+        return {
+            id: `payment:${key(destination)}:${amount}:${this.nextSerial++}`,
+            reference: this.makeClearingReference(),
+        };
     }
 
     deliverCheque(channel: TransmissionChannel, cheque: Cheque): void {
@@ -328,6 +321,20 @@ if (import.meta.vitest) {
             await expect(host.queryPurse(purse)).resolves.toMatchObject({ balance: 125 });
         });
 
+        test("creates cheques for remote receivables", async () => {
+            const merchant = installCoinPaymentReferenceHost({ initialMainBalance: 0 });
+            const payer = installCoinPaymentReferenceHost({ initialMainBalance: 500 });
+            const purse = await merchant.createPurse("Store");
+            const receivable = await merchant.createReceivable(purse);
+
+            const cheque = await payer.createCheque(MAIN_PURSE, receivable, 125);
+            const deposit = await merchant.deposit(cheque);
+
+            await expect(deposit.result).resolves.toMatchObject({ kind: "done", cleared: 125 });
+            await expect(merchant.queryPurse(purse)).resolves.toMatchObject({ balance: 125 });
+            await expect(payer.queryPurse(MAIN_PURSE)).resolves.toMatchObject({ balance: 375 });
+        });
+
         test("uses the same clearing status shape for refunds", async () => {
             const host = installCoinPaymentReferenceHost({ initialMainBalance: 500 });
             const purse = await host.createPurse("Store");
@@ -354,6 +361,7 @@ if (import.meta.vitest) {
             const receipt = await host.paymentRequest(undefined, 125, new Uint8Array(32));
 
             expect(receipt.id).toContain("payment:");
+            expect(receipt.reference.root).toBeInstanceOf(Uint8Array);
             await expect(host.paymentBalance()).resolves.toEqual({ available: 375 });
         });
 

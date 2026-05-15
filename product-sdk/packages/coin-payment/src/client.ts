@@ -61,11 +61,7 @@ export async function createCoinPaymentClientFromHost(): Promise<CoinPaymentHost
 function resolveHost(
     windowLike = globalThis.window as CoinPaymentWindow | undefined,
 ): CoinPaymentHostApi | undefined {
-    return (
-        resolveTruApiHost(windowLike?.truapi) ??
-        resolveTruApiHost(windowLike?.ua?.truapi) ??
-        windowLike?.ua?.ext?.coinpayment
-    );
+    return resolveTruApiHost(windowLike?.truapi);
 }
 
 function resolveTruApiHost(
@@ -74,13 +70,30 @@ function resolveTruApiHost(
     if (!candidate) return undefined;
     const service = isCoinPaymentService(candidate) ? candidate : candidate.coinPayment;
     const payment = isCoinPaymentService(candidate) ? undefined : candidate.payment;
-    return service ? createTruApiCoinPaymentAdapter(service, payment) : undefined;
+    return service && hasCompleteCoinPaymentService(service)
+        ? createTruApiCoinPaymentAdapter(service, payment)
+        : undefined;
 }
 
 function isCoinPaymentService(
     candidate: TrUApiCoinPaymentContainer | TrUApiCoinPaymentService,
 ): candidate is TrUApiCoinPaymentService {
     return "coinPaymentCreatePurse" in candidate;
+}
+
+function hasCompleteCoinPaymentService(service: TrUApiCoinPaymentService): boolean {
+    const methods = [
+        "coinPaymentCreatePurse",
+        "coinPaymentQueryPurse",
+        "coinPaymentRebalancePurse",
+        "coinPaymentDeletePurse",
+        "coinPaymentCreateReceivable",
+        "coinPaymentCreateCheque",
+        "coinPaymentDeposit",
+        "coinPaymentRefund",
+        "coinPaymentListenFor",
+    ] as const;
+    return methods.every((method) => typeof service[method] === "function");
 }
 
 function createTruApiCoinPaymentAdapter(
@@ -159,13 +172,17 @@ function createTruApiCoinPaymentAdapter(
             });
         },
         async paymentRequest(from, amount, destination) {
-            return unwrapResult(
+            const receipt = unwrapResult(
                 await requirePayment(payment).paymentRequest({
                     ...(from === undefined ? {} : { from }),
                     amount,
                     destination: bytesToTruApi(destination),
                 }),
             );
+            return {
+                id: receipt.id,
+                reference: clearingReferenceFromTruApi(receipt.reference),
+            };
         },
     };
 }
