@@ -52,4 +52,4 @@ pnpm --filter "@parity/product-sdk-signer-demo" test:e2e:ui  # debug mode
 ## Notes
 
 - `vite.config.ts` sets `define: { "import.meta.vitest": "undefined" }` so in-source vitest blocks in workspace packages don't leak top-level `await import(...)` into the production bundle.
-- `fixtures.ts` overrides the Paseo AH RPC via `PASEO_AH_RPC` env var, defaulting to `sys.turboflakes.io`.
+- `fixtures.ts` overrides the Paseo AH RPC via `PASEO_AH_RPC` env var, defaulting to `paseo-asset-hub-next-rpc.polkadot.io` (paseo v2). The override must serve paseo v2; v1 mirrors will hash-mismatch the spread `PASEO_ASSET_HUB.genesisHash` from the test SDK.
