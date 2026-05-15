@@ -172,6 +172,8 @@ describe("merchant payments SDK over CoinPayment", () => {
             channel: "embeddedQr",
             idempotencyKey: "idem:invoice",
         });
+        expect(invoice.qrPayload).toMatch(/^polkadotapp:\/\/coinpayment\/invoice\?payload=/);
+        expect(invoice.deepLink).toBe(invoice.qrPayload);
         const invoiceRetry = await sdk.createInvoice({
             intentId: first.intent.intentId,
             channel: "embeddedQr",

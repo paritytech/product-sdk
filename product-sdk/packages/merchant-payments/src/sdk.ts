@@ -698,7 +698,7 @@ function scopeKey(scope: MerchantPaymentIntent["scope"]): string {
 }
 
 function encodeInvoice(invoice: Invoice): string {
-    return `ua://coinpayment/invoice?payload=${encodeURIComponent(btoa(JSON.stringify(serializeInvoice(invoice))))}`;
+    return `polkadotapp://coinpayment/invoice?payload=${encodeURIComponent(btoa(JSON.stringify(serializeInvoice(invoice))))}`;
 }
 
 function serializeInvoice(invoice: Invoice) {
