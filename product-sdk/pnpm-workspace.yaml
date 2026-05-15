@@ -15,7 +15,7 @@ catalog:
   typescript: ^5.9.3
   vitest: ^3.1.4
   "@playwright/test": ^1.50.0
-  "@parity/host-api-test-sdk": ^0.7.3
+  "@parity/host-api-test-sdk": ^0.8.2
   vite: ^6.3.0
   viem: ^2.46.2
 
