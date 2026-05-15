@@ -78,20 +78,20 @@ function resolveTruApiHost(
 function isCoinPaymentService(
     candidate: TrUApiCoinPaymentContainer | TrUApiCoinPaymentService,
 ): candidate is TrUApiCoinPaymentService {
-    return "coinPaymentCreatePurse" in candidate;
+    return "createPurse" in candidate;
 }
 
 function hasCompleteCoinPaymentService(service: TrUApiCoinPaymentService): boolean {
     const methods = [
-        "coinPaymentCreatePurse",
-        "coinPaymentQueryPurse",
-        "coinPaymentRebalancePurse",
-        "coinPaymentDeletePurse",
-        "coinPaymentCreateReceivable",
-        "coinPaymentCreateCheque",
-        "coinPaymentDeposit",
-        "coinPaymentRefund",
-        "coinPaymentListenFor",
+        "createPurse",
+        "queryPurse",
+        "rebalancePurse",
+        "deletePurse",
+        "createReceivable",
+        "createCheque",
+        "deposit",
+        "refund",
+        "listenFor",
     ] as const;
     return methods.every((method) => typeof service[method] === "function");
 }
@@ -102,30 +102,28 @@ function createTruApiCoinPaymentAdapter(
 ): CoinPaymentHostApi {
     return {
         async createPurse(name) {
-            return unwrapResult(await service.coinPaymentCreatePurse({ name })).purse;
+            return unwrapResult(await service.createPurse({ name })).purse;
         },
         async queryPurse(purse) {
-            return unwrapResult(await service.coinPaymentQueryPurse({ purse })).info;
+            return unwrapResult(await service.queryPurse({ purse })).info;
         },
         async rebalancePurse(from, to, amount) {
             return operationFromObservable(
-                service.coinPaymentRebalancePurse({ request: { from, to, amount } }),
+                service.rebalancePurse({ request: { from, to, amount } }),
             );
         },
         async deletePurse(target, drainInto) {
-            return operationFromObservable(
-                service.coinPaymentDeletePurse({ request: { target, drainInto } }),
-            );
+            return operationFromObservable(service.deletePurse({ request: { target, drainInto } }));
         },
         async createReceivable(into) {
             return bytesFromTruApi(
-                unwrapResult(await service.coinPaymentCreateReceivable({ into })).receivable,
+                unwrapResult(await service.createReceivable({ into })).receivable,
             );
         },
         async createCheque(from, to, amount) {
             return chequeFromTruApi(
                 unwrapResult(
-                    await service.coinPaymentCreateCheque({
+                    await service.createCheque({
                         from,
                         to: bytesToTruApi(to),
                         amount,
@@ -135,31 +133,31 @@ function createTruApiCoinPaymentAdapter(
         },
         async deposit(cheque) {
             return operationFromObservable(
-                service.coinPaymentDeposit({ request: { cheque: chequeToTruApi(cheque) } }),
+                service.deposit({ request: { cheque: chequeToTruApi(cheque) } }),
             );
         },
         async refund(receivable) {
             return operationFromObservable(
-                service.coinPaymentRefund({ request: { receivable: bytesToTruApi(receivable) } }),
+                service.refund({ request: { receivable: bytesToTruApi(receivable) } }),
             );
         },
         async listenFor(receivable) {
             return listenForFromObservable(
-                service.coinPaymentListenFor({
+                service.listenFor({
                     request: { receivable: bytesToTruApi(receivable) },
                 }),
             );
         },
         async paymentBalance(purse?: PaymentPurse) {
             return firstFromObservable(
-                requirePayment(payment).paymentBalanceSubscribe({
+                requirePayment(payment).balanceSubscribe({
                     request: purse === undefined ? {} : { purse },
                 }),
             );
         },
         async paymentTopUp(into, amount, source) {
             unwrapResult(
-                await requirePayment(payment).paymentTopUp({
+                await requirePayment(payment).topUp({
                     ...(into === undefined ? {} : { into }),
                     amount,
                     source: paymentTopUpSourceToTruApi(source),
@@ -173,7 +171,7 @@ function createTruApiCoinPaymentAdapter(
         },
         async paymentRequest(from, amount, destination) {
             const receipt = unwrapResult(
-                await requirePayment(payment).paymentRequest({
+                await requirePayment(payment).request({
                     ...(from === undefined ? {} : { from }),
                     amount,
                     destination: bytesToTruApi(destination),

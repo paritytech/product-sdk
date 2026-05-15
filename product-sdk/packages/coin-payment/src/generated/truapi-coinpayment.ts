@@ -134,15 +134,15 @@ export interface TrUApiObservable<TItem, TError> {
 }
 
 export interface TrUApiCoinPaymentService {
-    coinPaymentCreatePurse(request: { name: string }): Promise<TrUApiResult<{ purse: PurseId }, TrUApiCoinPaymentError>>;
-    coinPaymentQueryPurse(request: { purse: PurseId }): Promise<TrUApiResult<{ info: PurseInfo }, TrUApiCoinPaymentError>>;
-    coinPaymentRebalancePurse(input: { request: { from: PurseId; to: PurseId; amount: Balance } }): TrUApiObservable<TrUApiCoinPaymentStatus, TrUApiCoinPaymentError>;
-    coinPaymentDeletePurse(input: { request: { target: PurseId; drainInto: PurseId } }): TrUApiObservable<TrUApiCoinPaymentStatus, TrUApiCoinPaymentError>;
-    coinPaymentCreateReceivable(request: { into: PurseId }): Promise<TrUApiResult<{ receivable: TrUApiBytes }, TrUApiCoinPaymentError>>;
-    coinPaymentCreateCheque(request: { from: PurseId; to: TrUApiBytes; amount: Balance }): Promise<TrUApiResult<{ cheque: TrUApiCheque }, TrUApiCoinPaymentError>>;
-    coinPaymentDeposit(input: { request: { cheque: TrUApiCheque } }): TrUApiObservable<TrUApiCoinPaymentStatus, TrUApiCoinPaymentError>;
-    coinPaymentRefund(input: { request: { receivable: TrUApiBytes } }): TrUApiObservable<TrUApiCoinPaymentStatus, TrUApiCoinPaymentError>;
-    coinPaymentListenFor(input: { request: { receivable: TrUApiBytes } }): TrUApiObservable<TrUApiListenForItem, TrUApiCoinPaymentError>;
+    createPurse(request: { name: string }): Promise<TrUApiResult<{ purse: PurseId }, TrUApiCoinPaymentError>>;
+    queryPurse(request: { purse: PurseId }): Promise<TrUApiResult<{ info: PurseInfo }, TrUApiCoinPaymentError>>;
+    rebalancePurse(input: { request: { from: PurseId; to: PurseId; amount: Balance } }): TrUApiObservable<TrUApiCoinPaymentStatus, TrUApiCoinPaymentError>;
+    deletePurse(input: { request: { target: PurseId; drainInto: PurseId } }): TrUApiObservable<TrUApiCoinPaymentStatus, TrUApiCoinPaymentError>;
+    createReceivable(request: { into: PurseId }): Promise<TrUApiResult<{ receivable: TrUApiBytes }, TrUApiCoinPaymentError>>;
+    createCheque(request: { from: PurseId; to: TrUApiBytes; amount: Balance }): Promise<TrUApiResult<{ cheque: TrUApiCheque }, TrUApiCoinPaymentError>>;
+    deposit(input: { request: { cheque: TrUApiCheque } }): TrUApiObservable<TrUApiCoinPaymentStatus, TrUApiCoinPaymentError>;
+    refund(input: { request: { receivable: TrUApiBytes } }): TrUApiObservable<TrUApiCoinPaymentStatus, TrUApiCoinPaymentError>;
+    listenFor(input: { request: { receivable: TrUApiBytes } }): TrUApiObservable<TrUApiListenForItem, TrUApiCoinPaymentError>;
 }
 
 export interface TrUApiCoinPaymentContainer {
@@ -192,9 +192,9 @@ export interface TrUApiPaymentReceipt {
 }
 
 export interface TrUApiPaymentService {
-    paymentBalanceSubscribe(input: { request: { purse?: PurseId } }): TrUApiObservable<PaymentBalance, TrUApiPaymentError>;
-    paymentTopUp(request: { into?: PurseId; amount: Balance; source: TrUApiPaymentTopUpSource }): Promise<TrUApiResult<undefined, TrUApiPaymentError>>;
-    paymentRequest(request: { from?: PurseId; amount: Balance; destination: TrUApiBytes }): Promise<TrUApiResult<TrUApiPaymentReceipt, TrUApiPaymentError>>;
+    balanceSubscribe(input: { request: { purse?: PurseId } }): TrUApiObservable<PaymentBalance, TrUApiPaymentError>;
+    topUp(request: { into?: PurseId; amount: Balance; source: TrUApiPaymentTopUpSource }): Promise<TrUApiResult<undefined, TrUApiPaymentError>>;
+    request(request: { from?: PurseId; amount: Balance; destination: TrUApiBytes }): Promise<TrUApiResult<TrUApiPaymentReceipt, TrUApiPaymentError>>;
 }
 
 export type TrUApiPaymentTopUpSource =
