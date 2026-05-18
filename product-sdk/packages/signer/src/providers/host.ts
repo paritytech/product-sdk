@@ -100,6 +100,19 @@ interface NeverthrowResultAsync<T, E> {
     match: <A, B = A>(ok: (t: T) => A, err: (e: E) => B) => Promise<A | B>;
 }
 
+/**
+ * Force product-account signing through Nova's `host_create_transaction`
+ * path so unknown signed extensions (e.g. `AsPgas` on Paseo Next) are
+ * preserved. The default `"signPayload"` path wraps via PJS and throws
+ * `"PJS does not support this signed-extension: AsPgas"`.
+ *
+ * The `signerType` arg was added in `@novasamatech/product-sdk` 0.7.9;
+ * older Nova builds ignore the extra argument at runtime, so passing it
+ * unconditionally is backward-compatible at the call-site level. Nova
+ * doesn't expose a corresponding switch for legacy-account signing.
+ */
+const PRODUCT_SIGNER_TYPE = "createTransaction" as const;
+
 /** @internal */
 export interface AccountsProvider {
     getLegacyAccounts: () => NeverthrowResultAsync<RawAccount[], unknown>;
@@ -108,7 +121,10 @@ export interface AccountsProvider {
         dotNsIdentifier: string,
         derivationIndex?: number,
     ) => NeverthrowResultAsync<RawAccount, unknown>;
-    getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+    getProductAccountSigner: (
+        account: ProductAccount,
+        signerType?: "signPayload" | "createTransaction",
+    ) => import("polkadot-api").PolkadotSigner;
     getProductAccountAlias: (
         dotNsIdentifier: string,
         derivationIndex?: number,
@@ -284,7 +300,10 @@ export class HostProvider implements SignerProvider {
                     if (!this.accountsProvider) {
                         throw new Error("Host provider is disconnected");
                     }
-                    return this.accountsProvider.getProductAccountSigner(productAccount);
+                    return this.accountsProvider.getProductAccountSigner(
+                        productAccount,
+                        PRODUCT_SIGNER_TYPE,
+                    );
                 },
             });
         } catch (cause) {
@@ -307,7 +326,7 @@ export class HostProvider implements SignerProvider {
         if (!this.accountsProvider) {
             throw new Error("Host provider is not connected");
         }
-        return this.accountsProvider.getProductAccountSigner(account);
+        return this.accountsProvider.getProductAccountSigner(account, PRODUCT_SIGNER_TYPE);
     }
 
     /**
