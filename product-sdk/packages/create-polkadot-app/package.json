@@ -1,0 +1,24 @@
+{
+    "name": "create-polkadot-app",
+    "version": "0.1.0",
+    "description": "Scaffold a new Polkadot app powered by @parity/product-sdk-*",
+    "type": "module",
+    "bin": {
+        "create-polkadot-app": "./dist/cli.js"
+    },
+    "files": ["dist", "template"],
+    "scripts": {
+        "build": "tsup",
+        "clean": "rm -rf dist"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.0",
+        "tsup": "^8.4.0",
+        "typescript": "^5.7.0"
+    },
+    "engines": {
+        "node": ">=20"
+    },
+    "keywords": ["polkadot", "scaffold", "starter", "product-sdk", "cli"],
+    "license": "Apache-2.0"
+}

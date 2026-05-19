@@ -2,7 +2,12 @@
     "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
     "files": {
         "include": ["packages/**/*.ts", "packages/**/*.tsx", "packages/**/*.json"],
-        "ignore": ["**/node_modules/**", "**/dist/**", "**/generated/**"]
+        "ignore": [
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/generated/**",
+            "packages/create-polkadot-app/template/**"
+        ]
     },
     "formatter": {
         "enabled": true,
