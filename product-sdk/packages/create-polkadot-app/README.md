@@ -16,14 +16,15 @@ If you don't pass a name, the CLI will prompt you.
 
 ## What you get
 
-A React + Vite + TypeScript project with all 13 `@parity/product-sdk-*` packages installed and ready to use. The `src/lib/` directory has empty stubs you fill in as your app needs them:
+A React + Vite + TypeScript project with the `@parity/product-sdk-*` packages installed and ready to use (14 of 15 — `terminal` is omitted since it targets CLI/QR-pairing apps, not web). The `src/lib/` directory has stubs you fill in as your app needs them:
 
 - `auth.ts` — wallet sign-in (SignerManager)
+- `keys.ts` — persistent session signer (SessionKeyManager)
 - `chain.ts` — chain connection (getChainAPI)
 - `crypto.ts` — AES-GCM encryption helpers
 - `bulletin.ts` — encrypted storage on Bulletin Chain
 - `storage.ts` — local host-aware key-value cache
-- `registry.ts` — typed contract bindings
+- `registry.ts` — typed contract bindings (guided stub — drop in your `cdm.json`)
 
 Run `pnpm dev` and edit `src/App.tsx` to start building.
 

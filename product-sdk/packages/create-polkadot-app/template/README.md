@@ -1,6 +1,6 @@
 # Polkadot App Starter
 
-A starter app built with [`@parity/product-sdk-*`](https://github.com/paritytech/product-sdk). All thirteen SDK packages are installed and ready to wire up.
+A starter app built with [`@parity/product-sdk-*`](https://github.com/paritytech/product-sdk). The SDK packages are installed and ready to wire up (14 of 15 — `terminal` is omitted since it targets CLI/QR-pairing apps, not web).
 
 ## Quick start
 
@@ -19,14 +19,15 @@ src/
 ├── App.tsx           your app — start here
 └── lib/              SDK integration points (fill in as you need them)
     ├── auth.ts       wallet sign-in via SignerManager
+    ├── keys.ts       persistent session signer via SessionKeyManager
     ├── chain.ts      chain connection via getChainAPI
     ├── crypto.ts     AES-GCM encryption helpers
     ├── bulletin.ts   encrypted storage on Bulletin Chain
     ├── storage.ts    local host-aware key-value cache
-    └── registry.ts   typed contract bindings
+    └── registry.ts   typed contract bindings (guided stub)
 ```
 
-Each `src/lib/*.ts` is an empty stub with a comment pointing at the canonical pattern. Open the file and follow the reference link to fill it in.
+Each `src/lib/*.ts` is a stub with a comment pointing at the canonical pattern. Open the file and follow the reference link to fill it in.
 
 ## Scripts
 
