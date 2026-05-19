@@ -55,7 +55,7 @@ export function App() {
     >
       <h1 style={{ marginBottom: "0.5rem" }}>{pkg.name}</h1>
       <p style={{ color: "#444", marginTop: 0 }}>
-        Scaffolded with <code>create-polkadot-app</code>. All thirteen{" "}
+        Scaffolded with <code>create-polkadot-app</code>. The{" "}
         <code>@parity/product-sdk-*</code> packages are installed and ready to wire up.
       </p>
 
