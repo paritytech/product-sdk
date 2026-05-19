@@ -17,9 +17,12 @@ export {
 } from "./runtime.js";
 export type {
     ContractRuntime,
+    ContractRuntimeOptions,
+    ContractDryRunAt,
     ReviveTypedApi,
     ReviveDryRunResult,
     ReviveDryRunCall,
+    ReviveDryRunCallOptions,
 } from "./runtime.js";
 // Build-time codegen helpers (`generateContractTypes`, `resolveContractTypeInputs`)
 // live behind the `@parity/product-sdk-contracts/codegen` subpath. Keeping them

@@ -1,7 +1,7 @@
 import type { HexString, PolkadotClient } from "polkadot-api";
 import { wrapContract } from "./wrap.js";
 import { ContractNotFoundError } from "./errors.js";
-import type { ContractRuntime } from "./runtime.js";
+import type { ContractRuntime, ContractRuntimeOptions } from "./runtime.js";
 import { createContractRuntimeFromClient } from "./runtime.js";
 import type {
     AbiEntry,
@@ -93,11 +93,11 @@ export class ContractManager {
         cdmJson: CdmJson,
         client: PolkadotClient,
         descriptor: TDescriptor,
-        options?: ContractManagerOptions,
+        options?: ContractManagerOptions & ContractRuntimeOptions,
     ): ContractManager {
         return new ContractManager(
             cdmJson,
-            createContractRuntimeFromClient(client, descriptor),
+            createContractRuntimeFromClient(client, descriptor, options),
             options,
         );
     }
@@ -188,10 +188,10 @@ export function createContractFromClient<TDescriptor>(
     descriptor: TDescriptor,
     address: HexString,
     abi: AbiEntry[],
-    options?: ContractOptions,
+    options?: ContractOptions & ContractRuntimeOptions,
 ): Contract<ContractDef> {
     return createContract(
-        createContractRuntimeFromClient(client, descriptor),
+        createContractRuntimeFromClient(client, descriptor, options),
         address,
         abi,
         options,

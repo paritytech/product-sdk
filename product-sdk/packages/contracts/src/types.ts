@@ -1,6 +1,7 @@
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
 import type { BatchableCall, SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
 import type { SignerManager } from "@parity/product-sdk-signer";
+import type { ContractDryRunAt } from "./runtime.js";
 
 // Re-export from the tx package — single source of truth.
 export type { TxResult, SubmitOptions, BatchableCall } from "@parity/product-sdk-tx";
@@ -102,6 +103,14 @@ export type QueryResult<T> =
 export interface QueryOptions {
     origin?: SS58String;
     value?: bigint;
+    /**
+     * Override the block targeted by this dry-run. Accepts `"best"`,
+     * `"finalized"`, or a block hash. Defaults to the runtime's configured
+     * `at` (see `createContractRuntimeFromClient({ at })`), which is `"best"`
+     * unless overridden — chosen so `.query()` observes the same state as
+     * `.tx()` resolved at best-block.
+     */
+    at?: ContractDryRunAt;
 }
 
 /** Options for transaction calls — passed as the last argument after positional args. */

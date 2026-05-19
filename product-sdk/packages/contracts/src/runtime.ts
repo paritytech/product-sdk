@@ -43,6 +43,17 @@ export interface ReviveDryRunResult {
         | { success: false; value: unknown };
 }
 
+/**
+ * Block reference used to target `ReviveApi.call` dry-runs. Matches PAPI's
+ * runtime-call `at` option: `"best"`, `"finalized"`, or a block hash.
+ */
+export type ContractDryRunAt = "best" | "finalized" | HexString;
+
+/** Per-call options accepted by {@link ReviveDryRunCall}. */
+export interface ReviveDryRunCallOptions {
+    at?: ContractDryRunAt;
+}
+
 /** Structural shape consumed by `ContractManager` / `createContract`. */
 export interface ReviveTypedApi {
     tx: {
@@ -67,6 +78,7 @@ export interface ReviveTypedApi {
                 gas_limit: Weight | undefined,
                 storage_deposit_limit: bigint | undefined,
                 input_data: Uint8Array,
+                options?: ReviveDryRunCallOptions,
             ): Promise<ReviveDryRunResult>;
         };
     };
@@ -90,6 +102,7 @@ export type ReviveDryRunCall = (
     gas_limit: Weight | undefined,
     storage_deposit_limit: bigint | undefined,
     input_data: Uint8Array,
+    options?: ReviveDryRunCallOptions,
 ) => Promise<ReviveDryRunResult>;
 
 /**
@@ -116,8 +129,25 @@ export interface ContractRuntime {
      * *unsafe* API to avoid compatibility-token failures when the descriptor
      * trails a runtime upgrade. The {@link createContractRuntime} test factory
      * delegates to `api.apis.ReviveApi.call`.
+     *
+     * The runtime default `at` (set via {@link ContractRuntimeOptions.at} on
+     * the factory) is applied when the caller does not pass an explicit
+     * `options.at`. `.query()` per-call overrides flow through this argument.
      */
     readonly dryRunCall: ReviveDryRunCall;
+}
+
+/** Options for {@link createContractRuntime} / {@link createContractRuntimeFromClient}. */
+export interface ContractRuntimeOptions {
+    /**
+     * Block to target for `ReviveApi.call` dry-runs. Defaults to `"best"`
+     * so contract `.query()` reads observe the same state as transactions
+     * resolved at best-block (the product-sdk `.tx()` default). Set to
+     * `"finalized"` to read the canonical, lagged state, or to a specific
+     * block hash to pin reads to a historical block. Can be overridden per
+     * call via `QueryOptions.at`.
+     */
+    at?: ContractDryRunAt;
 }
 
 /**
@@ -128,11 +158,17 @@ export interface ContractRuntime {
  * on a live chain whose descriptor lags. Prefer
  * {@link createContractRuntimeFromClient} for production use.
  */
-export function createContractRuntime(api: ReviveTypedApi): ContractRuntime {
+export function createContractRuntime(
+    api: ReviveTypedApi,
+    options?: ContractRuntimeOptions,
+): ContractRuntime {
+    const defaultAt: ContractDryRunAt = options?.at ?? "best";
     return {
         api,
-        dryRunCall: (origin, dest, value, gas, deposit, data) =>
-            api.apis.ReviveApi.call(origin, dest, value, gas, deposit, data),
+        dryRunCall: (origin, dest, value, gas, deposit, data, callOpts) =>
+            api.apis.ReviveApi.call(origin, dest, value, gas, deposit, data, {
+                at: callOpts?.at ?? defaultAt,
+            }),
     };
 }
 
@@ -160,7 +196,9 @@ export function createContractRuntime(api: ReviveTypedApi): ContractRuntime {
 export function createContractRuntimeFromClient<TDescriptor>(
     client: PolkadotClient,
     descriptor: TDescriptor,
+    options?: ContractRuntimeOptions,
 ): ContractRuntime {
+    const defaultAt: ContractDryRunAt = options?.at ?? "best";
     const typed = client.getTypedApi(
         descriptor as Parameters<PolkadotClient["getTypedApi"]>[0],
     ) as unknown as ReviveTypedApi;
@@ -169,8 +207,10 @@ export function createContractRuntimeFromClient<TDescriptor>(
     };
     return {
         api: typed,
-        dryRunCall: (origin, dest, value, gas, deposit, data) =>
-            unsafe.apis.ReviveApi.call(origin, dest, value, gas, deposit, data),
+        dryRunCall: (origin, dest, value, gas, deposit, data, callOpts) =>
+            unsafe.apis.ReviveApi.call(origin, dest, value, gas, deposit, data, {
+                at: callOpts?.at ?? defaultAt,
+            }),
     };
 }
 
@@ -286,6 +326,134 @@ if (import.meta.vitest) {
             expect(passedAddress.startsWith("0x")).toBe(true);
             expect(passedAddress.length).toBe(2 + 40);
             expect(mapAccount).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("createContractRuntime — at-block routing", () => {
+        // The contract is: a `.query()` against the runtime resolves at
+        // best-block by default so it observes the same state as `.tx()` /
+        // `batchSubmitAndWatch()` (which resolve at best-block). Callers can
+        // override per call. These tests pin both behaviours by capturing the
+        // options that arrive at the underlying `ReviveApi.call`.
+        const origin = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+        const dest = "0x0102030405060708090a0b0c0d0e0f1011121314" as HexString;
+
+        function makeApi(): {
+            api: ReviveTypedApi;
+            calls: Array<unknown[]>;
+        } {
+            const calls: Array<unknown[]> = [];
+            const api = {
+                apis: {
+                    ReviveApi: {
+                        call: (...args: unknown[]) => {
+                            calls.push(args);
+                            return Promise.resolve({
+                                weight_consumed: { ref_time: 0n, proof_size: 0n },
+                                weight_required: { ref_time: 1n, proof_size: 1n },
+                                storage_deposit: { type: "Refund", value: 0n },
+                                max_storage_deposit: { type: "Refund", value: 0n },
+                                gas_consumed: 0n,
+                                result: {
+                                    success: true,
+                                    value: { flags: 0, data: new Uint8Array(0) },
+                                },
+                            });
+                        },
+                    },
+                },
+            } as unknown as ReviveTypedApi;
+            return { api, calls };
+        }
+
+        test("defaults to `at: best` when no option is passed to the factory", async () => {
+            const { api, calls } = makeApi();
+            const runtime = createContractRuntime(api);
+            await runtime.dryRunCall(origin, dest, 0n, undefined, undefined, new Uint8Array(0));
+            expect(calls[0]?.[6]).toEqual({ at: "best" });
+        });
+
+        test("respects an explicit factory default", async () => {
+            const { api, calls } = makeApi();
+            const runtime = createContractRuntime(api, { at: "finalized" });
+            await runtime.dryRunCall(origin, dest, 0n, undefined, undefined, new Uint8Array(0));
+            expect(calls[0]?.[6]).toEqual({ at: "finalized" });
+        });
+
+        test("per-call `at` option overrides the factory default", async () => {
+            const { api, calls } = makeApi();
+            const runtime = createContractRuntime(api, { at: "best" });
+            const blockHash = `0x${"ab".repeat(32)}` as HexString;
+            await runtime.dryRunCall(origin, dest, 0n, undefined, undefined, new Uint8Array(0), {
+                at: blockHash,
+            });
+            expect(calls[0]?.[6]).toEqual({ at: blockHash });
+        });
+
+        test("explicit per-call `at: best` is forwarded even when factory default is `finalized`", async () => {
+            const { api, calls } = makeApi();
+            const runtime = createContractRuntime(api, { at: "finalized" });
+            await runtime.dryRunCall(origin, dest, 0n, undefined, undefined, new Uint8Array(0), {
+                at: "best",
+            });
+            expect(calls[0]?.[6]).toEqual({ at: "best" });
+        });
+    });
+
+    describe("createContractRuntimeFromClient — at-block routing", () => {
+        // The production factory has its own (parallel) `at` plumbing
+        // through `getUnsafeApi()`. A regression in this branch would slip
+        // past the typed-API tests above, so we mock the client and pin the
+        // same contract: factory default applied, per-call override wins.
+        const origin = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+        const dest = "0x0102030405060708090a0b0c0d0e0f1011121314" as HexString;
+
+        function makeClient(): {
+            client: PolkadotClient;
+            calls: Array<unknown[]>;
+        } {
+            const calls: Array<unknown[]> = [];
+            const unsafe = {
+                apis: {
+                    ReviveApi: {
+                        call: (...args: unknown[]) => {
+                            calls.push(args);
+                            return Promise.resolve({
+                                weight_consumed: { ref_time: 0n, proof_size: 0n },
+                                weight_required: { ref_time: 1n, proof_size: 1n },
+                                storage_deposit: { type: "Refund", value: 0n },
+                                max_storage_deposit: { type: "Refund", value: 0n },
+                                gas_consumed: 0n,
+                                result: {
+                                    success: true,
+                                    value: { flags: 0, data: new Uint8Array(0) },
+                                },
+                            });
+                        },
+                    },
+                },
+            };
+            const client = {
+                getTypedApi: () => ({}) as never,
+                getUnsafeApi: () => unsafe,
+            } as unknown as PolkadotClient;
+            return { client, calls };
+        }
+
+        test("defaults to `at: best` when no factory option is set", async () => {
+            const { client, calls } = makeClient();
+            const runtime = createContractRuntimeFromClient(client, {});
+            await runtime.dryRunCall(origin, dest, 0n, undefined, undefined, new Uint8Array(0));
+            expect(calls[0]?.[6]).toEqual({ at: "best" });
+        });
+
+        test("per-call `at` overrides factory default through the unsafe-API path", async () => {
+            const { client, calls } = makeClient();
+            const runtime = createContractRuntimeFromClient(client, {}, { at: "best" });
+            await runtime.dryRunCall(origin, dest, 0n, undefined, undefined, new Uint8Array(0), {
+                at: "finalized",
+            });
+            expect(calls[0]?.[6]).toEqual({ at: "finalized" });
         });
     });
 }

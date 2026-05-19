@@ -113,6 +113,26 @@ Without this, every fresh-account `.tx()` fails the pre-flight dry-run with `Acc
 
 Every `.tx()` runs a `ReviveApi.call` dry-run first to size `weight_limit` / `storage_deposit_limit` and to fail fast on revert, OOG, or `AccountNotMapped` before any signing happens. Throws `ContractDryRunFailedError` (with the chain's `dispatchError`) when the dry-run reports failure — caller pays no gas on a tx the chain already rejected. Pass both `gasLimit` and `storageDepositLimit` overrides on `TxOptions` to skip the dry-run entirely.
 
+## Query block selection
+
+`.query()` and the `.tx()` / `.prepare()` sizing dry-runs target best-block by default, matching `submitAndWatch`'s default resolution. This keeps reads consistent with the state a freshly-submitted transaction observes.
+
+Override per call via `QueryOptions.at` — accepts `"best"`, `"finalized"`, or a block hash:
+
+```ts
+await counter.getCount.query();                    // best-block (default)
+await counter.getCount.query({ at: "finalized" }); // canonical, lagged
+await counter.getCount.query({ at: blockHash });   // pin to a historical block
+```
+
+Change the runtime default by passing `{ at }` to the factory:
+
+```ts
+const runtime = createContractRuntimeFromClient(client, paseo_asset_hub, {
+    at: "finalized", // read finalized state by default
+});
+```
+
 ## Batching with `.prepare()`
 
 Use `.prepare()` to build `BatchableCall` handles consumable by `batchSubmitAndWatch` from `@parity/product-sdk-tx`. Combine multiple contract calls — or contract calls mixed with other Asset Hub transactions — into a single atomic `Utility.batch_all` extrinsic.

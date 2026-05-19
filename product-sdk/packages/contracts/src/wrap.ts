@@ -244,6 +244,7 @@ export function wrapContract(
                         undefined,
                         undefined,
                         calldata,
+                        overrides?.at !== undefined ? { at: overrides.at } : undefined,
                     );
 
                     if (!dryRun.result.success) {
@@ -801,6 +802,93 @@ if (import.meta.vitest) {
             expect(result.value).toBe(
                 "0x2222222222222222222222222222222222222222222222222222222222222222",
             );
+        });
+    });
+
+    describe("wrapContract — query .at option routing", () => {
+        // The `.query()` per-call `at` override is the user-facing hook for
+        // pinning a dry-run to a different block than the runtime default
+        // (see issue #95). These tests pin the wiring: the `at` value
+        // arrives at `runtime.dryRunCall` as its trailing options arg,
+        // exactly when the caller passes it — and is absent otherwise so
+        // the runtime default applies.
+        const abi: AbiEntry[] = [
+            {
+                type: "function",
+                name: "getCount",
+                inputs: [],
+                outputs: [{ name: "", type: "uint32" }],
+                stateMutability: "view",
+            },
+        ];
+        const ADDRESS = "0x0102030405060708090a0b0c0d0e0f1011121314";
+        const origin = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+
+        function makeCapturingRuntime(): {
+            runtime: ContractRuntime;
+            calls: Array<Parameters<ContractRuntime["dryRunCall"]>>;
+        } {
+            const calls: Array<Parameters<ContractRuntime["dryRunCall"]>> = [];
+            const runtime: ContractRuntime = {
+                api: {} as unknown as ContractRuntime["api"],
+                dryRunCall: (...args) => {
+                    calls.push(args);
+                    return Promise.resolve({
+                        weight_consumed: { ref_time: 0n, proof_size: 0n },
+                        weight_required: { ref_time: 0n, proof_size: 0n },
+                        storage_deposit: { type: "Refund", value: 0n },
+                        max_storage_deposit: { type: "Refund", value: 0n },
+                        gas_consumed: 0n,
+                        result: { success: true, value: { flags: 0, data: new Uint8Array(32) } },
+                    });
+                },
+            };
+            return { runtime, calls };
+        }
+
+        test("forwards `at: finalized` to dryRunCall when passed per call", async () => {
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, { origin });
+            await (
+                wrapped as unknown as {
+                    getCount: { query: (opts: { at: string }) => Promise<unknown> };
+                }
+            ).getCount.query({ at: "finalized" });
+            expect(calls[0]?.[6]).toEqual({ at: "finalized" });
+        });
+
+        test("forwards a block hash `at` value to dryRunCall", async () => {
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, { origin });
+            const blockHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+            await (
+                wrapped as unknown as {
+                    getCount: { query: (opts: { at: string }) => Promise<unknown> };
+                }
+            ).getCount.query({ at: blockHash });
+            expect(calls[0]?.[6]).toEqual({ at: blockHash });
+        });
+
+        test("omits the options argument when no `at` override is passed", async () => {
+            // No per-call override ⇒ the wrap layer must not synthesise an
+            // options object; the runtime applies its own default.
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, { origin });
+            await (
+                wrapped as unknown as { getCount: { query: () => Promise<unknown> } }
+            ).getCount.query();
+            expect(calls[0]?.[6]).toBeUndefined();
+        });
+
+        test("omits options when only unrelated overrides are passed", async () => {
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, { origin });
+            await (
+                wrapped as unknown as {
+                    getCount: { query: (opts: { value: bigint }) => Promise<unknown> };
+                }
+            ).getCount.query({ value: 1n });
+            expect(calls[0]?.[6]).toBeUndefined();
         });
     });
 
