@@ -460,6 +460,22 @@ importers:
         specifier: 'catalog:'
         version: 3.2.4(@types/node@25.6.0)
 
+  packages/coin-payment:
+    dependencies:
+      '@parity/product-sdk-host':
+        specifier: workspace:*
+        version: link:../host
+    devDependencies:
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.0(postcss@8.5.10)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.4(@types/node@25.6.0)
+
   packages/contracts:
     dependencies:
       '@parity/product-sdk-address':
@@ -591,6 +607,22 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)
 
+  packages/merchant-payments:
+    dependencies:
+      '@parity/product-sdk-coin-payment':
+        specifier: workspace:*
+        version: link:../coin-payment
+    devDependencies:
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.0(postcss@8.5.10)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.4(@types/node@25.6.0)
+
   packages/sdk:
     dependencies:
       '@parity/product-sdk-address':
@@ -602,6 +634,9 @@ importers:
       '@parity/product-sdk-chain-client':
         specifier: workspace:*
         version: link:../chain-client
+      '@parity/product-sdk-coin-payment':
+        specifier: workspace:*
+        version: link:../coin-payment
       '@parity/product-sdk-contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -617,6 +652,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-merchant-payments':
+        specifier: workspace:*
+        version: link:../merchant-payments
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
