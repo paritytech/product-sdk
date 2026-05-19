@@ -20,12 +20,15 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
+        "@noble/hashes": "^2.2.0",
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-crypto": "workspace:*",
         "@parity/product-sdk-storage": "workspace:*",
         "@polkadot-labs/hdkd": "^0.0.28",
         "@polkadot-labs/hdkd-helpers": "^0.0.10",
-        "polkadot-api": "catalog:"
+        "@scure/sr25519": "^2.2.0",
+        "polkadot-api": "catalog:",
+        "scale-ts": "^1.6.1"
     },
     "devDependencies": {
         "typescript": "^5.7.0",
