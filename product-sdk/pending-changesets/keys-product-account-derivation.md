@@ -76,7 +76,7 @@ update the vectors.
 `-utils` to keep a single hash-library version in the dep tree.
 Consumers see no public-API change from the noble bump (one source
 file in `-address` adjusted an import path from `@noble/hashes/sha3` to
-`@noble/hashes/sha3.js`; both forms resolve to the same module on noble
-1.x and 2.x).
+`@noble/hashes/sha3.js`; the extensionless form worked on noble 1.x but
+noble 2.x's package exports require the explicit `.js` suffix).
 
 No breaking changes here. Purely additive.
