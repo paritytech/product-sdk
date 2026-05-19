@@ -13,7 +13,7 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-contracts` | Typed contract interactions on Polkadot Asset Hub |
 | `@parity/product-sdk-bulletin` | Upload and retrieve data on the Polkadot Bulletin Chain |
 | `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |
-| `@parity/product-sdk-keys` | Hierarchical key derivation and session key management |
+| `@parity/product-sdk-keys` | Hierarchical key derivation, session keys, and sr25519 product-account derivation |
 | `@parity/product-sdk-storage` | Key-value storage with automatic host/browser backend detection |
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
 | `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
