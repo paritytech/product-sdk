@@ -26,9 +26,7 @@ const JUNCTION_ID_LEN = 32;
 const NON_NEGATIVE_INTEGER = /^\d+$/;
 
 export function createChainCode(code: string): Uint8Array {
-    const encoded = NON_NEGATIVE_INTEGER.test(code)
-        ? u64.enc(BigInt(code))
-        : str.enc(code);
+    const encoded = NON_NEGATIVE_INTEGER.test(code) ? u64.enc(BigInt(code)) : str.enc(code);
 
     if (encoded.length > JUNCTION_ID_LEN) {
         return blake2b256(encoded);
