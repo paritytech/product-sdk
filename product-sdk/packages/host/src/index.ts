@@ -24,7 +24,7 @@ export type {
 } from "./types.js";
 export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 
-// TruAPI - re-exports from @novasamatech/product-sdk and @novasamatech/host-api
+// TruAPI - re-exports from @novasamatech/host-api-wrapper and @novasamatech/host-api
 export {
     getTruApi,
     getPreimageManager,

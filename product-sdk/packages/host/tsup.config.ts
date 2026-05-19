@@ -13,5 +13,5 @@ export default defineConfig({
     },
     // Mark novasama packages as external since they're optional peer dependencies
     // that are dynamically imported or re-exported
-    external: ["@novasamatech/product-sdk", "@novasamatech/host-api"],
+    external: ["@novasamatech/host-api-wrapper", "@novasamatech/host-api"],
 });

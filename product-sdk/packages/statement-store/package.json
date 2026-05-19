@@ -30,15 +30,15 @@
         "polkadot-api": "catalog:"
     },
     "peerDependencies": {
-        "@novasamatech/product-sdk": ">=0.6.0"
+        "@novasamatech/host-api-wrapper": ">=0.6.0"
     },
     "peerDependenciesMeta": {
-        "@novasamatech/product-sdk": {
+        "@novasamatech/host-api-wrapper": {
             "optional": true
         }
     },
     "devDependencies": {
-        "@novasamatech/product-sdk": "catalog:",
+        "@novasamatech/host-api-wrapper": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

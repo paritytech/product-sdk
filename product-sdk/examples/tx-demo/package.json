@@ -19,7 +19,7 @@
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "@novasamatech/host-api": "catalog:",
-        "@novasamatech/product-sdk": "catalog:",
+        "@novasamatech/host-api-wrapper": "catalog:",
         "polkadot-api": "catalog:"
     },
     "devDependencies": {

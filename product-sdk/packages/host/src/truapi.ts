@@ -1,7 +1,7 @@
 /**
  * TruAPI - the protocol for communicating between apps and the Polkadot host container.
  *
- * This module centralizes access to @novasamatech/product-sdk and @novasamatech/host-api,
+ * This module centralizes access to @novasamatech/host-api-wrapper and @novasamatech/host-api,
  * allowing other @parity/product-sdk-* packages to import from here rather than depending
  * directly on novasama packages.
  *
@@ -116,7 +116,7 @@ let cachedTruApi: TruApi | null = null;
 /**
  * Get the TruAPI instance for direct low-level access.
  *
- * Returns the `hostApi` object from `@novasamatech/product-sdk` which provides
+ * Returns the `hostApi` object from `@novasamatech/host-api-wrapper` which provides
  * methods for communicating directly with the host container. Returns `null`
  * when running outside a container or when the SDK is unavailable.
  *
@@ -149,7 +149,7 @@ export async function getTruApi(): Promise<TruApi | null> {
     if (cachedTruApi) return cachedTruApi;
 
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         cachedTruApi = sdk.hostApi;
         log.debug("TruAPI loaded");
         return cachedTruApi;
@@ -185,7 +185,7 @@ export async function getTruApi(): Promise<TruApi | null> {
  */
 export async function getPreimageManager(): Promise<PreimageManager | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.preimageManager;
     } catch {
         return null;
@@ -222,7 +222,7 @@ export interface PreimageManager {
  */
 export async function getAccountsProvider(): Promise<AccountsProvider | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createAccountsProvider() as unknown as AccountsProvider;
     } catch {
         return null;
@@ -431,7 +431,7 @@ export interface ResultAsync<T, E> {
 }
 
 /**
- * Accounts provider interface from @novasamatech/product-sdk.
+ * Accounts provider interface from @novasamatech/host-api-wrapper.
  *
  * Provides methods for accessing host wallet accounts, product accounts,
  * and Ring VRF operations.
@@ -440,7 +440,7 @@ export interface AccountsProvider {
     /**
      * Get legacy accounts (user's external wallets connected to the host).
      *
-     * Renamed from `getNonProductAccounts` in @novasamatech/product-sdk 0.7.
+     * Renamed from `getNonProductAccounts` in @novasamatech/host-api-wrapper 0.7.
      *
      * @returns ResultAsync resolving to array of accounts.
      */
@@ -449,7 +449,7 @@ export interface AccountsProvider {
     /**
      * Get a signer for a legacy account.
      *
-     * Renamed from `getNonProductAccountSigner` in @novasamatech/product-sdk 0.7.
+     * Renamed from `getNonProductAccountSigner` in @novasamatech/host-api-wrapper 0.7.
      *
      * @param account - The product account (used for public key lookup).
      * @returns A PolkadotSigner for signing transactions.

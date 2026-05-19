@@ -27,7 +27,7 @@
         "polkadot-api": "catalog:"
     },
     "optionalDependencies": {
-        "@novasamatech/product-sdk": "catalog:",
+        "@novasamatech/host-api-wrapper": "catalog:",
         "@novasamatech/host-api": "catalog:"
     },
     "devDependencies": {

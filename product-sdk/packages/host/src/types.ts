@@ -22,7 +22,7 @@ export interface HostLocalStorage {
  * signature schemes — `Sr25519`, `Ed25519`, `Ecdsa`, and `OnChain` (chain-
  * attestation-based proofs).
  *
- * Mirrors `@novasamatech/product-sdk@0.7`'s proof shape.
+ * Mirrors `@novasamatech/host-api-wrapper@0.7`'s proof shape.
  */
 export type StatementProof =
     | { tag: "Sr25519"; value: { signature: Uint8Array; signer: Uint8Array } }
@@ -35,7 +35,7 @@ export type StatementProof =
 
 /**
  * Topic-based subscription filter. Mirrors `StatementTopicFilter` from
- * `@novasamatech/product-sdk` — the host delivers statements that match
+ * `@novasamatech/host-api-wrapper` — the host delivers statements that match
  * either *all* of the listed topics (`matchAll`) or *any* of them
  * (`matchAny`).
  */
@@ -64,7 +64,7 @@ export interface HostSubscription {
  * host's native binary protocol; the `statement-store` package layers a
  * higher-level client on top.
  *
- * Shape matches `@novasamatech/product-sdk@0.7`'s `createStatementStore()`.
+ * Shape matches `@novasamatech/host-api-wrapper@0.7`'s `createStatementStore()`.
  */
 export interface HostStatementStore {
     /**
