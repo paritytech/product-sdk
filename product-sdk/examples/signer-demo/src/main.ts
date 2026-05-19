@@ -78,22 +78,25 @@ function recordTransition(from: SignerState["status"] | null, to: SignerState["s
 const manager = new SignerManager({
     ss58Prefix: SS58_PREFIX,
     dappName: "signer-demo",
-    onConnect: async (account, { requestPermissions, signal }) => {
+    onConnect: async (account, { requestResourceAllocation, signal }) => {
         onConnectFiredCount += 1;
         $onconnectCount.textContent = String(onConnectFiredCount);
         $onConnectStatus.textContent = `fired (${onConnectFiredCount}×) for ${account.address.slice(0, 8)}…`;
         log(`onConnect fired #${onConnectFiredCount} for ${account.address}`, "ok");
 
-        const result = await requestPermissions([{ tag: "AutoSigning", value: undefined }]);
-        if (signal.aborted) {
-            log("onConnect aborted before completing", "info");
-            return;
-        }
-        if (result.ok) {
-            $onConnectResult.textContent = `outcomes: ${result.value.map((o) => o.tag).join(", ")}`;
+        try {
+            const outcomes = await requestResourceAllocation([
+                { tag: "AutoSigning", value: undefined },
+            ]);
+            if (signal.aborted) {
+                log("onConnect aborted before completing", "info");
+                return;
+            }
+            $onConnectResult.textContent = `outcomes: ${outcomes.map((o) => o.tag).join(", ")}`;
             $onConnectResult.classList.remove("err");
-        } else {
-            $onConnectResult.textContent = `error: ${result.error}`;
+        } catch (cause) {
+            if (signal.aborted) return;
+            $onConnectResult.textContent = `error: ${cause instanceof Error ? cause.message : String(cause)}`;
             $onConnectResult.classList.add("err");
         }
     },

@@ -1,11 +1,7 @@
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { SS58String } from "@parity/product-sdk-address";
-import type {
-    AllocatableResource,
-    AllocationOutcome,
-    Result as HostResult,
-} from "@parity/product-sdk-host";
+import type { AllocatableResource, AllocationOutcome } from "@parity/product-sdk-host";
 
 import type { SignerError } from "./errors.js";
 
@@ -116,24 +112,30 @@ export interface SignerManagerOptions {
      * still connected. Fires again after auto-reconnect, so a fresh host
      * session re-runs the callback.
      *
-     * Common use: request product permissions / resource allocations
-     * once per session. The `ctx` exposes a pre-bound
-     * `requestPermissions` helper plus an `AbortSignal` that fires if the
-     * user disconnects or destroys the manager mid-flight.
+     * Common use: request product resource allocations once per session.
+     * The `ctx` exposes a pre-bound `requestResourceAllocation` helper
+     * plus an `AbortSignal` that fires if the user disconnects or
+     * destroys the manager mid-flight.
      *
-     * Errors thrown from `onConnect` are logged but do not affect the
-     * connected state — the next reconnect retries.
+     * `requestResourceAllocation` throws on failure (matches the
+     * `@parity/product-sdk-host` export of the same name); errors thrown
+     * from `onConnect` are logged but do not affect the connected state —
+     * the next reconnect retries.
      *
      * @example
      * ```ts
      * new SignerManager({
-     *   onConnect: async (account, { requestPermissions, signal }) => {
-     *     const result = await requestPermissions([
-     *       { tag: "SmartContractAllowance", value: account.publicKey.length },
-     *       { tag: "AutoSigning", value: undefined },
-     *     ]);
-     *     if (!result.ok || result.value.some(o => o.tag !== "Allocated")) {
-     *       logWarning("partial permissions", result);
+     *   onConnect: async (_account, { requestResourceAllocation, signal }) => {
+     *     try {
+     *       const outcomes = await requestResourceAllocation([
+     *         { tag: "AutoSigning", value: undefined },
+     *       ]);
+     *       if (signal.aborted) return;
+     *       if (outcomes.some((o) => o.tag !== "Allocated")) {
+     *         logWarning("partial permissions", outcomes);
+     *       }
+     *     } catch (cause) {
+     *       logWarning("resource allocation failed", cause);
      *     }
      *   },
      * });
@@ -152,11 +154,10 @@ export interface ConnectContext {
     signal: AbortSignal;
     /**
      * Request a batch of host resource allocations. Bound shorthand for
-     * `requestProductPermissions` from `@parity/product-sdk-host`.
+     * `requestResourceAllocation` from `@parity/product-sdk-host` —
+     * throws on failure, returns the unwrapped outcomes on success.
      */
-    requestPermissions: (
-        resources: AllocatableResource[],
-    ) => Promise<HostResult<AllocationOutcome[], string>>;
+    requestResourceAllocation: (resources: AllocatableResource[]) => Promise<AllocationOutcome[]>;
 }
 
 /** Callback signature for {@link SignerManagerOptions.onConnect}. */

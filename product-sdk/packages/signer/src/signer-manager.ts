@@ -10,7 +10,7 @@ import {
     SigningFailedError,
     type SignerError,
 } from "./errors.js";
-import { getHostLocalStorage, requestProductPermissions } from "@parity/product-sdk-host";
+import { getHostLocalStorage, requestResourceAllocation } from "@parity/product-sdk-host";
 import { DevProvider } from "./providers/dev.js";
 import { HostProvider } from "./providers/host.js";
 import type { ContextualAlias, ProductAccount, RingLocation } from "./providers/host.js";
@@ -146,8 +146,8 @@ function resolveSelectedAccount(
  * @example
  * ```ts
  * const manager = new SignerManager({
- *   onConnect: async (account, { requestPermissions }) => {
- *     await requestPermissions([{ tag: "AutoSigning", value: undefined }]);
+ *   onConnect: async (_account, { requestResourceAllocation }) => {
+ *     await requestResourceAllocation([{ tag: "AutoSigning", value: undefined }]);
  *   },
  * });
  * manager.subscribe(state => console.log(state.status));
@@ -648,7 +648,7 @@ export class SignerManager {
 
         const ctx: ConnectContext = {
             signal: controller.signal,
-            requestPermissions: requestProductPermissions,
+            requestResourceAllocation,
         };
 
         // Defer so connect()/attemptReconnect() return before the callback fires —
@@ -718,7 +718,9 @@ export class SignerManager {
 if (import.meta.vitest) {
     const { test, expect, describe, vi } = import.meta.vitest;
 
-    function mockAccount(address = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"): SignerAccount {
+    function mockAccount(
+        address = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    ): SignerAccount {
         return {
             address,
             h160Address: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -851,9 +853,9 @@ if (import.meta.vitest) {
             expect(signals[0]?.aborted).toBe(true);
         });
 
-        test("ctx exposes requestPermissions function", async () => {
+        test("ctx exposes requestResourceAllocation function", async () => {
             const onConnect = vi.fn().mockImplementation((_, ctx) => {
-                expect(typeof ctx.requestPermissions).toBe("function");
+                expect(typeof ctx.requestResourceAllocation).toBe("function");
             });
             const manager = new SignerManager({
                 createProvider: () => mockProvider(),

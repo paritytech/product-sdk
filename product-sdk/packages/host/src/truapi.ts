@@ -15,6 +15,7 @@ import type {
     AllocatableResource as AllocatableResourceCodec,
     AllocationOutcome as AllocationOutcomeCodec,
     CodecType,
+    RemotePermission as RemotePermissionCodec,
     Statement as StatementCodec,
 } from "@novasamatech/host-api";
 
@@ -239,12 +240,30 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
  */
 export type AllocatableResource = CodecType<typeof AllocatableResourceCodec>;
 
+/** Tag-only view of {@link AllocatableResource} for places that just need the variant name. */
+export type AllocatableResourceTag = AllocatableResource["tag"];
+
 /**
  * Per-resource outcome from {@link requestResourceAllocation}.
  * The host strips secret payloads from `Allocated` before returning, so
  * `value` is always `undefined` on the product side.
  */
 export type AllocationOutcome = CodecType<typeof AllocationOutcomeCodec>;
+
+/** Tag-only view of {@link AllocationOutcome} (`"Allocated" | "Rejected" | "NotAvailable"`). */
+export type AllocationOutcomeTag = AllocationOutcome["tag"];
+
+/**
+ * Remote permission the dapp can ask the host to grant via
+ * {@link requestPermission}.
+ *
+ * Derived from the upstream codec so variant renames surface as compile
+ * errors, not runtime failures.
+ */
+export type RemotePermission = CodecType<typeof RemotePermissionCodec>;
+
+/** Tag-only view of {@link RemotePermission}. */
+export type RemotePermissionTag = RemotePermission["tag"];
 
 /**
  * Request the host to pre-allocate one or more resource allowances.

@@ -51,20 +51,13 @@ export type {
     ContextualAlias,
     ResultAsync,
     AllocatableResource,
-    AllocationOutcome,
-    Statement,
-} from "./truapi.js";
-
-// Type aliases derived from @novasamatech/host-api codecs
-export type {
-    AllocatableResource,
     AllocatableResourceTag,
     AllocationOutcome,
     AllocationOutcomeTag,
     RemotePermission,
     RemotePermissionTag,
-} from "./host-api-types.js";
+    Statement,
+} from "./truapi.js";
 
-// Higher-level permission wrappers
-export { requestProductPermissions, requestPermission, formatHostError } from "./permissions.js";
-export type { Result } from "./permissions.js";
+// Higher-level permission wrapper
+export { requestPermission } from "./permissions.js";
