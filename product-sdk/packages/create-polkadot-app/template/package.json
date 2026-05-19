@@ -16,6 +16,7 @@
     "@parity/product-sdk-crypto": "^0.1.1",
     "@parity/product-sdk-descriptors": "^0.4.0",
     "@parity/product-sdk-host": "^0.4.0",
+    "@parity/product-sdk-keys": "^0.3.0",
     "@parity/product-sdk-logger": "^0.1.1",
     "@parity/product-sdk-signer": "^0.3.0",
     "@parity/product-sdk-storage": "^0.1.4",
