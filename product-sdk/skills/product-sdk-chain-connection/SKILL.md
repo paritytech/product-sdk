@@ -35,7 +35,7 @@ import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
 const account = await client.assetHub.query.System.Account.getValue(
@@ -49,7 +49,7 @@ client.destroy();
 
 | | `getChainAPI` (Preset) | `createChainClient` (BYOD) |
 |---|---|---|
-| **When** | Known environments (paseo, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
+| **When** | Known environments (paseo, previewnet, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
 | **Descriptors** | Built-in, lazy-loaded | You import and provide them |
 | **RPCs** | Built-in | You provide them |
 | **Chains** | Always assetHub + bulletin + individuality | Any combination you choose |
@@ -112,21 +112,22 @@ for (const [key, value] of entries) {
 
 ## Raw API Access
 
-For advanced use cases (like creating InkSdk for contracts), access the raw PAPI client:
+For advanced use cases (like creating ContractRuntime for contracts), access the raw PAPI client:
 
 ```typescript
-import { createInkSdk } from "@polkadot-api/sdk-ink";
+import { createContractRuntime } from "@parity/product-sdk-contracts";
 
-const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 ```
 
 ## Environment Support
 
-> **WARNING:** Only the `"paseo"` environment is currently available. Using `"polkadot"` or `"kusama"` will throw an error.
+> **WARNING:** Only the `"paseo"` and `"previewnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
 
 | Environment | Asset Hub | Bulletin | Individuality |
 |-------------|-----------|----------|---------------|
 | **paseo** (testnet) | Yes | Yes | Yes |
+| **previewnet** (dev) | Yes | Yes | Yes |
 | polkadot (mainnet) | Planned | Planned | Planned |
 | kusama (canary) | Planned | Planned | Planned |
 
@@ -147,11 +148,11 @@ destroyAll();
 
 1. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return Promises.
 
-2. **Using unavailable environments** — Only `"paseo"` works. `"polkadot"` and `"kusama"` throw.
+2. **Using unavailable environments** — Only `"paseo"` and `"previewnet"` work. `"polkadot"` and `"kusama"` throw.
 
 3. **Not cleaning up** — Call `client.destroy()` when done to close WebSocket connections.
 
-4. **Barrel importing descriptors** — Use subpath imports: `@parity/product-sdk-descriptors/bulletin`, NOT `@parity/product-sdk-descriptors`.
+4. **Barrel importing descriptors** — Use subpath imports: `@parity/product-sdk-descriptors/paseo-bulletin`, NOT `@parity/product-sdk-descriptors`.
 
 5. **Missing polkadot-api** — It's a peer dependency. Always install it alongside chain-client.
 

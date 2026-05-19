@@ -129,6 +129,44 @@ File-based storage adapter for Node.js. Data persists in `storageDir` (defaults 
 
 Waits for the session list to emit at least one entry, or resolves with `[]` after `timeoutMs`.
 
+## Allowance management (`./host` subpath)
+
+For CLIs that need to write to Bulletin / Statement Store / Asset Hub smart contracts: the QR-paired mobile wallet is the Account Holder, the CLI plays the Host role, and `@parity/product-sdk-terminal/host` exposes that Host-runner surface (the [RFC-10](https://github.com/paritytech/triangle-js-sdks/blob/valentunn-rfc-0010/docs/rfcs/0010-allowance.md) Accounts Protocol companion, an on-disk allowance-key cache, and a local sr25519 signer over the cached keys).
+
+```ts
+import {
+    ensureSlotAccountSigner,
+    requestResourceAllocation,
+    getCachedAllocation,
+    createSlotAccountSigner,
+} from "@parity/product-sdk-terminal/host";
+
+// First call prompts the wallet; subsequent calls are wire-free.
+const signer = await ensureSlotAccountSigner(session, adapter, {
+    tag: "BulletInAllowance",
+    value: undefined,
+});
+await bulletinTx.submitAndWatch(signer);
+```
+
+### `ensureSlotAccountSigner(session, adapter, resource): Promise<PolkadotSigner>`
+
+The one call most CLIs want. Cache hit → returns signer; cache miss → allocates via the wallet, then returns signer. Throws on `Rejected` / `NotAvailable`. Slot-table resources only (`BulletInAllowance`, `StatementStoreAllowance`).
+
+### `requestResourceAllocation(session, adapter, resources, options?): Promise<ApAllocationOutcome[]>`
+
+Lower-level: pre-allocate any combination of resources. Granted keys cached at `{storageDir}/{appId}_AllowanceKeys.json` (`0o600`, atomic write). `onExisting` auto-picks `Ignore`/`Increase` based on cache state; override via `options.onExisting`.
+
+### `getCachedAllocation(adapter, resource): Promise<CachedAllocation | null>`
+
+Read-only cache lookup; no wire round-trip.
+
+### `createSlotAccountSigner(adapter, resource): Promise<PolkadotSigner | null>`
+
+Build a `PolkadotSigner` from the cached slot key without round-tripping. Returns `null` if nothing's cached (use `ensureSlotAccountSigner` for the round-trip-if-missing flow).
+
+> **Caveats.** `AutoSigning` currently returns `NotAvailable` on both Android and iOS wallets. Slot renewal at expiry depends on [paritytech/individuality#931](https://github.com/paritytech/individuality/pull/931) (open) — first-time allocation works end-to-end today.
+
 ## Migration from `@polkadot-apps/terminal`
 
 For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing sessions on disk (`~/.polkadot-apps/`) carry over — same `appId`, same path. No re-pairing required for the migration itself.
@@ -192,18 +230,19 @@ const sessions = await waitForSessions(adapter);
 
 **Limits and usage notes.**
 
-- **Signing does not round-trip.** `session.signRaw` goes out over the statement store and expects a real phone to respond. Use this helper for flows that test session discovery, persistence, and logout — not happy-path signing.
+- **Signing does not round-trip.** Both `session.signRaw` and `session.signPayload` go out over the statement store and expect a real phone to respond. Use this helper for flows that test session discovery, persistence, and logout — not happy-path signing.
 - **Expiry tests still work.** The synthesized local account was never registered on the People chain, so any statement-store write from this session fails with `NoAllowanceError`. That's the same error the CLI sees when a previously valid session's on-chain attestation has expired.
 - **No `expiresAt` option.** The on-disk codec has no expiry field; validity lives on chain.
 - **Corrupted-session cases** don't need a helper — `fs.writeFile("<storageDir>/<appId>_SsoSessions.json", "not-hex")` from the test is enough.
 
 ## Signing
 
-After login and attestation, the paired wallet can sign messages via the statement store.
+After login and attestation, the paired wallet can sign both transactions and raw messages via the statement store. The `PolkadotSigner` returned by `createSessionSigner` routes each path to the right host-papp method:
 
-**`signRaw`** works end-to-end: the wallet receives the request, shows a prompt, and returns the signature.
+- **Transactions** (`signTx` from polkadot-api's perspective — what `submitAndWatch`, `signSubmitAndWatch`, contract method calls, etc. invoke) go through `session.signRaw` with the `Payload` tag. polkadot-api assembles the full SCALE-encoded signing payload from runtime metadata — `callData ‖ extras ‖ additionalSigneds` for every signed extension the chain declares — and hands the bytes to the wallet as an opaque hex blob. The wallet signs the payload as-is, with no envelope wrapping. Any signed extension declared by the runtime (including extensions polkadot-api doesn't know about, e.g. `AsPgas` on Paseo Next v2) survives end-to-end because the wallet doesn't inspect the bytes — it just signs them.
+- **Raw bytes** (`signBytes`) go through `session.signRaw` with the `Bytes` tag. Mobile applies the standard `<Bytes>...</Bytes>` anti-phishing wrap before signing — appropriate for arbitrary data, the same behavior `signRaw` has across all Polkadot wallets.
 
-**`signPayload`** (for signing transaction payloads) is not yet functional — the request is submitted but the wallet does not respond. This is a known limitation of the current wallet/protocol version.
+> **Note on previous bugs.** Versions prior to `0.1.1` routed *all* signing through `signRaw` with no tag distinction, producing `BadProof`-rejected signatures. Versions `0.1.1` through `0.2.x` then used `polkadot-api/pjs-signer`, which threw `PJS does not support this signed-extension: <name>` on any extension outside its eight built-in mappers (notably `AsPgas`). The current path bypasses both pitfalls.
 
 ## Notes
 
@@ -244,18 +283,4 @@ Sessions are persisted to `~/.polkadot-apps/` and survive across restarts. The S
 
 - **`KvStore`↔`StorageAdapter` bridge.** This package implements its own file-backed `StorageAdapter` for Node.js (`createNodeStorageAdapter`). Once `@parity/product-sdk-storage` grows a file backend with the same `read/write/clear/subscribe` `ResultAsync` shape, replace `node-storage.ts` with a thin adapter over it.
 - **Codec re-exports from `@parity/product-sdk-statement-store`.** `testing.ts` imports session-account codec helpers (`AccountIdCodec`, `LocalSessionAccountCodec`, etc.) directly from `@novasamatech/statement-store`. Re-exporting them through the in-monorepo wrapper would let this package depend only on workspace siblings.
-- **Embedded host runner for allowance / attestation refresh.** Today this package consumes a paired session and signs against it, but cannot renew the on-chain attestation that gates allowance writes — once it expires the user has to re-do the full QR pairing. The proposed fix is a new `./host` sub-export (in addition to `.`, `./register`, `./testing`) exposing roughly:
-  ```ts
-  // proposed shape — not yet implemented
-  export interface AllowanceManager {
-      isExpired(): boolean;
-      refresh(): ResultAsync<void, Error>;
-      currentAttestation(): ResultAsync<Attestation, Error>;
-  }
-  export function createAllowanceManager(
-      adapter: TerminalAdapter,
-      options?: { hostEndpoint?: string },
-  ): AllowanceManager;
-  ```
-  Implementation should sit on top of `@parity/product-sdk-host`'s container/storage primitives so the host runner is shared with browser/desktop hosts rather than being CLI-specific. This is the gap Tarik flagged as "the CLI might also need to run some kind of host to get allowances".
 - **`@noble/*` major version drift.** This package pins `@noble/{ciphers,curves,hashes}: ^2.x` because upstream `@polkadot-apps/terminal` did, and the `testing.ts` codec helpers use the v2 import paths (`@noble/hashes/blake2.js`, `@noble/curves/nist.js`). The rest of the monorepo is on `^1.x`. Both majors coexist in the lockfile; not a runtime problem today but worth a coordinated bump. Either move the whole monorepo to v2, or rewrite `testing.ts` against v1 paths (`@noble/hashes/blake2b.js` etc.).

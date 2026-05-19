@@ -16,7 +16,7 @@ const PRODUCT_URL = "http://localhost:5230";
  */
 const PASEO_AH: ChainConfig = {
     ...PASEO_ASSET_HUB,
-    rpcUrl: process.env.PASEO_AH_RPC ?? "wss://sys.turboflakes.io/asset-hub-paseo",
+    rpcUrl: process.env.PASEO_AH_RPC ?? "wss://paseo-asset-hub-next-rpc.polkadot.io",
 };
 
 const bobFixture = createTestHostFixture({

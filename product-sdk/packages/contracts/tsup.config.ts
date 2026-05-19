@@ -4,6 +4,7 @@ export default defineConfig({
     entry: {
         index: "src/index.ts",
         codegen: "src/codegen.ts",
+        pvm: "src/pvm.ts",
     },
     format: ["esm"],
     dts: true,

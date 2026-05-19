@@ -30,6 +30,31 @@ export class ContractNotFoundError extends ContractError {
     }
 }
 
+/**
+ * A pre-flight `ReviveApi.call` dry-run reported failure. Thrown from the `.tx()`
+ * path before the extrinsic is built — prevents callers from paying gas on a
+ * transaction the chain already told us would revert.
+ *
+ * `dispatchError` carries the chain's encoded error (typically `ModuleError`,
+ * `ContractReverted`, `OutOfGas`, or `AccountNotMapped` — see the `Revive`
+ * pallet error variants).
+ */
+export class ContractDryRunFailedError extends ContractError {
+    readonly methodName: string;
+    readonly dispatchError: unknown;
+
+    constructor(methodName: string, dispatchError: unknown) {
+        super(
+            `Dry-run failed for "${methodName}": ${
+                typeof dispatchError === "string" ? dispatchError : JSON.stringify(dispatchError)
+            }. The transaction was not submitted.`,
+        );
+        this.name = "ContractDryRunFailedError";
+        this.methodName = methodName;
+        this.dispatchError = dispatchError;
+    }
+}
+
 if (import.meta.vitest) {
     const { test, expect, describe } = import.meta.vitest;
 
@@ -43,6 +68,7 @@ if (import.meta.vitest) {
         test("instanceof catches all contract errors", () => {
             expect(new ContractSignerMissingError()).toBeInstanceOf(ContractError);
             expect(new ContractNotFoundError("@a/b", "abc")).toBeInstanceOf(ContractError);
+            expect(new ContractDryRunFailedError("foo", "x")).toBeInstanceOf(ContractError);
         });
     });
 
@@ -62,6 +88,24 @@ if (import.meta.vitest) {
             expect(err.targetHash).toBe("abc123");
             expect(err.message).toContain("@test/foo");
             expect(err.message).toContain("abc123");
+        });
+    });
+
+    describe("ContractDryRunFailedError", () => {
+        test("captures method name and dispatch error", () => {
+            const dispatchError = { type: "Module", value: { type: "Revive" } };
+            const err = new ContractDryRunFailedError("transfer", dispatchError);
+            expect(err.methodName).toBe("transfer");
+            expect(err.dispatchError).toBe(dispatchError);
+            expect(err.message).toContain("transfer");
+            expect(err.message).toContain("not submitted");
+            expect(err.name).toBe("ContractDryRunFailedError");
+        });
+
+        test("handles string dispatch error without JSON-stringifying", () => {
+            const err = new ContractDryRunFailedError("foo", "ContractReverted");
+            expect(err.message).toContain("ContractReverted");
+            expect(err.message).not.toContain('"ContractReverted"');
         });
     });
 }

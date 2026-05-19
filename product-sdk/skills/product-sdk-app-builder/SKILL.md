@@ -31,7 +31,7 @@ import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 const balance = await client.assetHub.query.System.Account.getValue("5GrwvaEF...");
 client.destroy();
@@ -65,7 +65,7 @@ polkadot-api                        # Core runtime (peer dep of descriptors)
 
 | Feature | Package | Skill |
 |---------|---------|-------|
-| Smart contracts (Solidity/ink!) | `@parity/product-sdk-contracts` | product-sdk-contracts |
+| Smart contracts (PolkaVM/Solidity) | `@parity/product-sdk-contracts` | product-sdk-contracts |
 | Submit transactions | `@parity/product-sdk-tx` | product-sdk-transactions |
 | Wallet connection (Talisman, Polkadot.js, Host API) | `@parity/product-sdk-signer` | product-sdk-transactions |
 | Key derivation | `@parity/product-sdk-keys` | product-sdk-transactions |
@@ -124,7 +124,7 @@ npm install
 
 Invoke the relevant domain skill(s) based on the selected packages:
 - **product-sdk-chain-connection** — for connecting and querying chains
-- **product-sdk-contracts** — for smart contracts (ContractManager, createContract, InkSdk, codegen)
+- **product-sdk-contracts** — for smart contracts (ContractManager, createContract, ContractRuntime, codegen)
 - **product-sdk-transactions** — for submitting transactions, signing, keys
 - **product-sdk-cloud-storage** — for Cloud Storage
 - **product-sdk-statement-store** — for pub/sub messaging
@@ -143,7 +143,7 @@ node dist/index.js # Run the app
 
 | | `getChainAPI` (Preset) | `createChainClient` (BYOD) |
 |---|---|---|
-| **When** | Known environments (paseo, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
+| **When** | Known environments (paseo, previewnet, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
 | **Descriptors** | Built-in, lazy-loaded | You import and provide them |
 | **RPCs** | Built-in | You provide them |
 | **Chains** | Always assetHub + bulletin + individuality | Any combination you choose |
@@ -157,28 +157,29 @@ node dist/index.js # Run the app
 - Chains not in the preset list
 - Minimal bundle size
 
-Both return the same `ChainClient` type with `.raw` access for advanced use (e.g., `createInkSdk`).
+Both return the same `ChainClient` type with `.raw` access for advanced use (e.g., `createContractRuntime`).
 
 ## Environments and Chains
 
 See [references/chains.md](references/chains.md) for full details.
 
-> **WARNING:** Only the `"paseo"` environment is currently available. Using `"polkadot"` or `"kusama"` will throw an error.
+> **WARNING:** Only the `"paseo"` and `"previewnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
 
 | Environment | Asset Hub | Bulletin | Individuality |
 |-------------|-----------|----------|---------------|
 | **paseo** (testnet) | Yes | Yes | Yes |
+| **previewnet** (dev) | Yes | Yes | Yes |
 | polkadot (mainnet) | Planned | Planned | Planned |
 | kusama (canary) | Planned | Planned | Planned |
 
 ## Common Mistakes
 
 1. **Missing `polkadot-api`** — It's a peer dependency of `@parity/product-sdk-descriptors`. Always install it.
-2. **Barrel import of descriptors** — Use `@parity/product-sdk-descriptors/bulletin`, NOT `@parity/product-sdk-descriptors`.
-3. **Using unavailable environments** — Only `"paseo"` works. `"polkadot"` and `"kusama"` throw.
+2. **Barrel import of descriptors** — Use `@parity/product-sdk-descriptors/paseo-bulletin`, NOT `@parity/product-sdk-descriptors`.
+3. **Using unavailable environments** — Only `"paseo"` and `"previewnet"` work. `"polkadot"` and `"kusama"` throw.
 4. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return a Promise. Always `await` it.
 5. **Not cleaning up** — Call `client.destroy()` or `destroyAll()` when done to close WebSocket connections.
-6. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create InkSdk yourself: `createInkSdk(client.raw.assetHub, { atBest: true })`, or use `ContractManager.fromClient()` for convenience.
+6. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create ContractRuntime yourself: `createContractRuntime(client.raw.assetHub, { atBest: true })`, or use `ContractManager.fromClient()` for convenience.
 7. **Dev signers in production** — `createDevSigner("Alice")` is testnet-only. Use `SignerManager` for production.
 8. **Wrong signer type** — `PolkadotSigner` (tx), `StatementSignerWithKey` (statement-store), and `SignerManager` (wallet UI) are distinct.
 

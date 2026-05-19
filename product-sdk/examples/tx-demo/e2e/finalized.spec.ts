@@ -10,7 +10,11 @@ import { waitForAppReady } from "./helpers";
  * the promise has resolved. Paseo AH finality typically lands in
  * 20–60 s — the 120 s timeout gives comfortable headroom.
  */
-test.describe("@parity/product-sdk-tx via Host API — finalized", () => {
+// TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
+// provider routes through TrUAPI's `signing.createTransaction` instead of
+// `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
+// `AsPgas` signed extension. See the tracking issue for the migration plan.
+test.describe.skip("@parity/product-sdk-tx via Host API — finalized", () => {
     test("waitFor=finalized resolves only after finalization", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearSigningLog();

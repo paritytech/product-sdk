@@ -137,7 +137,7 @@ async function fetchJson<T>(cid: string, gateway: string, options?: FetchOptions
 ### `Environment`
 
 ```ts
-type Environment = "polkadot" | "kusama" | "paseo"
+type Environment = "polkadot" | "kusama" | "paseo" | "previewnet"
 ```
 
 ### `UploadResult`

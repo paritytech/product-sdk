@@ -28,8 +28,12 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
  * Create a multi-chain client with user-provided descriptors and RPC endpoints.
  *
  * Returns fully-typed APIs for each chain plus raw `PolkadotClient` access via `.raw`.
- * Connections use host routing (via `@parity/product-sdk-host`) when inside a container,
- * falling back to direct WebSocket RPC.
+ * Connections route through the host provider (`@parity/product-sdk-host`) — the SDK
+ * is designed to run exclusively inside a host container (Polkadot Browser / Desktop).
+ * Throws if no host provider is available; there is no direct-WebSocket fallback.
+ *
+ * The `config.rpcs` field is currently unused at runtime (kept for API compatibility
+ * and BYOD documentation), since the host owns the chain connection.
  *
  * Results are cached by genesis-hash fingerprint — calling with the same descriptors
  * returns the same instance.
@@ -37,14 +41,14 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
  * @example
  * ```ts
  * import { createChainClient } from "@parity/product-sdk-chain-client";
- * import { paseo_asset_hub } from "./descriptors/paseo-asset-hub";
- * import { bulletin } from "./descriptors/bulletin";
+ * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+ * import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
  *
  * const client = await createChainClient({
- *     chains: { assetHub: paseo_asset_hub, bulletin },
+ *     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
  *     rpcs: {
- *         assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
- *         bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
+ *         assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
+ *         bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
  *     },
  * });
  *
@@ -52,9 +56,9 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
  * const account = await client.assetHub.query.System.Account.getValue(addr);
  * const fee = await client.bulletin.query.TransactionStorage.ByteFee.getValue();
  *
- * // Raw client for advanced use (e.g., InkSdk for contracts)
- * import { createInkSdk } from "@polkadot-api/sdk-ink";
- * const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+ * // Raw client for advanced use (e.g., a ContractRuntime for pallet-revive contracts)
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+ * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  *
  * // Cleanup
  * client.destroy();

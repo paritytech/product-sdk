@@ -10,7 +10,7 @@ import {
     SigningFailedError,
     type SignerError,
 } from "./errors.js";
-import { getHostLocalStorage } from "@parity/product-sdk-host";
+import { getHostLocalStorage, requestResourceAllocation } from "@parity/product-sdk-host";
 import { DevProvider } from "./providers/dev.js";
 import { HostProvider } from "./providers/host.js";
 import type { ContextualAlias, ProductAccount, RingLocation } from "./providers/host.js";
@@ -18,7 +18,9 @@ import type { SignerProvider } from "./providers/types.js";
 import { withRetry } from "./retry.js";
 import type {
     AccountPersistence,
+    ConnectContext,
     ConnectionStatus,
+    OnConnect,
     ProviderType,
     Result,
     SignerAccount,
@@ -76,26 +78,84 @@ function initialState(): SignerState {
     };
 }
 
+function resolveSelectedAccount(
+    accounts: readonly SignerAccount[],
+    preferredAddress: string | null | undefined,
+): SignerAccount | null {
+    if (preferredAddress) {
+        const found = accounts.find((a) => a.address === preferredAddress);
+        if (found) return found;
+    }
+    return accounts[0] ?? null;
+}
+
 /**
  * Core orchestrator for signer management.
  *
  * Manages account discovery and signer creation via the Host API.
- * Framework-agnostic — use the subscribe() pattern to integrate with
+ * Framework-agnostic — use the `subscribe()` pattern to integrate with
  * React, Vue, or any framework.
+ *
+ * ## Lifecycle
+ *
+ * ```
+ *   disconnected → connecting → connected ──── selectAccount / signRaw / …
+ *        ▲             │           │
+ *        │             ▼           ▼
+ *        └── disconnect()  provider drops → auto-reconnect → connected
+ *                                                    (onConnect re-fires)
+ *
+ *                              ┌─ destroy() ──► (terminal — manager unusable)
+ *                              ▼
+ * ```
+ *
+ * ## Callbacks
+ *
+ * - **`subscribe(cb)`** fires synchronously on every state mutation, in
+ *   registration order, inside the call stack that mutated state. It does
+ *   **not** fire with the initial state — call `getState()` if you need a
+ *   priming read. Multiple mutations during the same operation produce
+ *   multiple notifications.
+ *
+ * - **`onConnect(account, ctx)`** (from `SignerManagerOptions`) fires
+ *   exactly when the manager transitions from non-connected to
+ *   `"connected"` with a selected account. It fires on a microtask
+ *   *after* the `subscribe` notification, so subscribers always observe
+ *   `state.status === "connected"` before `onConnect`'s side effects run.
+ *   It re-fires after auto-reconnect (the SDK reconnects automatically
+ *   when the provider drops), and re-fires after a fresh `connect()`.
+ *
+ * - **Internal `onAccountsChange` wiring** is worth a behavioral note:
+ *   when the provider reports an updated account list, the manager
+ *   preserves the current selection if its address is still present, or
+ *   sets `selectedAccount` to `null` if it isn't — it does **not** fall
+ *   back to `accounts[0]`. The fallback-to-first only applies on
+ *   connect-success, where there is no prior selection to preserve.
+ *
+ * ## `disconnect()` vs `destroy()`
+ *
+ * - `disconnect()` resets state to initial. Subsequent `connect()` calls
+ *   work normally. Reversible.
+ * - `destroy()` is **terminal**: the instance is marked unusable, all
+ *   subscribers are cleared, and any further call returns `DestroyedError`.
+ *   Use in framework teardown (React `useEffect` cleanup, HMR dispose).
+ *
+ * Both methods cancel any in-flight `connect`, reconnect attempt, and
+ * `onConnect` callback (the `ctx.signal` becomes aborted).
  *
  * @example
  * ```ts
- * const manager = new SignerManager();
+ * const manager = new SignerManager({
+ *   onConnect: async (_account, { requestResourceAllocation }) => {
+ *     await requestResourceAllocation([{ tag: "AutoSigning", value: undefined }]);
+ *   },
+ * });
  * manager.subscribe(state => console.log(state.status));
  *
- * // Connect to the host provider
- * await manager.connect();
+ * await manager.connect();        // host provider (default)
+ * await manager.connect("dev");   // Alice / Bob / … for testing
  *
- * // Or use dev accounts for testing
- * await manager.connect("dev");
- *
- * // Select account and get signer
- * manager.selectAccount("5GrwvaEF...");
+ * manager.selectAccount("5GrwvaEF…");
  * const signer = manager.getSigner();
  * ```
  */
@@ -115,6 +175,8 @@ export class SignerManager {
     private readonly dappName: string;
     private readonly persistenceOption: AccountPersistence | null | undefined;
     private resolvedPersistence: AccountPersistence | null | undefined;
+    private readonly onConnectCallback: OnConnect | undefined;
+    private onConnectController: AbortController | null = null;
 
     constructor(options?: SignerManagerOptions) {
         this.ss58Prefix = options?.ss58Prefix ?? DEFAULT_SS58_PREFIX;
@@ -125,6 +187,7 @@ export class SignerManager {
         // null = disabled, undefined = auto-detect, AccountPersistence = explicit
         this.persistenceOption = options?.persistence;
         this.resolvedPersistence = options?.persistence;
+        this.onConnectCallback = options?.onConnect;
         this.state = initialState();
     }
 
@@ -144,8 +207,19 @@ export class SignerManager {
     }
 
     /**
-     * Subscribe to state changes. The callback fires on every state mutation.
-     * Returns an unsubscribe function.
+     * Subscribe to state changes.
+     *
+     * The callback fires synchronously on every state mutation, in
+     * registration order, inside the call stack that mutated state. It
+     * does **not** fire with the current state at subscription time —
+     * call {@link getState} if you need a priming read.
+     *
+     * For "fired once when the user connects" semantics, prefer the
+     * {@link SignerManagerOptions.onConnect} option instead of gating on
+     * `state.status` inside this callback — `subscribe` will fire many
+     * times while connected (`selectAccount`, account swaps, etc.).
+     *
+     * @returns an unsubscribe function.
      */
     subscribe(callback: (state: SignerState) => void): () => void {
         this.subscribers.add(callback);
@@ -172,6 +246,7 @@ export class SignerManager {
         // Cancel any in-flight connection or reconnect attempt
         this.cancelConnect();
         this.cancelReconnect();
+        this.cancelOnConnect();
         this.connectController = new AbortController();
         const signal = this.connectController.signal;
 
@@ -185,10 +260,17 @@ export class SignerManager {
         return this.connectToProvider(targetProvider, signal);
     }
 
-    /** Disconnect from the current provider and reset state. */
+    /**
+     * Disconnect from the current provider and reset state to initial.
+     *
+     * Reversible — subsequent `connect()` calls work normally. Cancels
+     * any in-flight `connect`, reconnect attempt, or `onConnect` callback
+     * (`ctx.signal` becomes aborted).
+     */
     disconnect(): void {
         this.cancelConnect();
         this.cancelReconnect();
+        this.cancelOnConnect();
         this.disconnectInternal();
         this.setState(initialState());
         log.info("disconnected");
@@ -333,13 +415,19 @@ export class SignerManager {
 
     /**
      * Destroy the manager and release all resources.
-     * After calling destroy(), the manager is unusable.
+     *
+     * **Terminal** — clears all subscribers, cancels in-flight work, and
+     * marks the instance unusable. Any subsequent method returns
+     * `DestroyedError`. Idempotent. Use in framework teardown (React
+     * `useEffect` cleanup, HMR dispose). For a reversible reset, use
+     * {@link disconnect} instead.
      */
     destroy(): void {
         if (this.isDestroyed) return;
         this.isDestroyed = true;
         this.cancelConnect();
         this.cancelReconnect();
+        this.cancelOnConnect();
         this.disconnectInternal();
         this.subscribers.clear();
         this.state = initialState();
@@ -383,10 +471,8 @@ export class SignerManager {
 
         const accounts = result.value;
 
-        // Try to restore persisted account selection
         const persisted = await this.loadPersistedAccount();
-        const restoredAccount = persisted ? accounts.find((a) => a.address === persisted) : null;
-        const selectedAccount = restoredAccount ?? (accounts.length > 0 ? accounts[0] : null);
+        const selectedAccount = resolveSelectedAccount(accounts, persisted);
 
         this.setState({
             status: "connected",
@@ -398,6 +484,7 @@ export class SignerManager {
 
         if (selectedAccount) {
             this.persistAccount(selectedAccount.address);
+            this.fireOnConnect(selectedAccount);
         }
 
         log.info("connected", { provider: type, accounts: accounts.length });
@@ -484,15 +571,21 @@ export class SignerManager {
                 this.cleanups.push(accountUnsub);
 
                 const accounts = result.value;
+                const selectedAccount = resolveSelectedAccount(
+                    accounts,
+                    this.state.selectedAccount?.address,
+                );
                 this.setState({
                     status: "connected",
                     accounts,
                     activeProvider: providerType,
-                    selectedAccount:
-                        accounts.find((a) => a.address === this.state.selectedAccount?.address) ??
-                        (accounts.length > 0 ? accounts[0] : null),
+                    selectedAccount,
                     error: null,
                 });
+
+                if (selectedAccount) {
+                    this.fireOnConnect(selectedAccount);
+                }
 
                 log.info("reconnected", { provider: providerType });
                 return result;
@@ -531,17 +624,48 @@ export class SignerManager {
     }
 
     private cancelConnect(): void {
-        if (this.connectController) {
-            this.connectController.abort();
-            this.connectController = null;
-        }
+        this.connectController?.abort();
+        this.connectController = null;
     }
 
     private cancelReconnect(): void {
-        if (this.reconnectController) {
-            this.reconnectController.abort();
-            this.reconnectController = null;
-        }
+        this.reconnectController?.abort();
+        this.reconnectController = null;
+    }
+
+    private cancelOnConnect(): void {
+        this.onConnectController?.abort();
+        this.onConnectController = null;
+    }
+
+    private fireOnConnect(account: SignerAccount): void {
+        const callback = this.onConnectCallback;
+        if (!callback) return;
+
+        this.cancelOnConnect();
+        const controller = new AbortController();
+        this.onConnectController = controller;
+
+        const ctx: ConnectContext = {
+            signal: controller.signal,
+            requestResourceAllocation,
+        };
+
+        // Defer so connect()/attemptReconnect() return before the callback fires —
+        // subscribers see "connected" before any onConnect side-effects land.
+        queueMicrotask(async () => {
+            try {
+                await callback(account, ctx);
+            } catch (cause) {
+                log.warn("onConnect callback threw", { cause });
+            } finally {
+                // Only clear if this controller is still the active one; a
+                // subsequent re-connect may have already swapped in a new one.
+                if (this.onConnectController === controller) {
+                    this.onConnectController = null;
+                }
+            }
+        });
     }
 
     private disconnectInternal(): void {
@@ -589,4 +713,178 @@ export class SignerManager {
             subscriber(this.state);
         }
     }
+}
+
+if (import.meta.vitest) {
+    const { test, expect, describe, vi } = import.meta.vitest;
+
+    function mockAccount(
+        address = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    ): SignerAccount {
+        return {
+            address,
+            h160Address: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            publicKey: new Uint8Array(32),
+            name: "MockAccount",
+            source: "dev",
+            getSigner: () => ({ publicKey: new Uint8Array(32) }) as never,
+        };
+    }
+
+    function mockProvider(accounts: SignerAccount[] = [mockAccount()]) {
+        return {
+            type: "dev" as const,
+            connect: vi.fn().mockResolvedValue(ok(accounts)),
+            disconnect: vi.fn(),
+            onStatusChange: vi.fn().mockReturnValue(() => {}),
+            onAccountsChange: vi.fn().mockReturnValue(() => {}),
+        } satisfies SignerProvider;
+    }
+
+    /** Wait for the `onConnect` microtask chain to drain. */
+    async function flush(): Promise<void> {
+        await Promise.resolve();
+        await Promise.resolve();
+    }
+
+    describe("SignerManager.onConnect", () => {
+        test("fires once on initial connect with the selected account", async () => {
+            const onConnect = vi.fn();
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            const result = await manager.connect("dev");
+            await flush();
+            expect(result.ok).toBe(true);
+            expect(onConnect).toHaveBeenCalledTimes(1);
+            expect(onConnect.mock.calls[0][0].address).toBe(
+                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            );
+            manager.destroy();
+        });
+
+        test("does not fire on subsequent state mutations while connected", async () => {
+            const onConnect = vi.fn();
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            await manager.connect("dev");
+            await flush();
+            // Mutate state — selecting the same account again.
+            manager.selectAccount("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY");
+            await flush();
+            expect(onConnect).toHaveBeenCalledTimes(1);
+            manager.destroy();
+        });
+
+        test("fires again after disconnect + reconnect", async () => {
+            const onConnect = vi.fn();
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            await manager.connect("dev");
+            await flush();
+            manager.disconnect();
+            await manager.connect("dev");
+            await flush();
+            expect(onConnect).toHaveBeenCalledTimes(2);
+            manager.destroy();
+        });
+
+        test("does not fire when no account is selected (empty accounts list)", async () => {
+            const onConnect = vi.fn();
+            const manager = new SignerManager({
+                createProvider: () => mockProvider([]),
+                onConnect,
+            });
+            await manager.connect("dev");
+            await flush();
+            expect(onConnect).not.toHaveBeenCalled();
+            manager.destroy();
+        });
+
+        test("errors thrown from onConnect are caught and don't break connected state", async () => {
+            const onConnect = vi.fn().mockRejectedValue(new Error("boom"));
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            const result = await manager.connect("dev");
+            await flush();
+            expect(result.ok).toBe(true);
+            expect(manager.getState().status).toBe("connected");
+            manager.destroy();
+        });
+
+        test("ctx.signal aborts when disconnect() runs mid-callback", async () => {
+            const signals: AbortSignal[] = [];
+            const onConnect = vi.fn().mockImplementation((_, ctx) => {
+                signals.push(ctx.signal);
+                return new Promise<void>(() => {});
+            });
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            await manager.connect("dev");
+            await flush();
+            expect(signals[0]?.aborted).toBe(false);
+            manager.disconnect();
+            expect(signals[0]?.aborted).toBe(true);
+            manager.destroy();
+        });
+
+        test("ctx.signal aborts when destroy() runs mid-callback", async () => {
+            const signals: AbortSignal[] = [];
+            const onConnect = vi.fn().mockImplementation((_, ctx) => {
+                signals.push(ctx.signal);
+                return new Promise<void>(() => {});
+            });
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            await manager.connect("dev");
+            await flush();
+            manager.destroy();
+            expect(signals[0]?.aborted).toBe(true);
+        });
+
+        test("ctx exposes requestResourceAllocation function", async () => {
+            const onConnect = vi.fn().mockImplementation((_, ctx) => {
+                expect(typeof ctx.requestResourceAllocation).toBe("function");
+            });
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            await manager.connect("dev");
+            await flush();
+            expect(onConnect).toHaveBeenCalledTimes(1);
+            manager.destroy();
+        });
+
+        test("re-connecting cancels in-flight onConnect from the prior session", async () => {
+            const signals: AbortSignal[] = [];
+            const onConnect = vi.fn().mockImplementation((_, ctx) => {
+                signals.push(ctx.signal);
+                return new Promise<void>(() => {});
+            });
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            await manager.connect("dev");
+            await flush();
+            await manager.connect("dev");
+            await flush();
+            expect(signals).toHaveLength(2);
+            expect(signals[0].aborted).toBe(true);
+            expect(signals[1].aborted).toBe(false);
+            manager.destroy();
+        });
+    });
 }

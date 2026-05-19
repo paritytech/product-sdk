@@ -72,7 +72,14 @@ jobs:
               working-directory: docs
               run: pnpm build
 
+            - name: Install bulletin-deploy
+              if: steps.gate.outputs.skip != 'true'
+              run: npm install -g bulletin-deploy
+
             - name: Deploy to Bulletin Chain
               if: steps.gate.outputs.skip != 'true'
-              working-directory: docs
-              run: npx -y bulletin-deploy ./out product-sdk.dot
+              uses: nick-fields/retry@v3
+              with:
+                  timeout_minutes: 10
+                  max_attempts: 3
+                  command: cd docs && bulletin-deploy ./out product-sdk.dot --js-merkle

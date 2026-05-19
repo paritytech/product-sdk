@@ -28,6 +28,10 @@
     .account-row.selected { background: #2a1530; color: #fff; }
     .account-row .name { color: #e6007a; margin-right: 0.4rem; font-family: system-ui, sans-serif; }
 
+    .transition-row { padding: 0.3rem 0.6rem; font-size: 0.8rem; font-family: monospace; color: #42a5f5; }
+    .transition-row + .transition-row { border-top: 1px solid #1e1e1e; }
+    #transitions-list:empty::before { content: "No transitions yet — click Connect."; color: #888; font-size: 0.85rem; padding: 0.3rem 0.6rem; display: block; }
+
     .action { background: #161616; padding: 0.8rem; border-radius: 6px; margin: 0.5rem 0; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     .action input { background: #222; border: 1px solid #333; color: #fff; padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.9rem; flex: 1; min-width: 200px; }
     .action button { background: #e6007a; color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
@@ -55,6 +59,16 @@
       <div class="meta">Status: <span id="connection-status" data-testid="connection-status">disconnected</span></div>
       <div class="meta">Provider: <span id="active-provider" data-testid="active-provider">-</span></div>
       <div class="meta">Selected: <span id="selected-address" data-testid="selected-address">-</span></div>
+      <div class="meta">onConnect: <span id="onconnect-status" data-testid="onconnect-status">(not yet)</span></div>
+      <div class="meta">Permissions: <span id="onconnect-result" data-testid="onconnect-result">-</span></div>
+
+      <h2>Subscribe vs onConnect</h2>
+      <div class="meta">
+        subscribe fires: <span id="subscribe-count" data-testid="subscribe-count">0</span>
+        &nbsp;·&nbsp; status transitions: <span id="transition-count" data-testid="transition-count">0</span>
+        &nbsp;·&nbsp; onConnect fires: <span id="onconnect-count" data-testid="onconnect-count">0</span>
+      </div>
+      <div class="accounts" id="transitions-list" data-testid="transitions-list"></div>
 
       <h2>Accounts</h2>
       <div class="accounts" id="accounts-list" data-testid="accounts-list">

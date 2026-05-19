@@ -9,19 +9,19 @@ Manages typed contract interactions backed by a `cdm.json` manifest.
 ### Constructor
 
 ```typescript
-new ContractManager(cdmJson: CdmJson, inkSdk: InkSdk, options?: ContractManagerOptions)
+new ContractManager(cdmJson: CdmJson, runtime: ContractRuntime, options?: ContractManagerOptions)
 ```
 
 **Parameters:**
 - `cdmJson` - The CDM manifest object
-- `inkSdk` - An InkSdk instance from `@polkadot-api/sdk-ink`
+- `runtime` - An ContractRuntime instance from `@parity/product-sdk-contracts`
 - `options` - Optional configuration
 
 ### Static Methods
 
 #### fromClient
 
-Create a ContractManager from a raw `PolkadotClient`. Convenience factory that creates the InkSdk internally.
+Create a ContractManager from a raw `PolkadotClient`. Convenience factory that creates the ContractRuntime internally.
 
 ```typescript
 static async fromClient(
@@ -87,7 +87,7 @@ Create a contract handle from a raw address and ABI — no `cdm.json` needed.
 
 ```typescript
 function createContract(
-    inkSdk: InkSdk,
+    runtime: ContractRuntime,
     address: HexString,
     abi: AbiEntry[],
     options?: ContractOptions,
@@ -95,10 +95,10 @@ function createContract(
 ```
 
 ```typescript
-import { createInkSdk } from "@polkadot-api/sdk-ink";
+import { createContractRuntime } from "@parity/product-sdk-contracts";
 
-const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
-const counter = createContract(inkSdk, "0xC472...", abi, {
+const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
+const counter = createContract(runtime, "0xC472...", abi, {
     signerManager,
 });
 ```
@@ -107,7 +107,7 @@ const counter = createContract(inkSdk, "0xC472...", abi, {
 
 ## createContractFromClient
 
-Create a contract handle from a raw `PolkadotClient`, address, and ABI. Convenience wrapper that creates the InkSdk internally.
+Create a contract handle from a raw `PolkadotClient`, address, and ABI. Convenience wrapper that creates the ContractRuntime internally.
 
 ```typescript
 async function createContractFromClient(
@@ -315,7 +315,7 @@ interface CdmJsonContract {
 
 ### AbiEntry
 
-Solidity ABI entry format (also used for ink!).
+Solidity ABI entry format (also used for PolkaVM).
 
 ```typescript
 interface AbiEntry {
@@ -332,3 +332,48 @@ interface AbiParam {
     components?: AbiParam[];
 }
 ```
+
+## `./pvm` Subpath — cargo-pvm-contract Artefact Loaders
+
+Imported from `@parity/product-sdk-contracts/pvm`. Parses the artefacts that
+`cargo pvm-contract build` writes to `target/<name>.release.{abi.json,polkavm}`
+into shapes the main `@parity/product-sdk-contracts` factories already accept.
+
+### parsePvmContractAbi
+
+In-memory parser. Browser-safe (no `node:fs` dependency).
+
+```typescript
+function parsePvmContractAbi(source: unknown): AbiEntry[];
+```
+
+Accepts a parsed `AbiEntry[]`, a wrapped `{ abi: AbiEntry[] }` object, a JSON
+string of either, or a `Uint8Array` containing UTF-8 JSON of either. Throws if
+the input cannot be coerced to an array of well-formed entries.
+
+### loadPvmContractAbi
+
+Async filesystem read + parse. **Node-only** — lazy-imports `node:fs/promises`.
+
+```typescript
+function loadPvmContractAbi(path: string): Promise<AbiEntry[]>;
+```
+
+### loadPvmContractArtifacts
+
+Reads both `<basePath>.abi.json` and `<basePath>.polkavm` for a single
+contract. Returns the parsed ABI plus the bytecode as a `Uint8Array`.
+
+```typescript
+function loadPvmContractArtifacts(basePath: string): Promise<PvmContractArtifacts>;
+
+interface PvmContractArtifacts {
+    abi: AbiEntry[];
+    bytecode: Uint8Array;
+}
+```
+
+Use the bytecode with `pallet-revive`'s `instantiate_with_code` to deploy. A
+deploy helper is not yet part of `@parity/product-sdk-contracts`; reference
+implementations live in consumer repos (e.g. `task-rabbit`'s
+`packages/utils/src/deployer.ts`).

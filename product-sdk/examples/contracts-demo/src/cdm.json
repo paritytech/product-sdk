@@ -1,8 +1,8 @@
 {
     "targets": {
         "acc2c3b5e912b762": {
-            "asset-hub": "wss://asset-hub-paseo-rpc.n.dwellir.com",
-            "bulletin": "https://paseo-ipfs.polkadot.io/ipfs"
+            "asset-hub": "wss://paseo-asset-hub-next-rpc.polkadot.io",
+            "bulletin": "https://paseo-bulletin-next-ipfs.polkadot.io"
         }
     },
     "contracts": {

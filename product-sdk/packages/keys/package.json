@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-keys",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Hierarchical key derivation and session key management for Polkadot accounts",
     "type": "module",
     "sideEffects": false,
@@ -25,7 +25,9 @@
         "@parity/product-sdk-storage": "workspace:*",
         "@polkadot-labs/hdkd": "^0.0.28",
         "@polkadot-labs/hdkd-helpers": "^0.0.10",
-        "polkadot-api": "catalog:"
+        "@scure/sr25519": "^2.2.0",
+        "polkadot-api": "catalog:",
+        "scale-ts": "^1.6.1"
     },
     "devDependencies": {
         "typescript": "^5.7.0",

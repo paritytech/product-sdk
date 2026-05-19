@@ -1,5 +1,38 @@
 # @parity/product-sdk-statement-store
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [4c13257]
+  - @parity/product-sdk-host@0.4.0
+
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [bdeb144]
+  - @parity/product-sdk-host@0.3.0
+
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [1cc3790]
+  - @parity/product-sdk-host@0.2.2
+
+## 0.2.1
+
+### Patch Changes
+
+- 5d81610: **Bump `@novasamatech/product-sdk` and `@novasamatech/host-api` to `^0.7.8`.**
+
+  Picks up the latest novasama patch release. Catalog-pinned (`pnpm-workspace.yaml`), so the three consumer packages — `host`, `signer`, and `statement-store` — pick up the new version transitively. No source changes required in this SDK; the upstream patch is backwards-compatible at the API surface novasama exposes to us.
+
+- Updated dependencies [5d81610]
+- Updated dependencies [5d81610]
+  - @parity/product-sdk-host@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

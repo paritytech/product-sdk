@@ -77,6 +77,35 @@
             <button id="btn-query-owner" data-testid="btn-query-owner" disabled>Query owner()</button>
         </div>
 
+        <!--
+            Read-only queries with arguments — exercise the PAPI 2.x codec
+            boundary against the live chain. viem encodes the `address` arg
+            as a hex string into the calldata `Uint8Array`; the host returns
+            a `Uint8Array` which viem decodes back to uint256 / string[] /
+            string. The zero-address default makes results deterministic
+            across runs (always 0 reports, [] dates, "" CID).
+        -->
+        <div class="row">
+            <label>Shop addr:</label>
+            <input
+                id="query-shop-input"
+                data-testid="query-shop-input"
+                type="text"
+                value="0x0000000000000000000000000000000000000000"
+            />
+        </div>
+        <div class="row">
+            <button id="btn-query-report-count" data-testid="btn-query-report-count" disabled>
+                getReportCount(shop)
+            </button>
+            <button id="btn-query-all-dates" data-testid="btn-query-all-dates" disabled>
+                getAllDates(shop)
+            </button>
+            <button id="btn-query-cid" data-testid="btn-query-cid" disabled>
+                getCID(shop, date)
+            </button>
+        </div>
+
         <!-- Tx: store a daily report — permissionless write -->
         <div class="row">
             <label>Report date:</label>

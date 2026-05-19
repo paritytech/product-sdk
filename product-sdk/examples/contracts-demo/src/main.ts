@@ -21,7 +21,8 @@
 
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
-import { ContractManager } from "@parity/product-sdk-contracts";
+import { ContractManager, ensureContractAccountMapped } from "@parity/product-sdk-contracts";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 import cdm from "./cdm.json";
 import { appendLog, getEl } from "./ui.js";
@@ -32,15 +33,23 @@ const $activeProvider = getEl<HTMLSpanElement>("active-provider");
 const $accountAddress = getEl<HTMLSpanElement>("account-address");
 const $reportDateInput = getEl<HTMLInputElement>("report-date-input");
 const $reportCidInput = getEl<HTMLInputElement>("report-cid-input");
+const $queryShopInput = getEl<HTMLInputElement>("query-shop-input");
 const $btnQueryOwner = getEl<HTMLButtonElement>("btn-query-owner");
+const $btnQueryReportCount = getEl<HTMLButtonElement>("btn-query-report-count");
+const $btnQueryAllDates = getEl<HTMLButtonElement>("btn-query-all-dates");
+const $btnQueryCid = getEl<HTMLButtonElement>("btn-query-cid");
 const $btnStoreReport = getEl<HTMLButtonElement>("btn-store-report");
 const $contractLog = getEl<HTMLElement>("contract-log");
 
 function setControlsEnabled(enabled: boolean): void {
     $btnQueryOwner.disabled = !enabled;
+    $btnQueryReportCount.disabled = !enabled;
+    $btnQueryAllDates.disabled = !enabled;
+    $btnQueryCid.disabled = !enabled;
     $btnStoreReport.disabled = !enabled;
     $reportDateInput.disabled = !enabled;
     $reportCidInput.disabled = !enabled;
+    $queryShopInput.disabled = !enabled;
 }
 
 function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void {
@@ -88,6 +97,79 @@ $btnQueryOwner.addEventListener("click", async () => {
         }
     } catch (err) {
         log(`query failed: ${(err as Error).message}`, "err");
+    }
+});
+
+/**
+ * Query helpers that exercise the PAPI 2.x codec boundary end-to-end:
+ *   - viem encodes the `address` arg as a `0x…` hex string into the
+ *     calldata `Uint8Array`,
+ *   - PAPI's `ReviveApi.call` returns a `Uint8Array`,
+ *   - viem decodes it back to the typed JS value.
+ *
+ * The default shop address is the zero address, so the results are
+ * deterministic regardless of accumulated chain state.
+ */
+$btnQueryReportCount.addEventListener("click", async () => {
+    if (!contractManager) {
+        log("Contract manager not ready", "err");
+        return;
+    }
+    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
+    log(`Querying getReportCount(${shop})…`);
+    try {
+        const contract = contractManager.getContract("@t3rminal/bulletin-index");
+        const result = await contract.getReportCount.query(shop);
+        if (result.success) {
+            log(`reportCount: ${result.value}`, "ok");
+        } else {
+            log("getReportCount query failed (dry-run success=false)", "err");
+        }
+    } catch (err) {
+        log(`getReportCount failed: ${(err as Error).message}`, "err");
+    }
+});
+
+$btnQueryAllDates.addEventListener("click", async () => {
+    if (!contractManager) {
+        log("Contract manager not ready", "err");
+        return;
+    }
+    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
+    log(`Querying getAllDates(${shop})…`);
+    try {
+        const contract = contractManager.getContract("@t3rminal/bulletin-index");
+        const result = await contract.getAllDates.query(shop);
+        if (result.success) {
+            // Stringify so the test can match a stable representation of the
+            // decoded `string[]` regardless of how arrays render in the DOM.
+            log(`allDates: ${JSON.stringify(result.value)}`, "ok");
+        } else {
+            log("getAllDates query failed (dry-run success=false)", "err");
+        }
+    } catch (err) {
+        log(`getAllDates failed: ${(err as Error).message}`, "err");
+    }
+});
+
+$btnQueryCid.addEventListener("click", async () => {
+    if (!contractManager) {
+        log("Contract manager not ready", "err");
+        return;
+    }
+    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
+    const date = $reportDateInput.value || "2026-01-01";
+    log(`Querying getCID(${shop}, "${date}")…`);
+    try {
+        const contract = contractManager.getContract("@t3rminal/bulletin-index");
+        const result = await contract.getCID.query(shop, date);
+        if (result.success) {
+            log(`cid: ${JSON.stringify(result.value)}`, "ok");
+        } else {
+            log("getCID query failed (dry-run success=false)", "err");
+        }
+    } catch (err) {
+        log(`getCID failed: ${(err as Error).message}`, "err");
     }
 });
 
@@ -164,12 +246,45 @@ async function init() {
 
     log("Initialising ContractManager…");
     try {
-        contractManager = await ContractManager.fromClient(cdm as any, chain.raw.assetHub, {
-            signerManager: manager,
-        });
+        // `ContractManager.fromClient` builds a runtime that routes the
+        // `ReviveApi.call` dry-run through PAPI's unsafe API, sidestepping
+        // compatibility-token failures when the descriptor lags a chain
+        // upgrade. Pass the raw client + descriptor so it can wire up both
+        // typed (extrinsics + storage) and unsafe (dry-run) paths.
+        contractManager = ContractManager.fromClient(
+            cdm as never,
+            chain.raw.assetHub,
+            paseo_asset_hub,
+            { signerManager: manager },
+        );
         log("ContractManager ready (@t3rminal/bulletin-index)", "ok");
     } catch (err) {
         log(`ContractManager failed: ${(err as Error).message}`, "err");
+        return;
+    }
+
+    // `pallet-revive` rejects `Revive.call` from any SS58 origin that hasn't
+    // been mapped to its derived H160 via `Revive.map_account()`. The helper
+    // is idempotent — short-circuits on a storage hit — so the first-time
+    // path costs one signature and subsequent boots are free.
+    try {
+        const signer = manager.getSigner();
+        if (signer) {
+            log("Ensuring account is mapped on pallet-revive…");
+            const mapped = await ensureContractAccountMapped(
+                contractManager.getRuntime(),
+                accounts[0].address,
+                signer,
+            );
+            log(
+                mapped === null
+                    ? "Account already mapped (no signature needed)"
+                    : `Account mapped in block #${mapped.block.number}`,
+                "ok",
+            );
+        }
+    } catch (err) {
+        log(`ensureContractAccountMapped failed: ${(err as Error).message}`, "err");
         return;
     }
 

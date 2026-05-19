@@ -13,13 +13,14 @@ const PRODUCT_URL = "http://localhost:5200";
 /**
  * Paseo Asset Hub config with a configurable RPC endpoint.
  *
- * The test SDK's built-in `PASEO_ASSET_HUB` points at `wss://sys.ibp.network/asset-hub-paseo`,
- * which has been flaky (502s) during development. Override via `PASEO_AH_RPC` in CI/local
- * if you hit outages — the genesis hash is fixed, so any healthy Paseo AH RPC works.
+ * Override via `PASEO_AH_RPC` in CI/local if the default RPC has outages — but
+ * the override must serve **paseo v2** (genesis `0x173cea9d…`). Any mirror still
+ * pointing at v1 paseo will hash-mismatch the spread `PASEO_ASSET_HUB.genesisHash`
+ * and break the chain-handshake (manifesting as `Tracking stopped` / `BadProof`).
  */
 const PASEO_AH: ChainConfig = {
     ...PASEO_ASSET_HUB,
-    rpcUrl: process.env.PASEO_AH_RPC ?? "wss://sys.turboflakes.io/asset-hub-paseo",
+    rpcUrl: process.env.PASEO_AH_RPC ?? "wss://paseo-asset-hub-next-rpc.polkadot.io",
 };
 
 /**

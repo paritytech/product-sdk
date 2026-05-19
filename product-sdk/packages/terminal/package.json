@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-terminal",
     "description": "QR code login and signing for CLI/terminal apps via Polkadot mobile wallet pairing",
-    "version": "0.1.0",
+    "version": "0.2.1",
     "type": "module",
     "sideEffects": ["./dist/register.js"],
     "main": "./dist/index.js",
@@ -19,6 +19,10 @@
         "./testing": {
             "types": "./dist/testing.d.ts",
             "import": "./dist/testing.js"
+        },
+        "./host": {
+            "types": "./dist/host.d.ts",
+            "import": "./dist/host.js"
         }
     },
     "files": ["dist", "scripts"],
@@ -35,7 +39,7 @@
     "dependencies": {
         "@noble/ciphers": "^2.1.0",
         "@noble/curves": "^2.0.1",
-        "@noble/hashes": "^2.0.1",
+        "@noble/hashes": "^2.2.0",
         "@novasamatech/host-papp": "^0.7.7",
         "@novasamatech/statement-store": "^0.7.7",
         "@novasamatech/storage-adapter": "^0.7.7",

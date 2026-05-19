@@ -30,18 +30,23 @@ export interface HostProviderOptions {
     loadSdk?: () => Promise<ProductSdkModule>;
     /**
      * Custom loader for `@novasamatech/host-api` (used to construct the
-     * `TransactionSubmit` permission request). Defaults to dynamic import.
+     * `ChainSubmit` permission request). Defaults to dynamic import.
      * @internal
      */
     loadHostApiEnum?: () => Promise<HostApiEnumHelper>;
     /**
-     * Whether to request the host's `TransactionSubmit` permission after a
+     * Whether to request the host's `ChainSubmit` permission after a
      * successful `connect()`. Without this, subsequent signing requests are
      * rejected by the host with `PermissionDenied`. Default: `true`.
      *
      * Set to `false` if your app needs to defer the permission prompt or
      * drives it manually.
+     *
+     * (Previously named `requestTransactionSubmitPermission` — alias kept
+     * for backwards compatibility but the new wire format uses `ChainSubmit`.)
      */
+    requestChainSubmitPermission?: boolean;
+    /** @deprecated Renamed to `requestChainSubmitPermission`. */
     requestTransactionSubmitPermission?: boolean;
 }
 
@@ -168,7 +173,7 @@ export class HostProvider implements SignerProvider {
     private readonly retryDelay: number;
     private readonly loadSdk: () => Promise<ProductSdkModule>;
     private readonly loadHostApiEnum: () => Promise<HostApiEnumHelper>;
-    private readonly requestTxPermission: boolean;
+    private readonly requestChainSubmitPermission: boolean;
 
     private accountsProvider: AccountsProvider | null = null;
     private statusCleanup: (() => void) | null = null;
@@ -181,7 +186,11 @@ export class HostProvider implements SignerProvider {
         this.retryDelay = options?.retryDelay ?? 500;
         this.loadSdk = options?.loadSdk ?? defaultLoadSdk;
         this.loadHostApiEnum = options?.loadHostApiEnum ?? defaultLoadHostApiEnum;
-        this.requestTxPermission = options?.requestTransactionSubmitPermission ?? true;
+        // New name takes precedence; fall back to the deprecated alias.
+        this.requestChainSubmitPermission =
+            options?.requestChainSubmitPermission ??
+            options?.requestTransactionSubmitPermission ??
+            true;
     }
 
     async connect(signal?: AbortSignal): Promise<Result<SignerAccount[], SignerError>> {
@@ -424,35 +433,42 @@ export class HostProvider implements SignerProvider {
             return err(new NoAccountsError("host"));
         }
 
-        // Step 4: Request TransactionSubmit permission up-front.
+        // Step 4: Request ChainSubmit permission up-front.
         //
-        // The host gates signing on this permission — without it `handleSignPayload`
-        // (and the production host) rejects every sign request with
-        // `PermissionDenied`, which typically manifests as a silently-hanging tx.
-        // Doing it once during connect() matches what production apps need and
-        // spares consumers the boilerplate.
+        // The host gates signing on this permission — without it
+        // `handleSignPayload` (and the production host) rejects every sign
+        // request with `PermissionDenied`, which typically manifests as a
+        // silently-hanging tx. Doing it once during connect() matches what
+        // production apps need and spares consumers the boilerplate.
         //
         // We don't fail `connect()` if this step fails: the consumer can still
-        // use the signer for read-only code paths, and the actual sign call will
-        // surface a clear error if permission is missing.
-        if (this.requestTxPermission && sdk.hostApi) {
+        // use the signer for read-only code paths, and the actual sign call
+        // will surface a clear error if permission is missing.
+        //
+        // The legal v1 RemotePermission variants per
+        // `@novasamatech/host-api@0.7.7` are: Remote, WebRTC, ChainSubmit,
+        // PreimageSubmit, StatementSubmit. ChainSubmit is the chain-tx
+        // permission (was named TransactionSubmit in earlier host-api
+        // revisions; renamed in 0.7).
+        if (this.requestChainSubmitPermission && sdk.hostApi) {
             try {
                 const hostApiEnum = await this.loadHostApiEnum();
                 const request = hostApiEnum.enumValue("v1", {
-                    tag: "TransactionSubmit",
+                    tag: "ChainSubmit",
+                    value: undefined,
                 });
                 await sdk.hostApi.permission(request).match(
                     () => {
-                        log.debug("TransactionSubmit permission granted");
+                        log.debug("ChainSubmit permission granted");
                     },
                     (error) => {
-                        log.warn("TransactionSubmit permission rejected by host", {
+                        log.warn("ChainSubmit permission rejected by host", {
                             error: formatError(error),
                         });
                     },
                 );
             } catch (cause) {
-                log.warn("failed to request TransactionSubmit permission", { cause });
+                log.warn("failed to request ChainSubmit permission", { cause });
             }
         }
 
@@ -498,11 +514,48 @@ export class HostProvider implements SignerProvider {
     }
 }
 
+/**
+ * Format a host-error for logging.
+ *
+ * host-api errors come back as `{ tag: "v1", value: <inner> }` where the
+ * inner can be either another tagged enum (with its own tag/value) or a
+ * plain `Error`-shaped object surfacing client-side codec failures
+ * (e.g. `GenericError: inner[tag] is not a function` when the SDK
+ * encodes a request the codec doesn't understand).
+ *
+ * Walking the value side as well as the tag means schema drift between
+ * host-api versions and the SDK produces something more diagnostic than
+ * just the outermost wrapper tag.
+ */
 function formatError(error: unknown): string {
-    if (error && typeof error === "object" && "tag" in (error as Record<string, unknown>)) {
-        return (error as Record<string, string>).tag;
+    if (!error || typeof error !== "object") return String(error);
+    const e = error as Record<string, unknown>;
+    if (!("tag" in e)) return String(error);
+
+    const outerTag = String(e.tag);
+    const inner = e.value;
+
+    // Inner is an Error-shaped object with name/message — surface those.
+    if (inner && typeof inner === "object") {
+        const innerObj = inner as Record<string, unknown>;
+        if (typeof innerObj.message === "string") {
+            const innerName =
+                typeof innerObj.name === "string" && innerObj.name !== "Error"
+                    ? `${innerObj.name}: `
+                    : "";
+            return `${outerTag} → ${innerName}${innerObj.message}`;
+        }
+        // Inner is a nested tagged-enum — recurse.
+        if ("tag" in innerObj) {
+            return `${outerTag} → ${formatError(inner)}`;
+        }
     }
-    return String(error);
+
+    // Inner is a primitive or absent — fall back to the outer tag alone.
+    if (inner !== undefined) {
+        return `${outerTag} (${String(inner)})`;
+    }
+    return outerTag;
 }
 
 if (import.meta.vitest) {
@@ -689,6 +742,247 @@ if (import.meta.vitest) {
             const unsub = provider.onAccountsChange(cb);
             expect(typeof unsub).toBe("function");
             unsub();
+        });
+    });
+
+    describe("ChainSubmit permission request", () => {
+        test("sends a v1 ChainSubmit request (regression guard for the TransactionSubmit bug)", async () => {
+            const captured: unknown[] = [];
+            const hostApi: HostApiPermissionBridge = {
+                permission: (request) => {
+                    captured.push(request);
+                    return fakeResult(undefined);
+                },
+            };
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
+                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
+            });
+
+            await provider.connect();
+
+            expect(captured).toHaveLength(1);
+            // The fake hostApiEnum returns `{ version, value }` so we can
+            // assert on the exact wire shape that would reach
+            // host-api's RemotePermission codec.
+            expect(captured[0]).toEqual({
+                version: "v1",
+                value: { tag: "ChainSubmit", value: undefined },
+            });
+        });
+
+        test("does NOT send a TransactionSubmit tag (the bug)", async () => {
+            const captured: unknown[] = [];
+            const hostApi: HostApiPermissionBridge = {
+                permission: (request) => {
+                    captured.push(request);
+                    return fakeResult(undefined);
+                },
+            };
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
+                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
+            });
+
+            await provider.connect();
+
+            const sent = JSON.stringify(captured[0]);
+            expect(sent).not.toContain("TransactionSubmit");
+        });
+
+        test("skipped when sdk.hostApi is unavailable (older product-sdk)", async () => {
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider /* no hostApi */)),
+                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
+            });
+
+            const result = await provider.connect();
+            // Connect should succeed even without the hostApi bridge —
+            // permission is best-effort.
+            expect(result.ok).toBe(true);
+        });
+
+        test("skipped when requestChainSubmitPermission is false", async () => {
+            const captured: unknown[] = [];
+            const hostApi: HostApiPermissionBridge = {
+                permission: (request) => {
+                    captured.push(request);
+                    return fakeResult(undefined);
+                },
+            };
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
+                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
+                requestChainSubmitPermission: false,
+            });
+
+            await provider.connect();
+            expect(captured).toHaveLength(0);
+        });
+
+        test("deprecated requestTransactionSubmitPermission alias still controls the request", async () => {
+            const captured: unknown[] = [];
+            const hostApi: HostApiPermissionBridge = {
+                permission: (request) => {
+                    captured.push(request);
+                    return fakeResult(undefined);
+                },
+            };
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
+                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
+                // Old name; new code path should still respect it as `false`.
+                requestTransactionSubmitPermission: false,
+            });
+
+            await provider.connect();
+            expect(captured).toHaveLength(0);
+        });
+
+        test("connect succeeds even when permission request rejects", async () => {
+            // Whatever the host says about permission, connect() should
+            // still return ok — the consumer can sign later with whatever
+            // permission they negotiate.
+            const hostApi: HostApiPermissionBridge = {
+                permission: () => fakeResult(undefined, { tag: "PermissionDenied" }),
+            };
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
+                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
+            });
+
+            const result = await provider.connect();
+            expect(result.ok).toBe(true);
+        });
+
+        test("connect succeeds even when the hostApiEnum loader throws (codec drift)", async () => {
+            // The original bug: the v1 RemotePermission codec didn't
+            // recognize the TransactionSubmit tag and threw client-side.
+            // Even when something like that happens, connect() must
+            // remain ok — permission is best-effort.
+            const hostApi: HostApiPermissionBridge = {
+                permission: () => fakeResult(undefined),
+            };
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
+                loadHostApiEnum: () => Promise.reject(new Error("codec drift")),
+            });
+
+            const result = await provider.connect();
+            expect(result.ok).toBe(true);
+        });
+    });
+
+    describe("formatError", () => {
+        // Direct unit tests for the helper. The previous implementation
+        // collapsed any tagged-enum error to its outer tag — losing the
+        // inner reason. The fix surfaces the inner Error-shape (name +
+        // message) and recurses through nested tagged enums.
+
+        test("returns a string for a primitive error", () => {
+            expect(formatError("Rejected")).toBe("Rejected");
+            expect(formatError(42)).toBe("42");
+            expect(formatError(null)).toBe("null");
+            expect(formatError(undefined)).toBe("undefined");
+        });
+
+        test("surfaces inner Error name + message under the outer tag", () => {
+            // Simulates the exact shape the original bug produced:
+            // `{ tag: "v1", value: { name: "GenericError", message: "..." } }`
+            const wrapped = {
+                tag: "v1",
+                value: {
+                    name: "GenericError",
+                    message: "Unknown error: inner[tag] is not a function",
+                },
+            };
+            const out = formatError(wrapped);
+            expect(out).toContain("v1");
+            expect(out).toContain("GenericError");
+            expect(out).toContain("inner[tag] is not a function");
+        });
+
+        test("strips the redundant 'Error' name when the inner is a plain Error", () => {
+            const wrapped = {
+                tag: "v1",
+                value: { name: "Error", message: "boom" },
+            };
+            expect(formatError(wrapped)).toBe("v1 → boom");
+        });
+
+        test("recurses through nested tagged-enum errors", () => {
+            const wrapped = {
+                tag: "v1",
+                value: { tag: "Inner", value: { name: "NestedErr", message: "deep" } },
+            };
+            expect(formatError(wrapped)).toContain("v1");
+            expect(formatError(wrapped)).toContain("Inner");
+            expect(formatError(wrapped)).toContain("NestedErr");
+            expect(formatError(wrapped)).toContain("deep");
+        });
+
+        test("returns just the outer tag when value is undefined", () => {
+            expect(formatError({ tag: "PermissionDenied" })).toBe("PermissionDenied");
+        });
+
+        test("formats a primitive inner value alongside the tag", () => {
+            expect(formatError({ tag: "v1", value: "code-42" })).toBe("v1 (code-42)");
+        });
+    });
+
+    describe("RemotePermission codec interop", () => {
+        // Smoke test that the wire payload we build (`ChainSubmit`) round-trips
+        // through the real host-api codec. The previous bug shipped
+        // `TransactionSubmit`, which the codec rejects — locking this in here
+        // catches a regression at the codec layer without needing the host.
+        test("encodes ChainSubmit payload without throwing", async () => {
+            const { RemotePermission } = await import("@novasamatech/host-api");
+            const payload = { tag: "ChainSubmit" as const, value: undefined };
+            const encoded = RemotePermission.enc(payload);
+            expect(encoded).toBeInstanceOf(Uint8Array);
+            const decoded = RemotePermission.dec(encoded);
+            expect(decoded.tag).toBe("ChainSubmit");
+        });
+
+        test("rejects the legacy TransactionSubmit tag", async () => {
+            const { RemotePermission } = await import("@novasamatech/host-api");
+            // `TransactionSubmit` is not a valid variant in v1 — the codec
+            // should refuse to encode it. This proves the codec actually
+            // validates tags (so test 1 isn't a tautology).
+            expect(() =>
+                RemotePermission.enc({
+                    tag: "TransactionSubmit",
+                    value: undefined,
+                } as never),
+            ).toThrow();
         });
     });
 }
