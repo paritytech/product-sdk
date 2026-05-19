@@ -346,8 +346,8 @@ importers:
   packages/address:
     dependencies:
       '@noble/hashes':
-        specifier: ^1.7.1
-        version: 1.8.0
+        specifier: ^2.2.0
+        version: 2.2.0
       '@polkadot-api/substrate-bindings':
         specifier: ^0.12.0
         version: 0.12.0
@@ -476,8 +476,8 @@ importers:
         specifier: ^1.8.0
         version: 1.9.7
       '@noble/hashes':
-        specifier: ^1.7.1
-        version: 1.8.0
+        specifier: ^2.2.0
+        version: 2.2.0
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3
@@ -538,9 +538,15 @@ importers:
       '@polkadot-labs/hdkd-helpers':
         specifier: ^0.0.10
         version: 0.0.10
+      '@scure/sr25519':
+        specifier: ^2.2.0
+        version: 2.2.0
       polkadot-api:
         specifier: 'catalog:'
         version: 2.1.2(esbuild@0.27.7)(rxjs@7.8.2)
+      scale-ts:
+        specifier: ^1.6.1
+        version: 1.6.1
     devDependencies:
       typescript:
         specifier: ^5.7.0
@@ -639,7 +645,7 @@ importers:
         version: 0.7.8
       '@novasamatech/product-sdk':
         specifier: 'catalog:'
-        version: 0.7.8(@polkadot/api@16.5.6)(@polkadot/util@14.0.3)(esbuild@0.25.12)(rxjs@7.8.2)
+        version: 0.7.8(@polkadot/api@16.5.6)(@polkadot/util@14.0.3)(esbuild@0.27.7)(rxjs@7.8.2)
     devDependencies:
       tsup:
         specifier: 'catalog:'
@@ -710,7 +716,7 @@ importers:
         specifier: ^2.0.1
         version: 2.2.0
       '@noble/hashes':
-        specifier: ^2.0.1
+        specifier: ^2.2.0
         version: 2.2.0
       '@novasamatech/host-papp':
         specifier: ^0.7.7
@@ -787,8 +793,8 @@ importers:
   packages/utils:
     dependencies:
       '@noble/hashes':
-        specifier: ^1.7.1
-        version: 1.8.0
+        specifier: ^2.2.0
+        version: 2.2.0
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger

@@ -1,5 +1,232 @@
 # @parity/product-sdk
 
+## 0.6.0
+
+### Minor Changes
+
+- 4c13257: **Rename `@parity/product-sdk/identity`'s `deriveProductAccount` to `deriveContextAlias` (and `verifyProductAccount` to `verifyContextAlias`, `ProductAccountInfo` to `ContextAliasInfo`, field `productName` to `context`).**
+
+  The identity-subpath helper is a blake2b256-based deterministic alias
+  derivation: `aliasPublicKey = blake2b256(parentPublicKey || context)`.
+  Used for scoping a parent account to a context label (an app id, a
+  voting round, a channel name, etc.). The old `deriveProductAccount`
+  naming collided with the _canonical_ sr25519 product-account derivation
+  shared with polkadot-desktop and polkadot-app-android-v2: two distinct
+  algorithms that produce different outputs from the same inputs. The
+  rename makes the algorithmic difference legible at the call site.
+
+  For the canonical sr25519 product-account derivation, see the new
+  `deriveProductAccountPublicKey` in `@parity/product-sdk-keys` (this
+  release wave).
+
+  ### Breaking changes
+
+  - `deriveProductAccount(parentAddress, productName, ss58Prefix?)` is
+    now `deriveContextAlias(parentAddress, context, ss58Prefix?)`. Same
+    algorithm, same output bytes, only the names changed.
+  - `verifyProductAccount(productAddress, parentAddress, productName)`
+    is now `verifyContextAlias(aliasAddress, parentAddress, context)`.
+  - Type `ProductAccountInfo` is now `ContextAliasInfo`. Field
+    `productName: string` is now `context: string`. Other fields
+    (`address`, `h160Address`, `parentAddress`) unchanged.
+
+  Runtime behavior is unchanged on the success path: addresses derived
+  under the old API are bit-identical to those derived under the new API
+  for the same `(parentAddress, oldProductName === newContext)` pair.
+
+  ### Migration
+
+  Mechanical find/replace across consumer code:
+
+  ```ts
+  // Before:
+  import {
+    deriveProductAccount,
+    verifyProductAccount,
+    type ProductAccountInfo,
+  } from "@parity/product-sdk/identity";
+
+  const acct: ProductAccountInfo = deriveProductAccount(
+    parentAddress,
+    "my-app"
+  );
+  const ok = verifyProductAccount(acct.address, parentAddress, "my-app");
+  console.log(acct.productName);
+
+  // After:
+  import {
+    deriveContextAlias,
+    verifyContextAlias,
+    type ContextAliasInfo,
+  } from "@parity/product-sdk/identity";
+
+  const alias: ContextAliasInfo = deriveContextAlias(parentAddress, "my-app");
+  const ok = verifyContextAlias(alias.address, parentAddress, "my-app");
+  console.log(alias.context);
+  ```
+
+  ### Why minor, not major
+
+  Per `RELEASES.md`, pre-1.0 breaking changes go out as `minor` in this
+  repo. `@parity/product-sdk` is on `0.5.0`; this rename ships at `0.6.0`.
+
+- 4c13257: **Add `deriveProductAccountPublicKey` + `createChainCode` to `@parity/product-sdk-keys`.**
+
+  The canonical sr25519 product-account derivation used by polkadot-desktop
+  (`polkadot-desktop/src/domains/product/account/service.ts`) and
+  polkadot-app-android-v2
+  (`feature/products/impl/.../ProductAccountDerivationUseCase.kt`) is now
+  exposed from the SDK. External clients (CLI, web hosts) can compute the
+  same derived address the mobile wallet derives privately, without ever
+  seeing the secret key. sr25519 soft derivation is composable on the
+  parent _public_ key alone.
+
+  ### New surface
+
+  ```ts
+  import {
+    createChainCode,
+    deriveProductAccountPublicKey,
+  } from "@parity/product-sdk-keys";
+
+  // Canonical product-account derivation: junctions ["product", productId, "<index>"]
+  const derivedPubKey = deriveProductAccountPublicKey(
+    parentPublicKey, // Uint8Array, 32-byte sr25519 public key
+    "playground.dot", // productId, typically a dotNS name
+    0 // derivationIndex
+  );
+
+  // Lower-level helper if you need to build custom junction paths:
+  const chainCode = createChainCode("product"); // Uint8Array(32)
+  ```
+
+  `createChainCode(code)` encodes a junction the way Substrate does:
+
+  - numeric `^\d+$` to SCALE `u64` (BigInt), zero-padded to 32 bytes
+  - string to SCALE `str` (compact-length + UTF-8), zero-padded to 32 bytes
+  - if the encoded form exceeds 32 bytes, `blake2b256(encoded)`
+
+  `deriveProductAccountPublicKey(parentPubKey, productId, index)` applies
+  `HDKD.publicSoft` left-to-right over the junctions `["product",
+productId, String(index)]`. Returns the derived 32-byte public key.
+
+  ### Cross-platform parity note
+
+  `productId` MUST contain at least one non-hex character OR be of odd
+  length when serialized as a string. polkadot-app-android-v2's
+  `SubstrateJunctionDecoder` tries to interpret a junction as hex BEFORE
+  falling through to SCALE-string encoding; polkadot-desktop and this
+  implementation skip that hex branch. For productIds that happen to be
+  even-length all-hex strings (e.g. `"deadbeef"`, `"c0ffee01"`), Android
+  would derive a different public key. In practice, productIds are dotNS
+  names like `"playground.dot"`, which contain `.` and never trip the hex
+  branch.
+
+  ### Frozen vectors
+
+  Output is locked by four byte-for-byte test vectors in
+  `packages/keys/src/product-account.test.ts`, covering the production case
+  (`playground.dot`/0), the non-zero u64 numeric branch, a near-boundary
+  productId, and the blake2b fallback. Parent public keys in the vectors
+  are derived from deterministic 32-byte seeds via `@scure/sr25519`'s
+  `secretFromSeed` + `getPublicKey` (arbitrary 32-byte buffers do not work:
+  `HDKD.publicSoft` validates the Ristretto255 encoding at the entry
+  point). If polkadot-desktop's derivation algorithm ever changes, run
+  `packages/keys/scripts/regenerate-fixtures.ts` to re-confirm parity and
+  update the vectors.
+
+  ### Internal: `@noble/hashes` consolidated on ^2.2.0
+
+  `@parity/product-sdk-keys` now depends on `@scure/sr25519@^2.2.0` and
+  `scale-ts@^1.6.1`. The workspace is also consolidated on
+  `@noble/hashes@^2.2.0` across `-address`, `-crypto`, `-terminal`, and
+  `-utils` to keep a single hash-library version in the dep tree.
+  Consumers see no public-API change from the noble bump (one source
+  file in `-address` adjusted an import path from `@noble/hashes/sha3` to
+  `@noble/hashes/sha3.js`; the extensionless form worked on noble 1.x but
+  noble 2.x's package exports require the explicit `.js` suffix).
+
+  No breaking changes here. Purely additive.
+
+- 4c13257: **Typed permission ergonomics and an `onConnect` lifecycle hook.**
+
+  Two additive changes that collapse the boilerplate every dapp was writing on top of `hostApi.permission` and the once-per-connect side-effect pattern. No breaking changes; existing call sites keep working.
+
+  ### `@parity/product-sdk-host` — `RemotePermission` types + `requestPermission` wrapper
+
+  - **`RemotePermission`, `RemotePermissionTag`, `AllocatableResourceTag`, and `AllocationOutcomeTag`** type aliases are now exported alongside the existing `AllocatableResource` / `AllocationOutcome` aliases. All derive from the `@novasamatech/host-api` SCALE codecs via `CodecType<typeof X>` so schema drift surfaces as a TypeScript error at this boundary instead of silently passing through `as never` casts.
+
+  - **`requestPermission(permission)`** builds the `v1` envelope, calls `hostApi.permission`, and unwraps the response. Returns `Promise<boolean>` and throws on host-unavailable or wire failure — matches the shape of the existing `requestResourceAllocation` so the two helpers compose consistently.
+
+    ```ts
+    const granted = await requestPermission({
+      tag: "ChainSubmit",
+      value: undefined,
+    });
+    if (!granted) tellUserToReconnect();
+    ```
+
+  ### `@parity/product-sdk-signer` — `onConnect` lifecycle hook
+
+  - **`SignerManagerOptions.onConnect`** is a new callback that fires exactly when the manager transitions to `"connected"` with a selected account — not on every subscribe notification while connected. Fires again after auto-reconnect, so a fresh host session re-runs the callback.
+
+    The `ctx` argument exposes a pre-bound `requestResourceAllocation` helper (re-exported from `@parity/product-sdk-host`) plus an `AbortSignal` that fires if the user disconnects or destroys the manager mid-flight. Errors thrown from `onConnect` are logged but do not affect the connected state — the next reconnect retries.
+
+    ```ts
+    new SignerManager({
+      onConnect: async (_account, { requestResourceAllocation, signal }) => {
+        try {
+          const outcomes = await requestResourceAllocation([
+            { tag: "AutoSigning", value: undefined },
+          ]);
+          if (signal.aborted) return;
+          if (outcomes.some((o) => o.tag !== "Allocated")) {
+            logWarning("partial permissions", outcomes);
+          }
+        } catch (cause) {
+          logWarning("resource allocation failed", cause);
+        }
+      },
+    });
+    ```
+
+    Replaces ~50 lines of transition-gated subscription, once-per-session bookkeeping, and HMR cleanup that every product app was writing by hand.
+
+### Patch Changes
+
+- 4c13257: **Bump `@parity/host-api-test-sdk` catalog to `^0.8.2`.**
+
+  Picks up [paritytech/host-api-test-sdk#19](https://github.com/paritytech/host-api-test-sdk/pull/19) (and follow-ups) which refresh `PASEO_ASSET_HUB`, `PREVIEWNET`, and `PREVIEWNET_ASSET_HUB` to their live genesis hashes and v2 RPC endpoints. Without this bump, every e2e fixture spreading `...PASEO_ASSET_HUB` was effectively connecting under a stale genesis (v1 paseo, deprecated 2026-05-20), which broke `chain-client-demo` and downstream signing demos with `Tracking stopped` / `BadProof` / `AsPgas` errors depending on the path.
+
+  ### What changed in the test SDK
+
+  | Constant                           | Old                                     | New                                          |
+  | ---------------------------------- | --------------------------------------- | -------------------------------------------- |
+  | `PASEO_ASSET_HUB.genesisHash`      | `0xd6eec261...`                         | `0x173cea9d...`                              |
+  | `PASEO_ASSET_HUB.rpcUrl`           | `wss://sys.ibp.network/asset-hub-paseo` | `wss://paseo-asset-hub-next-rpc.polkadot.io` |
+  | `PREVIEWNET.genesisHash`           | `0xdd51f3c2...`                         | `0x477dd87a...`                              |
+  | `PREVIEWNET_ASSET_HUB.genesisHash` | `0x7765f98d...`                         | `0x860d75a8...`                              |
+
+  ### Consumer impact
+
+  - **No source change** in any published `@parity/product-sdk-*` package. `@parity/host-api-test-sdk` is a `devDependency` of our example demos only — consumers installing the SDK from npm don't see this bump at all.
+  - **Internal contributors** writing e2e specs against `wss://sys.ibp.network/asset-hub-paseo` or any v1 paseo genesis must update to the v2 equivalents. Per-fixture changes are usually a one-line override since most spread `...PASEO_ASSET_HUB`.
+
+  ### Verification
+
+  `pnpm test:e2e` runs cleanly across all demos against paseo v2 with the new SDK pulled in via the catalog (no overrides). Replaces the prior local-tarball override workflow that was a stopgap while waiting for `@parity/host-api-test-sdk@0.8.x` to publish.
+
+- Updated dependencies [4c13257]
+- Updated dependencies [4c13257]
+  - @parity/product-sdk-keys@0.3.0
+  - @parity/product-sdk-host@0.4.0
+  - @parity/product-sdk-signer@0.3.0
+  - @parity/product-sdk-bulletin@0.4.2
+  - @parity/product-sdk-chain-client@0.4.2
+  - @parity/product-sdk-contracts@0.5.1
+  - @parity/product-sdk-tx@0.2.4
+  - @parity/product-sdk-storage@0.1.5
+
 ## 0.5.0
 
 ### Minor Changes

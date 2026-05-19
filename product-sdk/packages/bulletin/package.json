@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-bulletin",
-    "version": "0.4.1",
+    "version": "0.4.2",
     "description": "TypeScript SDK for uploading and retrieving data on the Polkadot Bulletin Chain",
     "type": "module",
     "sideEffects": false,

@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-pvm-contracts-example",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "private": true,
     "type": "module",
     "description": "Node example showing how to consume cargo-pvm-contract artifacts via @parity/product-sdk-contracts/pvm",

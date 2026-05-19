@@ -1,56 +1,60 @@
 /**
- * Product account derivation
+ * Context alias derivation
  *
- * Derives product-scoped accounts from a parent account
+ * Derives a deterministic, context-bound alias from a parent account using blake2b-256.
+ *
+ * NOTE: this is NOT the canonical sr25519 product-account derivation used by
+ * mobile, desktop, and dotli hosts. For that, use
+ * `@parity/product-sdk-keys::deriveProductAccountPublicKey`.
  */
 
 import { createLogger } from "@parity/product-sdk-logger";
 import { blake2b256 } from "@parity/product-sdk-crypto";
 import { ss58Encode, ss58Decode, deriveH160 } from "@parity/product-sdk-address";
-import type { ProductAccountInfo, AnonymousAliasInfo, RingLocation } from "./types.js";
+import type { ContextAliasInfo, AnonymousAliasInfo, RingLocation } from "./types.js";
 
 const log = createLogger("identity");
 
 /**
- * Derive a product-scoped account from a parent account
+ * Derive a context-bound alias from a parent account.
  *
- * The product account is deterministically derived using:
- * productPublicKey = hash(parentPublicKey || productName)
+ * The alias is deterministically derived using:
+ * aliasPublicKey = blake2b256(parentPublicKey || context)
  *
  * @param parentAddress - Parent account SS58 address
- * @param productName - Product name for derivation
+ * @param context - Context string for derivation (e.g. an app id or scope label)
  * @param ss58Prefix - SS58 prefix (default: 42)
- * @returns Product account info
+ * @returns Context alias info
  *
  * @example
  * ```ts
- * const productAccount = deriveProductAccount(
+ * const alias = deriveContextAlias(
  *   '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
- *   'my-app'
+ *   'voting-round-1'
  * );
- * console.log('Product address:', productAccount.address);
+ * console.log('Alias address:', alias.address);
  * ```
  */
-export function deriveProductAccount(
+export function deriveContextAlias(
     parentAddress: string,
-    productName: string,
+    context: string,
     ss58Prefix = 42,
-): ProductAccountInfo {
+): ContextAliasInfo {
     const { publicKey: parentPublicKey } = ss58Decode(parentAddress);
 
-    // Derive product public key: blake2b-256(parentPublicKey || productName)
-    const productNameBytes = new TextEncoder().encode(productName);
-    const combined = new Uint8Array(parentPublicKey.length + productNameBytes.length);
+    // Derive alias public key: blake2b-256(parentPublicKey || context)
+    const contextBytes = new TextEncoder().encode(context);
+    const combined = new Uint8Array(parentPublicKey.length + contextBytes.length);
     combined.set(parentPublicKey, 0);
-    combined.set(productNameBytes, parentPublicKey.length);
+    combined.set(contextBytes, parentPublicKey.length);
 
-    const productPublicKey = blake2b256(combined);
-    const address = ss58Encode(productPublicKey, ss58Prefix);
-    const h160Address = deriveH160(productPublicKey);
+    const aliasPublicKey = blake2b256(combined);
+    const address = ss58Encode(aliasPublicKey, ss58Prefix);
+    const h160Address = deriveH160(aliasPublicKey);
 
-    log.debug("Derived product account", {
+    log.debug("Derived context alias", {
         parentAddress,
-        productName,
+        context,
         address,
     });
 
@@ -58,32 +62,32 @@ export function deriveProductAccount(
         address,
         h160Address,
         parentAddress,
-        productName,
+        context,
     };
 }
 
 /**
- * Verify that a product account was derived from a parent account
+ * Verify that a context alias was derived from a parent account.
  *
- * @param productAddress - Product account address
+ * @param aliasAddress - Context alias SS58 address
  * @param parentAddress - Claimed parent address
- * @param productName - Product name
+ * @param context - Context string used for derivation
  * @returns True if derivation is valid
  */
-export function verifyProductAccount(
-    productAddress: string,
+export function verifyContextAlias(
+    aliasAddress: string,
     parentAddress: string,
-    productName: string,
+    context: string,
 ): boolean {
     try {
-        const derived = deriveProductAccount(parentAddress, productName);
-        const { publicKey: productKey } = ss58Decode(productAddress);
+        const derived = deriveContextAlias(parentAddress, context);
+        const { publicKey: aliasKey } = ss58Decode(aliasAddress);
         const { publicKey: derivedKey } = ss58Decode(derived.address);
 
         // Compare public keys
-        if (productKey.length !== derivedKey.length) return false;
-        for (let i = 0; i < productKey.length; i++) {
-            if (productKey[i] !== derivedKey[i]) return false;
+        if (aliasKey.length !== derivedKey.length) return false;
+        for (let i = 0; i < aliasKey.length; i++) {
+            if (aliasKey[i] !== derivedKey[i]) return false;
         }
         return true;
     } catch {
