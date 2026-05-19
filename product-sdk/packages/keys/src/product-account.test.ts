@@ -42,11 +42,9 @@ describe("createChainCode", () => {
         const longCode = "a".repeat(100);
         const result = createChainCode(longCode);
         expect(result.length).toBe(32);
-        const hex =
-            "0x" +
-            Array.from(result)
-                .map((b) => b.toString(16).padStart(2, "0"))
-                .join("");
+        const hex = `0x${Array.from(result)
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("")}`;
         // Compute this once locally and paste below. To regenerate after a deliberate
         // algorithm change, run the assertion, copy the actual hex from the failure
         // diff, and update.
@@ -65,12 +63,9 @@ function pubKeyFromSeedByte(byte: number): Uint8Array {
 }
 
 function toHex(bytes: Uint8Array): string {
-    return (
-        "0x" +
-        Array.from(bytes)
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join("")
-    );
+    return `0x${Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")}`;
 }
 
 describe("deriveProductAccountPublicKey (frozen vectors)", () => {

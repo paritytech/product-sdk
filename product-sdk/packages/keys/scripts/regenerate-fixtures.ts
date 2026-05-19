@@ -24,7 +24,9 @@ import { getPublicKey, secretFromSeed } from "@scure/sr25519";
 import { deriveProductAccountPublicKey } from "../src/product-account.js";
 
 function toHex(bytes: Uint8Array): string {
-    return "0x" + Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    return `0x${Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")}`;
 }
 
 function pubKeyFromSeedByte(byte: number): Uint8Array {
@@ -33,14 +35,36 @@ function pubKeyFromSeedByte(byte: number): Uint8Array {
 }
 
 const cases = [
-    { seedByte: 0, productId: "playground.dot", index: 0, label: "playground.dot/0, parent pubkey from seed byte 0x00" },
-    { seedByte: 1, productId: "playground.dot", index: 1, label: "playground.dot/1, parent pubkey from seed byte 0x01" },
-    { seedByte: 2, productId: "a-very-long-product.dot", index: 0, label: "a-very-long-product.dot/0, parent pubkey from seed byte 0x02" },
-    { seedByte: 3, productId: "this-name-is-deliberately-long-enough-to-trip-the-fallback.dot", index: 0, label: "long-fallback-name/0, parent pubkey from seed byte 0x03" },
+    {
+        seedByte: 0,
+        productId: "playground.dot",
+        index: 0,
+        label: "playground.dot/0, parent pubkey from seed byte 0x00",
+    },
+    {
+        seedByte: 1,
+        productId: "playground.dot",
+        index: 1,
+        label: "playground.dot/1, parent pubkey from seed byte 0x01",
+    },
+    {
+        seedByte: 2,
+        productId: "a-very-long-product.dot",
+        index: 0,
+        label: "a-very-long-product.dot/0, parent pubkey from seed byte 0x02",
+    },
+    {
+        seedByte: 3,
+        productId: "this-name-is-deliberately-long-enough-to-trip-the-fallback.dot",
+        index: 0,
+        label: "long-fallback-name/0, parent pubkey from seed byte 0x03",
+    },
 ];
 
 for (const c of cases) {
     const parent = pubKeyFromSeedByte(c.seedByte);
     const out = deriveProductAccountPublicKey(parent, c.productId, c.index);
-    console.log(`${c.label}\n  productId: ${c.productId}\n  index:     ${c.index}\n  seedByte:  0x${c.seedByte.toString(16).padStart(2, "0")}\n  expected:  ${toHex(out)}\n`);
+    console.log(
+        `${c.label}\n  productId: ${c.productId}\n  index:     ${c.index}\n  seedByte:  0x${c.seedByte.toString(16).padStart(2, "0")}\n  expected:  ${toHex(out)}\n`,
+    );
 }
