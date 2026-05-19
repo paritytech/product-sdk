@@ -1,0 +1,229 @@
+# Detects when @parity/product-sdk-descriptors has drifted from the live
+# runtime of any chain it bundles. PAPI's bundled type bindings are a frozen
+# snapshot at regen time, so when a runtime upgrades the bindings can either
+# error with "Incompatible runtime entry" or silently mis-decode a
+# subscription. This job catches drift before E2E does.
+#
+# Mechanism: `papi update --skip-codegen` connects to each chain's RPC,
+# fetches the current metadata + codeHash, and rewrites
+# `.papi/polkadot-api.json` in place. A diff on `codeHash` (and `genesis`)
+# vs. what's checked in is the drift signal.
+name: "product-sdk: Descriptors drift"
+
+on:
+    schedule:
+        - cron: "0 8 * * *"
+    workflow_dispatch:
+
+concurrency:
+    group: descriptors-drift
+    cancel-in-progress: false
+
+defaults:
+    run:
+        working-directory: product-sdk
+
+permissions:
+    contents: read
+    issues: write
+
+jobs:
+    check:
+        name: "Check descriptor drift"
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: "pnpm"
+                  cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+            - run: pnpm install --frozen-lockfile
+
+            # For each chain dir under packages/descriptors/chains/, drop the
+            # cached .scale so `papi update` is forced to hit the network,
+            # then diff the rewritten polkadot-api.json against HEAD.
+            #
+            # Per-chain failures are isolated — a 60s wallclock timeout per
+            # chain means a flaky RPC doesn't poison the whole report.
+            #
+            # Output: drift-report.json with one entry per chain:
+            #   { chain, key, pinnedCodeHash, liveCodeHash, pinnedGenesis,
+            #     liveGenesis, status: "clean" | "drift" | "unreachable" }
+            - name: Probe every chain
+              id: probe
+              run: |
+                  set -euo pipefail
+                  cd packages/descriptors
+                  : > drift-report.jsonl
+                  for chain_dir in chains/*/; do
+                    chain=$(basename "$chain_dir")
+                    cfg="$chain_dir.papi/polkadot-api.json"
+                    key=$(jq -r '.entries | keys[0]' "$cfg")
+                    pinned_code=$(jq -r ".entries.\"$key\".codeHash" "$cfg")
+                    pinned_gen=$(jq -r ".entries.\"$key\".genesis" "$cfg")
+
+                    echo "::group::probe $chain (key=$key)"
+                    rm -f "$chain_dir.papi/metadata/"*.scale
+
+                    status="clean"
+                    live_code=""
+                    live_gen=""
+                    if timeout 60 npx papi update "$key" --config "$cfg" --skip-codegen; then
+                      live_code=$(jq -r ".entries.\"$key\".codeHash" "$cfg")
+                      live_gen=$(jq -r ".entries.\"$key\".genesis" "$cfg")
+                      if [[ "$pinned_code" != "$live_code" || "$pinned_gen" != "$live_gen" ]]; then
+                        status="drift"
+                      fi
+                    else
+                      status="unreachable"
+                    fi
+                    echo "::endgroup::"
+
+                    jq -n \
+                      --arg chain "$chain" --arg key "$key" \
+                      --arg pinnedCode "$pinned_code" --arg liveCode "$live_code" \
+                      --arg pinnedGen "$pinned_gen" --arg liveGen "$live_gen" \
+                      --arg status "$status" \
+                      '{chain:$chain, key:$key, pinnedCodeHash:$pinnedCode, liveCodeHash:$liveCode, pinnedGenesis:$pinnedGen, liveGenesis:$liveGen, status:$status}' \
+                      >> drift-report.jsonl
+                  done
+
+                  # Restore the working tree so the diff doesn't leak into
+                  # any subsequent step that reads chain configs.
+                  git checkout -- packages/descriptors/chains/ >/dev/null 2>&1 || true
+
+                  drift_count=$(jq -s '[.[] | select(.status=="drift")] | length' drift-report.jsonl)
+                  unreachable_count=$(jq -s '[.[] | select(.status=="unreachable")] | length' drift-report.jsonl)
+                  total=$(wc -l < drift-report.jsonl | tr -d ' ')
+                  echo "drift_count=$drift_count" >> "$GITHUB_OUTPUT"
+                  echo "unreachable_count=$unreachable_count" >> "$GITHUB_OUTPUT"
+                  echo "total=$total" >> "$GITHUB_OUTPUT"
+
+            # Single bad-network day shouldn't flap the tracking issue.
+            # If literally nothing was reachable, emit a warning and skip
+            # body-build / upsert / close — all of which are gated on this
+            # same condition.
+            - name: Warn on full-outage runs
+              if: steps.probe.outputs.unreachable_count == steps.probe.outputs.total
+              run: echo "::warning::all ${{ steps.probe.outputs.total }} chains unreachable — skipping issue update"
+
+            # Body is written to a file (not GITHUB_OUTPUT) so the backticks
+            # and ${{ }} substitutions don't get re-evaluated by the shell
+            # when passed to `gh issue ... --body`.
+            - name: Build issue body
+              if: steps.probe.outputs.unreachable_count != steps.probe.outputs.total
+              env:
+                  DRIFT_COUNT: ${{ steps.probe.outputs.drift_count }}
+                  UNREACHABLE_COUNT: ${{ steps.probe.outputs.unreachable_count }}
+                  TOTAL: ${{ steps.probe.outputs.total }}
+              run: |
+                  set -euo pipefail
+                  cd packages/descriptors
+                  clean=$((TOTAL - DRIFT_COUNT - UNREACHABLE_COUNT))
+                  {
+                    echo "_Auto-generated by [\`product-sdk-descriptors-drift.yml\`](../actions/workflows/product-sdk-descriptors-drift.yml). Last run: $(date -u +'%Y-%m-%d %H:%M UTC')._"
+                    echo
+                    echo "**Summary:** ${DRIFT_COUNT} drifting / ${UNREACHABLE_COUNT} unreachable / ${clean} clean (of ${TOTAL} chains)."
+                    echo
+                    echo "| Chain | Status | Pinned codeHash | Live codeHash |"
+                    echo "|---|---|---|---|"
+                    jq -r '
+                      def short: if . == "" then "n/a" else .[0:14] + "..." end;
+                      [.chain, .status, (.pinnedCodeHash | short), (.liveCodeHash | short)]
+                      | "| " + join(" | ") + " |"
+                    ' drift-report.jsonl
+                    echo
+                    echo "<details><summary>Full genesis + codeHash values</summary>"
+                    echo
+                    echo '```json'
+                    jq -s '.' drift-report.jsonl
+                    echo '```'
+                    echo
+                    echo "</details>"
+                    echo
+                    echo "## How to resolve"
+                    echo
+                    echo "When a chain drifts, the bundled PAPI descriptors are stale against the live runtime. Regenerate and republish:"
+                    echo
+                    echo '1. `cd product-sdk/packages/descriptors`'
+                    echo '2. `pnpm generate` — fetches fresh metadata from every chain RPC and rewrites `chains/*/.papi/polkadot-api.json` + the `.scale` metadata blobs.'
+                    echo '3. `pnpm build` — regenerates the TypeScript bindings under `chains/*/generated/dist/`.'
+                    echo '4. Verify nothing else changed unexpectedly: `git diff packages/descriptors/`.'
+                    echo '5. Add a changeset: `pnpm changeset` → `@parity/product-sdk-descriptors: patch` (or `minor` if a chain runtime added new pallets / breaking decode shape).'
+                    echo "6. Open a PR. Run \`pnpm test:e2e\` against the regenerated bindings before merging — drift sometimes hides a real consumer-side break (e.g. a pallet rename)."
+                    echo
+                    echo "## Why this issue stays open"
+                    echo
+                    echo "This is a single tracking issue keyed on the \`descriptors-drift\` label. The workflow runs daily and:"
+                    echo
+                    echo "- **updates this issue** while any chain is still drifting,"
+                    echo "- **closes it** automatically when every chain is clean."
+                    echo
+                    echo "Manually closing the issue while drift persists will cause the next scheduled run to re-open it."
+                  } > drift-issue-body.md
+
+            - name: Ensure descriptors-drift label exists
+              if: steps.probe.outputs.unreachable_count != steps.probe.outputs.total
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh label create descriptors-drift \
+                    --description "Tracks PAPI descriptor drift detected by product-sdk-descriptors-drift.yml" \
+                    --color FBCA04 \
+                    --force
+
+            # Upsert: find an open issue with the label; edit if found,
+            # otherwise create. Either action keeps the title stable so
+            # notifications don't churn.
+            - name: Upsert tracking issue
+              if: (steps.probe.outputs.drift_count != '0' || steps.probe.outputs.unreachable_count != '0') && steps.probe.outputs.unreachable_count != steps.probe.outputs.total
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  title="chore(descriptors): runtime drift detected"
+                  existing=$(gh issue list \
+                    --state open \
+                    --label descriptors-drift \
+                    --json number \
+                    --jq '.[0].number // empty')
+                  body_file=packages/descriptors/drift-issue-body.md
+                  if [[ -n "$existing" ]]; then
+                    echo "Editing #$existing"
+                    gh issue edit "$existing" \
+                      --title "$title" \
+                      --body-file "$body_file"
+                  else
+                    echo "Creating new tracking issue"
+                    gh issue create \
+                      --title "$title" \
+                      --label descriptors-drift \
+                      --body-file "$body_file"
+                  fi
+
+            # All chains clean — close any open tracking issue with a comment.
+            - name: Close tracking issue on clean run
+              if: steps.probe.outputs.drift_count == '0' && steps.probe.outputs.unreachable_count == '0'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  existing=$(gh issue list \
+                    --state open \
+                    --label descriptors-drift \
+                    --json number \
+                    --jq '.[0].number // empty')
+                  if [[ -n "$existing" ]]; then
+                    gh issue close "$existing" \
+                      --comment "All chains clean as of $(date -u +'%Y-%m-%d %H:%M UTC'). Closing — the workflow will reopen this if drift returns."
+                  else
+                    echo "No open drift issue — nothing to close."
+                  fi

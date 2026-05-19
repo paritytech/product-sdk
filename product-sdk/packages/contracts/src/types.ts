@@ -1,9 +1,9 @@
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
-import type { SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
+import type { BatchableCall, SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
 import type { SignerManager } from "@parity/product-sdk-signer";
 
 // Re-export from the tx package — single source of truth.
-export type { TxResult, SubmitOptions } from "@parity/product-sdk-tx";
+export type { TxResult, SubmitOptions, BatchableCall } from "@parity/product-sdk-tx";
 
 // ---------------------------------------------------------------------------
 // cdm.json schema
@@ -15,12 +15,18 @@ export interface CdmJsonTarget {
     bulletin: string;
 }
 
-/** A deployed contract's on-chain address, ABI, and metadata CID. */
+/**
+ * A deployed contract's on-chain address, ABI, and optional metadata CID.
+ *
+ * `metadataCid` is optional because real-world cdm.json files (e.g.
+ * `paritytech/playground-cli/cdm.json`) don't always include it — only
+ * `version`, `address`, and `abi` are load-bearing for `getContract()`.
+ */
 export interface CdmJsonContract {
     version: number;
     address: HexString;
     abi: AbiEntry[];
-    metadataCid: string;
+    metadataCid?: string;
 }
 
 /** A project's `cdm.json` manifest: declared targets, runtime dependencies, and per-target contract deployments. */
@@ -31,7 +37,8 @@ export interface CdmJson {
 }
 
 // ---------------------------------------------------------------------------
-// ABI types (Solidity-compatible, used by both Ink!/PolkaVM and Solidity)
+// ABI types (Solidity-compatible — emitted by cargo-pvm-contract and any
+// Solidity toolchain targeting pallet-revive)
 // ---------------------------------------------------------------------------
 
 /** An ABI parameter or return value, with support for nested tuple and struct types. */
@@ -69,12 +76,27 @@ export interface ContractDef {
 // biome-ignore lint/suspicious/noEmptyInterface: extended by codegen
 export interface Contracts {}
 
-/** Result from a read-only contract query. */
-export interface QueryResult<T> {
-    success: boolean;
-    value: T;
-    gasRequired?: bigint;
-}
+/**
+ * Result from a read-only contract query.
+ *
+ * On success, `value` is the decoded response and `gasRequired` is the
+ * `Weight` consumed by `ReviveApi.call`'s dry-run — consumable directly by
+ * `Revive.call`'s `weight_limit` parameter.
+ *
+ * On failure, `value` carries the raw dispatch-error payload the runtime
+ * returned (typically a tagged enum like `{ type: "Module", value: ... }`,
+ * `{ type: "ContractReverted" }`, or `{ type: "AccountNotMapped" }` — see the
+ * `Revive` pallet error variants). Surfacing it lets callers narrow on shape
+ * to diagnose silent failures instead of seeing `undefined` and being unable
+ * to tell whether the contract reverted, gas estimation failed, or the
+ * dry-run never ran. `gasRequired` is still populated when the runtime
+ * reported a weight even though the call ultimately failed (e.g. a revert
+ * after partial execution); it's optional because some failure modes don't
+ * carry one.
+ */
+export type QueryResult<T> =
+    | { success: true; value: T; gasRequired: Weight }
+    | { success: false; value: unknown; gasRequired?: Weight };
 
 /** Options for query calls — passed as the last argument after positional args. */
 export interface QueryOptions {
@@ -85,6 +107,20 @@ export interface QueryOptions {
 /** Options for transaction calls — passed as the last argument after positional args. */
 export interface TxOptions extends SubmitOptions {
     signer?: PolkadotSigner;
+    origin?: SS58String;
+    value?: bigint;
+    gasLimit?: Weight;
+    storageDepositLimit?: bigint;
+}
+
+/**
+ * Options for `.prepare()` — subset of {@link TxOptions}.
+ *
+ * Signer and submission lifecycle options (`signer`, `waitFor`, `timeoutMs`,
+ * `mortalityPeriod`, `onStatus`) are intentionally absent — those belong to
+ * the batch submission, not the individual prepared call.
+ */
+export interface PrepareOptions {
     origin?: SS58String;
     value?: bigint;
     gasLimit?: Weight;
@@ -152,5 +188,32 @@ export type Contract<C extends ContractDef> = {
          * defaultSigner. Throws {@link ContractSignerMissingError} if none available.
          */
         tx: (...args: [...C["methods"][K]["args"], opts?: TxOptions]) => Promise<TxResult>;
+        /**
+         * Prepare the method as a {@link BatchableCall} — returns the same
+         * submittable that `.tx()` would build, but without signing or
+         * submitting. Consumable directly by `batchSubmitAndWatch` from
+         * `@parity/product-sdk-tx`:
+         *
+         * ```ts
+         * import { batchSubmitAndWatch } from "@parity/product-sdk-tx";
+         *
+         * const a = contract.transfer.prepare(addr1, 100n);
+         * const b = contract.transfer.prepare(addr2, 200n);
+         * await batchSubmitAndWatch([a, b], api, signer);
+         * ```
+         *
+         * Sizing: when either `gasLimit` or `storageDepositLimit` is
+         * omitted, `.prepare()` runs a `ReviveApi.call` dry-run (same as
+         * `.tx()`) against the dev fallback origin to fill the missing
+         * field(s) — pass both to skip the dry-run entirely. A failing
+         * dry-run throws {@link ContractDryRunFailedError} before the
+         * call is constructed.
+         *
+         * `.prepare()` does not require a signer; the batch's signer
+         * replaces the dispatched origin at submission.
+         */
+        prepare: (
+            ...args: [...C["methods"][K]["args"], opts?: PrepareOptions]
+        ) => Promise<BatchableCall>;
     };
 };

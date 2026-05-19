@@ -1,7 +1,7 @@
 import type { ChainDefinition, PolkadotClient, TypedApi } from "polkadot-api";
 
 /** Supported chain environments for the Polkadot ecosystem. */
-export type Environment = "polkadot" | "kusama" | "paseo" | "local" | "westend";
+export type Environment = "polkadot" | "kusama" | "paseo" | "previewnet" | "local" | "westend";
 
 /**
  * Configuration for {@link createChainClient}.
@@ -17,14 +17,14 @@ export type Environment = "polkadot" | "kusama" | "paseo" | "local" | "westend";
  * @example
  * ```ts
  * import { createChainClient } from "@parity/product-sdk-chain-client";
- * import { paseo_asset_hub } from "./descriptors/paseo-asset-hub";
- * import { bulletin } from "./descriptors/bulletin";
+ * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+ * import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
  *
  * const client = await createChainClient({
- *     chains: { assetHub: paseo_asset_hub, bulletin },
+ *     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
  *     rpcs: {
- *         assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
- *         bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
+ *         assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
+ *         bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
  *     },
  * });
  * ```
@@ -43,7 +43,7 @@ export interface ChainClientConfig<
  *
  * Each key from your config maps to a fully-typed PAPI {@link TypedApi}.
  * Access raw `PolkadotClient` instances via `.raw` for advanced use cases
- * like creating an `InkSdk` for contract interactions.
+ * like creating a `ContractRuntime` for pallet-revive contract interactions.
  *
  * @typeParam TChains - The chain descriptor record used to create this client.
  *
@@ -52,15 +52,15 @@ export interface ChainClientConfig<
  * // Typed API access — fully typed from your descriptors
  * const account = await client.assetHub.query.System.Account.getValue(addr);
  *
- * // Raw client for advanced use (e.g., InkSdk for contracts)
- * import { createInkSdk } from "@polkadot-api/sdk-ink";
- * const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+ * // Raw client for advanced use (e.g., a ContractRuntime for pallet-revive contracts)
+ * import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+ * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  * ```
  */
 export type ChainClient<TChains extends Record<string, ChainDefinition>> = {
     [K in string & keyof TChains]: TypedApi<TChains[K]>;
 } & {
-    /** Raw `PolkadotClient` instances, keyed by chain name. Use for advanced APIs like `createInkSdk`. */
+    /** Raw `PolkadotClient` instances, keyed by chain name. Use for advanced APIs like `createContractRuntime`. */
     raw: { [K in string & keyof TChains]: PolkadotClient };
     /** Destroy all connections managed by this client. */
     destroy: () => void;

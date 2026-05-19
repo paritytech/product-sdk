@@ -221,6 +221,21 @@ const info = await skm.getOrCreate();
 // info.account  - DerivedAccount with signer
 ```
 
+## deriveProductAccountPublicKey: Canonical sr25519 Product-Account Derivation
+
+```ts
+import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
+
+// Derive the same product-account public key the mobile wallet derives privately
+const derivedPubKey = deriveProductAccountPublicKey(
+  parentPublicKey,    // 32-byte sr25519 public key
+  "playground.dot",   // productId (typically a dotNS name)
+  0,                  // derivationIndex
+);
+```
+
+Mirrors the algorithm used by polkadot-desktop and polkadot-app-android-v2. sr25519 soft derivation is composable on the parent *public* key alone, so external clients (CLI, web hosts) can compute the same address without seeing the secret key. See `references/keys-api.md` for the cross-platform parity constraint on `productId`.
+
 ## Common Mistakes
 
 1. **Using dev signers in production** - `createDevSigner` uses the well-known dev mnemonic. Use `SignerManager` for real users.

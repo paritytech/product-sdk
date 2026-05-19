@@ -11,11 +11,14 @@ const PRODUCT_URL = "http://localhost:5201";
 
 /**
  * Paseo Asset Hub config with a configurable RPC endpoint.
- * Override via `PASEO_AH_RPC` env var if the default is flaky.
+ * Override via `PASEO_AH_RPC` if the default RPC has outages — but the override
+ * must serve **paseo v2** (genesis `0x173cea9d…`). Any mirror still pointing at
+ * v1 paseo will hash-mismatch the spread `PASEO_ASSET_HUB.genesisHash` and
+ * break the chain-handshake.
  */
 const PASEO_AH: ChainConfig = {
     ...PASEO_ASSET_HUB,
-    rpcUrl: process.env.PASEO_AH_RPC ?? "wss://sys.turboflakes.io/asset-hub-paseo",
+    rpcUrl: process.env.PASEO_AH_RPC ?? "wss://paseo-asset-hub-next-rpc.polkadot.io",
 };
 
 const bobFixture = createTestHostFixture({

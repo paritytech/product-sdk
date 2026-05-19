@@ -1,0 +1,12 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "declaration": false,
+        "noEmit": false,
+        "lib": ["ES2022"],
+        "types": ["node"]
+    },
+    "include": ["src", "fixtures"]
+}

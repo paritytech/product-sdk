@@ -29,6 +29,8 @@ export {
     getTruApi,
     getPreimageManager,
     getAccountsProvider,
+    requestResourceAllocation,
+    createProofAuthorized,
     // Helpers from @novasamatech/host-api
     enumValue,
     isEnumVariant,
@@ -48,4 +50,14 @@ export type {
     ProductAccount,
     ContextualAlias,
     ResultAsync,
+    AllocatableResource,
+    AllocatableResourceTag,
+    AllocationOutcome,
+    AllocationOutcomeTag,
+    RemotePermission,
+    RemotePermissionTag,
+    Statement,
 } from "./truapi.js";
+
+// Higher-level permission wrapper
+export { requestPermission } from "./permissions.js";

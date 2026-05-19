@@ -21,3 +21,4 @@ out/
 
 # bulletin-deploy CAR snapshots (written next to the build dir)
 *.car
+typedoc.generated.json

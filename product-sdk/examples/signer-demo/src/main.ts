@@ -36,6 +36,12 @@ const $eventLog = getEl<HTMLElement>("event-log");
 const $dotnsInput = getEl<HTMLInputElement>("dotns-input");
 const $btnGetProductAccount = getEl<HTMLButtonElement>("btn-get-product-account");
 const $productAccountAddress = getEl<HTMLElement>("product-account-address");
+const $subscribeCount = getEl<HTMLSpanElement>("subscribe-count");
+const $transitionCount = getEl<HTMLSpanElement>("transition-count");
+const $onconnectCount = getEl<HTMLSpanElement>("onconnect-count");
+const $transitionsList = getEl<HTMLElement>("transitions-list");
+const $onConnectStatus = getEl<HTMLSpanElement>("onconnect-status");
+const $onConnectResult = getEl<HTMLElement>("onconnect-result");
 
 function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void {
     appendLog($eventLog, msg, level);
@@ -44,7 +50,57 @@ function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void
 // ── State ─────────────────────────────────────────────────────────────
 // Paseo Asset Hub uses SS58 prefix 0 → addresses start with "1".
 const SS58_PREFIX = 0;
-const manager = new SignerManager({ ss58Prefix: SS58_PREFIX, dappName: "signer-demo" });
+
+// `onConnect` fires once per status flip into "connected" — not on the
+// many other state mutations (selectAccount, account-list updates, etc.)
+// that happen while already connected. Re-fires after auto-reconnect, and
+// the `ctx.signal` aborts if the user disconnects or destroys the manager
+// while the callback is in flight.
+//
+// We track a counter so the e2e suite can assert single-fire-per-session
+// — the contract is documented on SignerManagerOptions.onConnect; the
+// demo proves it visibly.
+let onConnectFiredCount = 0;
+let subscribeFiredCount = 0;
+let statusTransitionCount = 0;
+let prevStatus: SignerState["status"] | null = null;
+
+function recordTransition(from: SignerState["status"] | null, to: SignerState["status"]): void {
+    statusTransitionCount += 1;
+    $transitionCount.textContent = String(statusTransitionCount);
+    const row = document.createElement("div");
+    row.className = "transition-row";
+    row.dataset.testid = "transition-row";
+    row.textContent = `${from ?? "(init)"} → ${to}`;
+    $transitionsList.appendChild(row);
+}
+
+const manager = new SignerManager({
+    ss58Prefix: SS58_PREFIX,
+    dappName: "signer-demo",
+    onConnect: async (account, { requestResourceAllocation, signal }) => {
+        onConnectFiredCount += 1;
+        $onconnectCount.textContent = String(onConnectFiredCount);
+        $onConnectStatus.textContent = `fired (${onConnectFiredCount}×) for ${account.address.slice(0, 8)}…`;
+        log(`onConnect fired #${onConnectFiredCount} for ${account.address}`, "ok");
+
+        try {
+            const outcomes = await requestResourceAllocation([
+                { tag: "AutoSigning", value: undefined },
+            ]);
+            if (signal.aborted) {
+                log("onConnect aborted before completing", "info");
+                return;
+            }
+            $onConnectResult.textContent = `outcomes: ${outcomes.map((o) => o.tag).join(", ")}`;
+            $onConnectResult.classList.remove("err");
+        } catch (cause) {
+            if (signal.aborted) return;
+            $onConnectResult.textContent = `error: ${cause instanceof Error ? cause.message : String(cause)}`;
+            $onConnectResult.classList.add("err");
+        }
+    },
+});
 
 // ── Render SignerManager state into the DOM ──────────────────────────
 function renderAccounts(state: SignerState): void {
@@ -73,7 +129,23 @@ function renderAccounts(state: SignerState): void {
     }
 }
 
+// `subscribe` fires synchronously on every state mutation: connect/disconnect,
+// `selectAccount`, the provider's `onAccountsChange` callback, host swap, etc.
+// It does NOT fire with the initial state — getState() is the priming read,
+// but the demo doesn't need it because the DOM starts in the "disconnected"
+// shape that matches `initialState()`.
+//
+// This handler is intentionally idempotent and stateless: it re-derives every
+// piece of DOM from the snapshot it receives. No "did the status change since
+// last time?" logic lives here — that goes in the per-transition hooks below
+// (and in `onConnect` above for the "once per connect" case).
 manager.subscribe((state) => {
+    subscribeFiredCount += 1;
+    $subscribeCount.textContent = String(subscribeFiredCount);
+    if (state.status !== prevStatus) {
+        recordTransition(prevStatus, state.status);
+        prevStatus = state.status;
+    }
     log(
         `state: status=${state.status} provider=${state.activeProvider ?? "-"} ` +
             `accounts=${state.accounts.length} selected=${state.selectedAccount?.address ?? "-"}`,
@@ -83,13 +155,18 @@ manager.subscribe((state) => {
     $activeProvider.textContent = state.activeProvider ?? "-";
     $selectedAddress.textContent = state.selectedAccount?.address ?? "-";
 
-    // Error surface — rendered separately so tests can assert on it.
+    // Errors live in their own slot so e2e tests can assert on them
+    // without scraping the noisier event log.
     if (state.error) {
         $lastError.textContent = `${state.error.name}: ${state.error.message}`;
     }
 
     renderAccounts(state);
 
+    // Enablement is derived, not stored — we don't track "did sign succeed?"
+    // anywhere. After the user clicks Sign, the `finally` block re-reads
+    // `getState()` because a disconnect could have fired mid-sign, in which
+    // case the post-sign button-enable logic must NOT re-enable the button.
     const connected = state.status === "connected" && state.selectedAccount !== null;
     $rawInput.disabled = !connected;
     $btnSignRaw.disabled = !connected;

@@ -1,0 +1,128 @@
+# Auto-bumps @novasamatech/* catalog entries in product-sdk/pnpm-workspace.yaml
+# when a new stable version is published. Prereleases (e.g. 0.7.9-0) are
+# explicitly ignored — they are sometimes tagged `latest` upstream, so we
+# compute the highest stable ourselves rather than trusting that dist-tag.
+name: "Check @novasamatech updates"
+
+on:
+    schedule:
+        - cron: "0 */12 * * *"
+    workflow_dispatch:
+
+concurrency:
+    group: deps-check
+    cancel-in-progress: false
+
+defaults:
+    run:
+        working-directory: product-sdk
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        environment: main
+        timeout-minutes: 10
+        steps:
+            - name: Generate GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@v1
+              with:
+                  app-id: ${{ secrets.APP_ID }}
+                  private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+            - uses: actions/checkout@v4
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: "pnpm"
+                  cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+            - run: pnpm install --frozen-lockfile
+
+            # For each @novasamatech/* catalog entry, resolve the highest
+            # *stable* version on npm and rewrite the catalog. Prereleases
+            # (containing `-`) are filtered out. Package list is derived
+            # from the catalog itself so newly-added @novasamatech/* deps
+            # are picked up automatically.
+            - name: Bump @novasamatech catalog entries
+              run: |
+                  set -euo pipefail
+                  pkgs=$(yq '.catalog | keys | .[] | select(test("^@novasamatech/"))' pnpm-workspace.yaml)
+                  if [[ -z "$pkgs" ]]; then
+                    echo "::warning::no @novasamatech/* entries in catalog"
+                    exit 0
+                  fi
+                  while IFS= read -r pkg; do
+                    latest=$(npm view "$pkg" versions --json | jq -r '.[]' | grep -vE -- '-' | sort -V | tail -1)
+                    if [[ -z "$latest" ]]; then
+                      echo "::error::no stable versions found for $pkg" && exit 1
+                    fi
+                    echo "$pkg → ^$latest"
+                    pkg="$pkg" latest="$latest" \
+                      yq -i '.catalog[strenv(pkg)] = "^" + strenv(latest)' pnpm-workspace.yaml
+                  done <<< "$pkgs"
+
+            # Refresh pnpm-lock.yaml against the new catalog without
+            # running install hooks or re-resolving unrelated transitives.
+            - run: pnpm install --lockfile-only
+
+            - name: Detect changes
+              id: changes
+              run: |
+                  if git diff --quiet pnpm-workspace.yaml pnpm-lock.yaml; then
+                    echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "changed=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Summarize bumps
+              if: steps.changes.outputs.changed == 'true'
+              id: summary
+              run: |
+                  {
+                    echo "body<<PR_BODY_EOF"
+                    echo "Automated bump of \`@novasamatech/*\` catalog entries in \`product-sdk/pnpm-workspace.yaml\`."
+                    echo
+                    echo "Catalog diff:"
+                    echo '```diff'
+                    git diff -- pnpm-workspace.yaml | grep -E '^[+-]\s+"@novasamatech' || true
+                    echo '```'
+                    echo
+                    echo "Changelog: https://github.com/paritytech/triangle-js-sdks/blob/main/CHANGELOG.md"
+                    echo
+                    echo "Reviewer: please check the changelog and confirm no other changes are needed in this repo beyond the version bump."
+                    echo "PR_BODY_EOF"
+                  } >> $GITHUB_OUTPUT
+
+            # Both author and committer are set to a deps-bot identity
+            # that is intentionally NOT the App's identity
+            # (product-sdk-release-bot[bot]). Reason: the release workflow
+            # in product-sdk-release.yml skips when the latest commit on
+            # main is authored by product-sdk-release-bot[bot], so if this
+            # PR is squash-merged with a changeset, we need git authorship
+            # to NOT match that name. Otherwise the release silently
+            # skips. The push itself still uses the App token.
+            - name: Create Pull Request
+              if: steps.changes.outputs.changed == 'true'
+              uses: peter-evans/create-pull-request@v7
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  path: product-sdk
+                  add-paths: |
+                      pnpm-workspace.yaml
+                      pnpm-lock.yaml
+                  branch: deps/novasamatech-updates
+                  delete-branch: true
+                  commit-message: "chore(deps): bump @novasamatech catalog deps"
+                  title: "chore(deps): bump @novasamatech catalog deps"
+                  body: ${{ steps.summary.outputs.body }}
+                  labels: dependencies
+                  author: "product-sdk-deps-bot <product-sdk-deps-bot@users.noreply.github.com>"
+                  committer: "product-sdk-deps-bot <product-sdk-deps-bot@users.noreply.github.com>"

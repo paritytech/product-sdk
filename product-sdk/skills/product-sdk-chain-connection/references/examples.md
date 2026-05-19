@@ -128,7 +128,7 @@ const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
     rpcs: {
         assetHub: [
-            "wss://sys.ibp.network/asset-hub-paseo",
+            "wss://paseo-asset-hub-next-rpc.polkadot.io",
             "wss://asset-hub-paseo.dotters.network",
         ],
     },
@@ -157,23 +157,23 @@ console.log("Finalized block:", finalizedHead.hash);
 client.destroy();
 ```
 
-## Create InkSdk for Contracts
+## Create ContractRuntime for Contracts
 
 ```typescript
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-import { createInkSdk } from "@polkadot-api/sdk-ink";
+import { createContractRuntime } from "@parity/product-sdk-contracts";
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://sys.ibp.network/asset-hub-paseo"] },
+    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
-// Create InkSdk from raw client
-const inkSdk = createInkSdk(client.raw.assetHub, { atBest: true });
+// Create ContractRuntime from raw client
+const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 
 // Use with @parity/product-sdk-contracts
-// const contract = createContract(inkSdk, address, abi);
+// const contract = createContract(runtime, address, abi);
 
 client.destroy();
 ```
@@ -183,19 +183,19 @@ client.destroy();
 ```typescript
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-import { bulletin } from "@parity/product-sdk-descriptors/bulletin";
-import { individuality } from "@parity/product-sdk-descriptors/individuality";
+import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
+import { paseo_individuality } from "@parity/product-sdk-descriptors/paseo-individuality";
 
 const client = await createChainClient({
     chains: {
         assetHub: paseo_asset_hub,
-        bulletin: bulletin,
-        individuality: individuality,
+        bulletin: paseo_bulletin,
+        individuality: paseo_individuality,
     },
     rpcs: {
-        assetHub: ["wss://sys.ibp.network/asset-hub-paseo"],
-        bulletin: ["wss://paseo-bulletin-rpc.polkadot.io"],
-        individuality: ["wss://paseo-individuality-rpc.polkadot.io"],
+        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
+        bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
+        individuality: ["wss://paseo-people-next-system-rpc.polkadot.io"],
     },
 });
 

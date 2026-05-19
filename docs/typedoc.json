@@ -1,21 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": [
-    "../product-sdk/packages/address",
-    "../product-sdk/packages/bulletin",
-    "../product-sdk/packages/chain-client",
-    "../product-sdk/packages/contracts",
-    "../product-sdk/packages/crypto",
-    "../product-sdk/packages/host",
-    "../product-sdk/packages/keys",
-    "../product-sdk/packages/logger",
-    "../product-sdk/packages/sdk",
-    "../product-sdk/packages/signer",
-    "../product-sdk/packages/statement-store",
-    "../product-sdk/packages/storage",
-    "../product-sdk/packages/tx",
-    "../product-sdk/packages/utils"
-  ],
+  "entryPoints": [],
   "entryPointStrategy": "packages",
   "packageOptions": {
     "entryPoints": ["src/index.ts"]

@@ -42,7 +42,7 @@ import { StatementStoreClient } from "@parity/product-sdk-statement-store";
 
 const client = new StatementStoreClient({
   appName: "my-app",
-  endpoint: "wss://paseo-bulletin-rpc.polkadot.io",
+  endpoint: "wss://paseo-bulletin-next-rpc.polkadot.io",
 });
 
 await client.connect({

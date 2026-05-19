@@ -8,12 +8,12 @@
     "build": "next build",
     "postbuild": "pagefind --site out --output-path out/_pagefind",
     "start": "serve out",
-    "docs:extract": "typedoc",
+    "docs:extract": "tsx scripts/extract.ts",
     "docs:render": "tsx scripts/generate-api.ts",
     "docs:generate": "pnpm docs:extract && pnpm docs:render"
   },
   "dependencies": {
-    "next": "^15.0.0",
+    "next": "^15.5.18",
     "nextra": "^4.0.0",
     "nextra-theme-docs": "^4.0.0",
     "react": "^19.0.0",

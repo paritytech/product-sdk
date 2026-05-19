@@ -13,8 +13,8 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-contracts` | Typed contract interactions on Polkadot Asset Hub |
 | `@parity/product-sdk-bulletin` | Upload and retrieve data on the Polkadot Bulletin Chain |
 | `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |
-| `@parity/product-sdk-keys` | Hierarchical key derivation and session key management |
-| `@parity/product-sdk-local-storage` | Key-value storage with automatic host/browser backend detection |
+| `@parity/product-sdk-keys` | Hierarchical key derivation, session keys, and sr25519 product-account derivation |
+| `@parity/product-sdk-local-storage` | Key-value local storage with automatic host/browser backend detection |
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
 | `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
 | `@parity/product-sdk-crypto` | Cryptographic primitives — encryption, key derivation, NaCl |
@@ -86,6 +86,10 @@ Every PR runs a bundle-size benchmark across all SDK packages and posts a diff c
 pnpm bench           # measure current sizes locally
 pnpm bench:compare   # compare against a saved snapshot (CI uses this)
 ```
+
+## Releasing
+
+Releases are driven by [changesets](https://github.com/changesets/changesets). See [`RELEASES.md`](./RELEASES.md) for the full workflow — including the `pending-changesets/` staging directory for changesets that aren't yet ready to publish.
 
 ## License
 

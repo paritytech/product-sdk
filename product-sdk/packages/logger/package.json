@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-logger",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Structured, namespace-filtered logging for the @parity/product-sdk ecosystem",
     "type": "module",
     "sideEffects": false,

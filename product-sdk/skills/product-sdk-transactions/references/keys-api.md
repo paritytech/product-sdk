@@ -147,6 +147,46 @@ function seedToAccount(
 
 ---
 
+## deriveProductAccountPublicKey
+
+Canonical sr25519 product-account public-key derivation. Mirrors the algorithm in polkadot-desktop (`productAccountService.deriveProductPublicKey`) and polkadot-app-android-v2 (`ProductAccountDerivationUseCase`), so an external client (CLI, web host) can compute the same derived address the mobile wallet derives privately, without ever seeing the secret key.
+
+```ts
+import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
+
+function deriveProductAccountPublicKey(
+  parentPublicKey: Uint8Array,
+  productId: string,
+  derivationIndex: number,
+): Uint8Array
+```
+
+Applies sr25519 soft derivation (`HDKD.publicSoft`) left-to-right over the junctions `["product", productId, String(derivationIndex)]`. Returns the 32-byte derived public key.
+
+### productId constraint (cross-platform parity)
+
+`productId` MUST contain at least one non-hex character OR be of odd length when serialized as a string. polkadot-app-android-v2's `SubstrateJunctionDecoder` tries to interpret a junction as hex BEFORE falling through to SCALE-string encoding; polkadot-desktop and this implementation skip that hex branch. For productIds that happen to be even-length all-hex strings (e.g. `"deadbeef"`), Android would derive a different public key. dotNS names like `"playground.dot"` always contain `.` and never trip the hex branch.
+
+---
+
+## createChainCode
+
+Lower-level helper for building custom junction paths. Encodes a junction the way Substrate does:
+
+```ts
+import { createChainCode } from "@parity/product-sdk-keys";
+
+function createChainCode(code: string): Uint8Array  // 32-byte chain code
+```
+
+- `code` matching `^\d+$`: SCALE `u64` of `BigInt(code)`, zero-padded to 32 bytes.
+- Other strings: SCALE `str` (compact-length + UTF-8), zero-padded to 32 bytes.
+- If the encoded form exceeds 32 bytes: `blake2b256(encoded)`.
+
+Most consumers should use `deriveProductAccountPublicKey` instead; `createChainCode` is exported for callers that need to derive against non-`["product", ...]` junction paths.
+
+---
+
 ## Types
 
 ### DerivedAccount

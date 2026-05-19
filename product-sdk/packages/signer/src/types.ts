@@ -1,6 +1,7 @@
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { SS58String } from "@parity/product-sdk-address";
+import type { AllocatableResource, AllocationOutcome } from "@parity/product-sdk-host";
 
 import type { SignerError } from "./errors.js";
 
@@ -105,7 +106,62 @@ export interface SignerManagerOptions {
      * Set to `null` to disable persistence entirely.
      */
     persistence?: AccountPersistence | null;
+    /**
+     * Callback fired exactly when the manager transitions to `connected`
+     * with a selected account — not on subsequent state mutations while
+     * still connected. Fires again after auto-reconnect, so a fresh host
+     * session re-runs the callback.
+     *
+     * Common use: request product resource allocations once per session.
+     * The `ctx` exposes a pre-bound `requestResourceAllocation` helper
+     * plus an `AbortSignal` that fires if the user disconnects or
+     * destroys the manager mid-flight.
+     *
+     * `requestResourceAllocation` throws on failure (matches the
+     * `@parity/product-sdk-host` export of the same name); errors thrown
+     * from `onConnect` are logged but do not affect the connected state —
+     * the next reconnect retries.
+     *
+     * @example
+     * ```ts
+     * new SignerManager({
+     *   onConnect: async (_account, { requestResourceAllocation, signal }) => {
+     *     try {
+     *       const outcomes = await requestResourceAllocation([
+     *         { tag: "AutoSigning", value: undefined },
+     *       ]);
+     *       if (signal.aborted) return;
+     *       if (outcomes.some((o) => o.tag !== "Allocated")) {
+     *         logWarning("partial permissions", outcomes);
+     *       }
+     *     } catch (cause) {
+     *       logWarning("resource allocation failed", cause);
+     *     }
+     *   },
+     * });
+     * ```
+     */
+    onConnect?: OnConnect;
 }
+
+/** Context passed to the `onConnect` callback. */
+export interface ConnectContext {
+    /**
+     * Aborted when the manager disconnects or is destroyed while the
+     * callback is still running. Pass through to `fetch` / cancellation
+     * primitives so mid-flight work stops promptly.
+     */
+    signal: AbortSignal;
+    /**
+     * Request a batch of host resource allocations. Bound shorthand for
+     * `requestResourceAllocation` from `@parity/product-sdk-host` —
+     * throws on failure, returns the unwrapped outcomes on success.
+     */
+    requestResourceAllocation: (resources: AllocatableResource[]) => Promise<AllocationOutcome[]>;
+}
+
+/** Callback signature for {@link SignerManagerOptions.onConnect}. */
+export type OnConnect = (account: SignerAccount, ctx: ConnectContext) => void | Promise<void>;
 
 if (import.meta.vitest) {
     const { test, expect, describe } = import.meta.vitest;

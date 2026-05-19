@@ -1,6 +1,6 @@
 {
   "name": "@parity/product-sdk-bench-consumer",
-  "version": "0.0.0",
+  "version": "0.0.5",
   "private": true,
   "type": "module",
   "dependencies": {
@@ -17,6 +17,7 @@
     "@parity/product-sdk-signer": "workspace:*",
     "@parity/product-sdk-statement-store": "workspace:*",
     "@parity/product-sdk-local-storage": "workspace:*",
+    "@parity/product-sdk-terminal": "workspace:*",
     "@parity/product-sdk-tx": "workspace:*",
     "@parity/product-sdk-utils": "workspace:*"
   }
