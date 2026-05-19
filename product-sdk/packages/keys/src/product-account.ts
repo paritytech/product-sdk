@@ -16,6 +16,18 @@
  *   - numeric ("^\d+$") -> SCALE u64 (BigInt), zero-padded to 32 bytes
  *   - string             -> SCALE str (compact-length + UTF-8), zero-padded
  *   - if encoded > 32 bytes -> blake2b256(encoded) (32-byte BLAKE2b digest)
+ *
+ * # productId constraint (cross-platform parity)
+ *
+ * `productId` MUST contain at least one non-hex character or be of odd
+ * length when serialized as a string. polkadot-app-android-v2's
+ * SubstrateJunctionDecoder tries to interpret a junction as hex BEFORE
+ * falling through to SCALE-string encoding; polkadot-desktop and this
+ * implementation skip that hex branch. For productIds that happen to be
+ * even-length all-hex strings (e.g. "deadbeef", "c0ffee01"), Android would
+ * derive a different public key than desktop or this implementation. In
+ * practice, productIds are always dotNS names (e.g. "playground.dot"),
+ * which contain "." and therefore never trip the hex branch on Android.
  */
 
 import { blake2b256 } from "@parity/product-sdk-crypto";
