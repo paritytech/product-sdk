@@ -12,47 +12,47 @@ importers:
         specifier: ^15.5.18
         version: 15.5.18(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       nextra:
-        specifier: ^4.0.0
+        specifier: ^4.6.1
         version: 4.6.1(next@15.5.18(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@5.9.3)
       nextra-theme-docs:
-        specifier: ^4.0.0
+        specifier: ^4.6.1
         version: 4.6.1(@types/react@19.2.14)(next@15.5.18(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(nextra@4.6.1(next@15.5.18(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@5.9.3))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
       react:
-        specifier: ^19.0.0
+        specifier: ^19.2.5
         version: 19.2.5
       react-dom:
-        specifier: ^19.0.0
+        specifier: ^19.2.5
         version: 19.2.5(react@19.2.5)
     devDependencies:
       '@tailwindcss/postcss':
-        specifier: ^4.0.0
+        specifier: ^4.2.4
         version: 4.2.4
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.39
         version: 20.19.39
       '@types/react':
-        specifier: ^19.0.0
+        specifier: ^19.2.14
         version: 19.2.14
       '@types/react-dom':
-        specifier: ^19.0.0
+        specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.14)
       autoprefixer:
-        specifier: ^10.4.0
+        specifier: ^10.5.0
         version: 10.5.0(postcss@8.5.12)
       pagefind:
-        specifier: ^1.4.0
+        specifier: ^1.5.2
         version: 1.5.2
       postcss:
-        specifier: ^8.4.0
+        specifier: ^8.5.12
         version: 8.5.12
       serve:
-        specifier: ^14.2.4
+        specifier: ^14.2.6
         version: 14.2.6
       tailwindcss:
-        specifier: ^4.0.0
+        specifier: ^4.2.4
         version: 4.2.4
       tsx:
-        specifier: ^4.19.2
+        specifier: ^4.21.0
         version: 4.21.0
       typedoc:
         specifier: 0.28.19
@@ -1052,8 +1052,8 @@ packages:
   brace-expansion@1.1.14:
     resolution: {integrity: sha512-MWPGfDxnyzKU7rNOW9SP/c50vi3xrmrua/+6hfPbCS2ABNWfx24vPidzvC7krjU/RTo235sV776ymlsMtGKj8g==}
 
-  brace-expansion@5.0.5:
-    resolution: {integrity: sha512-VZznLgtwhn+Mact9tfiwx64fA9erHH/MCXEUfB/0bX/6Fz6ny5EGTXYltMocqg4xFAQZtnO3DHWWXi8RiuN7cQ==}
+  brace-expansion@5.0.6:
+    resolution: {integrity: sha512-kLpxurY4Z4r9sgMsyG0Z9uzsBlgiU/EFKhj/h91/8yHu0edo7XuixOIH3VcJ8kkxs6/jPzoI6U9Vj3WqbMQ94g==}
     engines: {node: 18 || 20 || >=22}
 
   braces@3.0.3:
@@ -3610,7 +3610,7 @@ snapshots:
       balanced-match: 1.0.2
       concat-map: 0.0.1
 
-  brace-expansion@5.0.5:
+  brace-expansion@5.0.6:
     dependencies:
       balanced-match: 4.0.4
 
@@ -4988,7 +4988,7 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.5
+      brace-expansion: 5.0.6
 
   minimatch@3.1.5:
     dependencies:
