@@ -388,8 +388,8 @@ importers:
   packages/address:
     dependencies:
       '@noble/hashes':
-        specifier: ^1.7.1
-        version: 1.8.0
+        specifier: ^2.2.0
+        version: 2.2.0
       '@polkadot-api/substrate-bindings':
         specifier: ^0.12.0
         version: 0.12.0
@@ -506,8 +506,8 @@ importers:
         specifier: ^1.8.0
         version: 1.9.7
       '@noble/hashes':
-        specifier: ^1.7.1
-        version: 1.8.0
+        specifier: ^2.2.0
+        version: 2.2.0
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3
@@ -746,7 +746,7 @@ importers:
         specifier: ^2.0.1
         version: 2.2.0
       '@noble/hashes':
-        specifier: ^2.0.1
+        specifier: ^2.2.0
         version: 2.2.0
       '@novasamatech/host-papp':
         specifier: ^0.7.7
@@ -823,8 +823,8 @@ importers:
   packages/utils:
     dependencies:
       '@noble/hashes':
-        specifier: ^1.7.1
-        version: 1.8.0
+        specifier: ^2.2.0
+        version: 2.2.0
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
