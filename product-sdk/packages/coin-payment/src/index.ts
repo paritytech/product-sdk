@@ -1,5 +1,14 @@
 export { createCoinPaymentClient, createCoinPaymentClientFromHost } from "./client.js";
 export type { CreateCoinPaymentClientOptions } from "./client.js";
+export { createCoinageProductionHost } from "./production-host.js";
+export type {
+    CoinageProductionChequeInbox,
+    CoinageProductionPaymentRuntimeConstructor,
+    CoinageProductionPaymentRuntimeLike,
+    CoinageProductionRuntimeAdapters,
+    CoinageProductionRuntimeModule,
+    CreateCoinageProductionHostOptions,
+} from "./production-host.js";
 export { installCoinPaymentReferenceHost } from "./reference-host.js";
 export type {
     CoinPaymentReferenceHost,

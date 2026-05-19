@@ -3,6 +3,11 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
     test: {
         environment: "node",
-        include: ["src/**/*.test.ts", "src/**/*.spec.ts", "src/**/reference-host.ts"],
+        include: [
+            "src/**/*.test.ts",
+            "src/**/*.spec.ts",
+            "src/**/reference-host.ts",
+            "src/**/production-host.ts",
+        ],
     },
 });
