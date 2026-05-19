@@ -32,12 +32,12 @@ async function main() {
     await rename(join(target, "_gitignore"), join(target, ".gitignore"));
     await rewritePackageName(join(target, "package.json"), projectName);
 
-    console.log(`\n  Done. Next steps:\n`);
+    console.log("\n  Done. Next steps:\n");
     console.log(`    cd ${projectName}`);
-    console.log(`    pnpm install`);
-    console.log(`    pnpm dev\n`);
-    console.log(`  Then open http://localhost:5173 and edit src/App.tsx.\n`);
-    console.log(`  Learn more: https://github.com/paritytech/product-sdk\n`);
+    console.log("    pnpm install");
+    console.log("    pnpm dev\n");
+    console.log("  Then open http://localhost:5173 and edit src/App.tsx.\n");
+    console.log("  Learn more: https://github.com/paritytech/product-sdk\n");
 }
 
 async function promptProjectName(): Promise<string> {
