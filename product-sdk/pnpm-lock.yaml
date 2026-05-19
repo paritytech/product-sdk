@@ -553,9 +553,6 @@ importers:
 
   packages/keys:
     dependencies:
-      '@noble/hashes':
-        specifier: ^2.2.0
-        version: 2.2.0
       '@parity/product-sdk-address':
         specifier: workspace:*
         version: link:../address

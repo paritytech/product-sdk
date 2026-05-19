@@ -33,11 +33,18 @@ describe("createChainCode", () => {
         expect(result[31]).toBe(0);
     });
 
-    it("hashes a string junction whose SCALE encoding exceeds 32 bytes via blake2b", () => {
+    it("hashes a string junction whose SCALE encoding exceeds 32 bytes via blake2b256", () => {
+        // The encoded form of "a".repeat(100) is compact-length(100) + 100 utf8 bytes
+        // = 2 + 100 = 102 bytes, which exceeds the 32-byte slot and triggers the
+        // blake2b fallback. The expected hex value below is the blake2b-256 hash
+        // of the SCALE-encoded bytes; locking it pins us to a specific hash function.
         const longCode = "a".repeat(100);
         const result = createChainCode(longCode);
         expect(result.length).toBe(32);
-        const repeat = createChainCode(longCode);
-        expect(Array.from(result)).toEqual(Array.from(repeat));
+        const hex = "0x" + Array.from(result).map((b) => b.toString(16).padStart(2, "0")).join("");
+        // Compute this once locally and paste below. To regenerate after a deliberate
+        // algorithm change, run the assertion, copy the actual hex from the failure
+        // diff, and update.
+        expect(hex).toBe("0x0cc6ae1565611349f15a291549fc38c30273d4bf600eec3ec6dfffff6d5bb8d8");
     });
 });

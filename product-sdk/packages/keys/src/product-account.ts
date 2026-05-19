@@ -15,10 +15,10 @@
  * left-to-right. For each junction, a 32-byte chain code is built:
  *   - numeric ("^\d+$") -> SCALE u64 (BigInt), zero-padded to 32 bytes
  *   - string             -> SCALE str (compact-length + UTF-8), zero-padded
- *   - if encoded > 32 bytes -> blake2b(encoded, dkLen=32)
+ *   - if encoded > 32 bytes -> blake2b256(encoded) (32-byte BLAKE2b digest)
  */
 
-import { blake2b } from "@noble/hashes/blake2.js";
+import { blake2b256 } from "@parity/product-sdk-crypto";
 import { HDKD } from "@scure/sr25519";
 import { str, u64 } from "scale-ts";
 
@@ -31,7 +31,7 @@ export function createChainCode(code: string): Uint8Array {
         : str.enc(code);
 
     if (encoded.length > JUNCTION_ID_LEN) {
-        return blake2b(encoded, { dkLen: JUNCTION_ID_LEN });
+        return blake2b256(encoded);
     }
 
     const chainCode = new Uint8Array(JUNCTION_ID_LEN);
