@@ -14,10 +14,10 @@ export {
     isDotNsAvailable,
 } from "./dotns.js";
 
-// Product account utilities
+// Context alias utilities
 export {
-    deriveProductAccount,
-    verifyProductAccount,
+    deriveContextAlias,
+    verifyContextAlias,
     deriveAnonymousAlias,
     createRingProof,
     verifyRingProof,
@@ -26,7 +26,7 @@ export {
 // Types
 export type {
     DotNsRecord,
-    ProductAccountInfo,
+    ContextAliasInfo,
     AnonymousAliasInfo,
     RingLocation,
     VerificationResult,
