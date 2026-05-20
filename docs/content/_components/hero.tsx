@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function Hero() {
   return (
     <div className="max-w-4xl pt-8 pb-12">
@@ -11,24 +13,24 @@ export function Hero() {
         packages handle chain clients, transactions, keys, and crypto.
       </div>
       <div className="mt-8 flex items-center gap-3">
-        <a
+        <Link
           href="/getting-started/installation"
           className="bg-action-primary text-primary-inverted font-medium text-sm px-4 py-2 rounded-small hover:bg-action-primary-hover transition-colors cursor-pointer"
         >
           Installation
-        </a>
-        <a
+        </Link>
+        <Link
           href="/getting-started/quickstart"
           className="bg-action-secondary text-primary font-medium text-sm px-4 py-2 rounded-small hover:bg-action-secondary-hover transition-colors cursor-pointer"
         >
           Quickstart
-        </a>
-        <a
+        </Link>
+        <Link
           href="/api"
           className="bg-action-secondary text-primary font-medium text-sm px-4 py-2 rounded-small hover:bg-action-secondary-hover transition-colors cursor-pointer"
         >
           API Reference
-        </a>
+        </Link>
       </div>
     </div>
   );
