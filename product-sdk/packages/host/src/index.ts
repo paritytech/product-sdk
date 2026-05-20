@@ -11,6 +11,7 @@ export {
     isInsideContainer,
     isInsideContainerSync,
     getHostLocalStorage,
+    createHostLocalStorage,
     getHostProvider,
     getStatementStore,
 } from "./container.js";
@@ -32,6 +33,7 @@ export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 export {
     getTruApi,
     getPreimageManager,
+    createHostPreimageManager,
     getAccountsProvider,
     requestResourceAllocation,
     createProofAuthorized,
@@ -62,5 +64,26 @@ export type {
     RemotePermissionTag,
 } from "./truapi.js";
 
-// Higher-level permission wrapper
-export { requestPermission } from "./permissions.js";
+// Higher-level permission wrappers
+export { requestPermission, requestDevicePermission } from "./permissions.js";
+export type { DevicePermissionKind, RemotePermissionItem } from "./permissions.js";
+
+// Theme provider
+export { getThemeProvider } from "./theme.js";
+export type { ThemeMode, ThemeProvider } from "./theme.js";
+
+// Entropy derivation (RFC-0007)
+export { deriveEntropy } from "./entropy.js";
+
+// Chat
+export { getChatManager, matchChatCustomRenderers } from "./chat.js";
+export type {
+    ChatManager,
+    ChatMessageContent,
+    ChatReceivedAction,
+    ChatRoom,
+    ChatRoomRegistrationResult,
+    ChatBotRegistrationResult,
+    ChatCustomMessageRenderer,
+    ChatCustomMessageRendererParams,
+} from "./chat.js";

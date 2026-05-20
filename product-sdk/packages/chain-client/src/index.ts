@@ -20,5 +20,9 @@ export type { Environment, PresetChains } from "./presets.js";
 // Types
 export type { ChainClient, ChainClientConfig, ChainEntry } from "./types.js";
 
+// Well-known chain genesis hashes
+export { WellKnownChain } from "./well-known-chain.js";
+export type { WellKnownChainHash } from "./well-known-chain.js";
+
 // Re-export from host
 export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-host";

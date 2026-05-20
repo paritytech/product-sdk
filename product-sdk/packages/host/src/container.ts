@@ -1,4 +1,5 @@
 import type { JsonRpcProvider } from "polkadot-api";
+import type { Transport } from "@novasamatech/host-api";
 
 import type { HostLocalStorage, HostStatementStore } from "./types.js";
 
@@ -32,6 +33,28 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
     try {
         const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.hostLocalStorage as HostLocalStorage;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Construct a fresh host-backed `HostLocalStorage` instance with an optional
+ * custom transport. Use this when you need a non-default transport (e.g.
+ * for tests); otherwise prefer {@link getHostLocalStorage}, which returns
+ * the shared singleton.
+ *
+ * Mirrors `createLocalStorage` from `@novasamatech/product-sdk`.
+ *
+ * @param transport - Optional transport; defaults to the sandbox transport.
+ * @returns A new `HostLocalStorage` instance, or `null` if unavailable.
+ */
+export async function createHostLocalStorage(
+    transport?: Transport,
+): Promise<HostLocalStorage | null> {
+    try {
+        const sdk = await import("@novasamatech/product-sdk");
+        return sdk.createLocalStorage(transport);
     } catch {
         return null;
     }

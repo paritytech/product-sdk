@@ -102,16 +102,19 @@ export type { HexString } from "@novasamatech/host-api";
  * The TruApi type - provides low-level methods for communicating with the host.
  *
  * Methods include:
- * - `navigateTo(url)` — Navigate to a URL within the host
- * - `permission(permissions)` — Request permissions from the host
- * - `localStorageRead/Write/Clear` — Host-backed storage
- * - `sign(payload)` — Request transaction signing
- * - `deriveEntropy(context)` — Derive deterministic entropy
- * - `themeSubscribe()` — Subscribe to host theme changes
+ * - `navigateTo(url)` - Navigate to a URL within the host
+ * - `permission(permissions)` - Request permissions from the host
+ * - `localStorageRead/Write/Clear` - Host-backed storage
+ * - `sign(payload)` - Request transaction signing
+ * - `deriveEntropy(context)` - Derive deterministic entropy
+ * - `themeSubscribe()` - Subscribe to host theme changes
  * - And many more...
+ *
+ * Type identical to `hostApi` from `@novasamatech/product-sdk` so that
+ * `truApi.X(...)` calls keep their full inference (return types, method
+ * names, parameter shapes) instead of decaying to `any`.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type TruApi = any;
+export type TruApi = typeof import("@novasamatech/product-sdk").hostApi;
 
 /** Cached TruApi instance */
 let cachedTruApi: TruApi | null = null;
@@ -203,6 +206,27 @@ export async function getPreimageManager(): Promise<PreimageManager | null> {
  * Type identical to `preimageManager` from `@novasamatech/host-api-wrapper`.
  */
 export type PreimageManager = typeof preimageManager;
+
+/**
+ * Construct a fresh `PreimageManager` instance with an optional custom
+ * transport. Use this when you need a non-default transport; otherwise
+ * prefer {@link getPreimageManager}, which returns the shared singleton.
+ *
+ * Mirrors `createPreimageManager` from `@novasamatech/product-sdk`.
+ *
+ * @param transport - Optional transport; defaults to the sandbox transport.
+ * @returns A new `PreimageManager` instance, or `null` if unavailable.
+ */
+export async function createHostPreimageManager(
+    transport?: import("@novasamatech/host-api").Transport,
+): Promise<PreimageManager | null> {
+    try {
+        const sdk = await import("@novasamatech/product-sdk");
+        return sdk.createPreimageManager(transport);
+    } catch {
+        return null;
+    }
+}
 
 /**
  * Get the accounts provider for managing host accounts.
