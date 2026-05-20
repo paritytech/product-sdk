@@ -59,7 +59,7 @@
     },
     "files": ["dist", "src"],
     "scripts": {
-        "build": "tsup",
+        "build": "NODE_OPTIONS=--max-old-space-size=8192 tsup",
         "clean": "rm -rf dist"
     },
     "dependencies": {
