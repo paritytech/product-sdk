@@ -15,7 +15,7 @@
 import { createLogger } from "@parity/product-sdk-logger";
 
 import type { CodecType } from "@novasamatech/host-api";
-import { DevicePermission as DevicePermissionCodec } from "@novasamatech/host-api";
+import type { DevicePermission as DevicePermissionCodec } from "@novasamatech/host-api";
 
 import { enumValue, getTruApi, type RemotePermission } from "./truapi.js";
 
@@ -91,9 +91,7 @@ export async function requestPermission(permission: RemotePermission): Promise<b
  * }
  * ```
  */
-export async function requestDevicePermission(
-    permission: DevicePermissionKind,
-): Promise<boolean> {
+export async function requestDevicePermission(permission: DevicePermissionKind): Promise<boolean> {
     const truApi = await getTruApi();
     if (!truApi) {
         throw new Error("requestDevicePermission: TruAPI unavailable");
@@ -188,9 +186,9 @@ if (import.meta.vitest) {
     describe("requestDevicePermission", () => {
         test("throws when TruAPI is unavailable", async () => {
             await withMockedTruApi(null, async (mod) => {
-                await expect(
-                    mod.requestDevicePermission("Camera"),
-                ).rejects.toThrow(/TruAPI unavailable/);
+                await expect(mod.requestDevicePermission("Camera")).rejects.toThrow(
+                    /TruAPI unavailable/,
+                );
             });
         });
 
@@ -224,9 +222,9 @@ if (import.meta.vitest) {
                     }),
                 },
                 async (mod) => {
-                    await expect(
-                        mod.requestDevicePermission("Camera"),
-                    ).rejects.toThrow(/requestDevicePermission failed/);
+                    await expect(mod.requestDevicePermission("Camera")).rejects.toThrow(
+                        /requestDevicePermission failed/,
+                    );
                 },
             );
         });

@@ -10,7 +10,10 @@
  * @module
  */
 
-import type { createThemeProvider, ThemeMode as NovasamaThemeMode } from "@novasamatech/product-sdk";
+import type {
+    createThemeProvider,
+    ThemeMode as NovasamaThemeMode,
+} from "@novasamatech/product-sdk";
 
 /**
  * Host theme provider handle. Exposes `subscribeTheme(callback)` which

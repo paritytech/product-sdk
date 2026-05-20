@@ -17,10 +17,7 @@ import type {
     CodecType,
     RemotePermission as RemotePermissionCodec,
 } from "@novasamatech/host-api";
-import type {
-    createAccountsProvider,
-    preimageManager,
-} from "@novasamatech/host-api-wrapper";
+import type { createAccountsProvider, preimageManager } from "@novasamatech/host-api-wrapper";
 
 import type { Statement, StatementProof } from "./types.js";
 
