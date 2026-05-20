@@ -18,9 +18,13 @@ export type {
     HostLocalStorage,
     HostStatementStore,
     HostSubscription,
+    ProductAccountId,
+    SignedStatement,
+    Statement,
     StatementProof,
     StatementTopicFilter,
     StatementsPage,
+    Topic,
 } from "./types.js";
 export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 
@@ -56,7 +60,6 @@ export type {
     AllocationOutcomeTag,
     RemotePermission,
     RemotePermissionTag,
-    Statement,
 } from "./truapi.js";
 
 // Higher-level permission wrapper

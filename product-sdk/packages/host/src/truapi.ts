@@ -16,10 +16,13 @@ import type {
     AllocationOutcome as AllocationOutcomeCodec,
     CodecType,
     RemotePermission as RemotePermissionCodec,
-    Statement as StatementCodec,
 } from "@novasamatech/host-api";
+import type {
+    createAccountsProvider,
+    preimageManager,
+} from "@novasamatech/host-api-wrapper";
 
-import type { StatementProof } from "./types.js";
+import type { Statement, StatementProof } from "./types.js";
 
 const log = createLogger("host");
 
@@ -193,27 +196,13 @@ export async function getPreimageManager(): Promise<PreimageManager | null> {
 }
 
 /**
- * Preimage manager interface for bulletin chain operations.
+ * Preimage manager handle for bulletin chain operations. `lookup` returns a
+ * `Subscription<void>` (`unsubscribe` + `onInterrupt`); `submit` returns a
+ * `0x`-prefixed hex preimage key.
+ *
+ * Type identical to `preimageManager` from `@novasamatech/host-api-wrapper`.
  */
-export interface PreimageManager {
-    /**
-     * Submit a preimage to the bulletin chain.
-     * @param data - The data to submit.
-     * @returns The preimage key (hex string).
-     */
-    submit(data: Uint8Array): Promise<string>;
-
-    /**
-     * Look up a preimage by key.
-     * @param key - The preimage key (hex string).
-     * @param callback - Called with the data when found, or null if not yet available.
-     * @returns Subscription handle with unsubscribe method.
-     */
-    lookup(
-        key: string,
-        callback: (preimage: Uint8Array | null) => void,
-    ): { unsubscribe: () => void; onInterrupt: (cb: () => void) => () => void };
-}
+export type PreimageManager = typeof preimageManager;
 
 /**
  * Get the accounts provider for managing host accounts.
@@ -223,7 +212,7 @@ export interface PreimageManager {
 export async function getAccountsProvider(): Promise<AccountsProvider | null> {
     try {
         const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.createAccountsProvider() as unknown as AccountsProvider;
+        return sdk.createAccountsProvider();
     } catch {
         return null;
     }
@@ -306,22 +295,6 @@ export async function requestResourceAllocation(
 // ─────────────────────────────────────────────────────────────────────────────
 // Authorized Statement Store proof creation (RFC-10 §"Statement Store allowance")
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * A Statement payload destined for the Statement Store. Matches the
- * `pallet-statement` Statement structure.
- *
- * The optional `proof` field is the same {@link StatementProof} shape that
- * {@link createProofAuthorized} returns: pass `undefined` here, call
- * `createProofAuthorized` to obtain the proof, then attach it before
- * submitting via `HostStatementStore.submit`. The `OnChain` variant of
- * `StatementProof` is a chain-attestation reference; the `Sr25519` /
- * `Ed25519` / `Ecdsa` variants are signing proofs.
- *
- * Derived from the upstream codec so structural changes surface as compile
- * errors here, not runtime decode failures.
- */
-export type Statement = CodecType<typeof StatementCodec>;
 
 /**
  * Have the host sign a Statement using an allowance-bearing account it
@@ -431,99 +404,16 @@ export interface ResultAsync<T, E> {
 }
 
 /**
- * Accounts provider interface from @novasamatech/host-api-wrapper.
+ * Accounts provider handle from `@novasamatech/host-api-wrapper`. Surfaces the
+ * full upstream API - host wallet accounts, app-scoped product accounts,
+ * Ring VRF, user identity (`getUserId`, `requestLogin`), and connection
+ * status subscription.
  *
- * Provides methods for accessing host wallet accounts, product accounts,
- * and Ring VRF operations.
+ * Type identical to `createAccountsProvider()` from
+ * `@novasamatech/host-api-wrapper`; methods return neverthrow `ResultAsync`
+ * values with typed `CodecError` variants in the error channel.
  */
-export interface AccountsProvider {
-    /**
-     * Get legacy accounts (user's external wallets connected to the host).
-     *
-     * Renamed from `getNonProductAccounts` in @novasamatech/host-api-wrapper 0.7.
-     *
-     * @returns ResultAsync resolving to array of accounts.
-     */
-    getLegacyAccounts: () => ResultAsync<HostAccount[], unknown>;
-
-    /**
-     * Get a signer for a legacy account.
-     *
-     * Renamed from `getNonProductAccountSigner` in @novasamatech/host-api-wrapper 0.7.
-     *
-     * @param account - The product account (used for public key lookup).
-     * @returns A PolkadotSigner for signing transactions.
-     */
-    getLegacyAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
-
-    /**
-     * Get an app-scoped product account from the host.
-     *
-     * Product accounts are derived by the host wallet for each app, identified
-     * by `dotNsIdentifier` (e.g., "mark3t.dot"). The user controls these accounts
-     * but they are scoped to the requesting app.
-     *
-     * @param dotNsIdentifier - App identifier (e.g., "mark3t.dot").
-     * @param derivationIndex - Derivation index within the app scope. Default: 0
-     * @returns ResultAsync resolving to the account.
-     */
-    getProductAccount: (
-        dotNsIdentifier: string,
-        derivationIndex?: number,
-    ) => ResultAsync<HostAccount, unknown>;
-
-    /**
-     * Get a signer for a product account.
-     *
-     * @param account - The product account.
-     * @returns A PolkadotSigner for signing transactions.
-     */
-    getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
-
-    /**
-     * Get a contextual alias for a product account via Ring VRF.
-     *
-     * Aliases prove account membership in a ring without revealing which
-     * account produced the alias.
-     *
-     * @param dotNsIdentifier - App identifier.
-     * @param derivationIndex - Derivation index. Default: 0
-     * @returns ResultAsync resolving to the contextual alias.
-     */
-    getProductAccountAlias: (
-        dotNsIdentifier: string,
-        derivationIndex?: number,
-    ) => ResultAsync<ContextualAlias, unknown>;
-
-    /**
-     * Create a Ring VRF proof for anonymous operations.
-     *
-     * Proves that the signer is a member of the ring at the given location
-     * without revealing which member.
-     *
-     * @param dotNsIdentifier - App identifier.
-     * @param derivationIndex - Derivation index.
-     * @param location - Ring location on-chain.
-     * @param message - Message to sign.
-     * @returns ResultAsync resolving to the proof bytes.
-     */
-    createRingVRFProof: (
-        dotNsIdentifier: string,
-        derivationIndex: number,
-        location: unknown,
-        message: Uint8Array,
-    ) => ResultAsync<Uint8Array, unknown>;
-
-    /**
-     * Subscribe to account connection status changes.
-     *
-     * @param callback - Called with status string ("connected" | "disconnected").
-     * @returns Unsubscribe handle.
-     */
-    subscribeAccountConnectionStatus: (
-        callback: (status: string) => void,
-    ) => { unsubscribe: () => void } | (() => void);
-}
+export type AccountsProvider = ReturnType<typeof createAccountsProvider>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests

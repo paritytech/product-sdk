@@ -105,15 +105,25 @@ if (import.meta.vitest) {
             },
             async writeString(key, value) {
                 data.set(key, value);
+                return undefined;
             },
-            async readJSON<T>(key: string): Promise<T | null> {
-                return (data.get(key) as T) ?? null;
+            async readJSON(key) {
+                return data.get(key) ?? null;
             },
             async writeJSON(key, value) {
                 data.set(key, value);
+                return undefined;
             },
-            async clear() {
-                data.clear();
+            async readBytes(key) {
+                return (data.get(key) as Uint8Array | undefined) ?? undefined;
+            },
+            async writeBytes(key, value) {
+                data.set(key, value);
+                return undefined;
+            },
+            async clear(key) {
+                data.delete(key);
+                return undefined;
             },
         };
     }
