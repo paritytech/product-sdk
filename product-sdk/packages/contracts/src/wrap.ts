@@ -1,5 +1,6 @@
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
 import {
+    bytesToHex,
     decodeErrorResult,
     decodeFunctionResult,
     encodeFunctionData,
@@ -111,15 +112,6 @@ function hexToBytes(hex: HexString): Uint8Array {
     return out;
 }
 
-/** Convert a `Uint8Array` to a `0x`-prefixed hex string. */
-function bytesToHex(bytes: Uint8Array): HexString {
-    let hex = "0x";
-    for (let i = 0; i < bytes.byteLength; i++) {
-        hex += bytes[i].toString(16).padStart(2, "0");
-    }
-    return hex as HexString;
-}
-
 // Bit 0 of `pallet-revive`'s `ReturnFlags`. Other bits are reserved, so we
 // mask explicitly rather than checking `flags !== 0`.
 const REVERT_FLAG = 1;
@@ -138,10 +130,21 @@ const PANIC_REASONS: Record<string, string> = {
     "0x51": "call to uninitialized internal function",
 };
 
-/** Decode a revert payload via the ABI, falling back to UTF-8 for raw `revert(bytes)` strings. */
+/**
+ * Adapt viem's `decodeErrorResult` output into our tagged `ContractRevertInfo`.
+ * The core decode is viem's; this wrapper layers in a UTF-8 fallback for raw
+ * `revert(bytes)` payloads and the panic-code-to-string mapping. viem's own
+ * `panicReasons` and `ContractFunctionRevertedError` are unsuitable here:
+ * `panicReasons` sits at `viem/constants/solidity` and isn't surfaced by
+ * viem's `exports` map, and `ContractFunctionRevertedError` is shaped for
+ * viem's call pipeline and would need adapting back into this shape anyway.
+ */
 function decodeRevert(abi: AbiEntry[], data: Uint8Array): ContractRevertInfo {
     const hex = bytesToHex(data);
-    const info: ContractRevertInfo = { type: "ContractRevertedWithPayload", data: hex };
+    const info: ContractRevertInfo = {
+        type: "ContractRevertedWithPayload",
+        data: hex as HexString,
+    };
     if (data.byteLength === 0) return info;
     try {
         // The ABI path wins even if a raw `revert(bytes)` payload happens to
@@ -149,7 +152,7 @@ function decodeRevert(abi: AbiEntry[], data: Uint8Array): ContractRevertInfo {
         // chains, but worth flagging for anyone debugging an oddly-decoded revert.
         const decoded = decodeErrorResult({
             abi: abi as unknown as ViemAbi,
-            data: hex as `0x${string}`,
+            data: hex,
         });
         info.decoded = {
             errorName: decoded.errorName,
@@ -200,7 +203,7 @@ function decodeReturn(abi: AbiEntry[], methodName: string, returnData: Uint8Arra
     const decoded = decodeFunctionResult({
         abi: abi as unknown as ViemAbi,
         functionName: methodName,
-        data: bytesToHex(returnData) as `0x${string}`,
+        data: bytesToHex(returnData),
     });
 
     const entry = abi.find((e) => e.type === "function" && e.name === methodName);

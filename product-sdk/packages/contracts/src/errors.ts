@@ -183,11 +183,10 @@ if (import.meta.vitest) {
             expect(err.data).toBe(data);
             expect(err.reason).toBe("Unauthorized");
             expect(err.decoded?.errorName).toBe("Error");
-            expect(err.message).toContain("transfer");
-            expect(err.message).toContain("Unauthorized");
-            expect(err.message).toContain("not submitted");
             // Error(string) prefers the bare reason over `Error("...")` form.
-            expect(err.message).not.toContain('Error("');
+            expect(err.message).toBe(
+                'Contract reverted in "transfer": Unauthorized. The transaction was not submitted.',
+            );
         });
 
         test("falls back to reason then to raw data when decoded is absent", () => {
