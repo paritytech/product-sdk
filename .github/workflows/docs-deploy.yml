@@ -97,7 +97,7 @@ jobs:
               if: steps.gate.outputs.skip != 'true'
               working-directory: docs
               env:
-                  PAGES_BASE_PATH: /product-sdk
+                  PAGES_BASE_PATH: /${{ github.event.repository.name }}
               run: pnpm build
 
             - name: Configure GitHub Pages
