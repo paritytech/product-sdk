@@ -262,6 +262,7 @@ async function buildReviveCall(
         if ((dryRun.result.value.flags & REVERT_FLAG) !== 0) {
             // Fail fast so callers don't pay gas on a call the chain already told us would revert.
             const { data, reason, decoded } = decodeRevert(abi, dryRun.result.value.data);
+            log.debug("Contract reverted", { methodName, reason, errorName: decoded?.errorName });
             throw new ContractRevertedError(methodName, data, { reason, decoded });
         }
         weightLimit = weightLimit ?? dryRun.weight_required;
@@ -341,9 +342,15 @@ export function wrapContract(
 
                     if ((dryRun.result.value.flags & REVERT_FLAG) !== 0) {
                         // Surface as a tagged value; decoding revert bytes as a normal return would throw.
+                        const info = decodeRevert(abi, dryRun.result.value.data);
+                        log.debug("Contract reverted", {
+                            methodName,
+                            reason: info.reason,
+                            errorName: info.decoded?.errorName,
+                        });
                         return {
                             success: false,
-                            value: decodeRevert(abi, dryRun.result.value.data),
+                            value: info,
                             gasRequired: dryRun.weight_required,
                         };
                     }

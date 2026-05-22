@@ -87,7 +87,7 @@ Each method on a contract handle has two variants:
 
 ```typescript
 const result = await counter.getCount.query();
-// result.value contains the return value
+// result.value contains the return value on success
 // No transaction, no gas cost
 ```
 
@@ -98,6 +98,18 @@ const result = await counter.getCount.query({
     origin: "0x...",  // Override caller address
 });
 ```
+
+**Reverts.** `query()` does NOT throw on a contract revert — it returns
+`{ success: false, value, gasRequired }`. Two failure shapes are possible:
+
+- Dispatch-level failures from the chain (e.g. `{ type: "ContractReverted" }`,
+  `{ type: "AccountNotMapped" }`, `{ type: "Module", ... }`) — passed through
+  on `value` as-is.
+- Contract-level reverts (REVERT flag set on a dispatched-OK call) — surfaced
+  as a tagged payload: `{ type: "ContractRevertedWithPayload", data, reason?, decoded? }`.
+  `reason` is the decoded `Error(string)` message or a mapped `Panic` description;
+  `decoded` carries the viem-decoded `{ errorName, args }` for ABI-defined custom
+  errors. Discriminate on `value.type` to tell the two failure paths apart.
 
 ### tx() — State-Changing Transactions
 
@@ -116,6 +128,13 @@ const result = await counter.increment.tx({
     onStatus: (status) => console.log(status),
 });
 ```
+
+**Pre-flight revert detection.** Before submitting, `tx()` runs a dry-run. If
+the chain reports the REVERT flag is set, `tx()` throws `ContractRevertedError`
+and the extrinsic is NOT submitted (no gas paid). The error carries `methodName`,
+the raw `data`, and the same `reason` / `decoded` fields as the query payload.
+Passing both `gasLimit` AND `storageDepositLimit` in options skips the dry-run
+entirely — including this revert pre-check.
 
 ## SignerManager Integration
 
@@ -236,6 +255,10 @@ const counter = createContract(runtime, "0x...", abi, { signerManager });
 3. **Wrong signer type** — Contract transactions need a `PolkadotSigner`. Don't confuse with `StatementSignerWithKey` (for statement-store).
 
 4. **Forgetting await** — Both `ContractManager.fromClient()` and `createContractFromClient()` return Promises.
+
+5. **Assuming `tx()` only fails for signer/dispatch reasons** — `tx()` also throws `ContractRevertedError` when the dry-run shows the contract would revert. Catch it (or its base `ContractError`) if you're surfacing revert reasons to users.
+
+6. **Assuming `query()` throws on revert** — It doesn't. Reverts come back as `{ success: false, value: { type: "ContractRevertedWithPayload", ... } }`. Always check `success` before reading `value` as the return type.
 
 ## Reference Files
 

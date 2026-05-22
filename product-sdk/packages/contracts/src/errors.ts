@@ -97,12 +97,13 @@ export class ContractRevertedError extends ContractError {
         data: HexString,
         info?: { reason?: string; decoded?: DecodedContractRevert },
     ) {
-        // `Error(string)` is the canonical "revert with a message" path -
-        // print the bare reason rather than `Error("...")` for readability.
+        // `reason` already carries the human-readable message for Error and Panic,
+        // so only fall back to `errorName(args...)` for ABI-defined custom errors.
         const suffix =
-            info?.decoded && info.decoded.errorName !== "Error"
+            info?.reason ??
+            (info?.decoded
                 ? `${info.decoded.errorName}(${(info.decoded.args ?? []).map(stringifyArg).join(", ")})`
-                : (info?.reason ?? data);
+                : data);
         super(
             `Contract reverted in "${methodName}": ${suffix}. The transaction was not submitted.`,
         );
@@ -218,6 +219,16 @@ if (import.meta.vitest) {
             });
             expect(err.message).toContain('"owed":"42"');
             expect(err.message).toContain('"deeper":["7","9"]');
+        });
+
+        test("uses the Panic reason instead of Panic(<code>) when decodeRevert provided one", () => {
+            // Regression: Panic reason used to be clobbered by the errorName(args) form.
+            const err = new ContractRevertedError("withdraw", "0x" as HexString, {
+                reason: "Panic: arithmetic overflow",
+                decoded: { errorName: "Panic", args: [17n] },
+            });
+            expect(err.message).toContain("Panic: arithmetic overflow");
+            expect(err.message).not.toContain("Panic(17)");
         });
     });
 }
