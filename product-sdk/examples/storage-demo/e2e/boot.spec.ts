@@ -6,15 +6,15 @@ import { waitForAppReady } from "./helpers";
  *
  * Verifies that:
  *   - SignerManager.connect() succeeds via HostProvider (product-sdk).
- *   - createKvStore() auto-detects the host backend (not browser localStorage).
+ *   - createLocalKvStore() auto-detects the host backend (not browser localStorage).
  *   - The selected account address is a Paseo SS58 address (prefix 0 → starts with "1").
  *
  * Host API surface tested:
  *   - isInsideContainer() → true
  *   - getHostLocalStorage() → host localStorage bridge
  */
-test.describe("@parity/product-sdk-storage via Host API — boot", () => {
-    test("KvStore auto-detects host backend inside container", async ({ testHost }) => {
+test.describe("@parity/product-sdk-local-storage via Host API — boot", () => {
+    test("LocalKvStore auto-detects host backend inside container", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 
         // Backend type should be "host" (auto-detected inside container)
@@ -31,7 +31,7 @@ test.describe("@parity/product-sdk-storage via Host API — boot", () => {
 
         // Log should confirm host backend
         await expect(frame.locator('[data-testid="storage-log"]')).toContainText(
-            /KvStore created.*host backend/i,
+            /LocalKvStore created.*host backend/i,
         );
     });
 });

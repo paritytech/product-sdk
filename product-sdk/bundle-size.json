@@ -618,10 +618,10 @@
         }
       }
     },
-    "@parity/product-sdk-storage": {
+    "@parity/product-sdk-local-storage": {
       "entries": {
         ".": {
-          "file": "packages/storage/dist/index.js",
+          "file": "packages/local-storage/dist/index.js",
           "ship": {
             "raw": 1995,
             "gzip": 619,

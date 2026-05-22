@@ -1,4 +1,4 @@
-# @parity/product-sdk-storage
+# @parity/product-sdk-local-storage
 
 ## 0.1.5
 

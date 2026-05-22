@@ -22,7 +22,7 @@
     "dependencies": {
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-crypto": "workspace:*",
-        "@parity/product-sdk-storage": "workspace:*",
+        "@parity/product-sdk-local-storage": "workspace:*",
         "@polkadot-labs/hdkd": "^0.0.28",
         "@polkadot-labs/hdkd-helpers": "^0.0.10",
         "@scure/sr25519": "^2.2.0",

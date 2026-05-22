@@ -2,12 +2,12 @@ import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
 /**
- * KvStore CRUD operations through the Host API path.
+ * LocalKvStore CRUD operations through the Host API path.
  *
  * Exercises:
- *   - KvStore.set() / .get() — string round-trip via host localStorage bridge
- *   - KvStore.setJSON() / .getJSON() — JSON serialization round-trip
- *   - KvStore.remove() — key deletion
+ *   - LocalKvStore.set() / .get() — string round-trip via host localStorage bridge
+ *   - LocalKvStore.setJSON() / .getJSON() — JSON serialization round-trip
+ *   - LocalKvStore.remove() — key deletion
  *   - Missing key handling — returns null
  *   - Host routing — verifies data lands in the host page's localStorage
  *
@@ -18,7 +18,7 @@ import { waitForAppReady } from "./helpers";
  *   - hostStorage.readJSON(key)
  *   - hostStorage.clear(key)
  */
-test.describe("@parity/product-sdk-storage via Host API — KvStore operations", () => {
+test.describe("@parity/product-sdk-local-storage via Host API — LocalKvStore operations", () => {
     test("set + get round-trip", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

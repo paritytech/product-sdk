@@ -1,5 +1,5 @@
 /**
- * useStorage hook
+ * useLocalStorage hook
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -14,7 +14,7 @@ import { useProductSDK } from "./context.js";
  * @example
  * ```tsx
  * function ThemeToggle() {
- *   const [theme, setTheme, { loading }] = useStorage('theme', 'light');
+ *   const [theme, setTheme, { loading }] = useLocalStorage('theme', 'light');
  *
  *   if (loading) return <div>Loading...</div>;
  *
@@ -26,7 +26,7 @@ import { useProductSDK } from "./context.js";
  * }
  * ```
  */
-export function useStorage<T = string>(
+export function useLocalStorage<T = string>(
     key: string,
     defaultValue?: T,
 ): [T | null, (value: T) => Promise<void>, { loading: boolean; error: Error | null }] {
@@ -43,7 +43,7 @@ export function useStorage<T = string>(
         const loadValue = async () => {
             try {
                 setLoading(true);
-                const stored = await app.storage.getJSON<T>(key);
+                const stored = await app.localStorage.getJSON<T>(key);
                 if (mounted) {
                     setValue(stored ?? defaultValue ?? null);
                     setLoading(false);
@@ -67,7 +67,7 @@ export function useStorage<T = string>(
         async (newValue: T) => {
             try {
                 setError(null);
-                await app.storage.setJSON(key, newValue);
+                await app.localStorage.setJSON(key, newValue);
                 setValue(newValue);
             } catch (e) {
                 setError(e instanceof Error ? e : new Error(String(e)));
@@ -86,7 +86,7 @@ export function useStorage<T = string>(
  * @param key - Storage key
  * @param defaultValue - Default value
  */
-export function useStorageString(
+export function useLocalStorageString(
     key: string,
     defaultValue?: string,
 ): [string | null, (value: string) => Promise<void>, { loading: boolean }] {
@@ -99,7 +99,7 @@ export function useStorageString(
         let mounted = true;
 
         const loadValue = async () => {
-            const stored = await app.storage.get(key);
+            const stored = await app.localStorage.get(key);
             if (mounted) {
                 setValue(stored ?? defaultValue ?? null);
                 setLoading(false);
@@ -115,7 +115,7 @@ export function useStorageString(
 
     const setStoredValue = useCallback(
         async (newValue: string) => {
-            await app.storage.set(key, newValue);
+            await app.localStorage.set(key, newValue);
             setValue(newValue);
         },
         [app, key],

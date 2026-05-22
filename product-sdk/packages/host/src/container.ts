@@ -15,7 +15,7 @@ export async function isInsideContainer(): Promise<boolean> {
     if (typeof window === "undefined") return false;
 
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.sandboxProvider.isCorrectEnvironment();
     } catch {
         return isInsideContainerSync();
@@ -30,7 +30,7 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
     if (!(await isInsideContainer())) return null;
 
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.hostLocalStorage as HostLocalStorage;
     } catch {
         return null;
@@ -42,14 +42,14 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
  *
  * When running inside a Polkadot container, this wraps the chain connection via the
  * host's `createPapiProvider`, enabling shared connections and efficient routing.
- * Returns `null` when `@novasamatech/product-sdk` is unavailable.
+ * Returns `null` when `@novasamatech/host-api-wrapper` is unavailable.
  *
  * @param genesisHash - Genesis hash of the target chain (`0x`-prefixed hex string).
  * @returns A host-routed `JsonRpcProvider`, or `null` if unavailable.
  */
 export async function getHostProvider(genesisHash: `0x${string}`): Promise<JsonRpcProvider | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createPapiProvider(genesisHash);
     } catch {
         return null;
@@ -90,13 +90,13 @@ export function isInsideContainerSync(): boolean {
  *
  * Returns a statement store with `subscribe`, `createProof`, and `submit` methods
  * that communicate through the host's native binary protocol — bypassing JSON-RPC
- * entirely. Returns `null` when `@novasamatech/product-sdk` is unavailable.
+ * entirely. Returns `null` when `@novasamatech/host-api-wrapper` is unavailable.
  *
  * @returns The host statement store, or `null` if unavailable.
  */
 export async function getStatementStore(): Promise<HostStatementStore | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createStatementStore() as HostStatementStore;
     } catch {
         return null;

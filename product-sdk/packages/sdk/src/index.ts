@@ -16,7 +16,7 @@
  * const { accounts } = await app.wallet.connect();
  *
  * // Use storage
- * await app.storage.set('key', 'value');
+ * await app.localStorage.set('key', 'value');
  * ```
  *
  * @packageDocumentation
@@ -30,7 +30,7 @@ export type {
     AppConfig,
     LogLevel,
     WalletApi,
-    StorageApi,
+    LocalStorageApi,
     ChainApi,
     CloudStorageApi,
     Account,
@@ -45,5 +45,5 @@ export type { LogEntry, LogHandler, LoggerConfig, Logger } from "./core/logger.j
 export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-host";
 export { createChainClient } from "@parity/product-sdk-chain-client";
 export { SignerManager } from "@parity/product-sdk-signer";
-export { createKvStore } from "@parity/product-sdk-storage";
+export { createLocalKvStore } from "@parity/product-sdk-local-storage";
 export { CloudStorageClient, calculateCid } from "@parity/product-sdk-cloud-storage";

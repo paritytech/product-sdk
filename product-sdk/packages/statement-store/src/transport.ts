@@ -12,7 +12,7 @@ import type { Statement, TopicFilter as SdkTopicFilter } from "@novasamatech/sdk
 import type {
     Statement as HostStatement,
     SignedStatement as HostSignedStatement,
-} from "@novasamatech/product-sdk";
+} from "@novasamatech/host-api-wrapper";
 
 const log = createLogger("statement-store:transport");
 

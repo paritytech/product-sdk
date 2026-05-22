@@ -1,7 +1,7 @@
 {
-    "name": "@parity/product-sdk-storage",
+    "name": "@parity/product-sdk-local-storage",
     "version": "0.1.5",
-    "description": "Key-value storage abstraction with automatic host/browser backend detection",
+    "description": "Key-value local storage abstraction with automatic host/browser backend detection",
     "type": "module",
     "sideEffects": false,
     "main": "./dist/index.js",

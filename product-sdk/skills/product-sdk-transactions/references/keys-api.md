@@ -70,18 +70,18 @@ Export the raw master key bytes for persistence.
 
 ## SessionKeyManager
 
-Manages an sr25519 account derived from a BIP39 mnemonic, with persistence via a `KvStore`.
+Manages an sr25519 account derived from a BIP39 mnemonic, with persistence via a `LocalKvStore`.
 
 ```ts
 import { SessionKeyManager } from "@parity/product-sdk-keys";
-import { createKvStore } from "@parity/product-sdk-storage";
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 ```
 
 ### Constructor
 
 ```ts
 new SessionKeyManager(options: {
-  store: KvStore;
+  store: LocalKvStore;
   name?: string;
 })
 ```

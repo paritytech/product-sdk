@@ -15,7 +15,7 @@
         "@parity/product-sdk-keys-demo",
         "@parity/product-sdk-signer-demo",
         "@parity/product-sdk-statement-store-demo",
-        "@parity/product-sdk-storage-demo",
+        "@parity/product-sdk-local-storage-demo",
         "@parity/product-sdk-tx-demo"
     ]
 }

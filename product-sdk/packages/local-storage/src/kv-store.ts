@@ -2,7 +2,7 @@ import { getHostLocalStorage } from "@parity/product-sdk-host";
 import type { HostLocalStorage } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import type { KvStore, KvStoreOptions } from "./types.js";
+import type { LocalKvStore, LocalKvStoreOptions } from "./types.js";
 
 const log = createLogger("storage");
 
@@ -11,13 +11,13 @@ function prefixer(prefix?: string): (key: string) => string {
 }
 
 function createHostBackend(
-    hostStorage: HostLocalStorage,
+    hostLocalStorage: HostLocalStorage,
     applyPrefix: (key: string) => string,
-): KvStore {
+): LocalKvStore {
     return {
         async get(key) {
             try {
-                const value = await hostStorage.readString(applyPrefix(key));
+                const value = await hostLocalStorage.readString(applyPrefix(key));
                 // product-sdk decodes missing keys as "" — normalize to null
                 return value || null;
             } catch (e) {
@@ -28,7 +28,7 @@ function createHostBackend(
 
         async set(key, value) {
             try {
-                await hostStorage.writeString(applyPrefix(key), value);
+                await hostLocalStorage.writeString(applyPrefix(key), value);
             } catch (e) {
                 log.warn("Host writeString failed", { key, error: e });
             }
@@ -36,7 +36,7 @@ function createHostBackend(
 
         async remove(key) {
             try {
-                await hostStorage.clear(applyPrefix(key));
+                await hostLocalStorage.clear(applyPrefix(key));
             } catch (e) {
                 log.warn("Host clear failed", { key, error: e });
             }
@@ -44,7 +44,7 @@ function createHostBackend(
 
         async getJSON<T>(key: string): Promise<T | null> {
             try {
-                const value = await hostStorage.readJSON(applyPrefix(key));
+                const value = await hostLocalStorage.readJSON(applyPrefix(key));
                 return (value ?? null) as T | null;
             } catch (e) {
                 log.warn("Host readJSON failed", { key, error: e });
@@ -54,7 +54,7 @@ function createHostBackend(
 
         async setJSON(key, value) {
             try {
-                await hostStorage.writeJSON(applyPrefix(key), value);
+                await hostLocalStorage.writeJSON(applyPrefix(key), value);
             } catch (e) {
                 log.warn("Host writeJSON failed", { key, error: e });
             }
@@ -70,7 +70,7 @@ function createHostBackend(
  *
  * @throws {Error} If host storage is unavailable (not inside a container).
  */
-export async function createKvStore(options?: KvStoreOptions): Promise<KvStore> {
+export async function createLocalKvStore(options?: LocalKvStoreOptions): Promise<LocalKvStore> {
     const applyPrefix = prefixer(options?.prefix);
 
     // Explicit host storage takes precedence
@@ -199,10 +199,10 @@ if (import.meta.vitest) {
         });
     });
 
-    describe("createKvStore", () => {
+    describe("createLocalKvStore", () => {
         test("uses explicit hostLocalStorage when provided", async () => {
             const host = mockHostStorage();
-            const kv = await createKvStore({ hostLocalStorage: host, prefix: "test" });
+            const kv = await createLocalKvStore({ hostLocalStorage: host, prefix: "test" });
             await kv.set("k", "v");
             expect(host.data.get("test:k")).toBe("v");
         });
@@ -211,7 +211,7 @@ if (import.meta.vitest) {
             const hostMod = await import("@parity/product-sdk-host");
             vi.spyOn(hostMod, "getHostLocalStorage").mockResolvedValue(null);
             try {
-                await expect(createKvStore({ prefix: "app" })).rejects.toThrow(
+                await expect(createLocalKvStore({ prefix: "app" })).rejects.toThrow(
                     /Host storage unavailable/,
                 );
             } finally {
@@ -224,7 +224,7 @@ if (import.meta.vitest) {
             const hostMod = await import("@parity/product-sdk-host");
             vi.spyOn(hostMod, "getHostLocalStorage").mockResolvedValue(host);
             try {
-                const kv = await createKvStore({ prefix: "auto" });
+                const kv = await createLocalKvStore({ prefix: "auto" });
                 await kv.set("k", "v");
                 expect(host.data.get("auto:k")).toBe("v");
             } finally {
