@@ -5,9 +5,9 @@ packages:
 
 catalog:
   polkadot-api: ^2.1.2
-  "@novasamatech/host-api-wrapper": 0.7.9-6
+  "@novasamatech/host-api-wrapper": ^0.7.9
   "@novasamatech/sdk-statement": ^0.6.0
-  "@novasamatech/host-api": ^0.7.8
+  "@novasamatech/host-api": ^0.7.9
   "@polkadot-api/substrate-bindings": ^0.12.0
   "@polkadot-api/substrate-client": ^0.7.0
   "@polkadot-labs/hdkd-helpers": ^0.0.27
