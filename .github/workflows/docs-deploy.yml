@@ -1,4 +1,4 @@
-name: "docs: Deploy"
+name: "docs: Deploy (Bulletin + Pages)"
 
 on:
     workflow_run:
