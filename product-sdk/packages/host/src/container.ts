@@ -1,7 +1,10 @@
 import type { JsonRpcProvider } from "polkadot-api";
+import { createLogger } from "@parity/product-sdk-logger";
 import type { Transport } from "@novasamatech/host-api";
 
 import type { HostLocalStorage, HostStatementStore } from "./types.js";
+
+const log = createLogger("host:container");
 
 /**
  * Detect if running inside a Host container (Polkadot Browser / Polkadot Desktop).
@@ -33,7 +36,8 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
     try {
         const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.hostLocalStorage as HostLocalStorage;
-    } catch {
+    } catch (err) {
+        log.debug("getHostLocalStorage unavailable", err);
         return null;
     }
 }
@@ -52,10 +56,13 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
 export async function createHostLocalStorage(
     transport?: Transport,
 ): Promise<HostLocalStorage | null> {
+    if (!(await isInsideContainer())) return null;
+
     try {
         const sdk = await import("@novasamatech/product-sdk");
         return sdk.createLocalStorage(transport);
-    } catch {
+    } catch (err) {
+        log.debug("createHostLocalStorage unavailable", err);
         return null;
     }
 }
@@ -74,7 +81,8 @@ export async function getHostProvider(genesisHash: `0x${string}`): Promise<JsonR
     try {
         const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createPapiProvider(genesisHash);
-    } catch {
+    } catch (err) {
+        log.debug("getHostProvider unavailable", err);
         return null;
     }
 }
@@ -121,7 +129,8 @@ export async function getStatementStore(): Promise<HostStatementStore | null> {
     try {
         const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createStatementStore() as HostStatementStore;
-    } catch {
+    } catch (err) {
+        log.debug("getStatementStore unavailable", err);
         return null;
     }
 }
@@ -187,6 +196,10 @@ if (import.meta.vitest) {
 
     test("getHostLocalStorage returns null outside container", async () => {
         expect(await getHostLocalStorage()).toBeNull();
+    });
+
+    test("createHostLocalStorage returns null outside container", async () => {
+        expect(await createHostLocalStorage()).toBeNull();
     });
 
     test("getHostProvider returns null when product-sdk unavailable", async () => {

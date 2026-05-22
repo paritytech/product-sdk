@@ -37,6 +37,7 @@ export {
     getAccountsProvider,
     requestResourceAllocation,
     createProofAuthorized,
+    formatHostError,
     // Helpers from @novasamatech/host-api
     enumValue,
     isEnumVariant,

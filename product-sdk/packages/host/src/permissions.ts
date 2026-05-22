@@ -17,7 +17,7 @@ import { createLogger } from "@parity/product-sdk-logger";
 import type { CodecType } from "@novasamatech/host-api";
 import type { DevicePermission as DevicePermissionCodec } from "@novasamatech/host-api";
 
-import { enumValue, getTruApi, type RemotePermission } from "./truapi.js";
+import { enumValue, formatHostError, getTruApi, type RemotePermission } from "./truapi.js";
 
 const log = createLogger("host:permissions");
 
@@ -64,10 +64,7 @@ export async function requestPermission(permission: RemotePermission): Promise<b
     return await truApi.permission(enumValue("v1", permission)).match(
         (envelope: { tag: "v1"; value: boolean }) => envelope.value,
         (err: unknown) => {
-            throw new Error(
-                `requestPermission failed: ${err instanceof Error ? err.message : String(err)}`,
-                { cause: err },
-            );
+            throw new Error(`requestPermission failed: ${formatHostError(err)}`, { cause: err });
         },
     );
 }
@@ -101,10 +98,9 @@ export async function requestDevicePermission(permission: DevicePermissionKind):
     return await truApi.devicePermission(enumValue("v1", permission)).match(
         (envelope: { tag: "v1"; value: boolean }) => envelope.value,
         (err: unknown) => {
-            throw new Error(
-                `requestDevicePermission failed: ${err instanceof Error ? err.message : String(err)}`,
-                { cause: err },
-            );
+            throw new Error(`requestDevicePermission failed: ${formatHostError(err)}`, {
+                cause: err,
+            });
         },
     );
 }
@@ -120,10 +116,14 @@ if (import.meta.vitest) {
         fn: (mod: typeof import("./permissions.js")) => Promise<T>,
     ): Promise<T> {
         vi.resetModules();
-        vi.doMock("./truapi.js", () => ({
-            getTruApi: async () => bridge,
-            enumValue: (version: string, value: unknown) => ({ tag: version, value }),
-        }));
+        vi.doMock("./truapi.js", async (importOriginal) => {
+            const original = await importOriginal<typeof import("./truapi.js")>();
+            return {
+                ...original,
+                getTruApi: async () => bridge,
+                enumValue: (version: string, value: unknown) => ({ tag: version, value }),
+            };
+        });
         try {
             const mod = await import("./permissions.js");
             return await fn(mod);
@@ -177,7 +177,7 @@ if (import.meta.vitest) {
                 async (mod) => {
                     await expect(
                         mod.requestPermission({ tag: "ChainSubmit", value: undefined }),
-                    ).rejects.toThrow(/requestPermission failed/);
+                    ).rejects.toThrow(/requestPermission failed: GenericError: boom/);
                 },
             );
         });
@@ -223,7 +223,7 @@ if (import.meta.vitest) {
                 },
                 async (mod) => {
                     await expect(mod.requestDevicePermission("Camera")).rejects.toThrow(
-                        /requestDevicePermission failed/,
+                        /requestDevicePermission failed: GenericError: boom/,
                     );
                 },
             );

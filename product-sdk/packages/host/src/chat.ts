@@ -12,6 +12,8 @@
  * @module
  */
 
+import { createLogger } from "@parity/product-sdk-logger";
+
 import type {
     ChatBotRegistrationResult as NovasamaChatBotRegistrationResult,
     ChatCustomMessageRenderer as NovasamaChatCustomMessageRenderer,
@@ -22,6 +24,8 @@ import type {
     ChatRoomRegistrationResult as NovasamaChatRoomRegistrationResult,
     createProductChatManager,
 } from "@novasamatech/product-sdk";
+
+const log = createLogger("host:chat");
 
 /** Chat message payload variants. Re-exported from `@novasamatech/product-sdk`. */
 export type ChatMessageContent = NovasamaChatMessageContent;
@@ -79,7 +83,8 @@ export async function getChatManager(): Promise<ChatManager | null> {
     try {
         const sdk = await import("@novasamatech/product-sdk");
         return sdk.createProductChatManager();
-    } catch {
+    } catch (err) {
+        log.debug("getChatManager unavailable", err);
         return null;
     }
 }

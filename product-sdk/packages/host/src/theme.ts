@@ -10,10 +10,14 @@
  * @module
  */
 
+import { createLogger } from "@parity/product-sdk-logger";
+
 import type {
     createThemeProvider,
     ThemeMode as NovasamaThemeMode,
 } from "@novasamatech/product-sdk";
+
+const log = createLogger("host:theme");
 
 /**
  * Host theme provider handle. Exposes `subscribeTheme(callback)` which
@@ -62,7 +66,8 @@ export async function getThemeProvider(): Promise<ThemeProvider | null> {
     try {
         const sdk = await import("@novasamatech/product-sdk");
         return sdk.createThemeProvider();
-    } catch {
+    } catch (err) {
+        log.debug("getThemeProvider unavailable", err);
         return null;
     }
 }

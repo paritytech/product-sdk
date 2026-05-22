@@ -12,7 +12,7 @@
 
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { enumValue, getTruApi } from "./truapi.js";
+import { enumValue, formatHostError, getTruApi } from "./truapi.js";
 
 const log = createLogger("host:entropy");
 
@@ -44,10 +44,7 @@ export async function deriveEntropy(key: Uint8Array): Promise<Uint8Array> {
     return await truApi.deriveEntropy(enumValue("v1", key)).match(
         (envelope: { tag: "v1"; value: Uint8Array }) => envelope.value,
         (err: unknown) => {
-            throw new Error(
-                `deriveEntropy failed: ${err instanceof Error ? err.message : String(err)}`,
-                { cause: err },
-            );
+            throw new Error(`deriveEntropy failed: ${formatHostError(err)}`, { cause: err });
         },
     );
 }

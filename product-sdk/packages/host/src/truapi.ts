@@ -19,24 +19,51 @@ import type {
 } from "@novasamatech/host-api";
 import type { createAccountsProvider, preimageManager } from "@novasamatech/host-api-wrapper";
 
+import { isInsideContainer } from "./container.js";
 import type { Statement, StatementProof } from "./types.js";
 
 const log = createLogger("host");
 
 /**
- * Extract a human-readable message from an unknown error. `JSON.stringify`
- * on `Error` returns `"{}"` because `message` and `stack` are non-enumerable
- * — without this helper, wire failures surface as `"... failed: {}"` with
- * zero diagnostic context.
+ * Extract a human-readable message from a host-side error. Hosts wrap
+ * errors in versioned envelopes (`{ tag: "v1", value: CodecError }`); this
+ * helper unwraps the envelope and renders the inner error's `name`/`message`
+ * so callers see the host's actual diagnostic instead of `"[object Object]"`
+ * (from `String(err)`) or a JSON-stringified envelope.
+ *
+ * Exported for the higher-level wrappers (`requestPermission`,
+ * `deriveEntropy`, etc.) that build their `throw new Error(...)` messages.
  */
-function formatError(err: unknown): string {
-    if (err instanceof Error) return err.message;
-    if (typeof err === "string") return err;
-    try {
-        return JSON.stringify(err);
-    } catch {
-        return String(err);
+export function formatHostError(err: unknown): string {
+    // Single-level unwrap only; nested envelopes fall through to JSON.stringify.
+    const inner = isVersionedEnvelope(err) ? err.value : err;
+
+    if (inner instanceof Error) return inner.message;
+    if (typeof inner === "string") return inner;
+    if (
+        inner != null &&
+        typeof inner === "object" &&
+        "message" in inner &&
+        typeof (inner as { message: unknown }).message === "string"
+    ) {
+        const named = inner as { name?: unknown; message: string };
+        return typeof named.name === "string" ? `${named.name}: ${named.message}` : named.message;
     }
+    try {
+        return JSON.stringify(inner);
+    } catch {
+        return String(inner);
+    }
+}
+
+function isVersionedEnvelope(value: unknown): value is { tag: string; value: unknown } {
+    return (
+        value != null &&
+        typeof value === "object" &&
+        "tag" in value &&
+        "value" in value &&
+        typeof (value as { tag: unknown }).tag === "string"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,7 +217,8 @@ export async function getPreimageManager(): Promise<PreimageManager | null> {
     try {
         const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.preimageManager;
-    } catch {
+    } catch (err) {
+        log.debug("getPreimageManager unavailable", err);
         return null;
     }
 }
@@ -217,10 +245,12 @@ export type PreimageManager = typeof preimageManager;
 export async function createHostPreimageManager(
     transport?: import("@novasamatech/host-api").Transport,
 ): Promise<PreimageManager | null> {
+    if (!(await isInsideContainer())) return null;
     try {
         const sdk = await import("@novasamatech/product-sdk");
         return sdk.createPreimageManager(transport);
-    } catch {
+    } catch (err) {
+        log.debug("createHostPreimageManager unavailable", err);
         return null;
     }
 }
@@ -234,7 +264,8 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
     try {
         const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createAccountsProvider();
-    } catch {
+    } catch (err) {
+        log.debug("getAccountsProvider unavailable", err);
         return null;
     }
 }
@@ -306,7 +337,7 @@ export async function requestResourceAllocation(
     return await truApi.requestResourceAllocation(enumValue("v1", resources)).match(
         (envelope: { tag: "v1"; value: AllocationOutcome[] }) => envelope.value,
         (err: unknown) => {
-            throw new Error(`requestResourceAllocation failed: ${formatError(err)}`, {
+            throw new Error(`requestResourceAllocation failed: ${formatHostError(err)}`, {
                 cause: err,
             });
         },
@@ -372,7 +403,9 @@ export async function createProofAuthorized(statement: Statement): Promise<State
     return await truApi.statementStoreCreateProofAuthorized(enumValue("v1", statement)).match(
         (envelope: { tag: "v1"; value: StatementProof }) => envelope.value,
         (err: unknown) => {
-            throw new Error(`createProofAuthorized failed: ${formatError(err)}`, { cause: err });
+            throw new Error(`createProofAuthorized failed: ${formatHostError(err)}`, {
+                cause: err,
+            });
         },
     );
 }
@@ -455,6 +488,22 @@ if (import.meta.vitest) {
         const manager = await getPreimageManager();
         // In dev/test mode, product-sdk is installed
         expect(manager === null || typeof manager === "object").toBe(true);
+    });
+
+    test("createHostPreimageManager returns null outside container", async () => {
+        expect(await createHostPreimageManager()).toBeNull();
+    });
+
+    test("formatHostError unwraps versioned envelopes and renders CodecError", () => {
+        expect(
+            formatHostError({
+                tag: "v1",
+                value: { name: "GenericError", message: "boom" },
+            }),
+        ).toBe("GenericError: boom");
+        expect(formatHostError(new Error("plain"))).toBe("plain");
+        expect(formatHostError("string err")).toBe("string err");
+        expect(formatHostError({ tag: "v1", value: { message: "no-name" } })).toBe("no-name");
     });
 
     test("getAccountsProvider returns provider when SDK is available", async () => {
