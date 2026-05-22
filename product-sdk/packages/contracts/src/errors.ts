@@ -1,3 +1,5 @@
+import type { HexString } from "polkadot-api";
+
 /** Base class for all contract errors. Use `instanceof ContractError` to catch any contract-related error. */
 export class ContractError extends Error {
     constructor(message: string, options?: ErrorOptions) {
@@ -55,6 +57,64 @@ export class ContractDryRunFailedError extends ContractError {
     }
 }
 
+/** viem-decoded standard or ABI-defined contract error. */
+export interface DecodedContractRevert {
+    errorName: string;
+    args: readonly unknown[] | undefined;
+}
+
+/**
+ * Tagged-enum value surfaced on `QueryResult.value` when a contract reverts
+ * via the REVERT flag. The discriminant is intentionally distinct from
+ * `pallet-revive`'s bare `{ type: "ContractReverted" }` dispatch-error variant,
+ * which is the other path that can populate `QueryResult.value` on failure.
+ */
+export interface ContractRevertInfo {
+    type: "ContractRevertedWithPayload";
+    data: HexString;
+    reason?: string;
+    decoded?: DecodedContractRevert;
+}
+
+// Top-level bigints stringify unquoted (`42`); bigints inside an object or
+// array stringify as JSON strings (`"42"`) because that's the only way a
+// JSON replacer can emit them. Tolerated since this string is only ever
+// read by humans in an error message, not parsed.
+function stringifyArg(arg: unknown): string {
+    if (typeof arg === "bigint") return arg.toString();
+    return JSON.stringify(arg, (_, v) => (typeof v === "bigint" ? v.toString() : v));
+}
+
+/** A contract call returned with the `REVERT` flag set on a dispatched-OK call. */
+export class ContractRevertedError extends ContractError {
+    readonly methodName: string;
+    readonly data: HexString;
+    readonly reason?: string;
+    readonly decoded?: DecodedContractRevert;
+
+    constructor(
+        methodName: string,
+        data: HexString,
+        info?: { reason?: string; decoded?: DecodedContractRevert },
+    ) {
+        // `reason` already carries the human-readable message for Error and Panic,
+        // so only fall back to `errorName(args...)` for ABI-defined custom errors.
+        const suffix =
+            info?.reason ??
+            (info?.decoded
+                ? `${info.decoded.errorName}(${(info.decoded.args ?? []).map(stringifyArg).join(", ")})`
+                : data);
+        super(
+            `Contract reverted in "${methodName}": ${suffix}. The transaction was not submitted.`,
+        );
+        this.name = "ContractRevertedError";
+        this.methodName = methodName;
+        this.data = data;
+        this.reason = info?.reason;
+        this.decoded = info?.decoded;
+    }
+}
+
 if (import.meta.vitest) {
     const { test, expect, describe } = import.meta.vitest;
 
@@ -69,6 +129,9 @@ if (import.meta.vitest) {
             expect(new ContractSignerMissingError()).toBeInstanceOf(ContractError);
             expect(new ContractNotFoundError("@a/b", "abc")).toBeInstanceOf(ContractError);
             expect(new ContractDryRunFailedError("foo", "x")).toBeInstanceOf(ContractError);
+            expect(new ContractRevertedError("foo", "0x" as HexString)).toBeInstanceOf(
+                ContractError,
+            );
         });
     });
 
@@ -106,6 +169,66 @@ if (import.meta.vitest) {
             const err = new ContractDryRunFailedError("foo", "ContractReverted");
             expect(err.message).toContain("ContractReverted");
             expect(err.message).not.toContain('"ContractReverted"');
+        });
+    });
+
+    describe("ContractRevertedError", () => {
+        test("captures method, raw data, reason, and decoded payload", () => {
+            const data = "0x556e617574686f72697a6564" as HexString;
+            const err = new ContractRevertedError("transfer", data, {
+                reason: "Unauthorized",
+                decoded: { errorName: "Error", args: ["Unauthorized"] },
+            });
+            expect(err.name).toBe("ContractRevertedError");
+            expect(err.methodName).toBe("transfer");
+            expect(err.data).toBe(data);
+            expect(err.reason).toBe("Unauthorized");
+            expect(err.decoded?.errorName).toBe("Error");
+            // Error(string) prefers the bare reason over `Error("...")` form.
+            expect(err.message).toBe(
+                'Contract reverted in "transfer": Unauthorized. The transaction was not submitted.',
+            );
+        });
+
+        test("falls back to reason then to raw data when decoded is absent", () => {
+            const data = "0xdeadbeef" as HexString;
+            const withReason = new ContractRevertedError("foo", data, { reason: "Whoops" });
+            expect(withReason.message).toContain("Whoops");
+
+            const noInfo = new ContractRevertedError("foo", data);
+            expect(noInfo.message).toContain("0xdeadbeef");
+            expect(noInfo.reason).toBeUndefined();
+            expect(noInfo.decoded).toBeUndefined();
+        });
+
+        test("stringifies top-level bigint args without throwing", () => {
+            const err = new ContractRevertedError("bar", "0x" as HexString, {
+                decoded: { errorName: "InsufficientBalance", args: [42n, 100n] },
+            });
+            expect(err.message).toContain("InsufficientBalance(42, 100)");
+        });
+
+        test("stringifies nested bigint args inside a struct without throwing", () => {
+            // viem returns `[{ owed: 42n }]` for struct args; the default
+            // JSON.stringify replacer would throw on the nested bigint.
+            const err = new ContractRevertedError("redeem", "0x" as HexString, {
+                decoded: {
+                    errorName: "Bad",
+                    args: [{ owed: 42n, nested: { deeper: [7n, 9n] } }],
+                },
+            });
+            expect(err.message).toContain('"owed":"42"');
+            expect(err.message).toContain('"deeper":["7","9"]');
+        });
+
+        test("uses the Panic reason instead of Panic(<code>) when decodeRevert provided one", () => {
+            // Regression: Panic reason used to be clobbered by the errorName(args) form.
+            const err = new ContractRevertedError("withdraw", "0x" as HexString, {
+                reason: "Panic: arithmetic overflow",
+                decoded: { errorName: "Panic", args: [17n] },
+            });
+            expect(err.message).toContain("Panic: arithmetic overflow");
+            expect(err.message).not.toContain("Panic(17)");
         });
     });
 }

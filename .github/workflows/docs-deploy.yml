@@ -1,4 +1,4 @@
-name: "docs: Deploy to Bulletin"
+name: "docs: Deploy (Bulletin + Pages)"
 
 on:
     workflow_run:
@@ -8,6 +8,8 @@ on:
 
 permissions:
     contents: read
+    pages: write
+    id-token: write
 
 concurrency:
     group: docs-deploy
@@ -17,6 +19,9 @@ jobs:
     deploy:
         if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
         runs-on: ubuntu-latest
+        environment:
+            name: github-pages
+            url: ${{ steps.pages-deploy.outputs.page_url }}
         steps:
             - uses: actions/checkout@v4
               with:
@@ -25,6 +30,10 @@ jobs:
             - name: Check for umbrella tag at HEAD
               id: gate
               run: |
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                    echo "skip=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
                   tag=$(git tag --points-at HEAD | grep -E '^@parity/product-sdk@[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
                   if [ -z "$tag" ]; then
                     echo "skip=true" >> $GITHUB_OUTPUT
@@ -83,3 +92,25 @@ jobs:
                   timeout_minutes: 10
                   max_attempts: 3
                   command: cd docs && bulletin-deploy ./out product-sdk.dot --js-merkle
+
+            - name: Rebuild static site for GitHub Pages
+              if: steps.gate.outputs.skip != 'true'
+              working-directory: docs
+              env:
+                  PAGES_BASE_PATH: /${{ github.event.repository.name }}
+              run: pnpm build
+
+            - name: Configure GitHub Pages
+              if: steps.gate.outputs.skip != 'true'
+              uses: actions/configure-pages@v5
+
+            - name: Upload Pages artifact
+              if: steps.gate.outputs.skip != 'true'
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  path: docs/out
+
+            - name: Deploy to GitHub Pages
+              id: pages-deploy
+              if: steps.gate.outputs.skip != 'true'
+              uses: actions/deploy-pages@v4
