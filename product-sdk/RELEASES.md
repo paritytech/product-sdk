@@ -14,6 +14,59 @@ changeset file under `.changeset/`.
 2. On the PR that closes the work, move the changeset into `.changeset/`.
 3. Merging that PR to `main` is what triggers the release.
 
+## When does a PR need a changeset?
+
+**Rule of thumb:** if your PR will change the published artifact for any
+`@parity/product-sdk-*` package, it needs a changeset. If it touches
+nothing a consumer will ever install, it doesn't.
+
+### Needs a changeset
+
+- Any change under `packages/*/src/` that's not behind `if (import.meta.vitest)`.
+- Any change to a package's `package.json` — bumping a dep version, renaming
+  a dep, adding or removing `peerDependencies` / `exports` / `files`.
+- Any change to a package's public README.md, since READMEs ship to npm.
+- Any catalog entry change in `pnpm-workspace.yaml` that flows through
+  `catalog:` references in published packages.
+- Any rename, removal, or signature change to an exported symbol — even
+  if you're "only" cleaning up. Consumers see it.
+
+Bump type rule:
+- **`patch`** — bug fix, no public-API change.
+- **`minor`** — new public API surface; or, under pre-1.0 semver,
+  any breaking change (since major is still `0`). Most of our packages
+  are pre-1.0, so most breaking changes go out as `minor`.
+- **`major`** — reserved for post-1.0 breaking changes.
+
+### Doesn't need a changeset
+
+- Test-only changes (`*.test.ts`, anything under `examples/`, anything in
+  the `if (import.meta.vitest)` block of a source file).
+- CI workflow / GitHub Action changes under `.github/`.
+- Docs that don't ship: anything in `local-docs/`, `pending-changesets/`,
+  `RELEASES.md` itself, root-level `*.md` files not bundled into a
+  package.
+- `skills/` updates (consumed by tooling, not published).
+- CHANGELOG-only edits to correct an already-published entry (this fixes
+  the historical record without bumping the version).
+- Lockfile-only refreshes that don't change any published artifact.
+
+### When in doubt
+
+Run `pnpm changeset status` on your branch before opening the PR. If it
+lists no packages and the diff touches `packages/*/src/`, you probably
+need one. If it lists packages that *shouldn't* be bumping, your
+changeset over-specifies — narrow it.
+
+### The umbrella exception
+
+The "every PR needs one" rule has one wrinkle worth knowing: when a
+constituent package gets a minor bump, you must **also** explicitly list
+`@parity/product-sdk` (the umbrella) at minor in the same changeset.
+Otherwise the umbrella cascades only at patch level and ends up at a
+lower version than the child it re-exports. See
+[Umbrella policy](#umbrella-parityproduct-sdk-policy) below.
+
 ## The two-directory pattern
 
 | Directory | Tracked by `@changesets/cli`? | Use for |
@@ -156,10 +209,9 @@ template — match their structure for consistency.
 
 ## Notes
 
-- **No changeset = no release.** A PR that doesn't change anything
-  user-visible (test fixes, CI tweaks, internal refactors that don't
-  affect the public API) doesn't need a changeset. The release
-  workflow will simply not fire.
+- **No changeset = no release.** See [When does a PR need a
+  changeset?](#when-does-a-pr-need-a-changeset) above. PRs that don't
+  ship a changeset don't fire the release workflow.
 - **Multiple changesets accumulate across PRs.** Each one runs through
   `pnpm changeset version` together at release time. Don't try to
   pre-merge or combine them on disk — the tool handles aggregation.
