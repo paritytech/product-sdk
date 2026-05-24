@@ -11,7 +11,7 @@ import { waitForAppReady } from "./helpers";
  *
  * Host API surface tested:
  *   - isInsideContainer() -> product-sdk sandbox detection
- *   - createKvStore() -> host-backed KvStore via product-sdk hostLocalStorage
+ *   - createLocalKvStore() -> host-backed LocalKvStore via product-sdk hostLocalStorage
  *   - SessionKeyManager({ store }) -> ready state
  */
 test.describe("@parity/product-sdk-keys via Host API — boot", () => {

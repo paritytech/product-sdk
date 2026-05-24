@@ -6,7 +6,7 @@
             "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
             "metadata": "../../.papi/metadata/previewnet_asset_hub.scale",
             "genesis": "0x860d75a890388e2ad02c54aa451264d04af89765773a51cd56868b4293c7867c",
-            "codeHash": "0x5f37267200cd24d77729c87d037f6ae97cfea75c7f703442b88cc953e04cc8ba"
+            "codeHash": "0x8ba0d1f593fa76b36072f2180640b3c497a6d8c71e57a3313ec7eec51fc26889"
         }
     }
 }

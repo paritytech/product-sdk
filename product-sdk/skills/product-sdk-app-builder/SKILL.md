@@ -44,7 +44,7 @@ client.destroy();
 Determine what the app needs:
 - **Read chain state** (balances, storage, block info)
 - **Submit transactions** (transfers, remarks, contract calls)
-- **Store data** on Bulletin Chain
+- **Store data** in Cloud Storage
 - **Real-time messaging** via Statement Store
 - **Address utilities** (SS58, H160 conversion)
 - **Encryption** (AES, ChaCha20, NaCl)
@@ -69,11 +69,11 @@ polkadot-api                        # Core runtime (peer dep of descriptors)
 | Submit transactions | `@parity/product-sdk-tx` | product-sdk-transactions |
 | Wallet connection (Talisman, Polkadot.js, Host API) | `@parity/product-sdk-signer` | product-sdk-transactions |
 | Key derivation | `@parity/product-sdk-keys` | product-sdk-transactions |
-| Decentralized storage | `@parity/product-sdk-bulletin` | product-sdk-bulletin |
+| Decentralized storage | `@parity/product-sdk-cloud-storage` | product-sdk-cloud-storage |
 | Pub/sub messaging | `@parity/product-sdk-statement-store` | product-sdk-statement-store |
 | Address encoding | `@parity/product-sdk-address` | product-sdk-utilities |
 | Encryption | `@parity/product-sdk-crypto` | product-sdk-utilities |
-| KV storage | `@parity/product-sdk-storage` | product-sdk-utilities |
+| KV storage | `@parity/product-sdk-local-storage` | product-sdk-utilities |
 | Logging | `@parity/product-sdk-logger` | product-sdk-utilities |
 
 ### 3. Scaffold Project
@@ -126,7 +126,7 @@ Invoke the relevant domain skill(s) based on the selected packages:
 - **product-sdk-chain-connection** — for connecting and querying chains
 - **product-sdk-contracts** — for smart contracts (ContractManager, createContract, ContractRuntime, codegen)
 - **product-sdk-transactions** — for submitting transactions, signing, keys
-- **product-sdk-bulletin** — for Bulletin Chain data storage
+- **product-sdk-cloud-storage** — for Cloud Storage
 - **product-sdk-statement-store** — for pub/sub messaging
 - **product-sdk-utilities** — for address, crypto, storage, logger
 

@@ -211,15 +211,30 @@ const raw = km.exportKey();
 
 ```ts
 import { SessionKeyManager } from "@parity/product-sdk-keys";
-import { createKvStore } from "@parity/product-sdk-storage";
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 
-const store = await createKvStore({ prefix: "session-key" });
+const store = await createLocalKvStore({ prefix: "session-key" });
 const skm = new SessionKeyManager({ store, name: "default" });
 
 const info = await skm.getOrCreate();
 // info.mnemonic - BIP39 mnemonic
 // info.account  - DerivedAccount with signer
 ```
+
+## deriveProductAccountPublicKey: Canonical sr25519 Product-Account Derivation
+
+```ts
+import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
+
+// Derive the same product-account public key the mobile wallet derives privately
+const derivedPubKey = deriveProductAccountPublicKey(
+  parentPublicKey,    // 32-byte sr25519 public key
+  "playground.dot",   // productId (typically a dotNS name)
+  0,                  // derivationIndex
+);
+```
+
+Mirrors the algorithm used by polkadot-desktop and polkadot-app-android-v2. sr25519 soft derivation is composable on the parent *public* key alone, so external clients (CLI, web hosts) can compute the same address without seeing the secret key. See `references/keys-api.md` for the cross-platform parity constraint on `productId`.
 
 ## Common Mistakes
 

@@ -21,9 +21,9 @@ const { accounts } = await app.wallet.connect();
 console.log("Connected accounts:", accounts);
 
 // Persist a value. Namespaced under the app name in host storage.
-await app.storage.set("lastVisit", new Date().toISOString());
+await app.localStorage.set("lastVisit", new Date().toISOString());
 
-const lastVisit = await app.storage.get("lastVisit");
+const lastVisit = await app.localStorage.get("lastVisit");
 console.log("Last visit:", lastVisit);
 ```
 

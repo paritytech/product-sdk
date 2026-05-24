@@ -16,7 +16,9 @@ export { SignerManager } from "./signer-manager.js";
 // Types
 export type {
     AccountPersistence,
+    ConnectContext,
     ConnectionStatus,
+    OnConnect,
     ProviderFactory,
     ProviderType,
     Result,

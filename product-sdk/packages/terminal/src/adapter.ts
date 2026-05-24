@@ -57,6 +57,14 @@ export type TerminalAdapter = PappAdapter & {
     /** The `appId` passed to {@link createTerminalAdapter}. Useful for {@link createSessionSigner}. */
     readonly appId: string;
     /**
+     * The on-disk storage directory used for sessions and (when the
+     * host-runner facet is in use) for the allowance-key cache the
+     * `./host` subpath maintains. `undefined` when the default
+     * is in use; set explicitly when the caller passed `storageDir` to
+     * {@link createTerminalAdapter}.
+     */
+    readonly storageDir?: string;
+    /**
      * Disconnect the WebSocket and release resources.
      *
      * @remarks
@@ -112,6 +120,7 @@ export function createTerminalAdapter(options: TerminalAdapterOptions): Terminal
     return {
         ...adapter,
         appId: options.appId,
+        storageDir: options.storageDir,
         destroy(): Promise<void> {
             if (destroyPromise) return destroyPromise;
             destroyPromise = teardown(adapter.sessions, trackedLazyClient);

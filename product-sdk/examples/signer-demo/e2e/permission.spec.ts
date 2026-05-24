@@ -7,45 +7,45 @@ test.describe("@parity/product-sdk-signer — permission rejection", () => {
     // default the fixture would provide at startup.
     test.afterEach(async ({ testHost }) => {
         await testHost.setPermissionBehavior("approve-all");
-        await testHost.grantPermission("TransactionSubmit");
+        await testHost.grantPermission("ChainSubmit");
     });
 
-    // TODO(novasama-0.7-upgrade): novasama 0.7's product-sdk caches the
-    // TransactionSubmit permission grant from initial connect rather than
-    // re-checking on each sign. The test SDK's revokePermission no longer
-    // surfaces a denial through the signing path. Re-enable once the test
-    // SDK and product-sdk converge on a permission-rejection contract that
-    // applies per-sign.
-    test.skip("signRaw surfaces a typed SignerError when permission is revoked", async ({
+    // The original test asserted that signRaw fails after `revokePermission`,
+    // but test SDK 0.7.5 exposes `setEnforcePermissions` without wiring it —
+    // signing handlers ignore the granted-permissions state, so revoke + sign
+    // can't be exercised end-to-end yet. This test asserts the layer above
+    // that *is* exercisable: the host records denied ChainSubmit auto-requests,
+    // and the SignerManager tolerates the denial (matching real-host behavior:
+    // log a warning, keep the connection alive, defer the actual failure to
+    // sign-time when the host would refuse).
+    test("connect tolerates a denied ChainSubmit auto-request when host is in reject-all", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);
 
-        // The initial connect() already pulled a granted permission via the
-        // auto-request flow. To exercise the rejection path we revoke it and
-        // flip the behavior so re-requests are denied.
-        await testHost.revokePermission("TransactionSubmit");
+        // Drop the initially-granted permission state.
+        await frame.locator('[data-testid="btn-disconnect"]').click();
+        await expect(frame.locator('[data-testid="connection-status"]')).toHaveText(
+            "disconnected",
+        );
+
         await testHost.setPermissionBehavior("reject-all");
-        await testHost.clearSigningLog();
+        await testHost.revokePermission("ChainSubmit");
+        await testHost.clearPermissionLog();
 
-        await frame.locator('[data-testid="raw-input"]').fill("should-be-rejected");
-        await frame.locator('[data-testid="btn-sign-raw"]').click();
+        // Reconnect — the SignerManager's auto-request now hits a host that
+        // denies everything.
+        await frame.locator('[data-testid="btn-connect"]').click();
+        await expect(frame.locator('[data-testid="connection-status"]')).toHaveText(
+            "connected",
+            { timeout: 30_000 },
+        );
+        await expect(frame.locator('[data-testid="last-error"]')).toBeEmpty();
 
-        // The error text ends up in both the signature slot and the
-        // dedicated last-error slot (surfaced through SignerManager's
-        // subscribe state). The signer manager maps host-side rejection
-        // to SigningFailedError; the exact cause text depends on
-        // product-sdk, so we match loosely.
-        const errLoc = frame.locator('[data-testid="last-error"]');
-        await expect(errLoc).toContainText(/SigningFailedError/i, { timeout: 30_000 });
-
-        // Signature slot must NOT contain a hex signature.
-        const sig = await frame.locator('[data-testid="last-signature"]').textContent();
-        expect(sig).not.toMatch(/^0x[0-9a-f]+$/i);
-
-        // The host's raw-sign handler was reached but rejected — the
-        // signing log should not record a successful raw entry.
-        const log = await testHost.getSigningLog();
-        expect(log).toHaveLength(0);
+        // Host saw and denied the auto-request.
+        const log = await testHost.getPermissionLog();
+        const chainSubmit = log.find((e) => e.tag === "ChainSubmit");
+        expect(chainSubmit, "expected a ChainSubmit entry in the permission log").toBeDefined();
+        expect(chainSubmit?.approved).toBe(false);
     });
 });

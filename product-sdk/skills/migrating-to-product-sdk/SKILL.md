@@ -24,7 +24,7 @@ content:
 - `product-sdk-chain-connection` — `getChainAPI` / `createChainClient`
 - `product-sdk-transactions` — tx + signer + keys
 - `product-sdk-utilities` — address + crypto + utils + storage + logger
-- `product-sdk-bulletin` — `BulletinClient`, upload / fetch
+- `product-sdk-cloud-storage` — `CloudStorageClient`, upload / fetch
 - `product-sdk-contracts` — `ContractManager`, `createContract`
 - `product-sdk-statement-store` — pub/sub
 
@@ -186,7 +186,7 @@ For each of the 15 areas below, assign a **status** and pick a
 | 6 | Key management | `product-sdk-utilities` + `product-sdk-transactions` | local HKDF ∨ custom `deriveMasterKey`/`deriveDocumentKey` | HKDF info-string mismatch on existing on-chain entries (see G3) |
 | 7 | Address utils | `product-sdk-utilities` | `ss58Encode`/`toGenericSs58`/`h160ToSs58`/`ss58ToH160` ∨ wrapper file | n/a |
 | 8 | App storage | `product-sdk-utilities` | direct `localStorage` / `IndexedDB` ∨ `@parity/host-api` `StorageApi` | non-cross-environment persistence |
-| 9 | Bulletin | `product-sdk-bulletin` | `helia` / `@polkadot-apps/bulletin` ∨ in-browser IPFS | product does not use Bulletin (`bulletin: false`) |
+| 9 | Cloud Storage | `product-sdk-cloud-storage` | `helia` / `@polkadot-apps/bulletin` ∨ in-browser IPFS | product does not use Cloud Storage (`cloudStorage: false`) |
 | 10 | Contracts | `product-sdk-contracts` | `@polkadot-api/sdk-ink` ∨ `createInkSdk` | signer-plumbing refactor still open |
 | 11 | Logger | `product-sdk-utilities` | scattered `console.*` ∨ custom logger | n/a |
 | 12 | Statement Store | `product-sdk-statement-store` | pub/sub pattern ∨ manual statement-store interaction | n/a |
@@ -196,15 +196,15 @@ For each of the 15 areas below, assign a **status** and pick a
 
 ### Sub-pattern selection per area
 
-- **(1) Bootstrap** → `createApp({ name, bulletin: <env|false>, logLevel })` lazy singleton in `lib/app.ts` (or equivalent). If framework is React, **prefer `ProductSDKProvider` + `useWallet`/`useStorage`/`useChain`** from `@parity/product-sdk/react` over a manual singleton — flag as opportunity even when current code is React-based but rolled its own provider. `bulletin: false` is **required** when area 9 is out of scope (default opens an unnecessary WebSocket).
-- **(2) Chain access** → preset path `getChainAPI('paseo')` (zero-config) vs BYOD `createChainClient({ chains, rpcs })`. For container apps, also route via `getHostProvider(genesisHash)` from `@parity/product-sdk-host` with a direct-WS fallback. Cache the chain client **per-chain** so a single failed chain doesn't bring down the others. Note: 'paseo' resolves to **Paseo Next v2** chains in current SDK (`@parity/product-sdk-chain-client@0.4.1+`, `@parity/product-sdk-host@0.2.2+`, `@parity/product-sdk-bulletin@0.4.0+`).
-- **(3) Wallet / Signer** → `SignerManager` from `@parity/product-sdk-signer`. If Bulletin (9) is in scope, **also** call `app.wallet.connect()` + `app.wallet.selectAccount(addr)` after the existing connection flow so the App-bound signer is populated (gotcha G2).
+- **(1) Bootstrap** → `createApp({ name, cloudStorage: <env|false>, logLevel })` lazy singleton in `lib/app.ts` (or equivalent). If framework is React, **prefer `ProductSDKProvider` + `useWallet`/`useStorage`/`useChain`** from `@parity/product-sdk/react` over a manual singleton — flag as opportunity even when current code is React-based but rolled its own provider. `cloudStorage: false` is **required** when area 9 is out of scope (default opens an unnecessary WebSocket).
+- **(2) Chain access** → preset path `getChainAPI('paseo')` (zero-config) vs BYOD `createChainClient({ chains, rpcs })`. For container apps, also route via `getHostProvider(genesisHash)` from `@parity/product-sdk-host` with a direct-WS fallback. Cache the chain client **per-chain** so a single failed chain doesn't bring down the others. Note: 'paseo' resolves to **Paseo Next v2** chains in current SDK (`@parity/product-sdk-chain-client@0.4.1+`, `@parity/product-sdk-host@0.2.2+`, `@parity/product-sdk-cloud-storage@0.4.2+`).
+- **(3) Wallet / Signer** → `SignerManager` from `@parity/product-sdk-signer`. If Cloud Storage (9) is in scope, **also** call `app.wallet.connect()` + `app.wallet.selectAccount(addr)` after the existing connection flow so the App-bound signer is populated (gotcha G2).
 - **(4) Crypto** → `@parity/product-sdk-crypto`: `aesGcmEncryptText`/`Decrypt`, `boxEncrypt`/`Decrypt`, `deriveKey`, `randomBytes`, `nacl` re-export.
 - **(5) Utils** → `@parity/product-sdk-utils`: `bytesToHex`, `hexToBytes`, `utf8ToBytes`, `concatBytes`, `sha256`, `blake2b256`, `keccak256`, `formatPlanck`, `parseToPlanck`, `getBalance`. Prefer the leaf package over the `@parity/product-sdk/crypto` re-exports in new code.
 - **(6) Key management** → `KeyManager.fromSignature(sig, addr, { salt })` + `deriveSymmetricKey('domain:'+id)`. **Verify byte-for-byte** against the legacy implementation before adopting `KeyManager.deriveKeypairs()` — SDK info strings are hardcoded (gotcha G3).
 - **(7) Address** → inline `normalizeSs58`/`isValidSs58`/`toGenericSs58`/`ss58Encode`/`ss58Decode`/`ss58ToH160`/`h160ToSs58`/`accountIdBytes`/`accountIdFromBytes`/`truncateAddress`/`addressesEqual` from `@parity/product-sdk-address`. Delete any thin wrapper file.
-- **(8) App storage** → `createKvStore()` from `@parity/product-sdk-storage`. Migrate direct `localStorage.{get,set,remove}Item` to the resulting `KvStore`.
-- **(9) Bulletin** → drop Helia/IndexedDB stack. Three valid paths: (a) via App — `app.bulletin.upload(bytes)` / `fetch(cid)`; (b) standalone — `BulletinClient.create({ environment, signer })`. (c) host-sponsored — `getPreimageManager().submit(data)` from `@parity/product-sdk-host` (@^0.3.0+). Host signs end-to-end, no app-side signer wired; ≤ 2 MiB only (single preimage, no chunking). Bulletin can migrate independently of AuthProvider. For better UX, pair (c) with `requestResourceAllocation([{tag: 'BulletInAllowance'}])` (also in `@^0.3.0+`, typed wrapper from PR #82) to grant the allowance once via a single permission modal rather than re-prompting per submission. Decision: any file > 2 MiB in the product → (a) or (b) — both require an app-side signer source, so bulletin migrates alongside `AuthProvider` / `HostProvider.connect()` work. All files ≤ 2 MiB → (c) — smallest migration scope, bulletin flips independently. Use `.withWaitFor('finalized')` for reorg-safe semantics. Reconstruct block hash via `api.query.System.BlockHash.getValue(blockNumber)` when needed (gotcha G9).
+- **(8) App storage** → `createLocalKvStore()` from `@parity/product-sdk-local-storage`. Migrate direct `localStorage.{get,set,remove}Item` to the resulting `LocalKvStore`.
+- **(9) Cloud Storage** → drop Helia/IndexedDB stack. Three valid paths: (a) via App — `app.cloudStorage.upload(bytes)` / `fetch(cid)`; (b) standalone — `CloudStorageClient.create({ environment, signer })`. (c) host-sponsored — `getPreimageManager().submit(data)` from `@parity/product-sdk-host` (@^0.3.0+). Host signs end-to-end, no app-side signer wired; ≤ 2 MiB only (single preimage, no chunking). Cloud Storage can migrate independently of AuthProvider. For better UX, pair (c) with `requestResourceAllocation([{tag: 'BulletInAllowance'}])` (also in `@^0.3.0+`, typed wrapper from PR #82) to grant the allowance once via a single permission modal rather than re-prompting per submission. Decision: any file > 2 MiB in the product → (a) or (b) — both require an app-side signer source, so cloud storage migrates alongside `AuthProvider` / `HostProvider.connect()` work. All files ≤ 2 MiB → (c) — smallest migration scope, cloud storage flips independently. Use `.withWaitFor('finalized')` for reorg-safe semantics. Reconstruct block hash via `api.query.System.BlockHash.getValue(blockNumber)` when needed (gotcha G9).
 - **(10) Contracts** → `createContract(runtime, address, abi)` for ad-hoc reads; `ContractManager` with `cdm.json` for full apps. Drop `@polkadot-api/sdk-ink` unless signer plumbing is non-trivial.
 - **(11) Logger** → `configure({ level })` once at bootstrap. Wrap the existing `createLogger(prefix)` so app-level call sites don't change.
 - **(12) Statement Store** → `StatementStoreClient` with `{ mode: 'host', accountId }` inside containers, `{ mode: 'local', signer }` standalone. Use `ChannelStore` for stable two-party streams.
@@ -222,7 +222,7 @@ illustrative — yours must reflect the actual repo):
 ```
 | #  | Area              | Status   | Sub-pattern                                     | Notes                              |
 |----|-------------------|----------|-------------------------------------------------|------------------------------------|
-| 1  | Bootstrap         | yes      | createApp({ name: '<repo>', bulletin: false })  | Singleton in lib/app.ts            |
+| 1  | Bootstrap         | yes      | createApp({ name: '<repo>', cloudStorage: false }) | Singleton in lib/app.ts            |
 | 2  | Chain access      | yes      | getChainAPI('paseo') + getHostProvider fallback | dual; per-chain cache              |
 | 4  | Crypto            | yes      | replace tweetnacl + skiff-adapter               |                                    |
 | 6  | Key management    | deferred | KeyManager.fromSignature only                   | G3 — info-string mismatch persists |
@@ -273,7 +273,7 @@ For each in-scope/deferred/optional area: status, sub-pattern,
 files affected (with paths), owning SDK skill, notes.
 
 ### 1. Bootstrap                [yes]
-- Sub-pattern: createApp({ name: '<repo>', bulletin: <env|false> })
+- Sub-pattern: createApp({ name: '<repo>', cloudStorage: <env|false> })
 - Files: lib/app.ts (new), N call-sites
 - Owning skill: product-sdk-app-builder
 - Notes: ...
@@ -338,7 +338,7 @@ Phases (each = independent commit-worthy chunk):
 5. Logger swap (low risk)
 6. Chain access (touches bootstrap)
 7. Bootstrap + Signer (interlocked — must land together)
-8. Bulletin / Storage / Contracts / Statement Store (depend on bootstrap+signer)
+8. Cloud Storage / Storage / Contracts / Statement Store (depend on bootstrap+signer)
 9. Cleanup (see Cleanup section — dead files, unused imports, unused deps)
 10. Final verification (Verification plan checklist)
 
@@ -420,8 +420,8 @@ catalog with cause/symptom/fix per gotcha: see `references/gotchas.md`.
 
 Apply the fix when the symptom appears; reference the gotcha number
 (G1–G11) from the spec when applicable. The most frequently relevant
-are: G1 (JSON-RPC overrides, **always** required), G7 (`bulletin: false`
-when Bulletin out of scope), G10 (descriptors bump).
+are: G1 (JSON-RPC overrides, **always** required), G7 (`cloudStorage: false`
+when Cloud Storage out of scope), G10 (descriptors bump).
 
 ## References
 

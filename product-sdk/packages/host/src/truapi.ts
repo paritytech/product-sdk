@@ -1,7 +1,7 @@
 /**
  * TruAPI - the protocol for communicating between apps and the Polkadot host container.
  *
- * This module centralizes access to @novasamatech/product-sdk and @novasamatech/host-api,
+ * This module centralizes access to @novasamatech/host-api-wrapper and @novasamatech/host-api,
  * allowing other @parity/product-sdk-* packages to import from here rather than depending
  * directly on novasama packages.
  *
@@ -15,9 +15,29 @@ import type {
     AllocatableResource as AllocatableResourceCodec,
     AllocationOutcome as AllocationOutcomeCodec,
     CodecType,
+    RemotePermission as RemotePermissionCodec,
+    Statement as StatementCodec,
 } from "@novasamatech/host-api";
 
+import type { StatementProof } from "./types.js";
+
 const log = createLogger("host");
+
+/**
+ * Extract a human-readable message from an unknown error. `JSON.stringify`
+ * on `Error` returns `"{}"` because `message` and `stack` are non-enumerable
+ * — without this helper, wire failures surface as `"... failed: {}"` with
+ * zero diagnostic context.
+ */
+function formatError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    if (typeof err === "string") return err;
+    try {
+        return JSON.stringify(err);
+    } catch {
+        return String(err);
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers from @novasamatech/host-api (re-exported from @novasamatech/scale)
@@ -96,7 +116,7 @@ let cachedTruApi: TruApi | null = null;
 /**
  * Get the TruAPI instance for direct low-level access.
  *
- * Returns the `hostApi` object from `@novasamatech/product-sdk` which provides
+ * Returns the `hostApi` object from `@novasamatech/host-api-wrapper` which provides
  * methods for communicating directly with the host container. Returns `null`
  * when running outside a container or when the SDK is unavailable.
  *
@@ -129,7 +149,7 @@ export async function getTruApi(): Promise<TruApi | null> {
     if (cachedTruApi) return cachedTruApi;
 
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         cachedTruApi = sdk.hostApi;
         log.debug("TruAPI loaded");
         return cachedTruApi;
@@ -165,7 +185,7 @@ export async function getTruApi(): Promise<TruApi | null> {
  */
 export async function getPreimageManager(): Promise<PreimageManager | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.preimageManager;
     } catch {
         return null;
@@ -202,7 +222,7 @@ export interface PreimageManager {
  */
 export async function getAccountsProvider(): Promise<AccountsProvider | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createAccountsProvider() as unknown as AccountsProvider;
     } catch {
         return null;
@@ -220,12 +240,30 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
  */
 export type AllocatableResource = CodecType<typeof AllocatableResourceCodec>;
 
+/** Tag-only view of {@link AllocatableResource} for places that just need the variant name. */
+export type AllocatableResourceTag = AllocatableResource["tag"];
+
 /**
  * Per-resource outcome from {@link requestResourceAllocation}.
  * The host strips secret payloads from `Allocated` before returning, so
  * `value` is always `undefined` on the product side.
  */
 export type AllocationOutcome = CodecType<typeof AllocationOutcomeCodec>;
+
+/** Tag-only view of {@link AllocationOutcome} (`"Allocated" | "Rejected" | "NotAvailable"`). */
+export type AllocationOutcomeTag = AllocationOutcome["tag"];
+
+/**
+ * Remote permission the dapp can ask the host to grant via
+ * {@link requestPermission}.
+ *
+ * Derived from the upstream codec so variant renames surface as compile
+ * errors, not runtime failures.
+ */
+export type RemotePermission = CodecType<typeof RemotePermissionCodec>;
+
+/** Tag-only view of {@link RemotePermission}. */
+export type RemotePermissionTag = RemotePermission["tag"];
 
 /**
  * Request the host to pre-allocate one or more resource allowances.
@@ -258,7 +296,89 @@ export async function requestResourceAllocation(
     return await truApi.requestResourceAllocation(enumValue("v1", resources)).match(
         (envelope: { tag: "v1"; value: AllocationOutcome[] }) => envelope.value,
         (err: unknown) => {
-            throw new Error(`requestResourceAllocation failed: ${JSON.stringify(err)}`);
+            throw new Error(`requestResourceAllocation failed: ${formatError(err)}`, {
+                cause: err,
+            });
+        },
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Authorized Statement Store proof creation (RFC-10 §"Statement Store allowance")
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A Statement payload destined for the Statement Store. Matches the
+ * `pallet-statement` Statement structure.
+ *
+ * The optional `proof` field is the same {@link StatementProof} shape that
+ * {@link createProofAuthorized} returns: pass `undefined` here, call
+ * `createProofAuthorized` to obtain the proof, then attach it before
+ * submitting via `HostStatementStore.submit`. The `OnChain` variant of
+ * `StatementProof` is a chain-attestation reference; the `Sr25519` /
+ * `Ed25519` / `Ecdsa` variants are signing proofs.
+ *
+ * Derived from the upstream codec so structural changes surface as compile
+ * errors here, not runtime decode failures.
+ */
+export type Statement = CodecType<typeof StatementCodec>;
+
+/**
+ * Have the host sign a Statement using an allowance-bearing account it
+ * picks internally — RFC-10 §"Statement Store allowance".
+ *
+ * The product passes only the Statement payload; the host chooses the
+ * `//allowance//statement-store//{productId}` account that holds SSS
+ * allowance and signs with it. Allowance is provisioned implicitly on
+ * first use if the host hasn't already pre-allocated via
+ * {@link requestResourceAllocation}; products never see the signing
+ * account or its key material.
+ *
+ * Pairs with {@link getStatementStore}'s `submit`: call this to obtain
+ * a proof, attach it to the Statement, and submit the result.
+ *
+ * @param statement - The Statement to be signed.
+ * @returns The proof to attach before submitting.
+ * @throws If the host is unavailable or the host-side signing fails.
+ *
+ * @example
+ * ```ts
+ * import { createProofAuthorized, getStatementStore } from "@parity/product-sdk-host";
+ *
+ * const statement = {
+ *     proof: undefined,
+ *     decryptionKey: undefined,
+ *     expiry: undefined,
+ *     channel: undefined,
+ *     topics: [],
+ *     data: payload,
+ * };
+ * const proof = await createProofAuthorized(statement);
+ * const store = await getStatementStore();
+ * await store?.submit({ ...statement, proof });
+ * ```
+ *
+ * @remarks
+ * RFC-10 introduces this as a new, strictly additive TruAPI call. The
+ * pre-existing `HostStatementStore.createProof(accountId, statement)`
+ * surface stays available for products that own a non-allowance signing
+ * account; this wrapper is the sponsored-submission path.
+ */
+export async function createProofAuthorized(statement: Statement): Promise<StatementProof> {
+    const truApi = await getTruApi();
+    if (!truApi) {
+        throw new Error("createProofAuthorized: TruAPI unavailable");
+    }
+    log.debug("createProofAuthorized", {
+        topics: statement.topics.length,
+        dataLen: statement.data?.length ?? 0,
+    });
+
+    // `.match()` because the host returns a neverthrow ResultAsync, not a Promise.
+    return await truApi.statementStoreCreateProofAuthorized(enumValue("v1", statement)).match(
+        (envelope: { tag: "v1"; value: StatementProof }) => envelope.value,
+        (err: unknown) => {
+            throw new Error(`createProofAuthorized failed: ${formatError(err)}`, { cause: err });
         },
     );
 }
@@ -311,7 +431,7 @@ export interface ResultAsync<T, E> {
 }
 
 /**
- * Accounts provider interface from @novasamatech/product-sdk.
+ * Accounts provider interface from @novasamatech/host-api-wrapper.
  *
  * Provides methods for accessing host wallet accounts, product accounts,
  * and Ring VRF operations.
@@ -320,7 +440,7 @@ export interface AccountsProvider {
     /**
      * Get legacy accounts (user's external wallets connected to the host).
      *
-     * Renamed from `getNonProductAccounts` in @novasamatech/product-sdk 0.7.
+     * Renamed from `getNonProductAccounts` in @novasamatech/host-api-wrapper 0.7.
      *
      * @returns ResultAsync resolving to array of accounts.
      */
@@ -329,7 +449,7 @@ export interface AccountsProvider {
     /**
      * Get a signer for a legacy account.
      *
-     * Renamed from `getNonProductAccountSigner` in @novasamatech/product-sdk 0.7.
+     * Renamed from `getNonProductAccountSigner` in @novasamatech/host-api-wrapper 0.7.
      *
      * @param account - The product account (used for public key lookup).
      * @returns A PolkadotSigner for signing transactions.
@@ -447,6 +567,25 @@ if (import.meta.vitest) {
             ).rejects.toThrow(/TruAPI unavailable/);
         } else {
             expect(typeof requestResourceAllocation).toBe("function");
+        }
+    });
+
+    test("createProofAuthorized throws when TruAPI is unavailable", async () => {
+        cachedTruApi = null;
+        const api = await getTruApi();
+        if (api === null) {
+            await expect(
+                createProofAuthorized({
+                    proof: undefined,
+                    decryptionKey: undefined,
+                    expiry: undefined,
+                    channel: undefined,
+                    topics: [],
+                    data: undefined,
+                }),
+            ).rejects.toThrow(/TruAPI unavailable/);
+        } else {
+            expect(typeof createProofAuthorized).toBe("function");
         }
     });
 }

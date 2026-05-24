@@ -1,7 +1,7 @@
 /**
  * Identity module types
  *
- * Types for DotNS name resolution and product account derivation
+ * Types for DotNS name resolution and context-alias derivation
  */
 
 /** DotNS name resolution result */
@@ -16,16 +16,16 @@ export interface DotNsRecord {
     expiresAt?: number;
 }
 
-/** Product account info */
-export interface ProductAccountInfo {
-    /** Product-scoped SS58 address */
+/** Context alias info: a deterministic, context-bound alias derived from a parent account */
+export interface ContextAliasInfo {
+    /** Alias SS58 address */
     address: string;
     /** H160 EVM address */
     h160Address: `0x${string}`;
     /** Parent account address */
     parentAddress: string;
-    /** Product name used for derivation */
-    productName: string;
+    /** Context string used for derivation */
+    context: string;
 }
 
 /** Ring VRF alias info */

@@ -12,7 +12,7 @@ import { waitForAppReady } from "./helpers";
  */
 // TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
 // provider routes through TrUAPI's `signing.createTransaction` instead of
-// `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
+// `@novasamatech/host-api-wrapper`'s PJS bridge, which throws on Paseo v2's
 // `AsPgas` signed extension. See the tracking issue for the migration plan.
 test.describe.skip("@parity/product-sdk-tx via Host API — finalized", () => {
     test("waitFor=finalized resolves only after finalization", async ({ testHost }) => {

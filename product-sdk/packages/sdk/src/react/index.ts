@@ -6,7 +6,7 @@
  *
  * @example
  * ```tsx
- * import { ProductSDKProvider, useWallet, useStorage } from '@parity/product-sdk/react';
+ * import { ProductSDKProvider, useWallet, useLocalStorage } from '@parity/product-sdk/react';
  *
  * function App() {
  *   return (
@@ -18,7 +18,7 @@
  *
  * function MyApp() {
  *   const { isConnected, connect, accounts } = useWallet();
- *   const [theme, setTheme] = useStorage('theme', 'light');
+ *   const [theme, setTheme] = useLocalStorage('theme', 'light');
  *
  *   // ...
  * }
@@ -36,6 +36,6 @@ export { ProductSDKContext, useProductSDK } from "./context.js";
 export { useWallet } from "./useWallet.js";
 export type { UseWalletState, UseWalletActions, UseWalletReturn } from "./useWallet.js";
 
-export { useStorage, useStorageString } from "./useStorage.js";
+export { useLocalStorage, useLocalStorageString } from "./useLocalStorage.js";
 
 export { useChain } from "./useChain.js";

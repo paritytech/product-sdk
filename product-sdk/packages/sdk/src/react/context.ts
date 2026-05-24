@@ -17,7 +17,7 @@ export const ProductSDKContext = createContext<App | null>(null);
  * ```tsx
  * function MyComponent() {
  *   const app = useProductSDK();
- *   // Use app.wallet, app.storage, etc.
+ *   // Use app.wallet, app.localStorage, etc.
  * }
  * ```
  */

@@ -1,10 +1,21 @@
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
-import { encodeFunctionData, decodeFunctionResult, type Abi as ViemAbi } from "viem";
+import {
+    bytesToHex,
+    decodeErrorResult,
+    decodeFunctionResult,
+    encodeFunctionData,
+    type Abi as ViemAbi,
+} from "viem";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 import { seedToAccount } from "@parity/product-sdk-keys";
 import { createLogger } from "@parity/product-sdk-logger";
 import { DEV_PHRASE, ss58Address } from "@polkadot-labs/hdkd-helpers";
-import { ContractSignerMissingError, ContractDryRunFailedError } from "./errors.js";
+import {
+    ContractDryRunFailedError,
+    ContractRevertedError,
+    ContractSignerMissingError,
+    type ContractRevertInfo,
+} from "./errors.js";
 import type { ContractRuntime } from "./runtime.js";
 import type { BatchableCall, SubmittableTransaction } from "@parity/product-sdk-tx";
 import type {
@@ -101,6 +112,69 @@ function hexToBytes(hex: HexString): Uint8Array {
     return out;
 }
 
+// Bit 0 of `pallet-revive`'s `ReturnFlags`. Other bits are reserved, so we
+// mask explicitly rather than checking `flags !== 0`.
+const REVERT_FLAG = 1;
+
+// Solidity panic codes that `Panic(uint256)` can carry. Stable across compiler
+// versions; mapping them to a human-readable name beats showing the raw hex.
+const PANIC_REASONS: Record<string, string> = {
+    "0x01": "assertion failed",
+    "0x11": "arithmetic overflow",
+    "0x12": "division by zero",
+    "0x21": "invalid enum value",
+    "0x22": "improperly encoded storage byte array",
+    "0x31": "pop on empty array",
+    "0x32": "array index out of bounds",
+    "0x41": "memory allocation overflow",
+    "0x51": "call to uninitialized internal function",
+};
+
+/**
+ * Adapt viem's `decodeErrorResult` output into our tagged `ContractRevertInfo`.
+ * The core decode is viem's; this wrapper layers in a UTF-8 fallback for raw
+ * `revert(bytes)` payloads and the panic-code-to-string mapping. viem's own
+ * `panicReasons` and `ContractFunctionRevertedError` are unsuitable here:
+ * `panicReasons` sits at `viem/constants/solidity` and isn't surfaced by
+ * viem's `exports` map, and `ContractFunctionRevertedError` is shaped for
+ * viem's call pipeline and would need adapting back into this shape anyway.
+ */
+function decodeRevert(abi: AbiEntry[], data: Uint8Array): ContractRevertInfo {
+    const hex = bytesToHex(data);
+    const info: ContractRevertInfo = {
+        type: "ContractRevertedWithPayload",
+        data: hex as HexString,
+    };
+    if (data.byteLength === 0) return info;
+    try {
+        // The ABI path wins even if a raw `revert(bytes)` payload happens to
+        // start with `0x08c379a0` / `0x4e487b71` - astronomically rare on real
+        // chains, but worth flagging for anyone debugging an oddly-decoded revert.
+        const decoded = decodeErrorResult({
+            abi: abi as unknown as ViemAbi,
+            data: hex,
+        });
+        info.decoded = {
+            errorName: decoded.errorName,
+            args: decoded.args as readonly unknown[] | undefined,
+        };
+        if (decoded.errorName === "Error" && typeof decoded.args?.[0] === "string") {
+            info.reason = decoded.args[0];
+        } else if (decoded.errorName === "Panic" && typeof decoded.args?.[0] === "bigint") {
+            const code = `0x${decoded.args[0].toString(16).padStart(2, "0")}`;
+            info.reason = PANIC_REASONS[code] ? `Panic: ${PANIC_REASONS[code]}` : `Panic(${code})`;
+        }
+        return info;
+    } catch {
+        try {
+            info.reason = new TextDecoder("utf-8", { fatal: true }).decode(data);
+        } catch {
+            // Opaque bytes; expose only the raw hex.
+        }
+        return info;
+    }
+}
+
 /**
  * Encode the calldata for a contract method using the Solidity ABI codec.
  * Returns `selector ‖ head ‖ tail` as a `0x`-prefixed hex string.
@@ -126,14 +200,10 @@ function encodeCalldata(abi: AbiEntry[], methodName: string, args: unknown[]): `
  */
 function decodeReturn(abi: AbiEntry[], methodName: string, returnData: Uint8Array): unknown {
     if (returnData.byteLength === 0) return undefined;
-    let hex = "0x";
-    for (let i = 0; i < returnData.byteLength; i++) {
-        hex += returnData[i].toString(16).padStart(2, "0");
-    }
     const decoded = decodeFunctionResult({
         abi: abi as unknown as ViemAbi,
         functionName: methodName,
-        data: hex as `0x${string}`,
+        data: bytesToHex(returnData),
     });
 
     const entry = abi.find((e) => e.type === "function" && e.name === methodName);
@@ -174,6 +244,9 @@ async function buildReviveCall(
 
     let weightLimit = overrides?.gasLimit;
     let storageDepositLimit = overrides?.storageDepositLimit;
+    // Passing both overrides skips the dry-run entirely - including the REVERT
+    // pre-check. Callers who supply both are accepting that a reverting tx
+    // would still be submitted and gas paid.
     if (weightLimit === undefined || storageDepositLimit === undefined) {
         const dryRun = await runtime.dryRunCall(
             origin,
@@ -185,6 +258,12 @@ async function buildReviveCall(
         );
         if (!dryRun.result.success) {
             throw new ContractDryRunFailedError(methodName, dryRun.result.value);
+        }
+        if ((dryRun.result.value.flags & REVERT_FLAG) !== 0) {
+            // Fail fast so callers don't pay gas on a call the chain already told us would revert.
+            const { data, reason, decoded } = decodeRevert(abi, dryRun.result.value.data);
+            log.debug("Contract reverted", { methodName, reason, errorName: decoded?.errorName });
+            throw new ContractRevertedError(methodName, data, { reason, decoded });
         }
         weightLimit = weightLimit ?? dryRun.weight_required;
         if (storageDepositLimit === undefined) {
@@ -257,6 +336,21 @@ export function wrapContract(
                         return {
                             success: false,
                             value: dryRun.result.value,
+                            gasRequired: dryRun.weight_required,
+                        };
+                    }
+
+                    if ((dryRun.result.value.flags & REVERT_FLAG) !== 0) {
+                        // Surface as a tagged value; decoding revert bytes as a normal return would throw.
+                        const info = decodeRevert(abi, dryRun.result.value.data);
+                        log.debug("Contract reverted", {
+                            methodName,
+                            reason: info.reason,
+                            errorName: info.decoded?.errorName,
+                        });
+                        return {
+                            success: false,
+                            value: info,
                             gasRequired: dryRun.weight_required,
                         };
                     }
@@ -1318,6 +1412,286 @@ if (import.meta.vitest) {
 
             expect(result.ok).toBe(true);
             expect(batchCalls).toEqual(decodedCalls);
+        });
+    });
+
+    describe("decodeRevert", () => {
+        const abi: AbiEntry[] = [
+            {
+                type: "error",
+                name: "InsufficientBalance",
+                inputs: [
+                    { name: "needed", type: "uint256" },
+                    { name: "available", type: "uint256" },
+                ],
+            },
+        ];
+
+        test("decodes a standard Error(string) revert and lifts the reason", () => {
+            // 0x08c379a0 selector + ABI-encoded "Whoops".
+            const hex =
+                "0x08c379a0" +
+                "0000000000000000000000000000000000000000000000000000000000000020" +
+                "0000000000000000000000000000000000000000000000000000000000000006" +
+                "57686f6f70730000000000000000000000000000000000000000000000000000";
+            const bytes = hexToBytes(hex as HexString);
+            const info = decodeRevert([], bytes);
+            expect(info.type).toBe("ContractRevertedWithPayload");
+            expect(info.reason).toBe("Whoops");
+            expect(info.decoded?.errorName).toBe("Error");
+        });
+
+        test("decodes Panic(uint256) and names well-known codes", () => {
+            // 0x4e487b71 selector + panic code 0x11 (arithmetic overflow).
+            const hex = `0x4e487b71${"00".repeat(31)}11`;
+            const info = decodeRevert([], hexToBytes(hex as HexString));
+            expect(info.decoded?.errorName).toBe("Panic");
+            expect(info.reason).toBe("Panic: arithmetic overflow");
+        });
+
+        test("decodes Panic(uint256) for unknown codes by falling back to the hex code", () => {
+            // 0x4e487b71 selector + panic code 0xff (not a Solidity-defined code).
+            const hex = `0x4e487b71${"00".repeat(31)}ff`;
+            const info = decodeRevert([], hexToBytes(hex as HexString));
+            expect(info.decoded?.errorName).toBe("Panic");
+            expect(info.reason).toBe("Panic(0xff)");
+        });
+
+        test("decodes an ABI-defined custom error", () => {
+            // InsufficientBalance(uint256,uint256) selector + (1, 2).
+            const hex =
+                "0xcf479181" +
+                "0000000000000000000000000000000000000000000000000000000000000001" +
+                "0000000000000000000000000000000000000000000000000000000000000002";
+            const info = decodeRevert(abi, hexToBytes(hex as HexString));
+            expect(info.decoded?.errorName).toBe("InsufficientBalance");
+            expect(info.decoded?.args).toEqual([1n, 2n]);
+            expect(info.reason).toBeUndefined();
+        });
+
+        test("falls back to a UTF-8 reason on raw revert(bytes) payloads", () => {
+            const bytes = hexToBytes("0x556e617574686f72697a6564" as HexString);
+            const info = decodeRevert([], bytes);
+            expect(info.decoded).toBeUndefined();
+            expect(info.reason).toBe("Unauthorized");
+            expect(info.data).toBe("0x556e617574686f72697a6564");
+        });
+
+        test("leaves reason undefined for opaque non-UTF8 bytes", () => {
+            const info = decodeRevert([], new Uint8Array([0xff, 0xfe, 0xfd]));
+            expect(info.decoded).toBeUndefined();
+            expect(info.reason).toBeUndefined();
+            expect(info.data).toBe("0xfffefd");
+        });
+
+        test("empty payload produces a bare ContractRevertedWithPayload with no extras", () => {
+            const info = decodeRevert([], new Uint8Array(0));
+            expect(info).toEqual({ type: "ContractRevertedWithPayload", data: "0x" });
+        });
+    });
+
+    describe("wrapContract — REVERT flag handling", () => {
+        const abi: AbiEntry[] = [
+            {
+                type: "function",
+                name: "transfer",
+                inputs: [
+                    { name: "to", type: "address" },
+                    { name: "amount", type: "uint256" },
+                ],
+                outputs: [{ name: "", type: "bool" }],
+                stateMutability: "nonpayable",
+            },
+            {
+                type: "function",
+                name: "ping",
+                inputs: [],
+                outputs: [],
+                stateMutability: "nonpayable",
+            },
+        ];
+        const ADDRESS = "0x0102030405060708090a0b0c0d0e0f1011121314";
+        const ORIGIN = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+        const fakeSigner = {
+            publicKey: new Uint8Array(32),
+        } as unknown as PolkadotSigner;
+
+        const REVERT_PAYLOAD = hexToBytes("0x556e617574686f72697a6564" as HexString);
+
+        function revertingRuntime(data: Uint8Array = REVERT_PAYLOAD): ContractRuntime {
+            return {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: () => {
+                                throw new Error(
+                                    "Revive.call must NOT be invoked when the dry-run reverts",
+                                );
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: async () => ({
+                    weight_consumed: { ref_time: 0n, proof_size: 0n },
+                    weight_required: { ref_time: 5n, proof_size: 5n },
+                    storage_deposit: { type: "Refund", value: 0n },
+                    max_storage_deposit: { type: "Refund", value: 0n },
+                    gas_consumed: 0n,
+                    result: {
+                        success: true,
+                        value: { flags: 1, data },
+                    },
+                }),
+            };
+        }
+
+        test("query() returns success:false with a ContractReverted value when REVERT bit is set", async () => {
+            const wrapped = wrapContract(revertingRuntime(), ADDRESS, abi, {
+                signer: fakeSigner,
+                origin: ORIGIN,
+            });
+
+            const result = await (
+                wrapped as unknown as {
+                    transfer: {
+                        query: (
+                            to: string,
+                            amount: bigint,
+                        ) => Promise<{ success: boolean; value: unknown; gasRequired: unknown }>;
+                    };
+                }
+            ).transfer.query("0x0000000000000000000000000000000000000001", 1n);
+
+            expect(result.success).toBe(false);
+            expect(result.value).toEqual({
+                type: "ContractRevertedWithPayload",
+                data: "0x556e617574686f72697a6564",
+                reason: "Unauthorized",
+            });
+            expect(result.gasRequired).toEqual({ ref_time: 5n, proof_size: 5n });
+        });
+
+        test("query() handles an empty revert payload end-to-end (revert with no message)", async () => {
+            const wrapped = wrapContract(revertingRuntime(new Uint8Array(0)), ADDRESS, abi, {
+                signer: fakeSigner,
+                origin: ORIGIN,
+            });
+            const result = await (
+                wrapped as unknown as {
+                    ping: {
+                        query: () => Promise<{ success: boolean; value: unknown }>;
+                    };
+                }
+            ).ping.query();
+
+            expect(result.success).toBe(false);
+            expect(result.value).toEqual({ type: "ContractRevertedWithPayload", data: "0x" });
+        });
+
+        test("tx() throws ContractRevertedError before signing when the dry-run reverts", async () => {
+            const wrapped = wrapContract(revertingRuntime(), ADDRESS, abi, {
+                signer: fakeSigner,
+                origin: ORIGIN,
+            });
+
+            await expect(
+                (
+                    wrapped as unknown as {
+                        transfer: {
+                            tx: (to: string, amount: bigint) => Promise<unknown>;
+                        };
+                    }
+                ).transfer.tx("0x0000000000000000000000000000000000000001", 1n),
+            ).rejects.toMatchObject({
+                name: "ContractRevertedError",
+                methodName: "transfer",
+                data: "0x556e617574686f72697a6564",
+                reason: "Unauthorized",
+            });
+        });
+
+        test("prepare() throws ContractRevertedError before constructing the extrinsic", async () => {
+            const wrapped = wrapContract(revertingRuntime(), ADDRESS, abi, {});
+
+            await expect(
+                (
+                    wrapped as unknown as {
+                        transfer: {
+                            prepare: (to: string, amount: bigint) => Promise<unknown>;
+                        };
+                    }
+                ).transfer.prepare("0x0000000000000000000000000000000000000001", 1n),
+            ).rejects.toMatchObject({
+                name: "ContractRevertedError",
+                methodName: "transfer",
+                reason: "Unauthorized",
+            });
+        });
+
+        test("revert with a standard Error(string) payload lifts the reason", async () => {
+            // Solidity `require(false, "nope")`.
+            const errorBytes = hexToBytes(
+                ("0x08c379a0" +
+                    "0000000000000000000000000000000000000000000000000000000000000020" +
+                    "0000000000000000000000000000000000000000000000000000000000000004" +
+                    "6e6f706500000000000000000000000000000000000000000000000000000000") as HexString,
+            );
+            const runtime: ContractRuntime = {
+                api: {} as unknown as ContractRuntime["api"],
+                dryRunCall: async () => ({
+                    weight_consumed: { ref_time: 0n, proof_size: 0n },
+                    weight_required: { ref_time: 1n, proof_size: 1n },
+                    storage_deposit: { type: "Refund", value: 0n },
+                    max_storage_deposit: { type: "Refund", value: 0n },
+                    gas_consumed: 0n,
+                    result: { success: true, value: { flags: 1, data: errorBytes } },
+                }),
+            };
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {
+                signer: fakeSigner,
+                origin: ORIGIN,
+            });
+            const result = await (
+                wrapped as unknown as {
+                    transfer: {
+                        query: (
+                            to: string,
+                            amount: bigint,
+                        ) => Promise<{ success: boolean; value: { reason?: string } }>;
+                    };
+                }
+            ).transfer.query("0x0000000000000000000000000000000000000001", 1n);
+            expect(result.success).toBe(false);
+            expect(result.value.reason).toBe("nope");
+        });
+
+        test("REVERT bit cleared stays on the happy path - normal return value is decoded", async () => {
+            const returnBytes = new Uint8Array(32);
+            returnBytes[31] = 1; // bool true
+            const runtime: ContractRuntime = {
+                api: {} as unknown as ContractRuntime["api"],
+                dryRunCall: async () => ({
+                    weight_consumed: { ref_time: 0n, proof_size: 0n },
+                    weight_required: { ref_time: 1n, proof_size: 1n },
+                    storage_deposit: { type: "Refund", value: 0n },
+                    max_storage_deposit: { type: "Refund", value: 0n },
+                    gas_consumed: 0n,
+                    result: { success: true, value: { flags: 0, data: returnBytes } },
+                }),
+            };
+            const wrapped = wrapContract(runtime, ADDRESS, abi, { origin: ORIGIN });
+            const result = await (
+                wrapped as unknown as {
+                    transfer: {
+                        query: (
+                            to: string,
+                            amount: bigint,
+                        ) => Promise<{ success: boolean; value: unknown }>;
+                    };
+                }
+            ).transfer.query("0x0000000000000000000000000000000000000001", 1n);
+            expect(result.success).toBe(true);
+            expect(result.value).toBe(true);
         });
     });
 }

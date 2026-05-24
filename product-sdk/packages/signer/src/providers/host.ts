@@ -23,7 +23,7 @@ export interface HostProviderOptions {
     /** Initial retry delay in ms. Default: 500 */
     retryDelay?: number;
     /**
-     * Custom SDK loader. Defaults to `import("@novasamatech/product-sdk")`.
+     * Custom SDK loader. Defaults to `import("@novasamatech/host-api-wrapper")`.
      * Override this for testing or custom SDK setups.
      * @internal
      */
@@ -164,7 +164,7 @@ export interface ProductSdkModule {
 
 /* @integration */
 async function defaultLoadSdk(): Promise<ProductSdkModule> {
-    return (await import("@novasamatech/product-sdk")) as unknown as ProductSdkModule;
+    return (await import("@novasamatech/host-api-wrapper")) as unknown as ProductSdkModule;
 }
 
 /* @integration */
@@ -175,7 +175,7 @@ async function defaultLoadHostApiEnum(): Promise<HostApiEnumHelper> {
 /**
  * Provider for the Host API (Polkadot Desktop / Android).
  *
- * Dynamically imports `@novasamatech/product-sdk` at runtime so it remains
+ * Dynamically imports `@novasamatech/host-api-wrapper` at runtime so it remains
  * an optional peer dependency. Apps running outside a host container will
  * gracefully get a `HOST_UNAVAILABLE` error.
  *
