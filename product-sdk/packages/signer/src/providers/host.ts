@@ -101,15 +101,18 @@ interface NeverthrowResultAsync<T, E> {
 }
 
 /**
- * Force product-account signing through Nova's `host_create_transaction`
- * path so unknown signed extensions (e.g. `AsPgas` on Paseo Next) are
- * preserved. The default `"signPayload"` path wraps via PJS and throws
- * `"PJS does not support this signed-extension: AsPgas"`.
+ * Pin product-account signing to Nova's `host_create_transaction` path.
  *
- * The `signerType` arg was added in `@novasamatech/product-sdk` 0.7.9;
- * older Nova builds ignore the extra argument at runtime, so passing it
- * unconditionally is backward-compatible at the call-site level. Nova
- * doesn't expose a corresponding switch for legacy-account signing.
+ * The `createTransaction` path forwards opaque signed-extension bytes to
+ * the host for metadata-driven decoding, so unknown extensions (e.g.
+ * `AsPgas` on Paseo Next) survive end-to-end. The alternate
+ * `"signPayload"` path wraps via PJS and throws
+ * `"PJS does not support this signed-extension: AsPgas"` on those chains.
+ *
+ * Nova's `host-api-wrapper@0.7.9` already defaults to `"createTransaction"`,
+ * so this is a defensive pin rather than an opt-in — it guards against a
+ * future upstream default flip and makes the routing legible at the call
+ * site. The legacy-account signer doesn't expose this switch.
  */
 const PRODUCT_SIGNER_TYPE = "createTransaction" as const;
 
@@ -741,6 +744,45 @@ if (import.meta.vitest) {
                 expect(result.value[0].source).toBe("host");
                 expect(result.value[0].publicKey).toEqual(rawAccounts[0].publicKey);
                 expect(result.value[1].name).toBeNull();
+            }
+        });
+
+        test("getProductAccountSigner pins signerType to 'createTransaction'", async () => {
+            // Regression guard: the alternate "signPayload" route goes through
+            // PJS and throws on unknown signed extensions (e.g. AsPgas on
+            // Paseo Next). If a future refactor drops the explicit pin and
+            // upstream's default ever flips back to signPayload, this would
+            // silently regress.
+            const rawAccounts: RawAccountTest[] = [
+                { publicKey: new Uint8Array(32).fill(0xaa), name: "Alice" },
+            ];
+            const mockProvider = createMockProvider({ accounts: rawAccounts });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+            });
+            await provider.connect();
+
+            // Path 1: HostProvider.getProductAccountSigner(...)
+            provider.getProductAccountSigner({
+                dotNsIdentifier: "test.dot",
+                derivationIndex: 0,
+                publicKey: rawAccounts[0].publicKey,
+            });
+            expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
+                expect.anything(),
+                "createTransaction",
+            );
+
+            // Path 2: getSigner() returned from HostProvider.getProductAccount(...)
+            const productAccountResult = await provider.getProductAccount("test.dot", 0);
+            expect(productAccountResult.ok).toBe(true);
+            if (productAccountResult.ok) {
+                productAccountResult.value.getSigner();
+                expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
+                    expect.anything(),
+                    "createTransaction",
+                );
             }
         });
 

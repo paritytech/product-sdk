@@ -15,11 +15,7 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         expect(addr!.startsWith(expectedStart)).toBe(true);
     });
 
-    // TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
-    // provider routes through TrUAPI's `signing.createTransaction` instead of
-    // `@novasamatech/host-api-wrapper`'s PJS bridge, which throws on Paseo v2's
-    // `AsPgas` signed extension.
-    test.skip("submitAndWatch: single remark is signed via the host and lands on-chain", async ({
+    test("submitAndWatch: single remark is signed via the host and lands on-chain", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);
@@ -41,17 +37,15 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         // Button re-enables.
         await expect(btn).toBeEnabled({ timeout: 10_000 });
 
-        // The signer was invoked exactly once through the host.
+        // The signer was invoked exactly once through the host. Host signer
+        // is pinned to "createTransaction" (see `PRODUCT_SIGNER_TYPE` in
+        // `packages/signer/src/providers/host.ts`).
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
-        expect(signingLog[0].type).toBe("payload");
+        expect(signingLog[0].type).toBe("createTransaction");
     });
 
-    // TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
-    // provider routes through TrUAPI's `signing.createTransaction` instead of
-    // `@novasamatech/host-api-wrapper`'s PJS bridge, which throws on Paseo v2's
-    // `AsPgas` signed extension.
-    test.skip("batchSubmitAndWatch: three remarks land in a single extrinsic", async ({
+    test("batchSubmitAndWatch: three remarks land in a single extrinsic", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);
@@ -70,6 +64,6 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         // Utility.batch_all wraps 3 inner calls into one extrinsic → one signature.
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
-        expect(signingLog[0].type).toBe("payload");
+        expect(signingLog[0].type).toBe("createTransaction");
     });
 });
