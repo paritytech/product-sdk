@@ -324,6 +324,12 @@ export class HostProvider implements SignerProvider {
      *
      * Convenience method for when you already have the product account details.
      * Requires a prior successful `connect()` call.
+     *
+     * Routing is pinned to `signerType: "createTransaction"` via
+     * {@link PRODUCT_SIGNER_TYPE} so unknown signed extensions (e.g. `AsPgas`
+     * on Paseo Next) are forwarded to the host as opaque bytes for
+     * metadata-driven decoding, rather than going through the PJS bridge
+     * that throws on unknown extensions.
      */
     getProductAccountSigner(account: ProductAccount): import("polkadot-api").PolkadotSigner {
         if (!this.accountsProvider) {
