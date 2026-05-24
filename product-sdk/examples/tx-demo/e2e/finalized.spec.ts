@@ -27,9 +27,8 @@ test.describe("@parity/product-sdk-tx via Host API — finalized", () => {
         );
 
         // Exactly one extrinsic was signed — the finalization wait must not
-        // cause a duplicate broadcast or re-sign. Host signer is pinned to
-        // "createTransaction" (see `PRODUCT_SIGNER_TYPE` in
-        // `packages/signer/src/providers/host.ts`).
+        // cause a duplicate broadcast or re-sign. Product-account routing
+        // records type "createTransaction".
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
         expect(signingLog[0].type).toBe("createTransaction");

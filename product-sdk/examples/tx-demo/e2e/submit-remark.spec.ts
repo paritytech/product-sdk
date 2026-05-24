@@ -37,9 +37,8 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         // Button re-enables.
         await expect(btn).toBeEnabled({ timeout: 10_000 });
 
-        // The signer was invoked exactly once through the host. Host signer
-        // is pinned to "createTransaction" (see `PRODUCT_SIGNER_TYPE` in
-        // `packages/signer/src/providers/host.ts`).
+        // The signer was invoked exactly once through the host. Product-
+        // account routing records type "createTransaction".
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
         expect(signingLog[0].type).toBe("createTransaction");
@@ -62,6 +61,7 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         await expect(btn).toBeEnabled({ timeout: 10_000 });
 
         // Utility.batch_all wraps 3 inner calls into one extrinsic → one signature.
+        // Product-account routing records type "createTransaction".
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
         expect(signingLog[0].type).toBe("createTransaction");

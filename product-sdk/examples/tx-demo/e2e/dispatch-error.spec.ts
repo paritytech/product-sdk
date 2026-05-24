@@ -41,10 +41,9 @@ test.describe("@parity/product-sdk-tx via Host API — dispatch error", () => {
         // typed error surface to render.
         await expect(logLoc).toContainText(/bad-tx: error/, { timeout: 5_000 });
 
-        // Exactly one signing call was recorded. With the host signer pinned
-        // to "createTransaction" (see `PRODUCT_SIGNER_TYPE` in
-        // `packages/signer/src/providers/host.ts`), the recorded type is
-        // "createTransaction" rather than the legacy "payload".
+        // Exactly one signing call was recorded. The demo signs through
+        // product-account routing (host_create_transaction), which the
+        // test SDK records as type "createTransaction".
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
         expect(signingLog[0].type).toBe("createTransaction");
