@@ -25,18 +25,6 @@
         "./polkadot-asset-hub": {
             "types": "./chains/polkadot-asset-hub/generated/dist/index.d.ts",
             "import": "./chains/polkadot-asset-hub/generated/dist/index.js"
-        },
-        "./previewnet-asset-hub": {
-            "types": "./chains/previewnet-asset-hub/generated/dist/index.d.ts",
-            "import": "./chains/previewnet-asset-hub/generated/dist/index.js"
-        },
-        "./previewnet-bulletin": {
-            "types": "./chains/previewnet-bulletin/generated/dist/index.d.ts",
-            "import": "./chains/previewnet-bulletin/generated/dist/index.js"
-        },
-        "./previewnet-individuality": {
-            "types": "./chains/previewnet-individuality/generated/dist/index.d.ts",
-            "import": "./chains/previewnet-individuality/generated/dist/index.js"
         }
     },
     "scripts": {

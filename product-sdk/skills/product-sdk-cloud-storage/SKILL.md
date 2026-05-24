@@ -15,7 +15,7 @@ description: >
 - **Content-addressed storage**: Data is identified by its CID (Content Identifier), computed deterministically from the bytes via blake2b-256.
 - **Two upload paths**: Inside a host container, uploads go through the host preimage API automatically. Standalone, a `PolkadotSigner` or dev signer is used.
 - **Two query paths**: Inside a host container, queries use the host preimage lookup. Standalone, data is fetched from an IPFS gateway.
-- **Environments**: `"polkadot"`, `"kusama"`, `"paseo"`, `"previewnet"` -- currently only `"paseo"` and `"previewnet"` have live gateways.
+- **Environments**: `"polkadot"`, `"kusama"`, `"paseo"` -- currently only `"paseo"` has a live gateway.
 
 ## Quick Start: Upload and Fetch
 
@@ -136,7 +136,7 @@ import {
 ## Common Mistakes
 
 1. **Passing a string to upload instead of Uint8Array**
-2. **Forgetting that only `"paseo"` and `"previewnet"` have live gateways**
+2. **Forgetting that only `"paseo"` has a live gateway**
 3. **Not handling batch failures** - `batchUpload` does NOT throw on individual failures
 4. **Omitting signer in standalone mode** - Falls back to Alice dev signer (testnet only)
 

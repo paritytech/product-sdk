@@ -10,7 +10,7 @@ START
 ├─ Need to connect to Polkadot chains?
 │  YES → @parity/product-sdk-chain-client + polkadot-api (always required)
 │  │
-│  ├─ Want zero-config for a known environment (paseo/previewnet/polkadot/kusama)?
+│  ├─ Want zero-config for a known environment (paseo/polkadot/kusama)?
 │  │  YES → getChainAPI("paseo") — built-in descriptors + RPCs
 │  │
 │  └─ Need custom chains, custom RPCs, or minimal bundle?

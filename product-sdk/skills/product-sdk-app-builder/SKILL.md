@@ -143,7 +143,7 @@ node dist/index.js # Run the app
 
 | | `getChainAPI` (Preset) | `createChainClient` (BYOD) |
 |---|---|---|
-| **When** | Known environments (paseo, previewnet, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
+| **When** | Known environments (paseo, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
 | **Descriptors** | Built-in, lazy-loaded | You import and provide them |
 | **RPCs** | Built-in | You provide them |
 | **Chains** | Always assetHub + bulletin + individuality | Any combination you choose |
@@ -163,12 +163,11 @@ Both return the same `ChainClient` type with `.raw` access for advanced use (e.g
 
 See [references/chains.md](references/chains.md) for full details.
 
-> **WARNING:** Only the `"paseo"` and `"previewnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
+> **WARNING:** Only the `"paseo"` environment is currently available. Using `"polkadot"` or `"kusama"` will throw an error.
 
 | Environment | Asset Hub | Bulletin | Individuality |
 |-------------|-----------|----------|---------------|
 | **paseo** (testnet) | Yes | Yes | Yes |
-| **previewnet** (dev) | Yes | Yes | Yes |
 | polkadot (mainnet) | Planned | Planned | Planned |
 | kusama (canary) | Planned | Planned | Planned |
 
@@ -176,7 +175,7 @@ See [references/chains.md](references/chains.md) for full details.
 
 1. **Missing `polkadot-api`** — It's a peer dependency of `@parity/product-sdk-descriptors`. Always install it.
 2. **Barrel import of descriptors** — Use `@parity/product-sdk-descriptors/paseo-bulletin`, NOT `@parity/product-sdk-descriptors`.
-3. **Using unavailable environments** — Only `"paseo"` and `"previewnet"` work. `"polkadot"` and `"kusama"` throw.
+3. **Using unavailable environments** — Only `"paseo"` works. `"polkadot"` and `"kusama"` throw.
 4. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return a Promise. Always `await` it.
 5. **Not cleaning up** — Call `client.destroy()` or `destroyAll()` when done to close WebSocket connections.
 6. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create ContractRuntime yourself: `createContractRuntime(client.raw.assetHub, { atBest: true })`, or use `ContractManager.fromClient()` for convenience.

@@ -40,11 +40,8 @@ live chain instance.
 | Polkadot Asset Hub | `@parity/product-sdk-descriptors/polkadot-asset-hub` | `polkadot_asset_hub` |
 | Kusama Asset Hub | `@parity/product-sdk-descriptors/kusama-asset-hub` | `kusama_asset_hub` |
 | Paseo Asset Hub | `@parity/product-sdk-descriptors/paseo-asset-hub` | `paseo_asset_hub` |
-| Previewnet Asset Hub | `@parity/product-sdk-descriptors/previewnet-asset-hub` | `previewnet_asset_hub` |
 | Paseo Bulletin | `@parity/product-sdk-descriptors/paseo-bulletin` | `paseo_bulletin` |
-| Previewnet Bulletin | `@parity/product-sdk-descriptors/previewnet-bulletin` | `previewnet_bulletin` |
 | Paseo Individuality | `@parity/product-sdk-descriptors/paseo-individuality` | `paseo_individuality` |
-| Previewnet Individuality | `@parity/product-sdk-descriptors/previewnet-individuality` | `previewnet_individuality` |
 
 ## Usage with createChainClient
 

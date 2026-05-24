@@ -11,11 +11,11 @@ async function getChainAPI<E extends Environment>(env: E): Promise<ChainClient<P
 ```
 
 **Parameters:**
-- `env` - Environment name: `"paseo"`, `"previewnet"`, `"polkadot"`, or `"kusama"`
+- `env` - Environment name: `"paseo"`, `"polkadot"`, or `"kusama"`
 
 **Returns:** A `ChainClient` with typed APIs for all chains in the environment.
 
-**Throws:** If the environment is not yet available (only `"paseo"` and `"previewnet"` are currently supported).
+**Throws:** If the environment is not yet available (only `"paseo"` is currently supported).
 
 ```typescript
 import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -167,7 +167,7 @@ const existentialDeposit = client.assetHub.constants.Balances.ExistentialDeposit
 ### Environment
 
 ```typescript
-type Environment = "polkadot" | "kusama" | "paseo" | "previewnet";
+type Environment = "polkadot" | "kusama" | "paseo";
 ```
 
 ### ChainMap
