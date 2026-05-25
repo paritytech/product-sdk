@@ -77,8 +77,10 @@
             boundary against the live chain. viem encodes the `bytes32`
             shopKey arg into the calldata `Uint8Array`; the host returns a
             `Uint8Array` which viem decodes back to uint256 / string[] /
-            string. The zero-bytes32 default makes results deterministic
-            across runs (always 0 reports, [] dates, "" CID).
+            string. The zero-bytes32 default is a convenient placeholder
+            for interactive exploration — its return values depend on
+            what's accumulated on Paseo v2 testnet (the e2e specs use a
+            freshly-randomised shopKey to guarantee empty results).
         -->
         <div class="row">
             <label>Shop key:</label>

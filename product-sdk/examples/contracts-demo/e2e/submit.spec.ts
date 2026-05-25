@@ -20,11 +20,12 @@ import { waitForAppReady } from "./helpers";
  *     `"createTransaction"` path).
  *   - The button re-enables after completion.
  *
- * State isolation: this test writes to `SUBMIT_SHOP_KEY` (a non-zero
- * sentinel), NOT to the zero shopKey that query.spec.ts asserts against.
- * Paseo v2 is a public testnet — every successful submit persists
- * forever, so the two specs must use disjoint keys to avoid the submit's
- * write polluting the query's "deterministic empty" assertions.
+ * State isolation: this test writes to `SUBMIT_SHOP_KEY` (a fixed
+ * non-zero sentinel), while `query.spec.ts` asserts against a freshly
+ * randomised shopKey generated per test-run. The two specs use disjoint
+ * keys because Paseo v2 is a public testnet — every successful submit
+ * persists forever, and if both specs used the same key the submit's
+ * write would pollute the query's "deterministic empty" assertions.
  */
 const SUBMIT_SHOP_KEY = "0x0000000000000000000000000000000000000000000000000000000000000001";
 

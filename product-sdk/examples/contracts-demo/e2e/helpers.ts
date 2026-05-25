@@ -5,8 +5,9 @@ import { expect, type FrameLocator } from "@playwright/test";
  * Wait for the contracts-demo app to be fully ready inside the test host iframe:
  *   1. Host ↔ product-sdk connection established.
  *   2. App heading rendered.
- *   3. SignerManager reports "connected" and an account is selected.
- *   4. ContractManager initialised — both action buttons are enabled.
+ *   3. SignerManager reports "connected" and a product account is populated
+ *      via `manager.getProductAccount("contracts-demo.dot", 0)`.
+ *   4. ContractManager initialised — all action buttons are enabled.
  */
 export async function waitForAppReady(
     testHost: TestHost,
