@@ -88,3 +88,7 @@ export type {
     ChatCustomMessageRenderer,
     ChatCustomMessageRendererParams,
 } from "./chat.js";
+
+// Payments (RFC-0006)
+export { getPaymentManager } from "./payments.js";
+export type { PaymentManager, PaymentBalance, PaymentStatus, TopUpSource } from "./payments.js";
