@@ -11,15 +11,27 @@
  *   - tx()     — signed extrinsic via host's handleSignPayload
  *
  * Flow inside the host-api-test-sdk test host:
- *   1. SignerManager.connect() auto-detects → HostProvider
- *   2. Host responds with Bob's non-product account
- *   3. getChainAPI("paseo") routes RPC through the host's chainConnection handler
- *   4. ContractManager.fromClient(cdm, chain.raw.assetHub) wraps the contract
- *   5. contract.getReportCount.query(shopKey) → dry-run via RPC — no signing
- *   6. contract.storeDailyReport.tx(shopKey, date, cid, count) → signs via
- *      host.handleSignPayload → on-chain
+ *   1. SignerManager.connect() establishes the HostProvider session.
+ *   2. manager.getProductAccount("contracts-demo.dot", 0) asks the host for
+ *      a DotNS-derived product account. The fixture maps
+ *      "contracts-demo.dot/0" to Bob's funded keypair via `productAccounts`.
+ *   3. getChainAPI("paseo") routes RPC through the host's chainConnection
+ *      handler.
+ *   4. ContractManager.fromClient(cdm, chain.raw.assetHub) wraps the contract.
+ *   5. contract.getReportCount.query(shopKey) → dry-run via RPC — no signing.
+ *   6. contract.storeDailyReport.tx(shopKey, date, cid, count) uses
+ *      productAccount.getSigner() — which routes through
+ *      `getProductAccountSigner(..., "createTransaction")` and preserves
+ *      arbitrary signed extensions (e.g. AsPgas on Paseo Next).
+ *
+ * Why not the legacy-account path: `manager.connect()` + `selectAccount`
+ * + `manager.getSigner()` builds the signer via `getLegacyAccountSigner`,
+ * which has no signerType switch upstream and always routes through PJS.
+ * PJS throws on unknown signed extensions like AsPgas. Product-account
+ * signing avoids that path entirely.
  */
 
+import type { SignerAccount } from "@parity/product-sdk-signer";
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
 import { ContractManager, ensureContractAccountMapped } from "@parity/product-sdk-contracts";
@@ -66,6 +78,12 @@ const SS58_PREFIX = 0; // Paseo Asset Hub
 
 const manager = new SignerManager({ ss58Prefix: SS58_PREFIX, dappName: "contracts-demo" });
 
+// The product account we sign all transactions with. Populated by init()
+// via `manager.getProductAccount("contracts-demo.dot", 0)`. Its `getSigner()`
+// routes through the host's `host_create_transaction` path so unknown
+// signed extensions (e.g. AsPgas on Paseo Next) round-trip end-to-end.
+let productAccount: SignerAccount | null = null;
+
 type ChainClient = Awaited<ReturnType<typeof getChainAPI<"paseo">>>;
 let chain: ChainClient | null = null;
 let contractManager: ContractManager | null = null;
@@ -74,11 +92,21 @@ let contractManager: ContractManager | null = null;
 manager.subscribe((state) => {
     $connectionStatus.textContent = state.status;
     $activeProvider.textContent = state.activeProvider ?? "-";
-    $accountAddress.textContent = state.selectedAccount?.address ?? "-";
+    $accountAddress.textContent = productAccount?.address ?? "-";
     const ready =
-        state.status === "connected" && state.selectedAccount !== null && contractManager !== null;
+        state.status === "connected" && productAccount !== null && contractManager !== null;
     setControlsEnabled(ready);
 });
+
+// Re-render readiness when fields the manager subscription doesn't observe
+// (productAccount, contractManager) change. Called at the end of init().
+function renderReady(): void {
+    $accountAddress.textContent = productAccount?.address ?? "-";
+    const state = manager.getState();
+    const ready =
+        state.status === "connected" && productAccount !== null && contractManager !== null;
+    setControlsEnabled(ready);
+}
 
 // ── Actions ──────────────────────────────────────────────────────────
 
@@ -166,11 +194,11 @@ $btnStoreReport.addEventListener("click", async () => {
         log("Contract manager not ready", "err");
         return;
     }
-    const signer = manager.getSigner();
-    if (!signer) {
-        log("No signer selected", "err");
+    if (!productAccount) {
+        log("Product account not ready", "err");
         return;
     }
+    const signer = productAccount.getSigner();
 
     const shopKey = $queryShopKeyInput.value || ZERO_SHOP_KEY;
     const date = $reportDateInput.value || "2026-01-01";
@@ -201,23 +229,29 @@ $btnStoreReport.addEventListener("click", async () => {
 async function init() {
     log("Booting contracts-demo…");
 
+    // Step 1: establish the host session. We don't use the returned legacy
+    // accounts — they sign via the PJS bridge, which throws on unknown
+    // signed extensions (e.g. AsPgas on Paseo Next). The product-account
+    // request below uses `getProductAccountSigner` with `"createTransaction"`
+    // and avoids that path.
     log("Connecting signer…");
     const connectRes = await manager.connect();
     if (!connectRes.ok) {
         log(`Signer connect failed: ${connectRes.error.message}`, "err");
         return;
     }
-    const accounts = connectRes.value;
-    if (accounts.length === 0) {
-        log("No accounts exposed by the host", "err");
+
+    // Step 2: request the product account. The fixture maps
+    // "contracts-demo.dot/0" → bob via `productAccounts`, so this returns
+    // Bob's funded account but signs through host_create_transaction.
+    log("Requesting product account contracts-demo.dot/0…");
+    const productRes = await manager.getProductAccount("contracts-demo.dot", 0);
+    if (!productRes.ok) {
+        log(`getProductAccount failed: ${productRes.error.message}`, "err");
         return;
     }
-    const selectRes = manager.selectAccount(accounts[0].address);
-    if (!selectRes.ok) {
-        log(`selectAccount failed: ${selectRes.error.message}`, "err");
-        return;
-    }
-    log(`Signer ready: ${accounts[0].address}`, "ok");
+    productAccount = productRes.value;
+    log(`Product account ready: ${productAccount.address}`, "ok");
 
     log("Opening chain client…");
     try {
@@ -250,29 +284,29 @@ async function init() {
     // `pallet-revive` rejects `Revive.call` from any SS58 origin that hasn't
     // been mapped to its derived H160 via `Revive.map_account()`. The helper
     // is idempotent — short-circuits on a storage hit — so the first-time
-    // path costs one signature and subsequent boots are free.
+    // path costs one signature and subsequent boots are free. The
+    // `Revive.map_account` extrinsic also carries AsPgas on Paseo Next, so
+    // it must sign through the product-account path too.
     try {
-        const signer = manager.getSigner();
-        if (signer) {
-            log("Ensuring account is mapped on pallet-revive…");
-            const mapped = await ensureContractAccountMapped(
-                contractManager.getRuntime(),
-                accounts[0].address,
-                signer,
-            );
-            log(
-                mapped === null
-                    ? "Account already mapped (no signature needed)"
-                    : `Account mapped in block #${mapped.block.number}`,
-                "ok",
-            );
-        }
+        const signer = productAccount.getSigner();
+        log("Ensuring account is mapped on pallet-revive…");
+        const mapped = await ensureContractAccountMapped(
+            contractManager.getRuntime(),
+            productAccount.address,
+            signer,
+        );
+        log(
+            mapped === null
+                ? "Account already mapped (no signature needed)"
+                : `Account mapped in block #${mapped.block.number}`,
+            "ok",
+        );
     } catch (err) {
         log(`ensureContractAccountMapped failed: ${(err as Error).message}`, "err");
         return;
     }
 
-    setControlsEnabled(manager.getState().selectedAccount !== null);
+    renderReady();
 }
 
 init().catch((err) => log(`Unhandled init error: ${(err as Error).message}`, "err"));
