@@ -4,7 +4,7 @@
  * Wires up SignerManager + chain-client + ContractManager against the
  * t3rminal @t3rminal/bulletin-index contract deployed on Paseo Asset Hub.
  *
- * Contract address: 0xA2E388421467E0193570Af45Bd03F0F379c47E88
+ * Contract address: 0x3331A87C2B9312E246E6A7eE8D0C0AdD8d282B6F (CDM v3)
  *
  * Exercises the two core host-API paths in @parity/product-sdk-contracts:
  *   - query()  — dry-run via chain RPC (no signing)
@@ -15,8 +15,9 @@
  *   2. Host responds with Bob's non-product account
  *   3. getChainAPI("paseo") routes RPC through the host's chainConnection handler
  *   4. ContractManager.fromClient(cdm, chain.raw.assetHub) wraps the contract
- *   5. contract.owner.query() → dry-run via RPC — no signing
- *   6. contract.storeDailyReport.tx() → signs via host.handleSignPayload → on-chain
+ *   5. contract.getReportCount.query(shopKey) → dry-run via RPC — no signing
+ *   6. contract.storeDailyReport.tx(shopKey, date, cid, count) → signs via
+ *      host.handleSignPayload → on-chain
  */
 
 import { SignerManager } from "@parity/product-sdk-signer";
@@ -33,23 +34,27 @@ const $activeProvider = getEl<HTMLSpanElement>("active-provider");
 const $accountAddress = getEl<HTMLSpanElement>("account-address");
 const $reportDateInput = getEl<HTMLInputElement>("report-date-input");
 const $reportCidInput = getEl<HTMLInputElement>("report-cid-input");
-const $queryShopInput = getEl<HTMLInputElement>("query-shop-input");
-const $btnQueryOwner = getEl<HTMLButtonElement>("btn-query-owner");
+const $queryShopKeyInput = getEl<HTMLInputElement>("query-shopkey-input");
 const $btnQueryReportCount = getEl<HTMLButtonElement>("btn-query-report-count");
 const $btnQueryAllDates = getEl<HTMLButtonElement>("btn-query-all-dates");
 const $btnQueryCid = getEl<HTMLButtonElement>("btn-query-cid");
 const $btnStoreReport = getEl<HTMLButtonElement>("btn-store-report");
 const $contractLog = getEl<HTMLElement>("contract-log");
 
+// 32 zero bytes — a `shopKey` value that the on-chain registry has never
+// minted, so every query against it yields deterministic empty results
+// (0 reports, [] dates, "" CID). Used as the default for both query inputs
+// and the storeDailyReport `tx()` call.
+const ZERO_SHOP_KEY = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
 function setControlsEnabled(enabled: boolean): void {
-    $btnQueryOwner.disabled = !enabled;
     $btnQueryReportCount.disabled = !enabled;
     $btnQueryAllDates.disabled = !enabled;
     $btnQueryCid.disabled = !enabled;
     $btnStoreReport.disabled = !enabled;
     $reportDateInput.disabled = !enabled;
     $reportCidInput.disabled = !enabled;
-    $queryShopInput.disabled = !enabled;
+    $queryShopKeyInput.disabled = !enabled;
 }
 
 function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void {
@@ -78,48 +83,25 @@ manager.subscribe((state) => {
 // ── Actions ──────────────────────────────────────────────────────────
 
 /**
- * Read-only query — calls owner() as a chain-RPC dry-run.
- * No signing is involved; proves the query() path works through the host.
- */
-$btnQueryOwner.addEventListener("click", async () => {
-    if (!contractManager) {
-        log("Contract manager not ready", "err");
-        return;
-    }
-    log("Querying bulletin-index owner()…");
-    try {
-        const contract = contractManager.getContract("@t3rminal/bulletin-index");
-        const result = await contract.owner.query();
-        if (result.success) {
-            log(`owner: ${result.value}`, "ok");
-        } else {
-            log("owner() query failed (dry-run returned success=false)", "err");
-        }
-    } catch (err) {
-        log(`query failed: ${(err as Error).message}`, "err");
-    }
-});
-
-/**
  * Query helpers that exercise the PAPI 2.x codec boundary end-to-end:
- *   - viem encodes the `address` arg as a `0x…` hex string into the
- *     calldata `Uint8Array`,
+ *   - viem encodes the `bytes32` shopKey arg into the calldata `Uint8Array`,
  *   - PAPI's `ReviveApi.call` returns a `Uint8Array`,
  *   - viem decodes it back to the typed JS value.
  *
- * The default shop address is the zero address, so the results are
- * deterministic regardless of accumulated chain state.
+ * The default shopKey is 32 zero bytes — a value the registry has never
+ * minted — so the results are deterministic regardless of accumulated
+ * chain state.
  */
 $btnQueryReportCount.addEventListener("click", async () => {
     if (!contractManager) {
         log("Contract manager not ready", "err");
         return;
     }
-    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
-    log(`Querying getReportCount(${shop})…`);
+    const shopKey = $queryShopKeyInput.value || ZERO_SHOP_KEY;
+    log(`Querying getReportCount(${shopKey})…`);
     try {
         const contract = contractManager.getContract("@t3rminal/bulletin-index");
-        const result = await contract.getReportCount.query(shop);
+        const result = await contract.getReportCount.query(shopKey);
         if (result.success) {
             log(`reportCount: ${result.value}`, "ok");
         } else {
@@ -135,11 +117,11 @@ $btnQueryAllDates.addEventListener("click", async () => {
         log("Contract manager not ready", "err");
         return;
     }
-    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
-    log(`Querying getAllDates(${shop})…`);
+    const shopKey = $queryShopKeyInput.value || ZERO_SHOP_KEY;
+    log(`Querying getAllDates(${shopKey})…`);
     try {
         const contract = contractManager.getContract("@t3rminal/bulletin-index");
-        const result = await contract.getAllDates.query(shop);
+        const result = await contract.getAllDates.query(shopKey);
         if (result.success) {
             // Stringify so the test can match a stable representation of the
             // decoded `string[]` regardless of how arrays render in the DOM.
@@ -157,12 +139,12 @@ $btnQueryCid.addEventListener("click", async () => {
         log("Contract manager not ready", "err");
         return;
     }
-    const shop = $queryShopInput.value || "0x0000000000000000000000000000000000000000";
+    const shopKey = $queryShopKeyInput.value || ZERO_SHOP_KEY;
     const date = $reportDateInput.value || "2026-01-01";
-    log(`Querying getCID(${shop}, "${date}")…`);
+    log(`Querying getCID(${shopKey}, "${date}")…`);
     try {
         const contract = contractManager.getContract("@t3rminal/bulletin-index");
-        const result = await contract.getCID.query(shop, date);
+        const result = await contract.getCID.query(shopKey, date);
         if (result.success) {
             log(`cid: ${JSON.stringify(result.value)}`, "ok");
         } else {
@@ -174,9 +156,10 @@ $btnQueryCid.addEventListener("click", async () => {
 });
 
 /**
- * Signed transaction — calls storeDailyReport(date, cid, count).
- * The contract is permissionless: any address can store a daily report
- * indexed by msg.sender. Exercises the full host-signing path.
+ * Signed transaction — calls storeDailyReport(shopKey, date, cid, count).
+ * The contract is permissionless: any caller stores a report under the
+ * given shopKey (subject to the upstream registry/shop-ownership rules
+ * enforced inside the contract). Exercises the full host-signing path.
  */
 $btnStoreReport.addEventListener("click", async () => {
     if (!contractManager) {
@@ -189,15 +172,16 @@ $btnStoreReport.addEventListener("click", async () => {
         return;
     }
 
+    const shopKey = $queryShopKeyInput.value || ZERO_SHOP_KEY;
     const date = $reportDateInput.value || "2026-01-01";
     const cid = $reportCidInput.value || "bafktest";
 
     setControlsEnabled(false);
-    log(`Submitting storeDailyReport("${date}", "${cid}", 1)…`);
+    log(`Submitting storeDailyReport(${shopKey}, "${date}", "${cid}", 1)…`);
 
     try {
         const contract = contractManager.getContract("@t3rminal/bulletin-index");
-        const result = await contract.storeDailyReport.tx(date, cid, 1n, { signer });
+        const result = await contract.storeDailyReport.tx(shopKey, date, cid, 1n, { signer });
         if (result.ok) {
             log(
                 `storeDailyReport landed in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`,
