@@ -463,11 +463,13 @@ export class HostProvider implements SignerProvider {
 
         // Step 4: Request ChainSubmit permission up-front.
         //
-        // The host gates signing on this permission — without it
-        // `handleSignPayload` (and the production host) rejects every sign
-        // request with `PermissionDenied`, which typically manifests as a
-        // silently-hanging tx. Doing it once during connect() matches what
-        // production apps need and spares consumers the boilerplate.
+        // The host gates signing on this permission — without it, the
+        // production host rejects every sign request with `PermissionDenied`
+        // at both `handleSignPayload` (legacy account path) and
+        // `host_create_transaction` (product-account path), which typically
+        // manifests as a silently-hanging tx. Doing it once during connect()
+        // matches what production apps need and spares consumers the
+        // boilerplate.
         //
         // We don't fail `connect()` if this step fails: the consumer can still
         // use the signer for read-only code paths, and the actual sign call

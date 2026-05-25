@@ -34,8 +34,8 @@ test.describe("@parity/product-sdk-contracts via Host API — submit", () => {
         const frame = await waitForAppReady(testHost);
         await testHost.clearSigningLog();
 
-        // Write under a non-zero key so we don't pollute the zero shopKey
-        // that query.spec.ts uses for "deterministic empty" assertions.
+        // Write under a fixed non-zero sentinel so this submit doesn't collide
+        // with query.spec.ts's randomised shopKeys (see header for rationale).
         await frame.locator('[data-testid="query-shopkey-input"]').fill(SUBMIT_SHOP_KEY);
 
         const btn = frame.locator('[data-testid="btn-store-report"]');
