@@ -53,7 +53,7 @@ jobs:
                   fi
 
             - if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@v6
               with:
                   version: 10
 
