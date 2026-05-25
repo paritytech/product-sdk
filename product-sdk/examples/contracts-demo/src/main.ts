@@ -8,7 +8,7 @@
  *
  * Exercises the two core host-API paths in @parity/product-sdk-contracts:
  *   - query()  — dry-run via chain RPC (no signing)
- *   - tx()     — signed extrinsic via host's handleSignPayload
+ *   - tx()     — signed extrinsic via host_create_transaction 
  *
  * Flow inside the host-api-test-sdk test host:
  *   1. SignerManager.connect() establishes the HostProvider session.
