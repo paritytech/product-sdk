@@ -1,6 +1,6 @@
 ---
-"@parity/product-sdk-cloud-storage": major
-"@parity/product-sdk": major
+"@parity/product-sdk-cloud-storage": minor
+"@parity/product-sdk": minor
 ---
 
 Rename `@parity/product-sdk-bulletin` to `@parity/product-sdk-cloud-storage` and abstract the public surface away from chain-specific naming. The package is still backed by the Polkadot Bulletin Chain — the rename only affects user-facing types, methods, and configuration so callsites no longer need to know about the underlying implementation.
