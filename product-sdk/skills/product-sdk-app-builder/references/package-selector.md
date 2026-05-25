@@ -132,13 +132,13 @@ crypto ────────────────────────�
 utils ───────────────────────────── (leaf, depends on logger)
 logger ──────────────────────────── (leaf)
 host ────────────────────────────── (leaf)
-storage ← host, logger
-keys ← address, crypto, utils, storage
+local-storage ← host, logger
+keys ← address, crypto, utils, local-storage
 tx ← keys, logger
 signer ← address, keys, logger
 chain-client ← descriptors, host  (provides .raw for ContractRuntime creation)
 contracts ← tx, signer, keys, logger  (needs ContractRuntime from @parity/product-sdk-contracts)
-bulletin ← chain-client, descriptors, host, logger, tx
+cloud-storage ← chain-client, descriptors, host, logger, tx
 statement-store ← host, logger, utils  (+ @novasamatech/sdk-statement, @polkadot-api/substrate-client)
 ```
 
