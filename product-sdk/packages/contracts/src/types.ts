@@ -120,6 +120,15 @@ export interface TxOptions extends SubmitOptions {
     value?: bigint;
     gasLimit?: Weight;
     storageDepositLimit?: bigint;
+    /**
+     * Override the block targeted by the sizing dry-run that `.tx()` runs
+     * before submission. Accepts `"best"`, `"finalized"`, or a block hash.
+     * Defaults to the runtime's configured `at` (see
+     * `createContractRuntimeFromClient({ at })`), which is `"best"` unless
+     * overridden. No-op when both `gasLimit` and `storageDepositLimit` are
+     * passed — the dry-run is skipped entirely in that case.
+     */
+    at?: ContractDryRunAt;
 }
 
 /**
@@ -134,6 +143,11 @@ export interface PrepareOptions {
     value?: bigint;
     gasLimit?: Weight;
     storageDepositLimit?: bigint;
+    /**
+     * Override the block targeted by the sizing dry-run. See
+     * {@link TxOptions.at}.
+     */
+    at?: ContractDryRunAt;
 }
 
 /** Mutable defaults shared across all contract handles from a manager. */

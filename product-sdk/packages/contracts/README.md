@@ -117,13 +117,18 @@ Every `.tx()` runs a `ReviveApi.call` dry-run first to size `weight_limit` / `st
 
 `.query()` and the `.tx()` / `.prepare()` sizing dry-runs target best-block by default, matching `submitAndWatch`'s default resolution. This keeps reads consistent with the state a freshly-submitted transaction observes.
 
-Override per call via `QueryOptions.at` — accepts `"best"`, `"finalized"`, or a block hash:
+Override per call via `QueryOptions.at`, `TxOptions.at`, or `PrepareOptions.at` — each accepts `"best"`, `"finalized"`, or a block hash:
 
 ```ts
 await counter.getCount.query();                    // best-block (default)
 await counter.getCount.query({ at: "finalized" }); // canonical, lagged
 await counter.getCount.query({ at: blockHash });   // pin to a historical block
+
+await counter.increment.tx({ at: "finalized" });   // size the dry-run against finalized
+await counter.increment.prepare({ at: blockHash }); // pin the batched call's sizing dry-run
 ```
+
+`.tx({ at })` / `.prepare({ at })` is a no-op when both `gasLimit` and `storageDepositLimit` overrides are supplied — the sizing dry-run is skipped entirely in that case.
 
 Change the runtime default by passing `{ at }` to the factory:
 

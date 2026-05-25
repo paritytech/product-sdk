@@ -182,6 +182,7 @@ async function buildReviveCall(
             undefined,
             undefined,
             calldata,
+            overrides?.at !== undefined ? { at: overrides.at } : undefined,
         );
         if (!dryRun.result.success) {
             throw new ContractDryRunFailedError(methodName, dryRun.result.value);
@@ -889,6 +890,138 @@ if (import.meta.vitest) {
                 }
             ).getCount.query({ value: 1n });
             expect(calls[0]?.[6]).toBeUndefined();
+        });
+    });
+
+    describe("wrapContract — tx/prepare .at option routing", () => {
+        // The `.tx()` and `.prepare()` per-call `at` override pins the
+        // sizing dry-run to a specific block. Same wiring as `.query()` —
+        // these tests assert the value arrives at `runtime.dryRunCall` as
+        // its trailing options arg, and is absent otherwise so the
+        // runtime default applies.
+        const abi: AbiEntry[] = [
+            {
+                type: "function",
+                name: "increment",
+                inputs: [],
+                outputs: [],
+                stateMutability: "nonpayable",
+            },
+        ];
+        const ADDRESS = "0x0102030405060708090a0b0c0d0e0f1011121314";
+        const origin = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+        const fakeSigner = {
+            publicKey: new Uint8Array(32),
+        } as unknown as PolkadotSigner;
+
+        function makeCapturingRuntime(): {
+            runtime: ContractRuntime;
+            calls: Array<Parameters<ContractRuntime["dryRunCall"]>>;
+        } {
+            const calls: Array<Parameters<ContractRuntime["dryRunCall"]>> = [];
+            const runtime: ContractRuntime = {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: () =>
+                                ({}) as unknown as Awaited<
+                                    ReturnType<ContractRuntime["api"]["tx"]["Revive"]["call"]>
+                                >,
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: (...args) => {
+                    calls.push(args);
+                    return Promise.resolve({
+                        weight_consumed: { ref_time: 0n, proof_size: 0n },
+                        weight_required: { ref_time: 0n, proof_size: 0n },
+                        storage_deposit: { type: "Refund", value: 0n },
+                        max_storage_deposit: { type: "Refund", value: 0n },
+                        gas_consumed: 0n,
+                        result: { success: true, value: { flags: 0, data: new Uint8Array(0) } },
+                    });
+                },
+            };
+            return { runtime, calls };
+        }
+
+        test(".tx() forwards `at: finalized` to dryRunCall when passed per call", async () => {
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {
+                origin,
+                signer: fakeSigner,
+            });
+            await (
+                wrapped as unknown as {
+                    increment: { tx: (opts: { at: string }) => Promise<unknown> };
+                }
+            ).increment
+                .tx({ at: "finalized" })
+                .catch(() => {
+                    // submit downstream of dryRunCall is irrelevant — only
+                    // care that the dry-run captured the `at` value.
+                });
+            expect(calls[0]?.[6]).toEqual({ at: "finalized" });
+        });
+
+        test(".tx() forwards a block hash `at` value to dryRunCall", async () => {
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {
+                origin,
+                signer: fakeSigner,
+            });
+            const blockHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+            await (
+                wrapped as unknown as {
+                    increment: { tx: (opts: { at: string }) => Promise<unknown> };
+                }
+            ).increment
+                .tx({ at: blockHash })
+                .catch(() => {});
+            expect(calls[0]?.[6]).toEqual({ at: blockHash });
+        });
+
+        test(".tx() omits the options argument when no `at` override is passed", async () => {
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {
+                origin,
+                signer: fakeSigner,
+            });
+            await (wrapped as unknown as { increment: { tx: () => Promise<unknown> } }).increment
+                .tx()
+                .catch(() => {});
+            expect(calls[0]?.[6]).toBeUndefined();
+        });
+
+        test(".tx() omits options when only unrelated overrides are passed", async () => {
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {
+                origin,
+                signer: fakeSigner,
+            });
+            await (
+                wrapped as unknown as {
+                    increment: { tx: (opts: { value: bigint }) => Promise<unknown> };
+                }
+            ).increment
+                .tx({ value: 1n })
+                .catch(() => {});
+            expect(calls[0]?.[6]).toBeUndefined();
+        });
+
+        test(".prepare() forwards `at: finalized` to dryRunCall", async () => {
+            // `.prepare()` shares `buildReviveCall` with `.tx()`; one
+            // smoke test pins that `PrepareOptions.at` is wired too.
+            const { runtime, calls } = makeCapturingRuntime();
+            const wrapped = wrapContract(runtime, ADDRESS, abi, { origin });
+            await (
+                wrapped as unknown as {
+                    increment: { prepare: (opts: { at: string }) => Promise<unknown> };
+                }
+            ).increment
+                .prepare({ at: "finalized" })
+                .catch(() => {});
+            expect(calls[0]?.[6]).toEqual({ at: "finalized" });
         });
     });
 
