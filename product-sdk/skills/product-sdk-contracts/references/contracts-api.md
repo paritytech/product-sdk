@@ -24,16 +24,20 @@ new ContractManager(cdmJson: CdmJson, runtime: ContractRuntime, options?: Contra
 Create a ContractManager from a raw `PolkadotClient`. Convenience factory that creates the ContractRuntime internally.
 
 ```typescript
-static async fromClient(
+static fromClient<TDescriptor>(
     cdmJson: CdmJson,
     client: PolkadotClient,
-    options?: ContractManagerOptions,
-): Promise<ContractManager>
+    descriptor: TDescriptor,
+    options?: ContractManagerOptions & ContractRuntimeOptions,
+): ContractManager
 ```
 
 ```typescript
-const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+
+const manager = ContractManager.fromClient(cdmJson, client.raw.assetHub, paseo_asset_hub, {
     signerManager,
+    at: "best", // optional; ContractRuntimeOptions, see createContractRuntimeFromClient
 });
 ```
 
@@ -116,20 +120,24 @@ const counter = createContract(runtime, "0xC472...", abi, {
 Create a contract handle from a raw `PolkadotClient`, address, and ABI. Convenience wrapper that creates the ContractRuntime internally.
 
 ```typescript
-async function createContractFromClient(
+function createContractFromClient<TDescriptor>(
     client: PolkadotClient,
+    descriptor: TDescriptor,
     address: HexString,
     abi: AbiEntry[],
-    options?: ContractOptions,
-): Promise<Contract<ContractDef>>
+    options?: ContractOptions & ContractRuntimeOptions,
+): Contract<ContractDef>
 ```
 
 ```typescript
-const counter = await createContractFromClient(
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+
+const counter = createContractFromClient(
     client.raw.assetHub,
+    paseo_asset_hub,
     "0xC472...",
     abi,
-    { signerManager }
+    { signerManager },
 );
 ```
 
