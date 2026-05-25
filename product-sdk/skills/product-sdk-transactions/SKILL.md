@@ -179,16 +179,25 @@ const unsub = manager.subscribe((state) => {
 const result = await manager.connect();
 
 if (result.ok) {
-  manager.selectAccount(result.value[0].address);
-  const signer = manager.getSigner();
-
-  if (signer) {
-    const txResult = await submitAndWatch(tx, signer);
+  // Request a product account — its signer routes through
+  // `host_create_transaction` (PR #96), which preserves arbitrary signed
+  // extensions (e.g. `AsPgas` on Paseo Next v2). Required on any chain that
+  // ships signed extensions PJS doesn't know about. The legacy path
+  // (`manager.selectAccount(...)` + `manager.getSigner()`) routes through PJS
+  // and throws `PJS does not support this signed-extension: AsPgas` on such
+  // chains — use it only when targeting chains with no unknown extensions.
+  const productRes = await manager.getProductAccount("my-app.dot", 0);
+  if (productRes.ok) {
+    const productAccount = productRes.value;
+    const txResult = await submitAndWatch(tx, productAccount.getSigner());
   }
 }
 
 manager.destroy();
 ```
+
+See [`examples/tx-demo/src/main.ts`](../../examples/tx-demo/src/main.ts) for the
+full end-to-end pattern (imports, state, init flow).
 
 ## KeyManager: Hierarchical Key Derivation
 

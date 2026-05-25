@@ -1,9 +1,9 @@
 # Gotcha catalog
 
-Eleven trap doors observed across three reference migrations
-(`paritytech/sh33ts#33`, `paritytech/t3ams#30`, `paritytech/t3rminal#98`).
-Apply the fix when the symptom appears; reference the gotcha number
-(G1–G11) from the migration spec when applicable.
+Twelve trap doors observed across four reference migrations
+(`paritytech/sh33ts#33`, `paritytech/t3ams#30`, `paritytech/t3rminal#98`,
+w3s-conference-app Phase 1). Apply the fix when the symptom appears;
+reference the gotcha number (G1–G12) from the migration spec when applicable.
 
 | # | Gotcha | Symptom | Cause | Fix |
 |---|---|---|---|---|
@@ -17,4 +17,5 @@ Apply the fix when the symptom appears; reference the gotcha number
 | G8 | Container-only vs dual paths | SDK doesn't work standalone in some cases | Some App hooks (e.g. `app.cloudStorage`) are container-only by design | Gate on `isInsideContainer()` / `isInsideContainerSync`; keep standalone PAPI raw paths for CLI scripts and web-only deployments |
 | G9 | `StoreResult` no longer exposes `blockHash` | Code reading `result.blockHash` breaks | SDK 0.2+ removed the field | Reconstruct via `api.query.System.BlockHash.getValue(result.blockNumber)` |
 | G10 | `.papi/descriptors/package.json` bump forgotten | Type mismatches against generated descriptors | The descriptors package version must follow `polkadot-api` major bumps | Always touch `.papi/descriptors/package.json` alongside the `polkadot-api` bump |
-| G11 | `@novasamatech/product-sdk` removed but reappears | Lockfile still shows `@novasamatech/product-sdk` after migration | `@parity/product-sdk-host` re-exports `getTruApi` / `getPreimageManager` from `@novasamatech/product-sdk` — it remains as a transitive dep | Expected. Remove only as a **direct** dependency. Document in PR body that it remains transitive via host. |
+| G11 | `@novasamatech/*` removed but reappears | Lockfile still shows a `@novasamatech/*` package after migration | `@parity/product-sdk-host` re-exports `getTruApi` / `getPreimageManager` from `@novasamatech/host-api-wrapper` — it remains as a transitive dep. (Legacy products imported this as `@novasamatech/product-sdk` before its rename in PR #110.) | Expected. Remove only as a **direct** dependency (whichever name the legacy product used). Document in PR body that it remains transitive via host under its current name. |
+| G12 | `cidToBytes` / `cidFromBytes` are full-CID helpers, not digest helpers | Runtime error on first round-trip: `Expected 32-byte digest, got 38`; or hash-storage extrinsic submits 38-byte hashes instead of 32 | The upstream `@parity/bulletin-sdk`'s `cidToBytes(cid): Uint8Array` returns the full CIDv1 binary encoding (1+1+1+1+32 = 38 bytes for blake2b-256 raw codec), not the 32-byte multihash digest. Symmetric for `cidFromBytes`. The names invite misuse for products storing digests in `bytes32` on-chain slots. | Use `cidToPreimageKey(cid.toString()): \`0x${string}\`` and `parseCid(hashToCid(bytes32))` from `@parity/product-sdk-cloud-storage` directly. Both are digest-level. |
