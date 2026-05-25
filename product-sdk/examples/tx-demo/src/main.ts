@@ -6,12 +6,23 @@
  * selectors.
  *
  * Flow inside the host-api-test-sdk test host:
- *   1. SignerManager.connect() auto-detects → HostProvider (product-sdk)
- *   2. Host responds with Bob's non-product account (handleGetNonProductAccounts)
- *   3. getChainAPI("paseo") routes RPC through the host's chainConnection handler
- *   4. submitAndWatch signs via host.handleSignPayload → tx lands on Paseo AH
+ *   1. SignerManager.connect() establishes the HostProvider session.
+ *   2. manager.getProductAccount("tx-demo.dot", 0) asks the host for a
+ *      DotNS-derived product account. The fixture maps "tx-demo.dot/0" to
+ *      Bob's funded keypair via `productAccounts`.
+ *   3. getChainAPI("paseo") routes RPC through the host's chainConnection.
+ *   4. submitAndWatch uses productAccount.getSigner() — which routes
+ *      through `getProductAccountSigner(..., "createTransaction")` and
+ *      preserves arbitrary signed extensions (e.g. AsPgas on Paseo Next).
+ *
+ * Why not the legacy-account path: `manager.connect()` + `selectAccount`
+ * + `manager.getSigner()` builds the signer via `getLegacyAccountSigner`,
+ * which has no signerType switch upstream and always routes through PJS.
+ * PJS throws on unknown signed extensions like AsPgas. Product-account
+ * signing avoids that path entirely.
  */
 
+import type { SignerAccount } from "@parity/product-sdk-signer";
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
 import { submitAndWatch, batchSubmitAndWatch } from "@parity/product-sdk-tx";
@@ -52,6 +63,12 @@ const SS58_PREFIX = 0;
 
 const manager = new SignerManager({ ss58Prefix: SS58_PREFIX, dappName: "tx-demo" });
 
+// The product account we sign all transactions with. Populated by init()
+// via `manager.getProductAccount("tx-demo.dot", 0)`. Its `getSigner()`
+// routes through the host's `host_create_transaction` path so unknown
+// signed extensions (e.g. AsPgas on Paseo Next) round-trip end-to-end.
+let productAccount: SignerAccount | null = null;
+
 type ChainClient = Awaited<ReturnType<typeof getChainAPI<"paseo">>>;
 let chain: ChainClient | null = null;
 
@@ -59,10 +76,17 @@ let chain: ChainClient | null = null;
 manager.subscribe((state) => {
     $connectionStatus.textContent = state.status;
     $activeProvider.textContent = state.activeProvider ?? "-";
-    $accountAddress.textContent = state.selectedAccount?.address ?? "-";
-    const ready = state.status === "connected" && state.selectedAccount !== null && chain !== null;
+    $accountAddress.textContent = productAccount?.address ?? "-";
+    const ready = state.status === "connected" && productAccount !== null && chain !== null;
     setControlsEnabled(ready);
 });
+
+function renderProductAccountReady(): void {
+    $accountAddress.textContent = productAccount?.address ?? "-";
+    const state = manager.getState();
+    const ready = state.status === "connected" && productAccount !== null && chain !== null;
+    setControlsEnabled(ready);
+}
 
 // ── Transaction logger: surface status transitions to the UI ─────────
 function makeStatusLogger(label: string) {
@@ -85,11 +109,11 @@ $btnSubmitRemark.addEventListener("click", async () => {
         log("Chain client not ready", "err");
         return;
     }
-    const signer = manager.getSigner();
-    if (!signer) {
-        log("No signer selected", "err");
+    if (!productAccount) {
+        log("Product account not ready", "err");
         return;
     }
+    const signer = productAccount.getSigner();
     const text = $remarkInput.value || "tx-demo remark";
     setControlsEnabled(false);
     log(`Submitting System.remark("${text}")…`);
@@ -119,11 +143,11 @@ $btnSubmitBatch.addEventListener("click", async () => {
         log("Chain client not ready", "err");
         return;
     }
-    const signer = manager.getSigner();
-    if (!signer) {
-        log("No signer selected", "err");
+    if (!productAccount) {
+        log("Product account not ready", "err");
         return;
     }
+    const signer = productAccount.getSigner();
     setControlsEnabled(false);
     log("Submitting Utility.batch_all with 3 System.remark calls…");
 
@@ -154,11 +178,11 @@ $btnSubmitRemarkFinalized.addEventListener("click", async () => {
         log("Chain client not ready", "err");
         return;
     }
-    const signer = manager.getSigner();
-    if (!signer) {
-        log("No signer selected", "err");
+    if (!productAccount) {
+        log("Product account not ready", "err");
         return;
     }
+    const signer = productAccount.getSigner();
     const text = $remarkFinalizedInput.value || "tx-demo finalized remark";
     setControlsEnabled(false);
     log(`Submitting System.remark("${text}") — waitFor=finalized…`);
@@ -192,18 +216,17 @@ $btnSubmitBadTx.addEventListener("click", async () => {
         log("Chain client not ready", "err");
         return;
     }
-    const signer = manager.getSigner();
-    const state = manager.getState();
-    if (!signer || !state.selectedAccount) {
-        log("No signer selected", "err");
+    if (!productAccount) {
+        log("Product account not ready", "err");
         return;
     }
+    const signer = productAccount.getSigner();
     setControlsEnabled(false);
     log("Submitting Balances.force_set_balance (root-only)…");
 
     try {
         const tx = chain.assetHub.tx.Balances.force_set_balance({
-            who: { type: "Id", value: state.selectedAccount.address },
+            who: { type: "Id", value: productAccount.address },
             new_free: 1n,
         });
         const result = await submitAndWatch(tx, signer, {
@@ -227,26 +250,31 @@ $btnSubmitBadTx.addEventListener("click", async () => {
 async function init() {
     log("Booting tx-demo…");
 
-    // Step 1: connect signer (HostProvider inside the test host)
+    // Step 1: establish the host session. We don't use the returned legacy
+    // accounts — they sign via the PJS bridge, which throws on unknown
+    // signed extensions (e.g. AsPgas on Paseo Next). The product-account
+    // request below uses `getProductAccountSigner` with `"createTransaction"`
+    // and avoids that path.
     log("Connecting signer…");
     const connectRes = await manager.connect();
     if (!connectRes.ok) {
         log(`Signer connect failed: ${connectRes.error.message}`, "err");
         return;
     }
-    const accounts = connectRes.value;
-    if (accounts.length === 0) {
-        log("No accounts exposed by the host — nothing to sign with", "err");
-        return;
-    }
-    const selectRes = manager.selectAccount(accounts[0].address);
-    if (!selectRes.ok) {
-        log(`selectAccount failed: ${selectRes.error.message}`, "err");
-        return;
-    }
-    log(`Signer ready: ${accounts[0].address}`, "ok");
 
-    // Step 2: open chain client. Inside the test host this routes through
+    // Step 2: request the product account. The fixture maps
+    // "tx-demo.dot/0" → bob via `productAccounts`, so this returns Bob's
+    // funded account but signs through host_create_transaction.
+    log("Requesting product account tx-demo.dot/0…");
+    const productRes = await manager.getProductAccount("tx-demo.dot", 0);
+    if (!productRes.ok) {
+        log(`getProductAccount failed: ${productRes.error.message}`, "err");
+        return;
+    }
+    productAccount = productRes.value;
+    log(`Product account ready: ${productAccount.address}`, "ok");
+
+    // Step 3: open chain client. Inside the test host this routes through
     // the host's chainConnection handler; outside it falls back to public RPC.
     log("Opening chain client (getChainAPI('paseo'))…");
     try {
@@ -258,8 +286,7 @@ async function init() {
     }
 
     // Re-emit state so the controls enable now that `chain` is non-null.
-    // (manager.subscribe callback reads the module-scoped chain variable.)
-    setControlsEnabled(manager.getState().selectedAccount !== null);
+    renderProductAccountReady();
 }
 
 init().catch((err) => log(`Unhandled init error: ${(err as Error).message}`, "err"));

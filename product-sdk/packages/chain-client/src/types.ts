@@ -1,7 +1,7 @@
 import type { ChainDefinition, PolkadotClient, TypedApi } from "polkadot-api";
 
 /** Supported chain environments for the Polkadot ecosystem. */
-export type Environment = "polkadot" | "kusama" | "paseo" | "previewnet" | "local" | "westend";
+export type Environment = "polkadot" | "kusama" | "paseo" | "local" | "westend";
 
 /**
  * Configuration for {@link createChainClient}.

@@ -1,6 +1,10 @@
 import type { JsonRpcProvider } from "polkadot-api";
+import { createLogger } from "@parity/product-sdk-logger";
+import type { Transport } from "@novasamatech/host-api";
 
 import type { HostLocalStorage, HostStatementStore } from "./types.js";
+
+const log = createLogger("host:container");
 
 /**
  * Detect if running inside a Host container (Polkadot Browser / Polkadot Desktop).
@@ -15,7 +19,7 @@ export async function isInsideContainer(): Promise<boolean> {
     if (typeof window === "undefined") return false;
 
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.sandboxProvider.isCorrectEnvironment();
     } catch {
         return isInsideContainerSync();
@@ -30,9 +34,35 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
     if (!(await isInsideContainer())) return null;
 
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.hostLocalStorage as HostLocalStorage;
-    } catch {
+    } catch (err) {
+        log.debug("getHostLocalStorage unavailable", err);
+        return null;
+    }
+}
+
+/**
+ * Construct a fresh host-backed `HostLocalStorage` instance with an optional
+ * custom transport. Use this when you need a non-default transport (e.g.
+ * for tests); otherwise prefer {@link getHostLocalStorage}, which returns
+ * the shared singleton.
+ *
+ * Mirrors `createLocalStorage` from `@novasamatech/host-api-wrapper`.
+ *
+ * @param transport - Optional transport; defaults to the sandbox transport.
+ * @returns A new `HostLocalStorage` instance, or `null` if unavailable.
+ */
+export async function createHostLocalStorage(
+    transport?: Transport,
+): Promise<HostLocalStorage | null> {
+    if (!(await isInsideContainer())) return null;
+
+    try {
+        const sdk = await import("@novasamatech/host-api-wrapper");
+        return sdk.createLocalStorage(transport);
+    } catch (err) {
+        log.debug("createHostLocalStorage unavailable", err);
         return null;
     }
 }
@@ -42,16 +72,17 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
  *
  * When running inside a Polkadot container, this wraps the chain connection via the
  * host's `createPapiProvider`, enabling shared connections and efficient routing.
- * Returns `null` when `@novasamatech/product-sdk` is unavailable.
+ * Returns `null` when `@novasamatech/host-api-wrapper` is unavailable.
  *
  * @param genesisHash - Genesis hash of the target chain (`0x`-prefixed hex string).
  * @returns A host-routed `JsonRpcProvider`, or `null` if unavailable.
  */
 export async function getHostProvider(genesisHash: `0x${string}`): Promise<JsonRpcProvider | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createPapiProvider(genesisHash);
-    } catch {
+    } catch (err) {
+        log.debug("getHostProvider unavailable", err);
         return null;
     }
 }
@@ -90,15 +121,16 @@ export function isInsideContainerSync(): boolean {
  *
  * Returns a statement store with `subscribe`, `createProof`, and `submit` methods
  * that communicate through the host's native binary protocol — bypassing JSON-RPC
- * entirely. Returns `null` when `@novasamatech/product-sdk` is unavailable.
+ * entirely. Returns `null` when `@novasamatech/host-api-wrapper` is unavailable.
  *
  * @returns The host statement store, or `null` if unavailable.
  */
 export async function getStatementStore(): Promise<HostStatementStore | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createStatementStore() as HostStatementStore;
-    } catch {
+    } catch (err) {
+        log.debug("getStatementStore unavailable", err);
         return null;
     }
 }
@@ -164,6 +196,10 @@ if (import.meta.vitest) {
 
     test("getHostLocalStorage returns null outside container", async () => {
         expect(await getHostLocalStorage()).toBeNull();
+    });
+
+    test("createHostLocalStorage returns null outside container", async () => {
+        expect(await createHostLocalStorage()).toBeNull();
     });
 
     test("getHostProvider returns null when product-sdk unavailable", async () => {

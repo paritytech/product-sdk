@@ -33,7 +33,9 @@ export {
     ContractSignerMissingError,
     ContractNotFoundError,
     ContractDryRunFailedError,
+    ContractRevertedError,
 } from "./errors.js";
+export type { ContractRevertInfo, DecodedContractRevert } from "./errors.js";
 export type {
     CdmJson,
     CdmJsonTarget,

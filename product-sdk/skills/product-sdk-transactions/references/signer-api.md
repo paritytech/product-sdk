@@ -27,21 +27,40 @@ connect(providerType?: ProviderType): Promise<Result<SignerAccount[], SignerErro
 Connect to a provider. Defaults to the Host API; pass `"dev"` for dev accounts (testing).
 The SDK is designed for container-only usage — `connect()` with no argument always targets the Host API.
 
-#### selectAccount
+#### getProductAccount (recommended)
+
+```ts
+getProductAccount(
+    dotNsIdentifier: string,
+    derivationIndex?: number,  // default 0
+): Promise<Result<SignerAccount, SignerError>>
+```
+
+Request a product account derived by the host wallet for this app, identified by `dotNsIdentifier` (e.g., `"myapp.dot"`). The returned account's `getSigner()` routes through `host_create_transaction`, which preserves arbitrary signed extensions (e.g. `AsPgas` on Paseo Next v2) end-to-end. **This is the recommended signing path** for any chain that ships signed extensions PJS doesn't know about. Only available when connected via the host provider — returns `HOST_UNAVAILABLE` otherwise.
+
+```ts
+const result = await manager.getProductAccount("myapp.dot");
+if (result.ok) {
+  const signer = result.value.getSigner();
+  // pass `signer` to submitAndWatch / contract.tx() / etc.
+}
+```
+
+#### selectAccount (legacy)
 
 ```ts
 selectAccount(address: string): Result<SignerAccount, SignerError>
 ```
 
-Select an account by SS58 address.
+Select a **legacy account** (one returned by `connect()`) by SS58 address. Pair with `getSigner()` below. Legacy accounts sign via PJS, which can't encode unknown signed extensions — on chains shipping `AsPgas` (Paseo Next v2) or similar, this throws `PJS does not support this signed-extension: AsPgas` at signing time. Use `getProductAccount` above for those chains.
 
-#### getSigner
+#### getSigner (legacy)
 
 ```ts
 getSigner(): PolkadotSigner | null
 ```
 
-Get the `PolkadotSigner` for the currently selected account.
+Get the `PolkadotSigner` for the currently selected **legacy** account. Same PJS routing constraint as `selectAccount` — not safe on chains with unknown signed extensions.
 
 #### signRaw
 

@@ -1,5 +1,5 @@
 import { generateMnemonic } from "@polkadot-labs/hdkd-helpers";
-import type { KvStore } from "@parity/product-sdk-storage";
+import type { LocalKvStore } from "@parity/product-sdk-local-storage";
 
 import { seedToAccount } from "./seed-to-account.js";
 import type { SessionKeyInfo } from "./types.js";
@@ -7,23 +7,23 @@ import type { SessionKeyInfo } from "./types.js";
 /**
  * Manages an sr25519 account derived from a BIP39 mnemonic.
  *
- * @param options.store - KvStore instance (from `@parity/product-sdk-storage`).
- *   Create with `createKvStore({ prefix: "session-key" })` for namespaced persistence.
+ * @param options.store - LocalKvStore instance (from `@parity/product-sdk-local-storage`).
+ *   Create with `createLocalKvStore({ prefix: "session-key" })` for namespaced persistence.
  * @param options.name - Identifies this session key. Defaults to `"default"`.
  *   Use different names to manage multiple independent session keys.
  *
  * @example
  * ```ts
- * const store = await createKvStore({ prefix: "session-key" });
+ * const store = await createLocalKvStore({ prefix: "session-key" });
  * const skm = new SessionKeyManager({ store });
  * const key = await skm.getOrCreate();
  * ```
  */
 export class SessionKeyManager {
     private readonly name: string;
-    private readonly store: KvStore;
+    private readonly store: LocalKvStore;
 
-    constructor(options: { store: KvStore; name?: string }) {
+    constructor(options: { store: LocalKvStore; name?: string }) {
         this.name = options.name ?? "default";
         this.store = options.store;
     }
@@ -78,7 +78,7 @@ if (import.meta.vitest) {
     const TEST_MNEMONIC =
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-    function mockKvStore(): KvStore & { data: Map<string, string> } {
+    function mockLocalKvStore(): LocalKvStore & { data: Map<string, string> } {
         const data = new Map<string, string>();
         return {
             data,
@@ -100,7 +100,7 @@ if (import.meta.vitest) {
 
     describe("SessionKeyManager", () => {
         test("fromMnemonic produces deterministic results", () => {
-            const store = mockKvStore();
+            const store = mockLocalKvStore();
             const skm = new SessionKeyManager({ store });
             const a = skm.fromMnemonic(TEST_MNEMONIC);
             const b = skm.fromMnemonic(TEST_MNEMONIC);
@@ -110,13 +110,13 @@ if (import.meta.vitest) {
         });
 
         test("fromMnemonic throws on invalid mnemonic", () => {
-            const store = mockKvStore();
+            const store = mockLocalKvStore();
             const skm = new SessionKeyManager({ store });
             expect(() => skm.fromMnemonic("invalid words here")).toThrow("Invalid mnemonic phrase");
         });
 
         test("create and get round-trip", async () => {
-            const store = mockKvStore();
+            const store = mockLocalKvStore();
             const skm = new SessionKeyManager({ store });
             const info = await skm.create();
             expect(info.mnemonic).toBeTruthy();
@@ -128,13 +128,13 @@ if (import.meta.vitest) {
         });
 
         test("get returns null when no key stored", async () => {
-            const store = mockKvStore();
+            const store = mockLocalKvStore();
             const skm = new SessionKeyManager({ store });
             expect(await skm.get()).toBeNull();
         });
 
         test("getOrCreate creates then returns cached", async () => {
-            const store = mockKvStore();
+            const store = mockLocalKvStore();
             const skm = new SessionKeyManager({ store });
             const created = await skm.getOrCreate();
             expect(store.data.size).toBe(1);
@@ -145,7 +145,7 @@ if (import.meta.vitest) {
         });
 
         test("clear removes mnemonic from store", async () => {
-            const store = mockKvStore();
+            const store = mockLocalKvStore();
             const skm = new SessionKeyManager({ store });
             await skm.create();
             expect(store.data.size).toBe(1);
@@ -156,7 +156,7 @@ if (import.meta.vitest) {
         });
 
         test("name separates storage keys", async () => {
-            const store = mockKvStore();
+            const store = mockLocalKvStore();
             const main = new SessionKeyManager({ name: "main", store });
             const burner = new SessionKeyManager({ name: "burner", store });
 

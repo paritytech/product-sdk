@@ -1,11 +1,11 @@
 # Storage API Reference
 
-Package: `@parity/product-sdk-storage`
+Package: `@parity/product-sdk-local-storage`
 
-## createKvStore
+## createLocalKvStore
 
 ```ts
-function createKvStore(options?: KvStoreOptions): Promise<KvStore>
+function createLocalKvStore(options?: LocalKvStoreOptions): Promise<LocalKvStore>
 ```
 
 Create a key-value store with automatic backend detection.
@@ -15,10 +15,10 @@ Create a key-value store with automatic backend detection.
 2. If inside container → try host storage, fallback to localStorage
 3. Otherwise → browser localStorage
 
-## KvStore Interface
+## LocalKvStore Interface
 
 ```ts
-interface KvStore {
+interface LocalKvStore {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
@@ -27,10 +27,10 @@ interface KvStore {
 }
 ```
 
-## KvStoreOptions
+## LocalKvStoreOptions
 
 ```ts
-interface KvStoreOptions {
+interface LocalKvStoreOptions {
   prefix?: string;                    // Key prefix namespace
   hostLocalStorage?: HostLocalStorage; // Override auto-detection
 }

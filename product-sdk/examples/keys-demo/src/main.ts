@@ -1,7 +1,7 @@
 /**
  * Entry point for the @parity/product-sdk-keys E2E demo.
  *
- * Wires up SignerManager (for account discovery) + host-backed KvStore +
+ * Wires up SignerManager (for account discovery) + host-backed LocalKvStore +
  * SessionKeyManager, exposing a minimal UI that the Playwright suite drives
  * via data-testid selectors.
  *
@@ -9,7 +9,7 @@
  *   1. SignerManager.connect() auto-detects -> HostProvider (product-sdk)
  *   2. Host responds with Bob's non-product account
  *   3. isInsideContainer() -> true (product-sdk sandbox detection)
- *   4. createKvStore() -> host-backed KvStore
+ *   4. createLocalKvStore() -> host-backed LocalKvStore
  *   5. SessionKeyManager created with host-backed store
  *   6. Buttons drive create / get / clear / derive operations
  */
@@ -17,7 +17,7 @@
 import { isInsideContainer } from "@parity/product-sdk-host";
 import { SessionKeyManager } from "@parity/product-sdk-keys";
 import { SignerManager } from "@parity/product-sdk-signer";
-import { createKvStore } from "@parity/product-sdk-storage";
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 
 import { appendLog, getEl } from "./ui.js";
 
@@ -177,10 +177,10 @@ async function init() {
     $storageBackend.textContent = inContainer ? "host" : "localStorage";
     log(`isInsideContainer() = ${inContainer}`, inContainer ? "ok" : "info");
 
-    // Step 3: create KvStore (auto-detects host backend inside containers)
-    log("Creating KvStore...");
-    const store = await createKvStore();
-    log(`KvStore created (backend: ${inContainer ? "host" : "localStorage"})`, "ok");
+    // Step 3: create LocalKvStore (auto-detects host backend inside containers)
+    log("Creating LocalKvStore...");
+    const store = await createLocalKvStore();
+    log(`LocalKvStore created (backend: ${inContainer ? "host" : "localStorage"})`, "ok");
 
     // Step 4: create SessionKeyManager
     sessionKeyManager = new SessionKeyManager({ store });

@@ -89,7 +89,8 @@ Each method on a contract handle has two variants:
 
 ```typescript
 const result = await counter.getCount.query();
-// result.value contains the return value
+// result.value contains the return value on success
+// No transaction, no gas cost
 // Defaults to best-block; pass { at: "finalized" } for canonical state.
 ```
 
@@ -102,6 +103,18 @@ const result = await counter.getCount.query({
                            // (runtime default is "best"; pass "best" | "finalized" | block hash)
 });
 ```
+
+**Reverts.** `query()` does NOT throw on a contract revert — it returns
+`{ success: false, value, gasRequired }`. Two failure shapes are possible:
+
+- Dispatch-level failures from the chain (e.g. `{ type: "ContractReverted" }`,
+  `{ type: "AccountNotMapped" }`, `{ type: "Module", ... }`) — passed through
+  on `value` as-is.
+- Contract-level reverts (REVERT flag set on a dispatched-OK call) — surfaced
+  as a tagged payload: `{ type: "ContractRevertedWithPayload", data, reason?, decoded? }`.
+  `reason` is the decoded `Error(string)` message or a mapped `Panic` description;
+  `decoded` carries the viem-decoded `{ errorName, args }` for ABI-defined custom
+  errors. Discriminate on `value.type` to tell the two failure paths apart.
 
 ### tx() — State-Changing Transactions
 
@@ -124,23 +137,44 @@ const result = await counter.increment.tx({
 });
 ```
 
+**Pre-flight revert detection.** Before submitting, `tx()` runs a dry-run. If
+the chain reports the REVERT flag is set, `tx()` throws `ContractRevertedError`
+and the extrinsic is NOT submitted (no gas paid). The error carries `methodName`,
+the raw `data`, and the same `reason` / `decoded` fields as the query payload.
+Passing both `gasLimit` AND `storageDepositLimit` in options skips the dry-run
+entirely — including this revert pre-check.
+
 ## SignerManager Integration
 
-Pass a `SignerManager` to automatically use the connected wallet account:
+Pass a `SignerManager` and a **product-account signer** to sign contract `tx()` calls:
 
 ```typescript
 import { SignerManager } from "@parity/product-sdk-signer";
 
-const signerManager = new SignerManager();
+const signerManager = new SignerManager({ ss58Prefix: 0, dappName: "your-app" });
+
+// Establish the host session.
 await signerManager.connect();
+
+// Request a product account — its signer routes through
+// `host_create_transaction` (PR #96), which preserves arbitrary signed
+// extensions (e.g. `AsPgas` on Paseo Next v2). Required on any chain that
+// ships signed extensions PJS doesn't know about.
+const productRes = await signerManager.getProductAccount("your-app.dot", 0);
+if (!productRes.ok) throw productRes.error;
+const productAccount = productRes.value;
 
 const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
     signerManager,
 });
 
-// All tx() calls use the connected account automatically
-await counter.increment.tx();
+// All tx() calls sign via the product account's `host_create_transaction` path.
+await counter.increment.tx({ signer: productAccount.getSigner() });
 ```
+
+See [`examples/tx-demo/src/main.ts`](../../examples/tx-demo/src/main.ts) and
+[`examples/contracts-demo/src/main.ts`](../../examples/contracts-demo/src/main.ts)
+for full end-to-end references.
 
 You can also set a default signer or origin:
 
@@ -252,7 +286,13 @@ The typed-API factory `createContractRuntime(typedApi, { at })` is also exported
 
 4. **Forgetting await** — Both `ContractManager.fromClient()` and `createContractFromClient()` return Promises.
 
-5. **Assuming `.query()` reads finalized state** — Dry-runs default to **best-block**, matching `.tx()`'s submission resolution. A `.query()` right after a `.tx()` will read what the just-landed transaction wrote, even before finalization. Pass `{ at: "finalized" }` (per-call) or set the runtime default to `"finalized"` if your product needs canonical lagged reads.
+5. **Assuming `tx()` only fails for signer/dispatch reasons** — `tx()` also throws `ContractRevertedError` when the dry-run shows the contract would revert. Catch it (or its base `ContractError`) if you're surfacing revert reasons to users.
+
+6. **Assuming `query()` throws on revert** — It doesn't. Reverts come back as `{ success: false, value: { type: "ContractRevertedWithPayload", ... } }`. Always check `success` before reading `value` as the return type.
+
+7. **Using `manager.getSigner()` (legacy account) on chains with unknown signed extensions** — `signerManager.connect()` exposes legacy accounts, whose signer routes through PJS. On chains like Paseo Next v2 that ship `AsPgas`, PJS throws `PJS does not support this signed-extension: AsPgas` at signing time. Use `signerManager.getProductAccount(<appOrigin>, 0)` and `productAccount.getSigner()` instead — that path goes through `host_create_transaction` and preserves arbitrary extensions.
+
+8. **Assuming `.query()` reads finalized state** — Dry-runs default to **best-block**, matching `.tx()`'s submission resolution. A `.query()` right after a `.tx()` will read what the just-landed transaction wrote, even before finalization. Pass `{ at: "finalized" }` (per-call) or set the runtime default to `"finalized"` if your product needs canonical lagged reads.
 
 ## Reference Files
 
