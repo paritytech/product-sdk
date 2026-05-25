@@ -447,6 +447,13 @@ if (import.meta.vitest) {
             expect(calls[0]?.[6]).toEqual({ at: "best" });
         });
 
+        test("respects an explicit factory default", async () => {
+            const { client, calls } = makeClient();
+            const runtime = createContractRuntimeFromClient(client, {}, { at: "finalized" });
+            await runtime.dryRunCall(origin, dest, 0n, undefined, undefined, new Uint8Array(0));
+            expect(calls[0]?.[6]).toEqual({ at: "finalized" });
+        });
+
         test("per-call `at` overrides factory default through the unsafe-API path", async () => {
             const { client, calls } = makeClient();
             const runtime = createContractRuntimeFromClient(client, {}, { at: "best" });
@@ -454,6 +461,15 @@ if (import.meta.vitest) {
                 at: "finalized",
             });
             expect(calls[0]?.[6]).toEqual({ at: "finalized" });
+        });
+
+        test("explicit per-call `at: best` is forwarded even when factory default is `finalized`", async () => {
+            const { client, calls } = makeClient();
+            const runtime = createContractRuntimeFromClient(client, {}, { at: "finalized" });
+            await runtime.dryRunCall(origin, dest, 0n, undefined, undefined, new Uint8Array(0), {
+                at: "best",
+            });
+            expect(calls[0]?.[6]).toEqual({ at: "best" });
         });
     });
 }
