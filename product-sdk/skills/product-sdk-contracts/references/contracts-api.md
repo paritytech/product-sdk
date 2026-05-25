@@ -95,13 +95,19 @@ function createContract(
 ```
 
 ```typescript
-import { createContractRuntime } from "@parity/product-sdk-contracts";
+import { createContractRuntimeFromClient } from "@parity/product-sdk-contracts";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
-const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
+const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub, {
+    at: "best", // default; "best" | "finalized" | block hash. Applies to
+                // .query() and the .tx() / .prepare() sizing dry-run.
+});
 const counter = createContract(runtime, "0xC472...", abi, {
     signerManager,
 });
 ```
+
+`createContractRuntime(typedApi, { at })` is also exported for tests where the caller already holds a typed API; prefer `createContractRuntimeFromClient` on production paths.
 
 ---
 

@@ -133,7 +133,7 @@ await counter.increment.prepare({ at: blockHash }); // pin the batched call's si
 Change the runtime default by passing `{ at }` to the factory:
 
 ```ts
-const runtime = createContractRuntimeFromClient(client, paseo_asset_hub, {
+const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub, {
     at: "finalized", // read finalized state by default
 });
 ```

@@ -85,17 +85,21 @@ Each method on a contract handle has two variants:
 
 ### query() — Read-Only Calls
 
+`.query()` runs a `ReviveApi.call` dry-run on the chain — no transaction, no gas cost. Targets **best-block** by default so reads observe the same state a freshly-submitted `.tx()` sees (matching `.tx()`'s default resolution). Override per call with `{ at: "finalized" }` or a block hash, or change the runtime default via `createContractRuntimeFromClient(client, descriptor, { at })`.
+
 ```typescript
 const result = await counter.getCount.query();
 // result.value contains the return value
-// No transaction, no gas cost
+// Defaults to best-block; pass { at: "finalized" } for canonical state.
 ```
 
 With options:
 
 ```typescript
 const result = await counter.getCount.query({
-    origin: "0x...",  // Override caller address
+    origin: "0x...",       // Override caller address
+    at: "finalized",       // Pin the dry-run to finalized state
+                           // (runtime default is "best"; pass "best" | "finalized" | block hash)
 });
 ```
 
@@ -113,6 +117,9 @@ With options:
 const result = await counter.increment.tx({
     signer: customSigner,  // Override the default signer
     waitFor: "finalized",  // Wait for finality (default: "best-block")
+    at: "finalized",       // Pin the sizing dry-run to a block (default:
+                           // runtime "best"). No-op when both gasLimit
+                           // and storageDepositLimit are supplied.
     onStatus: (status) => console.log(status),
 });
 ```
@@ -215,17 +222,25 @@ remains importable in browser builds — only the call site needs to be in Node.
 
 ## ContractRuntime Access
 
-For advanced use cases, create an ContractRuntime directly:
+For advanced use cases, create a ContractRuntime directly:
 
 ```typescript
-import { createContractRuntime } from "@parity/product-sdk-contracts";
+import { createContractRuntimeFromClient, createContract } from "@parity/product-sdk-contracts";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
-const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
+// `at` controls which block runtime-API dry-runs target. "best" is the
+// default and aligns with the .tx() resolution default; "finalized"
+// reads canonical lagged state; a `0x…` block hash pins to a historical
+// block. Applies to .query() *and* the .tx() / .prepare() sizing call.
+// Override per call via `QueryOptions.at` / `TxOptions.at` / `PrepareOptions.at`.
+const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub, {
+    at: "best",
+});
 
-// Use with createContract
-import { createContract } from "@parity/product-sdk-contracts";
 const counter = createContract(runtime, "0x...", abi, { signerManager });
 ```
+
+The typed-API factory `createContractRuntime(typedApi, { at })` is also exported — useful for tests where you already hold a typed API. Prefer `createContractRuntimeFromClient` on every production path.
 
 ## Common Mistakes
 
@@ -236,6 +251,8 @@ const counter = createContract(runtime, "0x...", abi, { signerManager });
 3. **Wrong signer type** — Contract transactions need a `PolkadotSigner`. Don't confuse with `StatementSignerWithKey` (for statement-store).
 
 4. **Forgetting await** — Both `ContractManager.fromClient()` and `createContractFromClient()` return Promises.
+
+5. **Assuming `.query()` reads finalized state** — Dry-runs default to **best-block**, matching `.tx()`'s submission resolution. A `.query()` right after a `.tx()` will read what the just-landed transaction wrote, even before finalization. Pass `{ at: "finalized" }` (per-call) or set the runtime default to `"finalized"` if your product needs canonical lagged reads.
 
 ## Reference Files
 
