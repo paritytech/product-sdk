@@ -13,7 +13,7 @@
     "docs:generate": "pnpm docs:extract && pnpm docs:render"
   },
   "dependencies": {
-    "next": "^15.5.18",
+    "next": "^16.2.6",
     "nextra": "^4.0.0",
     "nextra-theme-docs": "^4.0.0",
     "react": "^19.0.0",
