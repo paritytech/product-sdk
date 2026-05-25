@@ -49,7 +49,22 @@ export interface ReviveDryRunResult {
  */
 export type ContractDryRunAt = "best" | "finalized" | HexString;
 
-/** Per-call options accepted by {@link ReviveDryRunCall}. */
+/**
+ * Per-call options accepted by {@link ReviveDryRunCall}.
+ *
+ * Note on the trailing `options` arg: pallet-revive's Rust runtime API
+ * `ReviveApi::call` only takes the 6 positional args (origin, dest, value,
+ * gas_limit, storage_deposit_limit, input_data). This 7th `options` object
+ * is **injected by PAPI** on every `api.apis.X.Y` runtime-API call via its
+ * `WithCallOptions` type wrapper (see
+ * `polkadot-api/packages/client/src/viewFns.ts:9-11` upstream — defined
+ * as `WithCallOptions$2` in the bundled `.d.ts` due to TS bundler suffixing).
+ * It never reaches the Rust side — PAPI's `viewFns.ts:38-41` consumes it in
+ * JS, reads `options.at`, resolves it to a concrete block hash via the
+ * chain-head's runtime context, and uses that hash on the JSON-RPC
+ * `state_call` invocation. The 6-arg payload sent over the wire is
+ * unchanged.
+ */
 export interface ReviveDryRunCallOptions {
     at?: ContractDryRunAt;
 }
