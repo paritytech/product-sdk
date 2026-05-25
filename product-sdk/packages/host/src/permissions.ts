@@ -32,7 +32,7 @@ export type DevicePermissionKind = CodecType<typeof DevicePermissionCodec>;
 
 /**
  * Alias of {@link RemotePermission} matching the upstream
- * `@novasamatech/product-sdk` name. Use either freely.
+ * `@novasamatech/host-api-wrapper` name. Use either freely.
  */
 export type RemotePermissionItem = RemotePermission;
 

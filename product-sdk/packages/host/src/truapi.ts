@@ -134,11 +134,11 @@ export type { HexString } from "@novasamatech/host-api";
  * - `themeSubscribe()` - Subscribe to host theme changes
  * - And many more...
  *
- * Type identical to `hostApi` from `@novasamatech/product-sdk` so that
+ * Type identical to `hostApi` from `@novasamatech/host-api-wrapper` so that
  * `truApi.X(...)` calls keep their full inference (return types, method
  * names, parameter shapes) instead of decaying to `any`.
  */
-export type TruApi = typeof import("@novasamatech/product-sdk").hostApi;
+export type TruApi = typeof import("@novasamatech/host-api-wrapper").hostApi;
 
 /** Cached TruApi instance */
 let cachedTruApi: TruApi | null = null;
@@ -237,7 +237,7 @@ export type PreimageManager = typeof preimageManager;
  * transport. Use this when you need a non-default transport; otherwise
  * prefer {@link getPreimageManager}, which returns the shared singleton.
  *
- * Mirrors `createPreimageManager` from `@novasamatech/product-sdk`.
+ * Mirrors `createPreimageManager` from `@novasamatech/host-api-wrapper`.
  *
  * @param transport - Optional transport; defaults to the sandbox transport.
  * @returns A new `PreimageManager` instance, or `null` if unavailable.
@@ -247,7 +247,7 @@ export async function createHostPreimageManager(
 ): Promise<PreimageManager | null> {
     if (!(await isInsideContainer())) return null;
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createPreimageManager(transport);
     } catch (err) {
         log.debug("createHostPreimageManager unavailable", err);

@@ -23,29 +23,29 @@ import type {
     ChatRoom as NovasamaChatRoom,
     ChatRoomRegistrationResult as NovasamaChatRoomRegistrationResult,
     createProductChatManager,
-} from "@novasamatech/product-sdk";
+} from "@novasamatech/host-api-wrapper";
 
 const log = createLogger("host:chat");
 
-/** Chat message payload variants. Re-exported from `@novasamatech/product-sdk`. */
+/** Chat message payload variants. Re-exported from `@novasamatech/host-api-wrapper`. */
 export type ChatMessageContent = NovasamaChatMessageContent;
 
-/** Action received via {@link ChatManager.subscribeAction}. Re-exported from `@novasamatech/product-sdk`. */
+/** Action received via {@link ChatManager.subscribeAction}. Re-exported from `@novasamatech/host-api-wrapper`. */
 export type ChatReceivedAction = NovasamaChatReceivedAction;
 
-/** Room metadata delivered to {@link ChatManager.subscribeChatList}. Re-exported from `@novasamatech/product-sdk`. */
+/** Room metadata delivered to {@link ChatManager.subscribeChatList}. Re-exported from `@novasamatech/host-api-wrapper`. */
 export type ChatRoom = NovasamaChatRoom;
 
-/** Result of registering a chat room (`"New" | "Exists"`). Re-exported from `@novasamatech/product-sdk`. */
+/** Result of registering a chat room (`"New" | "Exists"`). Re-exported from `@novasamatech/host-api-wrapper`. */
 export type ChatRoomRegistrationResult = NovasamaChatRoomRegistrationResult;
 
-/** Result of registering a bot (`"New" | "Exists"`). Re-exported from `@novasamatech/product-sdk`. */
+/** Result of registering a bot (`"New" | "Exists"`). Re-exported from `@novasamatech/host-api-wrapper`. */
 export type ChatBotRegistrationResult = NovasamaChatBotRegistrationResult;
 
-/** Renderer callback for custom message types. Re-exported from `@novasamatech/product-sdk`. */
+/** Renderer callback for custom message types. Re-exported from `@novasamatech/host-api-wrapper`. */
 export type ChatCustomMessageRenderer = NovasamaChatCustomMessageRenderer;
 
-/** Parameters passed to a {@link ChatCustomMessageRenderer}. Re-exported from `@novasamatech/product-sdk`. */
+/** Parameters passed to a {@link ChatCustomMessageRenderer}. Re-exported from `@novasamatech/host-api-wrapper`. */
 export type ChatCustomMessageRendererParams<T = Uint8Array> =
     NovasamaChatCustomMessageRendererParams<T>;
 
@@ -55,14 +55,14 @@ export type ChatCustomMessageRendererParams<T = Uint8Array> =
  * registration.
  *
  * Type identical to `createProductChatManager()` from
- * `@novasamatech/product-sdk`.
+ * `@novasamatech/host-api-wrapper`.
  */
 export type ChatManager = ReturnType<typeof createProductChatManager>;
 
 /**
  * Get the host chat manager.
  *
- * Returns the chat manager from `@novasamatech/product-sdk`, or `null` if
+ * Returns the chat manager from `@novasamatech/host-api-wrapper`, or `null` if
  * the package is unavailable (running outside a host container or the
  * optional peer dep isn't installed).
  *
@@ -81,7 +81,7 @@ export type ChatManager = ReturnType<typeof createProductChatManager>;
  */
 export async function getChatManager(): Promise<ChatManager | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createProductChatManager();
     } catch (err) {
         log.debug("getChatManager unavailable", err);
@@ -93,7 +93,7 @@ export async function getChatManager(): Promise<ChatManager | null> {
  * Dispatch helper that composes multiple custom-message renderers into a
  * single {@link ChatCustomMessageRenderer} keyed by `messageType`.
  *
- * Mirrors `matchChatCustomRenderers` from `@novasamatech/product-sdk`
+ * Mirrors `matchChatCustomRenderers` from `@novasamatech/host-api-wrapper`
  * inline (the upstream implementation is pure dispatch logic with no
  * transport / runtime dependency on Novasama), so callers get the same
  * sync signature instead of an async-with-null wrapper.

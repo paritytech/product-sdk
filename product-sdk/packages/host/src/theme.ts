@@ -3,7 +3,7 @@
  *
  * `hostApi.themeSubscribe` is reachable via {@link getTruApi}, but consumers
  * have to wire the subscription envelope themselves. `getThemeProvider`
- * returns the `@novasamatech/product-sdk` theme provider object directly,
+ * returns the `@novasamatech/host-api-wrapper` theme provider object directly,
  * giving callers a `subscribeTheme(cb)` method that resolves to a typed
  * `ThemeMode` ("Light" | "Dark") and yields a `Subscription<void>` handle.
  *
@@ -15,7 +15,7 @@ import { createLogger } from "@parity/product-sdk-logger";
 import type {
     createThemeProvider,
     ThemeMode as NovasamaThemeMode,
-} from "@novasamatech/product-sdk";
+} from "@novasamatech/host-api-wrapper";
 
 const log = createLogger("host:theme");
 
@@ -25,22 +25,22 @@ const log = createLogger("host:theme");
  * `Subscription<void>` (`unsubscribe` + `onInterrupt`).
  *
  * Type identical to `createThemeProvider()` from
- * `@novasamatech/product-sdk`.
+ * `@novasamatech/host-api-wrapper`.
  */
 export type ThemeProvider = ReturnType<typeof createThemeProvider>;
 
-/** Host theme mode value. Re-exported from `@novasamatech/product-sdk`. */
+/** Host theme mode value. Re-exported from `@novasamatech/host-api-wrapper`. */
 export type ThemeMode = NovasamaThemeMode;
 
 /**
  * Get the host theme provider.
  *
  * Returns the theme-subscription handle exported by
- * `@novasamatech/product-sdk`, or `null` if the package is unavailable
+ * `@novasamatech/host-api-wrapper`, or `null` if the package is unavailable
  * (running outside a host container or the optional peer dep isn't
  * installed).
  *
- * Implementation note: upstream `@novasamatech/product-sdk` exports only
+ * Implementation note: upstream `@novasamatech/host-api-wrapper` exports only
  * the `createThemeProvider` factory and no `themeProvider` singleton, so
  * this getter constructs a fresh instance on each call (unlike
  * {@link getPreimageManager} or {@link getHostLocalStorage}, which return
@@ -64,7 +64,7 @@ export type ThemeMode = NovasamaThemeMode;
  */
 export async function getThemeProvider(): Promise<ThemeProvider | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createThemeProvider();
     } catch (err) {
         log.debug("getThemeProvider unavailable", err);

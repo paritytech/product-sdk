@@ -1,7 +1,7 @@
 /**
  * Genesis hashes of well-known chains.
  *
- * Mirrors `WellKnownChain` from `@novasamatech/product-sdk`. Hand-copied
+ * Mirrors `WellKnownChain` from `@novasamatech/host-api-wrapper`. Hand-copied
  * (not re-exported) so chain-client doesn't pick up a direct Novasama
  * runtime dependency; genesis hashes are immutable so drift is impossible.
  */

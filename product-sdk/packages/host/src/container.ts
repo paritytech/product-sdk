@@ -48,7 +48,7 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
  * for tests); otherwise prefer {@link getHostLocalStorage}, which returns
  * the shared singleton.
  *
- * Mirrors `createLocalStorage` from `@novasamatech/product-sdk`.
+ * Mirrors `createLocalStorage` from `@novasamatech/host-api-wrapper`.
  *
  * @param transport - Optional transport; defaults to the sandbox transport.
  * @returns A new `HostLocalStorage` instance, or `null` if unavailable.
@@ -59,7 +59,7 @@ export async function createHostLocalStorage(
     if (!(await isInsideContainer())) return null;
 
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.createLocalStorage(transport);
     } catch (err) {
         log.debug("createHostLocalStorage unavailable", err);
