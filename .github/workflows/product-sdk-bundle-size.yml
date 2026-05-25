@@ -113,12 +113,12 @@ jobs:
 
       # Download both artifacts to the repo root (artifacts contain the JSON
       # files at their root since we staged them flat in the measure jobs).
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bundle-size-base
           path: .
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bundle-size-head
           path: .
