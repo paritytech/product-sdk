@@ -1,12 +1,34 @@
-# Product SDK Docs
+# Product SDK
 
-Internal monorepo for SDK packages and tooling.
+Monorepo for the `@parity/product-sdk` family of packages and tooling.
+
+## Documentation
+
+Full documentation is published at **[paritytech.github.io/product-sdk](https://paritytech.github.io/product-sdk/)**.
 
 ## product-sdk
 
 TypeScript SDK for building products in the Polkadot ecosystem. Provides typed APIs for chain interactions, transaction signing, key management, and storage across Polkadot Desktop, Mobile, and browser environments.
 
-See [product-sdk/README.md](./product-sdk/README.md) for details.
+| Package | Description |
+|---------|-------------|
+| `@parity/product-sdk` | Unified umbrella package — re-exports all modules |
+| `@parity/product-sdk-chain-client` | Multi-chain Polkadot API client with typed access to Asset Hub, Bulletin, and other chains |
+| `@parity/product-sdk-tx` | Transaction submission, lifecycle watching, and dev signers |
+| `@parity/product-sdk-signer` | Multi-provider signer manager — Host API and dev accounts |
+| `@parity/product-sdk-contracts` | Typed contract interactions on Polkadot Asset Hub |
+| `@parity/product-sdk-cloud-storage` | Upload and retrieve data via Cloud Storage (currently backed by the Polkadot Bulletin Chain) |
+| `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |
+| `@parity/product-sdk-keys` | Hierarchical key derivation, session keys, and sr25519 product-account derivation |
+| `@parity/product-sdk-local-storage` | Key-value local storage with automatic host/browser backend detection |
+| `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
+| `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
+| `@parity/product-sdk-crypto` | Cryptographic primitives — encryption, key derivation, NaCl |
+| `@parity/product-sdk-descriptors` | PAPI-generated chain descriptors for Polkadot ecosystem |
+| `@parity/product-sdk-logger` | Structured, namespace-filtered logging |
+| `@parity/product-sdk-utils` | Encoding utilities and token formatting |
+
+See [product-sdk/README.md](./product-sdk/README.md) for installation, development, and E2E testing.
 
 ## Claude Code Plugin
 
@@ -25,7 +47,7 @@ The `/reload-plugins` step (or restarting Claude Code) is required to load the s
 ### Verify
 
 ```bash
-claude plugin list                     # should show product-sdk@paritytech enabled
+claude plugin list                    # should show product-sdk@paritytech enabled
 claude plugin details product-sdk     # shows all 8 skills + projected token cost
 ```
 
@@ -45,5 +67,3 @@ Or open a new Claude Code session and ask "build me a Polkadot app" — the `pro
 | `migrating-to-product-sdk` | Porting an existing codebase from legacy stacks |
 
 Skills live under [`product-sdk/skills/`](./product-sdk/skills/) and are auto-discovered by Claude Code at install time.
-
-## More tools coming soon
