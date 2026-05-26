@@ -16,7 +16,7 @@ This repo doubles as a [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 
 ```
 /plugin marketplace add paritytech/product-sdk
-/plugin install polkadot-sdk@paritytech
+/plugin install product-sdk@paritytech
 /reload-plugins
 ```
 
@@ -25,11 +25,11 @@ The `/reload-plugins` step (or restarting Claude Code) is required to load the s
 ### Verify
 
 ```bash
-claude plugin list                     # should show polkadot-sdk@paritytech enabled
-claude plugin details polkadot-sdk     # shows all 8 skills + projected token cost
+claude plugin list                     # should show product-sdk@paritytech enabled
+claude plugin details product-sdk     # shows all 8 skills + projected token cost
 ```
 
-Or open a new Claude Code session and ask "build me a Polkadot app" — the `polkadot-sdk:product-sdk-app-builder` skill should fire automatically.
+Or open a new Claude Code session and ask "build me a Polkadot app" — the `product-sdk:product-sdk-app-builder` skill should fire automatically.
 
 ### Skills included
 

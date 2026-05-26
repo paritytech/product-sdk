@@ -1,5 +1,5 @@
 {
-  "name": "polkadot-sdk",
+  "name": "product-sdk",
   "version": "0.1.0",
   "description": "Skills for building Polkadot apps with @parity/product-sdk",
   "author": {
