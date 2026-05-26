@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { HexString } from "polkadot-api";
 
 /** Base class for all contract errors. Use `instanceof ContractError` to catch any contract-related error. */

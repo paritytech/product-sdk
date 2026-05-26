@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /** Balance breakdown from a Substrate `System.Account` query. */
 export interface AccountBalance {
     /** Available (transferable) balance in planck. */

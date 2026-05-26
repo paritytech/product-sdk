@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
 
 import { TxBatchError, TxDispatchError, TxSigningRejectedError, TxTimeoutError } from "./errors.js";

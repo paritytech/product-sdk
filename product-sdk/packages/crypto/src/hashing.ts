@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { blake2b } from "@noble/hashes/blake2.js";
 import { sha256 as _sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex as _bytesToHex } from "@noble/hashes/utils.js";

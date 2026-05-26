@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 // Minimal typings for the subset of the TypeDoc 0.28 JSON we consume.
 // See https://typedoc.org/api/ for the full schema.
 

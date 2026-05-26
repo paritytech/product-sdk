@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk-keys — Derive application keys from a user's account without touching their seed phrase.
  *

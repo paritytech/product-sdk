@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { ChainDefinition, PolkadotClient, TypedApi } from "polkadot-api";
 
 /** Supported chain environments for the Polkadot ecosystem. */

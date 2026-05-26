@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { BulletinTypedApi } from "@parity/bulletin-sdk";
 
 /** Typed API for the Cloud Storage (re-export from upstream BulletinTypedApi). */

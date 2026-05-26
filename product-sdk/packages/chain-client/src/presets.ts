@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { ChainDefinition } from "polkadot-api";
 import { BULLETIN_RPCS } from "@parity/product-sdk-host";
 import { createChainClient } from "./clients.js";

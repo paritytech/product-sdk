@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { LogHandler, LogLevel } from "./types.js";
 
 export const LEVEL_VALUES: Record<LogLevel, number> = {

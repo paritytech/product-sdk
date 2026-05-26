@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Slot-account signer: reads the cached Bulletin/SSS allowance key and
  * returns a `PolkadotSigner` that signs locally with sr25519. SC and

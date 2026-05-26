@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /** Severity ranking — `"error"` is the highest, then `"warn"`, `"info"`, `"debug"`. The configured level is the lowest severity that gets emitted; less-severe entries are dropped. */
 export type LogLevel = "error" | "warn" | "info" | "debug";
 

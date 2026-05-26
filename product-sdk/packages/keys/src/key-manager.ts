@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { sr25519CreateDerive } from "@polkadot-labs/hdkd";
 import { getPolkadotSigner } from "polkadot-api/signer";
 

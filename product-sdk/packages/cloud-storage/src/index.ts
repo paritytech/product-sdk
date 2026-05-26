@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk-cloud-storage — Upload and retrieve content from the cloud
  * (currently through the Polkadot Bulletin Chain).

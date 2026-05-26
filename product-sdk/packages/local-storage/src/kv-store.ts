@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { getHostLocalStorage } from "@parity/product-sdk-host";
 import type { HostLocalStorage } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";

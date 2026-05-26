@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk-utils — Encoding, hashing, token formatting, and balance querying for the Polkadot app ecosystem.
  *

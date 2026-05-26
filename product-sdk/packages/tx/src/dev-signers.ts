@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { DEV_PHRASE } from "@polkadot-labs/hdkd-helpers";
 import { seedToAccount } from "@parity/product-sdk-keys";
 import type { PolkadotSigner } from "polkadot-api";

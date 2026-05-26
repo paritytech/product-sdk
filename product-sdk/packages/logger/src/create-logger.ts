@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { LEVEL_VALUES, getEffectiveLevel, state } from "./state.js";
 import type { LogEntry, LogLevel, Logger } from "./types.js";
 

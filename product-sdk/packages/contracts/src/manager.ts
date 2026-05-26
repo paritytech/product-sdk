@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { HexString, PolkadotClient } from "polkadot-api";
 import { wrapContract } from "./wrap.js";
 import { ContractNotFoundError } from "./errors.js";

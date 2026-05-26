@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import { createLogger } from "@parity/product-sdk-logger";
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk-address — Address handling for accounts that live on both Substrate (SS58) and EVM (H160) chains.
  *

@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { HostLocalStorage } from "@parity/product-sdk-host";
 
 /** Async string local key-value store, with `getJSON`/`setJSON` for structured values. Returned by {@link createLocalKvStore}. */

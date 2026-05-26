@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { getPublicKey, secretFromSeed } from "@scure/sr25519";
 import { describe, expect, it } from "vitest";
 import { createChainCode, deriveProductAccountPublicKey } from "./product-account.js";

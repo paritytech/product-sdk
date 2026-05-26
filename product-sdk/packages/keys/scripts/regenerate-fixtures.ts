@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Maintenance tool: print the four hex vectors that lock
  * deriveProductAccountPublicKey to its canonical output.

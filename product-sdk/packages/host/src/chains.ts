@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Shared chain network configuration — single source of truth for
  * chain-specific endpoints used by multiple packages.

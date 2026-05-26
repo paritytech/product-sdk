@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { BlockTag, Comment, CommentText } from "./types.js";
 
 // Escape MDX-hostile characters in free prose: curly braces parse as JSX expressions,

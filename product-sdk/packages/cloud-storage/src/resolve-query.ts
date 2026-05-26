@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { calculateCid } from "@parity/bulletin-sdk";
 import { getPreimageManager, type PreimageManager } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
