@@ -19,7 +19,7 @@ defaults:
 
 jobs:
     check:
-        runs-on: ubuntu-latest
+        runs-on: parity-default
         environment: main
         timeout-minutes: 10
         steps:

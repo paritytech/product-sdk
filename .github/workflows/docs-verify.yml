@@ -20,7 +20,7 @@ permissions:
 jobs:
     build:
         name: "docs: Verify Generate & Build"
-        runs-on: ubuntu-latest
+        runs-on: parity-default
         steps:
             - uses: actions/checkout@v6
 

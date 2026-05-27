@@ -10,7 +10,7 @@ on:
 jobs:
   measure-base:
     name: "Measure base"
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     steps:
       - uses: actions/checkout@v6
         with:
@@ -54,7 +54,7 @@ jobs:
 
   measure-head:
     name: "Measure head"
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     steps:
       - uses: actions/checkout@v6
 
@@ -90,7 +90,7 @@ jobs:
 
   compare:
     name: "Compare & comment"
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     needs: [measure-base, measure-head]
     permissions:
       contents: read

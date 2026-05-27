@@ -30,7 +30,7 @@ permissions:
 jobs:
     check:
         name: "Check descriptor drift"
-        runs-on: ubuntu-latest
+        runs-on: parity-default
         timeout-minutes: 15
         steps:
             - uses: actions/checkout@v6

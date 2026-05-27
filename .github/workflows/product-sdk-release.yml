@@ -16,7 +16,7 @@ defaults:
 jobs:
     release:
         if: github.event.workflow_run.conclusion == 'success'
-        runs-on: ubuntu-latest
+        runs-on: parity-default
         environment: main
         steps:
             - name: Generate GitHub App token
