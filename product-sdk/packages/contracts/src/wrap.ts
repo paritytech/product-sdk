@@ -1,9 +1,8 @@
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
 import { encodeFunctionData, decodeFunctionResult, type Abi as ViemAbi } from "viem";
 import { submitAndWatch } from "@parity/product-sdk-tx";
-import { seedToAccount } from "@parity/product-sdk-keys";
 import { createLogger } from "@parity/product-sdk-logger";
-import { DEV_PHRASE, ss58Address } from "@polkadot-labs/hdkd-helpers";
+import { ss58Address } from "@polkadot-labs/hdkd-helpers";
 import { ContractSignerMissingError, ContractDryRunFailedError } from "./errors.js";
 import type { ContractRuntime } from "./runtime.js";
 import type { BatchableCall, SubmittableTransaction } from "@parity/product-sdk-tx";
@@ -49,11 +48,18 @@ function extractOverrides<T>(
 }
 
 /**
- * Dev address (Alice) used as fallback origin for read-only queries when no
- * wallet is connected. Queries are dry-run simulations — the origin only
- * affects gas estimation and is safe to stub.
+ * pallet-revive's own account, used as fallback origin for read-only queries
+ * when no wallet is connected. Queries are dry-run simulations — the origin
+ * only affects gas estimation and is safe to stub.
+ *
+ * This mirrors `Pallet::<T>::account_id()` in pallet-revive, which is
+ * `PalletId(*b"py/reviv").into_account_truncating()`. The 32-byte AccountId is
+ * the PalletId `TYPE_ID` (`b"modl"`) followed by the id (`b"py/reviv"`), zero
+ * padded — i.e. `"modlpy/reviv"` + 20 trailing zero bytes.
  */
-const QUERY_FALLBACK_ORIGIN = seedToAccount(DEV_PHRASE, "//Alice").ss58Address as SS58String;
+const REVIVE_PALLET_ACCOUNT = new Uint8Array(32);
+REVIVE_PALLET_ACCOUNT.set([...new TextEncoder().encode("modlpy/reviv")]);
+const QUERY_FALLBACK_ORIGIN = ss58Address(REVIVE_PALLET_ACCOUNT) as SS58String;
 
 function resolveOrigin(
     defaults: ContractDefaults,
@@ -65,7 +71,7 @@ function resolveOrigin(
     if (sourceAddr) return sourceAddr as SS58String;
     if (defaults.origin) return defaults.origin;
     if (forQuery) {
-        log.warn("No origin configured — using dev fallback (Alice) for query dry-run");
+        log.warn("No origin configured — using pallet-revive account fallback for query dry-run");
         return QUERY_FALLBACK_ORIGIN;
     }
     return undefined;
@@ -305,8 +311,8 @@ export function wrapContract(
                     // `.prepare()` builds the same `Revive.call` extrinsic as
                     // `.tx()` but stops before submission — the returned
                     // SubmittableTransaction is a BatchableCall consumable
-                    // by `batchSubmitAndWatch`. Origin defaults to the dev
-                    // address (Alice) for dry-run gas estimation since no
+                    // by `batchSubmitAndWatch`. Origin defaults to the
+                    // pallet-revive account for dry-run gas estimation since no
                     // signer is required at prepare time; the batch's signer
                     // replaces the dispatched origin at submission.
                     const { positionalArgs, overrides } = extractOverrides<PrepareOptions>(
@@ -1200,7 +1206,7 @@ if (import.meta.vitest) {
             ).resolves.toMatchObject({ decodedCall: { sentinel: true } });
 
             // Origin must have been resolved without throwing — falls
-            // back to the dev address (Alice) for dry-run gas estimation.
+            // back to the pallet-revive account for dry-run gas estimation.
             expect(capturedOrigin).toBe(QUERY_FALLBACK_ORIGIN);
         });
 
