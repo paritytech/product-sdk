@@ -1,5 +1,7 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { AccountId, type SS58String } from "@polkadot-api/substrate-bindings";
-import { keccak_256 } from "@noble/hashes/sha3";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 
 const EVM_DERIVED_MARKER = 0xee;
 const H160_BYTE_LEN = 20;

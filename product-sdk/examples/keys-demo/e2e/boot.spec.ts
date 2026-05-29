@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { test, expect, SS58_PREFIX } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
@@ -11,7 +13,7 @@ import { waitForAppReady } from "./helpers";
  *
  * Host API surface tested:
  *   - isInsideContainer() -> product-sdk sandbox detection
- *   - createKvStore() -> host-backed KvStore via product-sdk hostLocalStorage
+ *   - createLocalKvStore() -> host-backed LocalKvStore via product-sdk hostLocalStorage
  *   - SessionKeyManager({ store }) -> ready state
  */
 test.describe("@parity/product-sdk-keys via Host API — boot", () => {

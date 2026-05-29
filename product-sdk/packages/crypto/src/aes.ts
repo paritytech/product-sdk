@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { gcm } from "@noble/ciphers/aes.js";
 import { randomBytes } from "@noble/hashes/utils.js";
 

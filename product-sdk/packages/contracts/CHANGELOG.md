@@ -1,5 +1,60 @@
 # @parity/product-sdk-contracts
 
+## 0.6.0
+
+### Minor Changes
+
+- 7610e61: Default contract `.query()` and `.tx()` / `.prepare()` sizing dry-runs to best-block, with per-call `at` overrides on all three.
+
+  **Default changed**: existing `.query()` callers without an explicit `at` option now read best-block state (was `finalized`, via PAPI's default). Pass `{ at: "finalized" }` per call or set the factory default to keep the old behavior.
+
+  `createContractRuntime` and `createContractRuntimeFromClient` now accept `{ at }`,
+  defaulting to `"best"` so reads observe the same state as transactions resolved
+  at best-block. `QueryOptions.at`, `TxOptions.at`, and `PrepareOptions.at` each
+  override the runtime default per call, accepting `"best"`, `"finalized"`, or a
+  block hash. `TxOptions.at` / `PrepareOptions.at` is a no-op when both `gasLimit`
+  and `storageDepositLimit` are supplied (the dry-run is skipped entirely).
+
+  ```ts
+  const runtime = createContractRuntimeFromClient(
+    client.raw.assetHub,
+    paseo_asset_hub,
+    { at: "best" }
+  );
+
+  await counter.getCount.query(); // best-block (default)
+  await counter.getCount.query({ at: "finalized" }); // finalized override
+  await counter.getCount.query({ at: blockHash }); // pin to a block
+
+  await counter.increment.tx({ at: "finalized" }); // size the dry-run against finalized
+  await counter.increment.prepare({ at: blockHash }); // pin the batched call's sizing dry-run
+  ```
+
+### Patch Changes
+
+- 7610e61: Treat the `REVERT` flag on a dispatched-OK `ReviveApi.call` as a revert rather than a successful return.
+
+  Adds `ContractRevertedError` (a `ContractError` subclass) and a `ContractRevertInfo` tagged-enum value surfaced on `QueryResult.value` when a contract reverts via the REVERT flag. The discriminant is intentionally distinct from `pallet-revive`'s bare `{ type: "ContractReverted" }` dispatch-error variant, which is the other path that can populate `QueryResult.value` on failure.
+
+  Revert payloads are decoded with viem when an ABI is present (standard and ABI-defined errors), surfacing `errorName` and `args` alongside the raw `data` hex.
+
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+  - @parity/product-sdk-signer@0.4.0
+  - @parity/product-sdk-keys@0.3.1
+  - @parity/product-sdk-tx@0.2.5
+
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [4c13257]
+- Updated dependencies [4c13257]
+  - @parity/product-sdk-keys@0.3.0
+  - @parity/product-sdk-signer@0.3.0
+  - @parity/product-sdk-tx@0.2.4
+
 ## 0.5.0
 
 ### Minor Changes

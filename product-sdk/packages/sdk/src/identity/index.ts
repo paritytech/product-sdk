@@ -1,8 +1,10 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk/identity
  *
- * Identity utilities including DotNS name resolution,
- * product account derivation, and Ring VRF anonymous aliases.
+ * Identity utilities: DotNS name resolution, context-alias derivation,
+ * and Ring VRF anonymous aliases.
  */
 
 // DotNS utilities
@@ -14,10 +16,10 @@ export {
     isDotNsAvailable,
 } from "./dotns.js";
 
-// Product account utilities
+// Context alias utilities
 export {
-    deriveProductAccount,
-    verifyProductAccount,
+    deriveContextAlias,
+    verifyContextAlias,
     deriveAnonymousAlias,
     createRingProof,
     verifyRingProof,
@@ -26,7 +28,7 @@ export {
 // Types
 export type {
     DotNsRecord,
-    ProductAccountInfo,
+    ContextAliasInfo,
     AnonymousAliasInfo,
     RingLocation,
     VerificationResult,

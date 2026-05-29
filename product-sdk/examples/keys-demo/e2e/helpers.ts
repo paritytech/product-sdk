@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { TestHost } from "@parity/host-api-test-sdk/playwright";
 import { expect, type FrameLocator } from "@playwright/test";
 

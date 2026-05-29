@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk-host — Detect and talk to the Polkadot Desktop/Mobile host container.
  *
@@ -11,6 +13,7 @@ export {
     isInsideContainer,
     isInsideContainerSync,
     getHostLocalStorage,
+    createHostLocalStorage,
     getHostProvider,
     getStatementStore,
 } from "./container.js";
@@ -18,19 +21,25 @@ export type {
     HostLocalStorage,
     HostStatementStore,
     HostSubscription,
+    ProductAccountId,
+    SignedStatement,
+    Statement,
     StatementProof,
     StatementTopicFilter,
     StatementsPage,
+    Topic,
 } from "./types.js";
 export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 
-// TruAPI - re-exports from @novasamatech/product-sdk and @novasamatech/host-api
+// TruAPI - re-exports from @novasamatech/host-api-wrapper and @novasamatech/host-api
 export {
     getTruApi,
     getPreimageManager,
+    createHostPreimageManager,
     getAccountsProvider,
     requestResourceAllocation,
     createProofAuthorized,
+    formatHostError,
     // Helpers from @novasamatech/host-api
     enumValue,
     isEnumVariant,
@@ -56,8 +65,32 @@ export type {
     AllocationOutcomeTag,
     RemotePermission,
     RemotePermissionTag,
-    Statement,
 } from "./truapi.js";
 
-// Higher-level permission wrapper
-export { requestPermission } from "./permissions.js";
+// Higher-level permission wrappers
+export { requestPermission, requestDevicePermission } from "./permissions.js";
+export type { DevicePermissionKind, RemotePermissionItem } from "./permissions.js";
+
+// Theme provider
+export { getThemeProvider } from "./theme.js";
+export type { ThemeMode, ThemeProvider } from "./theme.js";
+
+// Entropy derivation (RFC-0007)
+export { deriveEntropy } from "./entropy.js";
+
+// Chat
+export { getChatManager, matchChatCustomRenderers } from "./chat.js";
+export type {
+    ChatManager,
+    ChatMessageContent,
+    ChatReceivedAction,
+    ChatRoom,
+    ChatRoomRegistrationResult,
+    ChatBotRegistrationResult,
+    ChatCustomMessageRenderer,
+    ChatCustomMessageRendererParams,
+} from "./chat.js";
+
+// Payments (RFC-0006)
+export { getPaymentManager } from "./payments.js";
+export type { PaymentManager, PaymentBalance, PaymentStatus, TopUpSource } from "./payments.js";

@@ -1,5 +1,65 @@
 # @parity/product-sdk-chain-client
 
+## 0.5.0
+
+### Minor Changes
+
+- 7610e61: ### `@parity/product-sdk-host`
+
+  - New wrappers: `getChatManager`, `getThemeProvider`, `deriveEntropy`, `requestPermission`, `requestDevicePermission`.
+  - New container helpers: `createHostLocalStorage`.
+  - New TruAPI re-exports: `createHostPreimageManager`, `formatHostError`.
+  - New type re-exports: `ProductAccountId`, `SignedStatement`, `Statement`, `Topic`, `ChatManager`, `ChatMessageContent`, `ChatReceivedAction`, `ChatRoom`, `ChatRoomRegistrationResult`, `ChatBotRegistrationResult`, `ChatCustomMessageRenderer`, `ChatCustomMessageRendererParams`, `ThemeMode`, `ThemeProvider`, `DevicePermissionKind`, `RemotePermissionItem`.
+
+  ### `@parity/product-sdk-chain-client`
+
+  - New exports: `WellKnownChain` constant + `WellKnownChainHash` type for canonical genesis-hash lookups.
+
+  ### `@parity/product-sdk-local-storage`
+
+  - Widened the typed KV interface to match the upstream Novasama surface: `readBytes` / `writeBytes` methods and keyed `clear(key)`. Test mocks updated accordingly.
+
+  ### Umbrella
+
+  - `@parity/product-sdk`: minor cascade per `RELEASES.md` — any constituent minor bump cascades the umbrella.
+
+  No consumer-facing source-compat breaks: all changes are additive expansions of public exports.
+
+- 7610e61: **Drop previewnet support.**
+
+  Previewnet is no longer used. Removed across the workspace:
+
+  - `@parity/product-sdk-descriptors` drops the `./previewnet-asset-hub`, `./previewnet-bulletin`, and `./previewnet-individuality` subpath exports.
+  - `@parity/product-sdk-chain-client` removes `"previewnet"` from the `Environment` union; `getChainAPI("previewnet")` no longer compiles or resolves.
+  - `@parity/product-sdk-cloud-storage` removes the `previewnet` entry from `CloudStorageNetworks`.
+  - `@parity/product-sdk-host` removes `BULLETIN_RPCS.previewnet`.
+
+  ### Migration
+
+  Consumers using paseo (testnet) or one of the production environments are unaffected. Anyone importing a `previewnet-*` descriptor or referencing `Environment === "previewnet"` should drop the references — the underlying runtime is shared with paseo, so paseo is the direct replacement for testing.
+
+  Pre-1.0 breaking change per `RELEASES.md`; ships as `minor`.
+
+### Patch Changes
+
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+  - @parity/product-sdk-host@0.5.0
+  - @parity/product-sdk-descriptors@0.5.0
+
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [4c13257]
+- Updated dependencies [4c13257]
+  - @parity/product-sdk-descriptors@0.4.1
+  - @parity/product-sdk-host@0.4.0
+
 ## 0.4.1
 
 ### Patch Changes

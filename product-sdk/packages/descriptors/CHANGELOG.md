@@ -1,5 +1,38 @@
 # @parity/product-sdk-descriptors
 
+## 0.5.0
+
+### Minor Changes
+
+- 7610e61: **Drop previewnet support.**
+
+  Previewnet is no longer used. Removed across the workspace:
+
+  - `@parity/product-sdk-descriptors` drops the `./previewnet-asset-hub`, `./previewnet-bulletin`, and `./previewnet-individuality` subpath exports.
+  - `@parity/product-sdk-chain-client` removes `"previewnet"` from the `Environment` union; `getChainAPI("previewnet")` no longer compiles or resolves.
+  - `@parity/product-sdk-cloud-storage` removes the `previewnet` entry from `CloudStorageNetworks`.
+  - `@parity/product-sdk-host` removes `BULLETIN_RPCS.previewnet`.
+
+  ### Migration
+
+  Consumers using paseo (testnet) or one of the production environments are unaffected. Anyone importing a `previewnet-*` descriptor or referencing `Environment === "previewnet"` should drop the references — the underlying runtime is shared with paseo, so paseo is the direct replacement for testing.
+
+  Pre-1.0 breaking change per `RELEASES.md`; ships as `minor`.
+
+### Patch Changes
+
+- 7610e61: Regenerate `paseo-asset-hub` and `paseo-individuality` PAPI descriptors against the current live-chain runtime metadata. Caught by the daily descriptor-drift workflow: pinned `codeHash` had drifted from live. `kusama-asset-hub`, `polkadot-asset-hub`, and `paseo-bulletin` were already in sync and are unchanged.
+
+  No source-level API surface changes for consumers — this refreshes the bundled `.scale` metadata blobs and the pinned `codeHash` values in each chain's `.papi/polkadot-api.json` so PAPI's type bindings match the live runtime. Stale bindings can manifest as `Incompatible runtime entry RuntimeCall(...)` errors or silent subscription mis-decodes.
+
+## 0.4.1
+
+### Patch Changes
+
+- 4c13257: Regenerate PAPI descriptors against current live-chain runtime metadata for `polkadot-asset-hub`, `kusama-asset-hub`, `paseo-asset-hub`, `previewnet-asset-hub`, `paseo-individuality`, and `previewnet-individuality`. `paseo-bulletin` and `previewnet-bulletin` were already at the live `codeHash` and are unchanged.
+
+  No source-level API surface changes for consumers — this refreshes the bundled `.scale` metadata blobs and the pinned `genesis`/`codeHash` values in each chain's `.papi/polkadot-api.json` so PAPI's type bindings match the live runtime. Stale bindings can manifest as `Incompatible runtime entry RuntimeCall(...)` errors or silent subscription mis-decodes.
+
 ## 0.4.0
 
 ### Minor Changes

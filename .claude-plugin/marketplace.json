@@ -1,0 +1,15 @@
+{
+  "name": "paritytech",
+  "description": "Parity Technologies plugin marketplace for the Polkadot developer ecosystem.",
+  "owner": {
+    "name": "Parity Technologies",
+    "url": "https://github.com/paritytech"
+  },
+  "plugins": [
+    {
+      "name": "product-sdk",
+      "source": "./product-sdk",
+      "description": "Polkadot product-SDK skills: chain connection, transactions, contracts, cloud storage, statement store, utilities, migration, and app builder."
+    }
+  ]
+}

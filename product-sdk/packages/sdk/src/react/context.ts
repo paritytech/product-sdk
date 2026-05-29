@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * React context for Product SDK
  */
@@ -17,7 +19,7 @@ export const ProductSDKContext = createContext<App | null>(null);
  * ```tsx
  * function MyComponent() {
  *   const app = useProductSDK();
- *   // Use app.wallet, app.storage, etc.
+ *   // Use app.wallet, app.localStorage, etc.
  * }
  * ```
  */

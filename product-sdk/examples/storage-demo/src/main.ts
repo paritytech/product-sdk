@@ -1,7 +1,9 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
- * Entry point for the @parity/product-sdk-storage E2E demo.
+ * Entry point for the @parity/product-sdk-local-storage E2E demo.
  *
- * Wires up SignerManager (for account discovery) + KvStore auto-detection,
+ * Wires up SignerManager (for account discovery) + LocalKvStore auto-detection,
  * exposing a minimal UI that the Playwright suite drives via data-testid
  * selectors.
  *
@@ -9,8 +11,8 @@
  *   1. SignerManager.connect() auto-detects → HostProvider (product-sdk)
  *   2. Host responds with Bob's non-product account
  *   3. isInsideContainer() → true (inside test host iframe)
- *   4. createKvStore() → host backend (via getHostLocalStorage())
- *   5. createKvStore({ prefix: "demo" }) → prefixed host backend
+ *   4. createLocalKvStore() → host backend (via getHostLocalStorage())
+ *   5. createLocalKvStore({ prefix: "demo" }) → prefixed host backend
  *
  * The test SDK backs host localStorage with browser localStorage using
  * a "test-host:" prefix. So store.set("mykey", "val") results in the
@@ -19,8 +21,8 @@
 
 import { isInsideContainer } from "@parity/product-sdk-host";
 import { SignerManager } from "@parity/product-sdk-signer";
-import { createKvStore } from "@parity/product-sdk-storage";
-import type { KvStore } from "@parity/product-sdk-storage";
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
+import type { LocalKvStore } from "@parity/product-sdk-local-storage";
 
 import { appendLog, getEl } from "./ui.js";
 
@@ -65,8 +67,8 @@ const APP_NAME = "storage-demo";
 
 const manager = new SignerManager({ ss58Prefix: SS58_PREFIX, dappName: APP_NAME });
 
-let store: KvStore | null = null;
-let prefixedStore: KvStore | null = null;
+let store: LocalKvStore | null = null;
+let prefixedStore: LocalKvStore | null = null;
 
 // ── UI subscriptions ─────────────────────────────────────────────────
 manager.subscribe((state) => {
@@ -228,25 +230,25 @@ async function init() {
     $backendType.textContent = backend;
     log(`Backend detected: ${backend}`, "info");
 
-    // Step 3: create KvStore (auto-detects host backend inside container)
-    log("Creating KvStore…");
+    // Step 3: create LocalKvStore (auto-detects host backend inside container)
+    log("Creating LocalKvStore…");
     try {
-        store = await createKvStore();
-        log(`KvStore created (${backend} backend)`, "ok");
+        store = await createLocalKvStore();
+        log(`LocalKvStore created (${backend} backend)`, "ok");
     } catch (err) {
         $storeStatus.textContent = "error";
-        log(`KvStore creation failed: ${(err as Error).message}`, "err");
+        log(`LocalKvStore creation failed: ${(err as Error).message}`, "err");
         return;
     }
 
-    // Step 4: create prefixed KvStore (prefix: "demo")
-    log("Creating prefixed KvStore (prefix: demo)…");
+    // Step 4: create prefixed LocalKvStore (prefix: "demo")
+    log("Creating prefixed LocalKvStore (prefix: demo)…");
     try {
-        prefixedStore = await createKvStore({ prefix: "demo" });
-        log(`Prefixed KvStore created (${backend} backend, prefix: demo)`, "ok");
+        prefixedStore = await createLocalKvStore({ prefix: "demo" });
+        log(`Prefixed LocalKvStore created (${backend} backend, prefix: demo)`, "ok");
     } catch (err) {
         $storeStatus.textContent = "error";
-        log(`Prefixed KvStore creation failed: ${(err as Error).message}`, "err");
+        log(`Prefixed LocalKvStore creation failed: ${(err as Error).message}`, "err");
         return;
     }
 

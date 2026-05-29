@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 // Re-export statement types from @novasamatech/sdk-statement
 
 /** A record published to the Statement Store. Every field is optional: a `data` payload, `topics` for routing, a `channel` for last-write-wins, an `expiry`, and a `proof` once signed. */

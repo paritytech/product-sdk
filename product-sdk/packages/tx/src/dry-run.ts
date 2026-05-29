@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { TxDryRunError, formatDryRunError } from "./errors.js";
 import type { SubmittableTransaction, Weight } from "./types.js";
 

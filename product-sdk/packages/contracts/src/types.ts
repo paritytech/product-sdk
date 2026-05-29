@@ -1,6 +1,9 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
 import type { BatchableCall, SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
 import type { SignerManager } from "@parity/product-sdk-signer";
+import type { ContractDryRunAt } from "./runtime.js";
 
 // Re-export from the tx package — single source of truth.
 export type { TxResult, SubmitOptions, BatchableCall } from "@parity/product-sdk-tx";
@@ -102,6 +105,14 @@ export type QueryResult<T> =
 export interface QueryOptions {
     origin?: SS58String;
     value?: bigint;
+    /**
+     * Override the block targeted by this dry-run. Accepts `"best"`,
+     * `"finalized"`, or a block hash. Defaults to the runtime's configured
+     * `at` (see `createContractRuntimeFromClient({ at })`), which is `"best"`
+     * unless overridden — chosen so `.query()` observes the same state as
+     * `.tx()` resolved at best-block.
+     */
+    at?: ContractDryRunAt;
 }
 
 /** Options for transaction calls — passed as the last argument after positional args. */
@@ -111,6 +122,15 @@ export interface TxOptions extends SubmitOptions {
     value?: bigint;
     gasLimit?: Weight;
     storageDepositLimit?: bigint;
+    /**
+     * Override the block targeted by the sizing dry-run that `.tx()` runs
+     * before submission. Accepts `"best"`, `"finalized"`, or a block hash.
+     * Defaults to the runtime's configured `at` (see
+     * `createContractRuntimeFromClient({ at })`), which is `"best"` unless
+     * overridden. No-op when both `gasLimit` and `storageDepositLimit` are
+     * passed — the dry-run is skipped entirely in that case.
+     */
+    at?: ContractDryRunAt;
 }
 
 /**
@@ -125,6 +145,11 @@ export interface PrepareOptions {
     value?: bigint;
     gasLimit?: Weight;
     storageDepositLimit?: bigint;
+    /**
+     * Override the block targeted by the sizing dry-run. See
+     * {@link TxOptions.at}.
+     */
+    at?: ContractDryRunAt;
 }
 
 /** Mutable defaults shared across all contract handles from a manager. */

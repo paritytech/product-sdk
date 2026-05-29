@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * pvm-contracts-example — load a cargo-pvm-contract ABI artifact and wire it
  * into @parity/product-sdk-contracts without going through CDM.

@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /** Base class for all transaction errors. Use `instanceof TxError` to catch any tx-related error. */
 export class TxError extends Error {
     constructor(message: string, options?: ErrorOptions) {

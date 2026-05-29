@@ -24,7 +24,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@noble/hashes": "^1.7.1",
+        "@noble/hashes": "^2.2.0",
         "@parity/product-sdk-logger": "workspace:*"
     },
     "devDependencies": {

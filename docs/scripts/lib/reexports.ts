@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { packageSlug } from "./kebab.js";
 import type { PackageRegistry } from "./registry.js";
 import type { Declaration } from "./types.js";

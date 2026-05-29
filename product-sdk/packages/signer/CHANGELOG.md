@@ -1,5 +1,115 @@
 # @parity/product-sdk-signer
 
+## 0.4.0
+
+### Minor Changes
+
+- 7610e61: **Track upstream rename: `@novasamatech/product-sdk` → `@novasamatech/host-api-wrapper`.**
+
+  Novasama renamed their host-API wrapper package from `@novasamatech/product-sdk` to `@novasamatech/host-api-wrapper`. The first release under the new name is `0.7.9-6` (a prerelease).
+
+  ### What changed for consumers
+
+  If you install `@parity/product-sdk-host`, `@parity/product-sdk-signer`, or `@parity/product-sdk-statement-store` and were previously satisfying their optional peer dependency on `@novasamatech/product-sdk` manually, switch your direct install to `@novasamatech/host-api-wrapper` instead:
+
+  ```diff
+  - "@novasamatech/product-sdk": "^0.7.8"
+  + "@novasamatech/host-api-wrapper": "0.7.9-6"
+  ```
+
+  Same upstream package, same exports (`hostApi`, `createAccountsProvider`, `preimageManager`, `hostLocalStorage`, etc.) — only the npm package name changed.
+
+  If you don't install the peer directly (i.e. your bundle ships without the host-side wrapper), no action needed.
+
+  ### Catalog pin rationale
+
+  The new package is currently only published as `0.7.9-6` (a prerelease). The catalog is pinned to exactly `0.7.9-6` rather than `^0.7.9-6` because prerelease ranges have surprising semver semantics and prereleases can be republished. The pin will move to `^0.7.9` once a stable lands; the catalog auto-bumper (`product-sdk-deps-check.yml`) will pick that up automatically.
+
+  ### Why minor
+
+  Renaming an optional peer dependency is a consumer-visible change: anyone who satisfies our peer manually needs to update their own install. Per `RELEASES.md`'s pre-1.0 convention, that ships as `minor`.
+
+### Patch Changes
+
+- 7610e61: **Bump `@novasamatech/host-api-wrapper` and `@novasamatech/host-api` to `^0.7.9` (stable).**
+
+  `0.7.9` is the first stable release on the `0.7.9` line. The previous catalog pinned the `0.7.9-6` prerelease exactly (no caret); this bump relaxes both entries to `^0.7.9` so the auto-bumper (`product-sdk-deps-check.yml`) can pick up future patch releases automatically.
+
+  No source-level changes for consumers — `0.7.9` is the same API surface as the prereleases we were already shipping against.
+
+- 7610e61: Pin product-account signing to `host_create_transaction` explicitly.
+
+  Both product-account signer entry points — the `getSigner()` returned from `HostProvider.getProductAccount(...)` and the standalone `HostProvider.getProductAccountSigner(...)` method — now pass `signerType: "createTransaction"` to `@novasamatech/host-api-wrapper`'s `accountsProvider.getProductAccountSigner(...)`. The alternate `"signPayload"` path routes via PJS and throws `"PJS does not support this signed-extension: AsPgas"` on chains that ship unknown signed extensions (e.g. Paseo Next's `AsPgas`).
+
+  The `host-api-wrapper@0.7.9` bump that already landed flipped the upstream default to `"createTransaction"`, so AsPgas signing is already unblocked at runtime. This change is **defensive**: it pins our routing explicitly so a future upstream default flip can't silently regress us back through the PJS bridge. Same end-state, plus call-site legibility.
+
+  Legacy-account signing is unchanged — `getLegacyAccountSigner` doesn't expose a `signerType` switch.
+
+  No consumer-facing API change. Hosts must implement `host_create_transaction` (Polkadot Desktop and Mobile do).
+
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+- Updated dependencies [7610e61]
+  - @parity/product-sdk-host@0.5.0
+  - @parity/product-sdk-keys@0.3.1
+
+## 0.3.0
+
+### Minor Changes
+
+- 4c13257: **Typed permission ergonomics and an `onConnect` lifecycle hook.**
+
+  Two additive changes that collapse the boilerplate every dapp was writing on top of `hostApi.permission` and the once-per-connect side-effect pattern. No breaking changes; existing call sites keep working.
+
+  ### `@parity/product-sdk-host` — `RemotePermission` types + `requestPermission` wrapper
+
+  - **`RemotePermission`, `RemotePermissionTag`, `AllocatableResourceTag`, and `AllocationOutcomeTag`** type aliases are now exported alongside the existing `AllocatableResource` / `AllocationOutcome` aliases. All derive from the `@novasamatech/host-api` SCALE codecs via `CodecType<typeof X>` so schema drift surfaces as a TypeScript error at this boundary instead of silently passing through `as never` casts.
+
+  - **`requestPermission(permission)`** builds the `v1` envelope, calls `hostApi.permission`, and unwraps the response. Returns `Promise<boolean>` and throws on host-unavailable or wire failure — matches the shape of the existing `requestResourceAllocation` so the two helpers compose consistently.
+
+    ```ts
+    const granted = await requestPermission({
+      tag: "ChainSubmit",
+      value: undefined,
+    });
+    if (!granted) tellUserToReconnect();
+    ```
+
+  ### `@parity/product-sdk-signer` — `onConnect` lifecycle hook
+
+  - **`SignerManagerOptions.onConnect`** is a new callback that fires exactly when the manager transitions to `"connected"` with a selected account — not on every subscribe notification while connected. Fires again after auto-reconnect, so a fresh host session re-runs the callback.
+
+    The `ctx` argument exposes a pre-bound `requestResourceAllocation` helper (re-exported from `@parity/product-sdk-host`) plus an `AbortSignal` that fires if the user disconnects or destroys the manager mid-flight. Errors thrown from `onConnect` are logged but do not affect the connected state — the next reconnect retries.
+
+    ```ts
+    new SignerManager({
+      onConnect: async (_account, { requestResourceAllocation, signal }) => {
+        try {
+          const outcomes = await requestResourceAllocation([
+            { tag: "AutoSigning", value: undefined },
+          ]);
+          if (signal.aborted) return;
+          if (outcomes.some((o) => o.tag !== "Allocated")) {
+            logWarning("partial permissions", outcomes);
+          }
+        } catch (cause) {
+          logWarning("resource allocation failed", cause);
+        }
+      },
+    });
+    ```
+
+    Replaces ~50 lines of transition-gated subscription, once-per-session bookkeeping, and HMR cleanup that every product app was writing by hand.
+
+### Patch Changes
+
+- Updated dependencies [4c13257]
+- Updated dependencies [4c13257]
+  - @parity/product-sdk-keys@0.3.0
+  - @parity/product-sdk-host@0.4.0
+
 ## 0.2.4
 
 ### Patch Changes

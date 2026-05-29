@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
@@ -29,8 +31,8 @@ test.describe("@parity/product-sdk-tx via Host API — signing rejection", () =>
 
         // Flip the host to reject every permission re-request, then remove
         // the grant established during SignerManager.connect(). The next
-        // sign call goes through the host's handleSignPayload, fails the
-        // permission gate, and propagates back through PAPI's observable.
+        // sign call goes through the host's host_create_transaction, fails
+        // the permission gate, and propagates back through PAPI's observable.
         await testHost.setPermissionBehavior("reject-all");
         await testHost.revokePermission("TransactionSubmit");
         await testHost.clearSigningLog();
@@ -46,7 +48,7 @@ test.describe("@parity/product-sdk-tx via Host API — signing rejection", () =>
         });
 
         // No sign payload should have been recorded: the host rejected
-        // before reaching handleSignPayload's keyring path.
+        // before reaching host_create_transaction's signing path.
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(0);
     });

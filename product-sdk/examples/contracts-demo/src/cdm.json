@@ -1,81 +1,104 @@
 {
     "targets": {
-        "acc2c3b5e912b762": {
+        "929b5c63e2cb5202": {
             "asset-hub": "wss://paseo-asset-hub-next-rpc.polkadot.io",
-            "bulletin": "https://paseo-bulletin-next-ipfs.polkadot.io"
+            "bulletin": "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
+            "registry": "0xa7ae171c78f06c248a9b2556c793aa1df5c9173a"
+        }
+    },
+    "dependencies": {
+        "929b5c63e2cb5202": {
+            "@t3rminal/bulletin-index": 3
         }
     },
     "contracts": {
-        "acc2c3b5e912b762": {
+        "929b5c63e2cb5202": {
             "@t3rminal/bulletin-index": {
-                "version": 0,
-                "address": "0xA2E388421467E0193570Af45Bd03F0F379c47E88",
+                "version": 3,
+                "address": "0x3331A87C2B9312E246E6A7eE8D0C0AdD8d282B6F",
                 "abi": [
                     {
-                        "type": "constructor",
-                        "inputs": [],
-                        "stateMutability": "nonpayable"
-                    },
-                    {
-                        "type": "event",
+                        "anonymous": false,
+                        "inputs": [
+                            { "indexed": true, "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
+                            { "indexed": true, "internalType": "string", "name": "date", "type": "string" },
+                            { "indexed": false, "internalType": "string", "name": "cid", "type": "string" },
+                            { "indexed": false, "internalType": "uint256", "name": "entryCount", "type": "uint256" },
+                            { "indexed": false, "internalType": "address", "name": "writer", "type": "address" }
+                        ],
                         "name": "DailyReportStored",
-                        "inputs": [
-                            { "indexed": true, "name": "shop", "type": "address" },
-                            { "indexed": true, "name": "date", "type": "string" },
-                            { "indexed": false, "name": "cid", "type": "string" },
-                            { "indexed": false, "name": "entryCount", "type": "uint256" }
-                        ]
+                        "type": "event"
                     },
                     {
-                        "type": "function",
-                        "name": "owner",
-                        "inputs": [],
-                        "outputs": [{ "name": "", "type": "address" }],
-                        "stateMutability": "view"
-                    },
-                    {
-                        "type": "function",
-                        "name": "storeDailyReport",
                         "inputs": [
-                            { "name": "date", "type": "string" },
-                            { "name": "cid", "type": "string" },
-                            { "name": "entryCount", "type": "uint256" }
+                            { "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
+                            { "internalType": "string", "name": "date", "type": "string" }
                         ],
-                        "outputs": [],
-                        "stateMutability": "nonpayable"
+                        "name": "dateExists",
+                        "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+                        "stateMutability": "view",
+                        "type": "function"
                     },
                     {
-                        "type": "function",
+                        "inputs": [{ "internalType": "bytes32", "name": "shopKey", "type": "bytes32" }],
                         "name": "getAllDates",
-                        "inputs": [{ "name": "shop", "type": "address" }],
-                        "outputs": [{ "name": "", "type": "string[]" }],
-                        "stateMutability": "view"
+                        "outputs": [{ "internalType": "string[]", "name": "", "type": "string[]" }],
+                        "stateMutability": "view",
+                        "type": "function"
                     },
                     {
-                        "type": "function",
-                        "name": "getReportCount",
-                        "inputs": [{ "name": "shop", "type": "address" }],
-                        "outputs": [{ "name": "", "type": "uint256" }],
-                        "stateMutability": "view"
-                    },
-                    {
-                        "type": "function",
-                        "name": "getCID",
                         "inputs": [
-                            { "name": "shop", "type": "address" },
-                            { "name": "date", "type": "string" }
+                            { "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
+                            { "internalType": "string", "name": "date", "type": "string" }
                         ],
-                        "outputs": [{ "name": "", "type": "string" }],
-                        "stateMutability": "view"
+                        "name": "getCID",
+                        "outputs": [{ "internalType": "string", "name": "", "type": "string" }],
+                        "stateMutability": "view",
+                        "type": "function"
                     },
                     {
-                        "type": "function",
-                        "name": "transferOwnership",
-                        "inputs": [{ "name": "newOwner", "type": "address" }],
+                        "inputs": [
+                            { "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
+                            { "internalType": "string", "name": "date", "type": "string" }
+                        ],
+                        "name": "getMetadata",
+                        "outputs": [
+                            {
+                                "components": [
+                                    { "internalType": "string", "name": "cid", "type": "string" },
+                                    { "internalType": "uint256", "name": "entryCount", "type": "uint256" },
+                                    { "internalType": "uint256", "name": "publishedAt", "type": "uint256" },
+                                    { "internalType": "bool", "name": "exists", "type": "bool" }
+                                ],
+                                "internalType": "struct IT3rminalBulletinIndex.DayMetadata",
+                                "name": "",
+                                "type": "tuple"
+                            }
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [{ "internalType": "bytes32", "name": "shopKey", "type": "bytes32" }],
+                        "name": "getReportCount",
+                        "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            { "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
+                            { "internalType": "string", "name": "date", "type": "string" },
+                            { "internalType": "string", "name": "cid", "type": "string" },
+                            { "internalType": "uint256", "name": "entryCount", "type": "uint256" }
+                        ],
+                        "name": "storeDailyReport",
                         "outputs": [],
-                        "stateMutability": "nonpayable"
+                        "stateMutability": "nonpayable",
+                        "type": "function"
                     }
-                ]
+                ],
+                "metadataCid": "bafk2bzacecs43cb4byqnwi4p7fj5iqzyrbluuwbp5aho2gxyxrzuqp5jkedn2"
             }
         }
     }

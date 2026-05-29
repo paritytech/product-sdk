@@ -10,7 +10,7 @@ START
 ├─ Need to connect to Polkadot chains?
 │  YES → @parity/product-sdk-chain-client + polkadot-api (always required)
 │  │
-│  ├─ Want zero-config for a known environment (paseo/previewnet/polkadot/kusama)?
+│  ├─ Want zero-config for a known environment (paseo/polkadot/kusama)?
 │  │  YES → getChainAPI("paseo") — built-in descriptors + RPCs
 │  │
 │  └─ Need custom chains, custom RPCs, or minimal bundle?
@@ -38,7 +38,7 @@ START
 │     YES → createContract (same ergonomics, no manifest)
 │
 ├─ Need decentralized data storage (files, JSON, blobs)?
-│  YES → @parity/product-sdk-bulletin
+│  YES → @parity/product-sdk-cloud-storage
 │
 ├─ Need real-time pub/sub messaging (ephemeral, ≤512 bytes)?
 │  YES → @parity/product-sdk-statement-store
@@ -53,7 +53,7 @@ START
 │  YES → @parity/product-sdk-utils
 │
 ├─ Need persistent key-value storage (browser/host)?
-│  YES → @parity/product-sdk-storage
+│  YES → @parity/product-sdk-local-storage
 │
 └─ Need structured logging?
    YES → @parity/product-sdk-logger
@@ -95,7 +95,7 @@ polkadot-api
 ### Data Storage App (upload/download files)
 ```
 @parity/product-sdk-chain-client
-@parity/product-sdk-bulletin
+@parity/product-sdk-cloud-storage
 @parity/product-sdk-tx
 polkadot-api
 ```
@@ -113,13 +113,13 @@ polkadot-api
 @parity/product-sdk-contracts
 @parity/product-sdk-tx
 @parity/product-sdk-signer
-@parity/product-sdk-bulletin
+@parity/product-sdk-cloud-storage
 @parity/product-sdk-statement-store
 @parity/product-sdk-address
 @parity/product-sdk-crypto
 @parity/product-sdk-utils
 @parity/product-sdk-keys
-@parity/product-sdk-storage
+@parity/product-sdk-local-storage
 @parity/product-sdk-logger
 polkadot-api
 ```
@@ -132,13 +132,13 @@ crypto ────────────────────────�
 utils ───────────────────────────── (leaf, depends on logger)
 logger ──────────────────────────── (leaf)
 host ────────────────────────────── (leaf)
-storage ← host, logger
-keys ← address, crypto, utils, storage
+local-storage ← host, logger
+keys ← address, crypto, utils, local-storage
 tx ← keys, logger
 signer ← address, keys, logger
 chain-client ← descriptors, host  (provides .raw for ContractRuntime creation)
 contracts ← tx, signer, keys, logger  (needs ContractRuntime from @parity/product-sdk-contracts)
-bulletin ← chain-client, descriptors, host, logger, tx
+cloud-storage ← chain-client, descriptors, host, logger, tx
 statement-store ← host, logger, utils  (+ @novasamatech/sdk-statement, @polkadot-api/substrate-client)
 ```
 

@@ -6,7 +6,7 @@
             "wsUrl": "wss://paseo-asset-hub-next-rpc.polkadot.io",
             "metadata": "../../.papi/metadata/paseo_asset_hub.scale",
             "genesis": "0x173cea9df45656cf612c8b8ece56e04e9a693c69cfaac47d3628dae735067af8",
-            "codeHash": "0x8ba0d1f593fa76b36072f2180640b3c497a6d8c71e57a3313ec7eec51fc26889"
+            "codeHash": "0x034a12c80512c7b07ca5a875f43b6bea751fc3ce1779b523b031f106dfed4623"
         }
     }
 }

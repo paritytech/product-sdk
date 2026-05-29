@@ -281,6 +281,6 @@ Sessions are persisted to `~/.polkadot-apps/` and survive across restarts. The S
 
 ## Future Work
 
-- **`KvStore`↔`StorageAdapter` bridge.** This package implements its own file-backed `StorageAdapter` for Node.js (`createNodeStorageAdapter`). Once `@parity/product-sdk-storage` grows a file backend with the same `read/write/clear/subscribe` `ResultAsync` shape, replace `node-storage.ts` with a thin adapter over it.
+- **`KvStore`↔`StorageAdapter` bridge.** This package implements its own file-backed `StorageAdapter` for Node.js (`createNodeStorageAdapter`). Once `@parity/product-sdk-local-storage` grows a file backend with the same `read/write/clear/subscribe` `ResultAsync` shape, replace `node-storage.ts` with a thin adapter over it.
 - **Codec re-exports from `@parity/product-sdk-statement-store`.** `testing.ts` imports session-account codec helpers (`AccountIdCodec`, `LocalSessionAccountCodec`, etc.) directly from `@novasamatech/statement-store`. Re-exporting them through the in-monorepo wrapper would let this package depend only on workspace siblings.
 - **`@noble/*` major version drift.** This package pins `@noble/{ciphers,curves,hashes}: ^2.x` because upstream `@polkadot-apps/terminal` did, and the `testing.ts` codec helpers use the v2 import paths (`@noble/hashes/blake2.js`, `@noble/curves/nist.js`). The rest of the monorepo is on `^1.x`. Both majors coexist in the lockfile; not a runtime problem today but worth a coordinated bump. Either move the whole monorepo to v2, or rewrite `testing.ts` against v1 paths (`@noble/hashes/blake2b.js` etc.).

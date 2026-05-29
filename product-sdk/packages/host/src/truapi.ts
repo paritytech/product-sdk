@@ -1,7 +1,9 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * TruAPI - the protocol for communicating between apps and the Polkadot host container.
  *
- * This module centralizes access to @novasamatech/product-sdk and @novasamatech/host-api,
+ * This module centralizes access to @novasamatech/host-api-wrapper and @novasamatech/host-api,
  * allowing other @parity/product-sdk-* packages to import from here rather than depending
  * directly on novasama packages.
  *
@@ -16,27 +18,54 @@ import type {
     AllocationOutcome as AllocationOutcomeCodec,
     CodecType,
     RemotePermission as RemotePermissionCodec,
-    Statement as StatementCodec,
 } from "@novasamatech/host-api";
+import type { createAccountsProvider, preimageManager } from "@novasamatech/host-api-wrapper";
 
-import type { StatementProof } from "./types.js";
+import { isInsideContainer } from "./container.js";
+import type { Statement, StatementProof } from "./types.js";
 
 const log = createLogger("host");
 
 /**
- * Extract a human-readable message from an unknown error. `JSON.stringify`
- * on `Error` returns `"{}"` because `message` and `stack` are non-enumerable
- * — without this helper, wire failures surface as `"... failed: {}"` with
- * zero diagnostic context.
+ * Extract a human-readable message from a host-side error. Hosts wrap
+ * errors in versioned envelopes (`{ tag: "v1", value: CodecError }`); this
+ * helper unwraps the envelope and renders the inner error's `name`/`message`
+ * so callers see the host's actual diagnostic instead of `"[object Object]"`
+ * (from `String(err)`) or a JSON-stringified envelope.
+ *
+ * Exported for the higher-level wrappers (`requestPermission`,
+ * `deriveEntropy`, etc.) that build their `throw new Error(...)` messages.
  */
-function formatError(err: unknown): string {
-    if (err instanceof Error) return err.message;
-    if (typeof err === "string") return err;
-    try {
-        return JSON.stringify(err);
-    } catch {
-        return String(err);
+export function formatHostError(err: unknown): string {
+    // Single-level unwrap only; nested envelopes fall through to JSON.stringify.
+    const inner = isVersionedEnvelope(err) ? err.value : err;
+
+    if (inner instanceof Error) return inner.message;
+    if (typeof inner === "string") return inner;
+    if (
+        inner != null &&
+        typeof inner === "object" &&
+        "message" in inner &&
+        typeof (inner as { message: unknown }).message === "string"
+    ) {
+        const named = inner as { name?: unknown; message: string };
+        return typeof named.name === "string" ? `${named.name}: ${named.message}` : named.message;
     }
+    try {
+        return JSON.stringify(inner);
+    } catch {
+        return String(inner);
+    }
+}
+
+function isVersionedEnvelope(value: unknown): value is { tag: string; value: unknown } {
+    return (
+        value != null &&
+        typeof value === "object" &&
+        "tag" in value &&
+        "value" in value &&
+        typeof (value as { tag: unknown }).tag === "string"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,16 +128,19 @@ export type { HexString } from "@novasamatech/host-api";
  * The TruApi type - provides low-level methods for communicating with the host.
  *
  * Methods include:
- * - `navigateTo(url)` — Navigate to a URL within the host
- * - `permission(permissions)` — Request permissions from the host
- * - `localStorageRead/Write/Clear` — Host-backed storage
- * - `sign(payload)` — Request transaction signing
- * - `deriveEntropy(context)` — Derive deterministic entropy
- * - `themeSubscribe()` — Subscribe to host theme changes
+ * - `navigateTo(url)` - Navigate to a URL within the host
+ * - `permission(permissions)` - Request permissions from the host
+ * - `localStorageRead/Write/Clear` - Host-backed storage
+ * - `sign(payload)` - Request transaction signing
+ * - `deriveEntropy(context)` - Derive deterministic entropy
+ * - `themeSubscribe()` - Subscribe to host theme changes
  * - And many more...
+ *
+ * Type identical to `hostApi` from `@novasamatech/host-api-wrapper` so that
+ * `truApi.X(...)` calls keep their full inference (return types, method
+ * names, parameter shapes) instead of decaying to `any`.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type TruApi = any;
+export type TruApi = typeof import("@novasamatech/host-api-wrapper").hostApi;
 
 /** Cached TruApi instance */
 let cachedTruApi: TruApi | null = null;
@@ -116,7 +148,7 @@ let cachedTruApi: TruApi | null = null;
 /**
  * Get the TruAPI instance for direct low-level access.
  *
- * Returns the `hostApi` object from `@novasamatech/product-sdk` which provides
+ * Returns the `hostApi` object from `@novasamatech/host-api-wrapper` which provides
  * methods for communicating directly with the host container. Returns `null`
  * when running outside a container or when the SDK is unavailable.
  *
@@ -149,7 +181,7 @@ export async function getTruApi(): Promise<TruApi | null> {
     if (cachedTruApi) return cachedTruApi;
 
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         cachedTruApi = sdk.hostApi;
         log.debug("TruAPI loaded");
         return cachedTruApi;
@@ -185,34 +217,44 @@ export async function getTruApi(): Promise<TruApi | null> {
  */
 export async function getPreimageManager(): Promise<PreimageManager | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
+        const sdk = await import("@novasamatech/host-api-wrapper");
         return sdk.preimageManager;
-    } catch {
+    } catch (err) {
+        log.debug("getPreimageManager unavailable", err);
         return null;
     }
 }
 
 /**
- * Preimage manager interface for bulletin chain operations.
+ * Preimage manager handle for bulletin chain operations. `lookup` returns a
+ * `Subscription<void>` (`unsubscribe` + `onInterrupt`); `submit` returns a
+ * `0x`-prefixed hex preimage key.
+ *
+ * Type identical to `preimageManager` from `@novasamatech/host-api-wrapper`.
  */
-export interface PreimageManager {
-    /**
-     * Submit a preimage to the bulletin chain.
-     * @param data - The data to submit.
-     * @returns The preimage key (hex string).
-     */
-    submit(data: Uint8Array): Promise<string>;
+export type PreimageManager = typeof preimageManager;
 
-    /**
-     * Look up a preimage by key.
-     * @param key - The preimage key (hex string).
-     * @param callback - Called with the data when found, or null if not yet available.
-     * @returns Subscription handle with unsubscribe method.
-     */
-    lookup(
-        key: string,
-        callback: (preimage: Uint8Array | null) => void,
-    ): { unsubscribe: () => void; onInterrupt: (cb: () => void) => () => void };
+/**
+ * Construct a fresh `PreimageManager` instance with an optional custom
+ * transport. Use this when you need a non-default transport; otherwise
+ * prefer {@link getPreimageManager}, which returns the shared singleton.
+ *
+ * Mirrors `createPreimageManager` from `@novasamatech/host-api-wrapper`.
+ *
+ * @param transport - Optional transport; defaults to the sandbox transport.
+ * @returns A new `PreimageManager` instance, or `null` if unavailable.
+ */
+export async function createHostPreimageManager(
+    transport?: import("@novasamatech/host-api").Transport,
+): Promise<PreimageManager | null> {
+    if (!(await isInsideContainer())) return null;
+    try {
+        const sdk = await import("@novasamatech/host-api-wrapper");
+        return sdk.createPreimageManager(transport);
+    } catch (err) {
+        log.debug("createHostPreimageManager unavailable", err);
+        return null;
+    }
 }
 
 /**
@@ -222,9 +264,10 @@ export interface PreimageManager {
  */
 export async function getAccountsProvider(): Promise<AccountsProvider | null> {
     try {
-        const sdk = await import("@novasamatech/product-sdk");
-        return sdk.createAccountsProvider() as unknown as AccountsProvider;
-    } catch {
+        const sdk = await import("@novasamatech/host-api-wrapper");
+        return sdk.createAccountsProvider();
+    } catch (err) {
+        log.debug("getAccountsProvider unavailable", err);
         return null;
     }
 }
@@ -296,7 +339,7 @@ export async function requestResourceAllocation(
     return await truApi.requestResourceAllocation(enumValue("v1", resources)).match(
         (envelope: { tag: "v1"; value: AllocationOutcome[] }) => envelope.value,
         (err: unknown) => {
-            throw new Error(`requestResourceAllocation failed: ${formatError(err)}`, {
+            throw new Error(`requestResourceAllocation failed: ${formatHostError(err)}`, {
                 cause: err,
             });
         },
@@ -306,22 +349,6 @@ export async function requestResourceAllocation(
 // ─────────────────────────────────────────────────────────────────────────────
 // Authorized Statement Store proof creation (RFC-10 §"Statement Store allowance")
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * A Statement payload destined for the Statement Store. Matches the
- * `pallet-statement` Statement structure.
- *
- * The optional `proof` field is the same {@link StatementProof} shape that
- * {@link createProofAuthorized} returns: pass `undefined` here, call
- * `createProofAuthorized` to obtain the proof, then attach it before
- * submitting via `HostStatementStore.submit`. The `OnChain` variant of
- * `StatementProof` is a chain-attestation reference; the `Sr25519` /
- * `Ed25519` / `Ecdsa` variants are signing proofs.
- *
- * Derived from the upstream codec so structural changes surface as compile
- * errors here, not runtime decode failures.
- */
-export type Statement = CodecType<typeof StatementCodec>;
 
 /**
  * Have the host sign a Statement using an allowance-bearing account it
@@ -378,7 +405,9 @@ export async function createProofAuthorized(statement: Statement): Promise<State
     return await truApi.statementStoreCreateProofAuthorized(enumValue("v1", statement)).match(
         (envelope: { tag: "v1"; value: StatementProof }) => envelope.value,
         (err: unknown) => {
-            throw new Error(`createProofAuthorized failed: ${formatError(err)}`, { cause: err });
+            throw new Error(`createProofAuthorized failed: ${formatHostError(err)}`, {
+                cause: err,
+            });
         },
     );
 }
@@ -431,99 +460,16 @@ export interface ResultAsync<T, E> {
 }
 
 /**
- * Accounts provider interface from @novasamatech/product-sdk.
+ * Accounts provider handle from `@novasamatech/host-api-wrapper`. Surfaces the
+ * full upstream API - host wallet accounts, app-scoped product accounts,
+ * Ring VRF, user identity (`getUserId`, `requestLogin`), and connection
+ * status subscription.
  *
- * Provides methods for accessing host wallet accounts, product accounts,
- * and Ring VRF operations.
+ * Type identical to `createAccountsProvider()` from
+ * `@novasamatech/host-api-wrapper`; methods return neverthrow `ResultAsync`
+ * values with typed `CodecError` variants in the error channel.
  */
-export interface AccountsProvider {
-    /**
-     * Get legacy accounts (user's external wallets connected to the host).
-     *
-     * Renamed from `getNonProductAccounts` in @novasamatech/product-sdk 0.7.
-     *
-     * @returns ResultAsync resolving to array of accounts.
-     */
-    getLegacyAccounts: () => ResultAsync<HostAccount[], unknown>;
-
-    /**
-     * Get a signer for a legacy account.
-     *
-     * Renamed from `getNonProductAccountSigner` in @novasamatech/product-sdk 0.7.
-     *
-     * @param account - The product account (used for public key lookup).
-     * @returns A PolkadotSigner for signing transactions.
-     */
-    getLegacyAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
-
-    /**
-     * Get an app-scoped product account from the host.
-     *
-     * Product accounts are derived by the host wallet for each app, identified
-     * by `dotNsIdentifier` (e.g., "mark3t.dot"). The user controls these accounts
-     * but they are scoped to the requesting app.
-     *
-     * @param dotNsIdentifier - App identifier (e.g., "mark3t.dot").
-     * @param derivationIndex - Derivation index within the app scope. Default: 0
-     * @returns ResultAsync resolving to the account.
-     */
-    getProductAccount: (
-        dotNsIdentifier: string,
-        derivationIndex?: number,
-    ) => ResultAsync<HostAccount, unknown>;
-
-    /**
-     * Get a signer for a product account.
-     *
-     * @param account - The product account.
-     * @returns A PolkadotSigner for signing transactions.
-     */
-    getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
-
-    /**
-     * Get a contextual alias for a product account via Ring VRF.
-     *
-     * Aliases prove account membership in a ring without revealing which
-     * account produced the alias.
-     *
-     * @param dotNsIdentifier - App identifier.
-     * @param derivationIndex - Derivation index. Default: 0
-     * @returns ResultAsync resolving to the contextual alias.
-     */
-    getProductAccountAlias: (
-        dotNsIdentifier: string,
-        derivationIndex?: number,
-    ) => ResultAsync<ContextualAlias, unknown>;
-
-    /**
-     * Create a Ring VRF proof for anonymous operations.
-     *
-     * Proves that the signer is a member of the ring at the given location
-     * without revealing which member.
-     *
-     * @param dotNsIdentifier - App identifier.
-     * @param derivationIndex - Derivation index.
-     * @param location - Ring location on-chain.
-     * @param message - Message to sign.
-     * @returns ResultAsync resolving to the proof bytes.
-     */
-    createRingVRFProof: (
-        dotNsIdentifier: string,
-        derivationIndex: number,
-        location: unknown,
-        message: Uint8Array,
-    ) => ResultAsync<Uint8Array, unknown>;
-
-    /**
-     * Subscribe to account connection status changes.
-     *
-     * @param callback - Called with status string ("connected" | "disconnected").
-     * @returns Unsubscribe handle.
-     */
-    subscribeAccountConnectionStatus: (
-        callback: (status: string) => void,
-    ) => { unsubscribe: () => void } | (() => void);
-}
+export type AccountsProvider = ReturnType<typeof createAccountsProvider>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
@@ -544,6 +490,22 @@ if (import.meta.vitest) {
         const manager = await getPreimageManager();
         // In dev/test mode, product-sdk is installed
         expect(manager === null || typeof manager === "object").toBe(true);
+    });
+
+    test("createHostPreimageManager returns null outside container", async () => {
+        expect(await createHostPreimageManager()).toBeNull();
+    });
+
+    test("formatHostError unwraps versioned envelopes and renders CodecError", () => {
+        expect(
+            formatHostError({
+                tag: "v1",
+                value: { name: "GenericError", message: "boom" },
+            }),
+        ).toBe("GenericError: boom");
+        expect(formatHostError(new Error("plain"))).toBe("plain");
+        expect(formatHostError("string err")).toBe("string err");
+        expect(formatHostError({ tag: "v1", value: { message: "no-name" } })).toBe("no-name");
     });
 
     test("getAccountsProvider returns provider when SDK is available", async () => {

@@ -1,10 +1,12 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { defineConfig } from "tsup";
 
 export default defineConfig({
     entry: {
         index: "src/index.ts",
         "address/index": "src/address/index.ts",
-        "bulletin/index": "src/bulletin/index.ts",
+        "cloud-storage/index": "src/cloud-storage/index.ts",
         "chain/index": "src/chain/index.ts",
         "contracts/index": "src/contracts/index.ts",
         "core/index": "src/core/index.ts",
@@ -12,7 +14,7 @@ export default defineConfig({
         "host/index": "src/host/index.ts",
         "identity/index": "src/identity/index.ts",
         "react/index": "src/react/index.ts",
-        "storage/index": "src/storage/index.ts",
+        "local-storage/index": "src/local-storage/index.ts",
         "wallet/index": "src/wallet/index.ts",
     },
     format: ["esm"],

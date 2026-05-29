@@ -46,8 +46,8 @@
           },
           "shakeRatio": 0.7553
         },
-        "./bulletin": {
-          "file": "packages/sdk/dist/bulletin/index.js",
+        "./cloud-storage": {
+          "file": "packages/sdk/dist/cloud-storage/index.js",
           "ship": {
             "raw": 104,
             "gzip": 114,
@@ -267,10 +267,10 @@
         }
       }
     },
-    "@parity/product-sdk-bulletin": {
+    "@parity/product-sdk-cloud-storage": {
       "entries": {
         ".": {
-          "file": "packages/bulletin/dist/index.js",
+          "file": "packages/cloud-storage/dist/index.js",
           "ship": {
             "raw": 48825,
             "gzip": 9689,
@@ -401,7 +401,7 @@
     },
     "@parity/product-sdk-descriptors": {
       "entries": {
-        "./bulletin": {
+        "./cloud-storage": {
           "file": "packages/descriptors/chains/bulletin/generated/dist/index.js",
           "ship": {
             "raw": 280105,
@@ -618,10 +618,10 @@
         }
       }
     },
-    "@parity/product-sdk-storage": {
+    "@parity/product-sdk-local-storage": {
       "entries": {
         ".": {
-          "file": "packages/storage/dist/index.js",
+          "file": "packages/local-storage/dist/index.js",
           "ship": {
             "raw": 1995,
             "gzip": 619,

@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { test, expect, SS58_PREFIX } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 

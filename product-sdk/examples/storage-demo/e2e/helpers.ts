@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { TestHost } from "@parity/host-api-test-sdk/playwright";
 import { expect, type FrameLocator } from "@playwright/test";
 
@@ -8,7 +10,7 @@ import { expect, type FrameLocator } from "@playwright/test";
  *   1. Host connection established
  *   2. Signer connected ("connected")
  *   3. Account address resolved (not "-")
- *   4. KvStore ready ("ready")
+ *   4. LocalKvStore ready ("ready")
  *   5. Controls enabled (set button)
  */
 export async function waitForAppReady(
@@ -27,7 +29,7 @@ export async function waitForAppReady(
     });
     await expect(frame.locator('[data-testid="account-address"]')).not.toHaveText("-", { timeout });
 
-    // KvStore created and ready
+    // LocalKvStore created and ready
     await expect(frame.locator('[data-testid="store-status"]')).toHaveText("ready", {
         timeout,
     });

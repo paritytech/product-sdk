@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
@@ -11,11 +13,7 @@ import { waitForAppReady } from "./helpers";
  * `TxDispatchError` carrying a formatted cause. The demo's catch block
  * logs it as "bad-tx rejected: TxDispatchError: ...".
  */
-// TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
-// provider routes through TrUAPI's `signing.createTransaction` instead of
-// `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
-// `AsPgas` signed extension. See the tracking issue for the migration plan.
-test.describe.skip("@parity/product-sdk-tx via Host API — dispatch error", () => {
+test.describe("@parity/product-sdk-tx via Host API — dispatch error", () => {
     test("root-only call surfaces TxDispatchError after block inclusion", async ({
         testHost,
     }) => {
@@ -45,10 +43,12 @@ test.describe.skip("@parity/product-sdk-tx via Host API — dispatch error", () 
         // typed error surface to render.
         await expect(logLoc).toContainText(/bad-tx: error/, { timeout: 5_000 });
 
-        // Exactly one sign payload was recorded.
+        // Exactly one signing call was recorded. The demo signs through
+        // product-account routing (host_create_transaction), which the
+        // test SDK records as type "createTransaction".
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
-        expect(signingLog[0].type).toBe("payload");
+        expect(signingLog[0].type).toBe("createTransaction");
 
         await expect(btn).toBeEnabled({ timeout: 10_000 });
     });

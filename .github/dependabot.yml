@@ -1,0 +1,37 @@
+# Dependabot configuration.
+#
+# We only want security-driven PRs, not routine version-bump noise. But
+# Dependabot security PRs use Dependabot's default versioning strategy
+# when no config is present — that default rewrites the lockfile's
+# in-lockfile `specifier:` fields without updating package.json, which
+# breaks `pnpm install --frozen-lockfile` in CI on pnpm projects.
+#
+# Trick: define `updates:` entries with `open-pull-requests-limit: 0`.
+# That suppresses weekly version-update PRs while still letting security
+# PRs inherit the entry's config — most importantly,
+# `versioning-strategy: increase-if-necessary`, which raises the
+# package.json `^X.Y.Z` floor in lockstep with the lockfile so the two
+# stay in sync.
+
+version: 2
+updates:
+    - package-ecosystem: "npm"
+      directory: "/docs"
+      schedule:
+          interval: "weekly"
+      versioning-strategy: "increase-if-necessary"
+      commit-message:
+          prefix: "chore(deps)"
+          include: "scope"
+      # Suppress routine version-update PRs; security PRs still fire.
+      open-pull-requests-limit: 0
+
+    - package-ecosystem: "npm"
+      directory: "/product-sdk"
+      schedule:
+          interval: "weekly"
+      versioning-strategy: "increase-if-necessary"
+      commit-message:
+          prefix: "chore(deps)"
+          include: "scope"
+      open-pull-requests-limit: 0

@@ -49,7 +49,7 @@ client.destroy();
 
 | | `getChainAPI` (Preset) | `createChainClient` (BYOD) |
 |---|---|---|
-| **When** | Known environments (paseo, previewnet, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
+| **When** | Known environments (paseo, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
 | **Descriptors** | Built-in, lazy-loaded | You import and provide them |
 | **RPCs** | Built-in | You provide them |
 | **Chains** | Always assetHub + bulletin + individuality | Any combination you choose |
@@ -122,12 +122,11 @@ const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 
 ## Environment Support
 
-> **WARNING:** Only the `"paseo"` and `"previewnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
+> **WARNING:** Only the `"paseo"` environment is currently available. Using `"polkadot"` or `"kusama"` will throw an error.
 
 | Environment | Asset Hub | Bulletin | Individuality |
 |-------------|-----------|----------|---------------|
 | **paseo** (testnet) | Yes | Yes | Yes |
-| **previewnet** (dev) | Yes | Yes | Yes |
 | polkadot (mainnet) | Planned | Planned | Planned |
 | kusama (canary) | Planned | Planned | Planned |
 
@@ -148,7 +147,7 @@ destroyAll();
 
 1. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return Promises.
 
-2. **Using unavailable environments** — Only `"paseo"` and `"previewnet"` work. `"polkadot"` and `"kusama"` throw.
+2. **Using unavailable environments** — Only `"paseo"` works. `"polkadot"` and `"kusama"` throw.
 
 3. **Not cleaning up** — Call `client.destroy()` when done to close WebSocket connections.
 

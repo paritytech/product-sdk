@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -10,16 +12,18 @@ const sdkPkg = JSON.parse(
   ),
 ) as { version: string };
 
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 export function Logo() {
   return (
     <div className="flex items-center h-8">
       <img
-        src="/logo-symbol-wordmark_dark.svg"
+        src={`${basePath}/logo-symbol-wordmark_dark.svg`}
         alt="Polkadot"
         className="block dark:hidden h-7 w-auto"
       />
       <img
-        src="/logo-symbol-wordmark_light.svg"
+        src={`${basePath}/logo-symbol-wordmark_light.svg`}
         alt="Polkadot"
         className="hidden dark:block h-7 w-auto"
       />

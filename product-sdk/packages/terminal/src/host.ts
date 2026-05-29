@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Host-runner facet of `@parity/product-sdk-terminal`. A CLI using this
  * package plays the Host role per RFC-10; this module implements the

@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
@@ -11,9 +13,9 @@ import { waitForAppReady } from "./helpers";
  *   - Host-side storage verification (reads directly from the host page's localStorage)
  *
  * Host API surface tested:
- *   - KvStore.set(key, value) via product-sdk hostLocalStorage
- *   - KvStore.get(key) via product-sdk hostLocalStorage
- *   - KvStore.remove(key) via product-sdk hostLocalStorage
+ *   - LocalKvStore.set(key, value) via product-sdk hostLocalStorage
+ *   - LocalKvStore.get(key) via product-sdk hostLocalStorage
+ *   - LocalKvStore.remove(key) via product-sdk hostLocalStorage
  */
 test.describe("@parity/product-sdk-keys via Host API — session key lifecycle", () => {
     test("create generates mnemonic and derived addresses", async ({ testHost }) => {

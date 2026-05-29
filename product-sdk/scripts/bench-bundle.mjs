@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 // Bundle-size benchmark for @parity/product-sdk-* packages.
 //
 // Modes:

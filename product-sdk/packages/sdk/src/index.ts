@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk
  *
@@ -16,7 +18,7 @@
  * const { accounts } = await app.wallet.connect();
  *
  * // Use storage
- * await app.storage.set('key', 'value');
+ * await app.localStorage.set('key', 'value');
  * ```
  *
  * @packageDocumentation
@@ -30,9 +32,9 @@ export type {
     AppConfig,
     LogLevel,
     WalletApi,
-    StorageApi,
+    LocalStorageApi,
     ChainApi,
-    BulletinApi,
+    CloudStorageApi,
     Account,
     ChainClient,
     ChainDefinition,
@@ -45,5 +47,5 @@ export type { LogEntry, LogHandler, LoggerConfig, Logger } from "./core/logger.j
 export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-host";
 export { createChainClient } from "@parity/product-sdk-chain-client";
 export { SignerManager } from "@parity/product-sdk-signer";
-export { createKvStore } from "@parity/product-sdk-storage";
-export { BulletinClient, calculateCid } from "@parity/product-sdk-bulletin";
+export { createLocalKvStore } from "@parity/product-sdk-local-storage";
+export { CloudStorageClient, calculateCid } from "@parity/product-sdk-cloud-storage";

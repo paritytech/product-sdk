@@ -39,7 +39,7 @@
     "dependencies": {
         "@noble/ciphers": "^2.1.0",
         "@noble/curves": "^2.0.1",
-        "@noble/hashes": "^2.0.1",
+        "@noble/hashes": "^2.2.0",
         "@novasamatech/host-papp": "^0.7.7",
         "@novasamatech/statement-store": "^0.7.7",
         "@novasamatech/storage-adapter": "^0.7.7",

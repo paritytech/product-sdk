@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Node.js ESM loader hook that redirects `verifiablejs/bundler` imports
  * to the nodejs WASM build (which loads .wasm from disk instead of inline).

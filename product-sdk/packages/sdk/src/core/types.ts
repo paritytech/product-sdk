@@ -1,19 +1,21 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Core types for @parity/product-sdk
  */
 
 import type { LogLevel } from "@parity/product-sdk-logger";
-import type { BulletinEnvironment } from "@parity/product-sdk-bulletin";
+import type { CloudStorageEnvironment } from "@parity/product-sdk-cloud-storage";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
 import type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";
 
 export type { LogLevel };
 export type { ChainClient };
 
-/** Bulletin configuration options */
-export interface BulletinConfig {
-    /** Bulletin environment to connect to */
-    environment: BulletinEnvironment;
+/** Cloud Storage configuration options */
+export interface CloudStorageConfig {
+    /** Cloud Storage environment to connect to */
+    environment: CloudStorageEnvironment;
 }
 
 /** Configuration for createApp */
@@ -23,11 +25,11 @@ export interface AppConfig {
     /** Log level for SDK operations (default: 'info') */
     logLevel?: LogLevel;
     /**
-     * Bulletin Chain configuration.
+     * Cloud Storage configuration.
      * - Omit or pass config object to enable (default: { environment: "paseo" })
-     * - Pass `false` to disable bulletin initialization
+     * - Pass `false` to disable cloud storage initialization
      */
-    bulletin?: BulletinConfig | false;
+    cloudStorage?: CloudStorageConfig | false;
 }
 
 /** Wallet API exposed by the SDK */
@@ -55,7 +57,7 @@ export interface WalletApi {
 }
 
 /** Storage API exposed by the SDK */
-export interface StorageApi {
+export interface LocalStorageApi {
     /** Get a value by key */
     get(key: string): Promise<string | null>;
     /** Set a value by key */
@@ -117,10 +119,10 @@ export interface ChainApi {
     destroyAll(): void;
 }
 
-/** Bulletin Chain API exposed by the SDK */
-export interface BulletinApi {
+/** Cloud Storage API exposed by the SDK */
+export interface CloudStorageApi {
     /**
-     * Upload data to Bulletin Chain.
+     * Upload data to the Cloud.
      *
      * Requires a wallet to be connected and an account selected. Throws
      * "No signer available …" otherwise.
@@ -140,12 +142,12 @@ export interface BulletinApi {
 export interface App {
     /** Wallet/signing operations */
     wallet: WalletApi;
-    /** Key-value storage operations */
-    storage: StorageApi;
+    /** Local Key-value storage operations */
+    localStorage: LocalStorageApi;
     /** Chain interaction operations */
     chain: ChainApi;
-    /** Bulletin Chain operations (null if disabled via config) */
-    bulletin: BulletinApi | null;
+    /** Cloud Storage operations (null if disabled via config) */
+    cloudStorage: CloudStorageApi | null;
     /** Get app configuration */
     getAppInfo(): AppConfig;
 }

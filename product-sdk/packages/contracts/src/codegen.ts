@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { AbiEntry, AbiParam } from "./types.js";
 import { loadPvmContractAbi } from "./pvm.js";
 

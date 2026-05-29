@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { test, expect, SS58_PREFIX } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
@@ -15,11 +17,7 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         expect(addr!.startsWith(expectedStart)).toBe(true);
     });
 
-    // TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
-    // provider routes through TrUAPI's `signing.createTransaction` instead of
-    // `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
-    // `AsPgas` signed extension.
-    test.skip("submitAndWatch: single remark is signed via the host and lands on-chain", async ({
+    test("submitAndWatch: single remark is signed via the host and lands on-chain", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);
@@ -41,17 +39,14 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         // Button re-enables.
         await expect(btn).toBeEnabled({ timeout: 10_000 });
 
-        // The signer was invoked exactly once through the host.
+        // The signer was invoked exactly once through the host. Product-
+        // account routing records type "createTransaction".
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
-        expect(signingLog[0].type).toBe("payload");
+        expect(signingLog[0].type).toBe("createTransaction");
     });
 
-    // TODO(truapi-migration): Unskip once `@parity/product-sdk-signer`'s host
-    // provider routes through TrUAPI's `signing.createTransaction` instead of
-    // `@novasamatech/product-sdk@0.7.8`'s PJS bridge, which throws on Paseo v2's
-    // `AsPgas` signed extension.
-    test.skip("batchSubmitAndWatch: three remarks land in a single extrinsic", async ({
+    test("batchSubmitAndWatch: three remarks land in a single extrinsic", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);
@@ -68,8 +63,9 @@ test.describe("@parity/product-sdk-tx via Host API", () => {
         await expect(btn).toBeEnabled({ timeout: 10_000 });
 
         // Utility.batch_all wraps 3 inner calls into one extrinsic → one signature.
+        // Product-account routing records type "createTransaction".
         const signingLog = await testHost.getSigningLog();
         expect(signingLog).toHaveLength(1);
-        expect(signingLog[0].type).toBe("payload");
+        expect(signingLog[0].type).toBe("createTransaction");
     });
 });

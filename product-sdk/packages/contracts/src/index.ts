@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk-contracts — Typed contract interactions on Polkadot Asset Hub.
  *
@@ -17,9 +19,12 @@ export {
 } from "./runtime.js";
 export type {
     ContractRuntime,
+    ContractRuntimeOptions,
+    ContractDryRunAt,
     ReviveTypedApi,
     ReviveDryRunResult,
     ReviveDryRunCall,
+    ReviveDryRunCallOptions,
 } from "./runtime.js";
 // Build-time codegen helpers (`generateContractTypes`, `resolveContractTypeInputs`)
 // live behind the `@parity/product-sdk-contracts/codegen` subpath. Keeping them
@@ -30,7 +35,9 @@ export {
     ContractSignerMissingError,
     ContractNotFoundError,
     ContractDryRunFailedError,
+    ContractRevertedError,
 } from "./errors.js";
+export type { ContractRevertInfo, DecodedContractRevert } from "./errors.js";
 export type {
     CdmJson,
     CdmJsonTarget,

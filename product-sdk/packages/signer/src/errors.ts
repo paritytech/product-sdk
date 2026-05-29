@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import type { ProviderType } from "./types.js";
 
 /** Base class for all signer errors. Use `instanceof SignerError` to catch any signer-related error. */

@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { defineConfig } from "tsup";
 
 export default defineConfig({
@@ -8,7 +10,7 @@ export default defineConfig({
     clean: true,
     target: "es2022",
     treeshake: true,
-    external: ["@novasamatech/product-sdk", "@novasamatech/host-api"],
+    external: ["@novasamatech/host-api-wrapper", "@novasamatech/host-api"],
     define: {
         "import.meta.vitest": "undefined",
     },

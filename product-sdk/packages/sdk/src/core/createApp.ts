@@ -1,7 +1,9 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * createApp - Main entry point for the Product SDK
  *
- * Creates an App instance with wallet, storage, chain, and bulletin APIs.
+ * Creates an App instance with wallet, storage, chain, and cloud storage APIs.
  */
 
 import type { ChainDefinition } from "polkadot-api";
@@ -9,15 +11,19 @@ import type {
     App,
     AppConfig,
     WalletApi,
-    StorageApi,
     ChainApi,
-    BulletinApi,
     Account,
+    CloudStorageApi,
+    LocalStorageApi,
 } from "./types.js";
 import { configure, createLogger } from "@parity/product-sdk-logger";
-import { createKvStore } from "@parity/product-sdk-storage";
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
-import { BulletinClient, calculateCid, createLazySigner } from "@parity/product-sdk-bulletin";
+import {
+    CloudStorageClient,
+    calculateCid,
+    createLazySigner,
+} from "@parity/product-sdk-cloud-storage";
 import {
     createChainClient,
     getClient,
@@ -37,33 +43,33 @@ const log = createLogger("app");
  * ```ts
  * import { createApp } from '@parity/product-sdk';
  *
- * // Default: bulletin enabled with paseo environment
+ * // Default: cloud storage enabled with paseo environment
  * const app = await createApp({
  *   name: 'my-app',
  *   logLevel: 'info',
  * });
  *
- * // Custom bulletin environment
+ * // Custom cloud storage environment
  * const prodApp = await createApp({
  *   name: 'my-app',
- *   bulletin: { environment: 'polkadot' },
+ *   cloudStorage: { environment: 'polkadot' },
  * });
  *
- * // Disable bulletin entirely
- * const noBulletinApp = await createApp({
+ * // Disable cloud storage entirely
+ * const noCloudStorageApp = await createApp({
  *   name: 'my-app',
- *   bulletin: false,
+ *   cloudStorage: false,
  * });
  *
  * // Connect wallet
  * const { accounts } = await app.wallet.connect();
  *
  * // Use storage
- * await app.storage.set('key', 'value');
+ * await app.localStorage.set('key', 'value');
  *
- * // Use bulletin (check for null if it might be disabled)
- * if (app.bulletin) {
- *   const cid = await app.bulletin.upload('hello world');
+ * // Use cloud storage (check for null if it might be disabled)
+ * if (app.cloudStorage) {
+ *   const cid = await app.cloudStorage.upload('hello world');
  * }
  * ```
  */
@@ -76,44 +82,46 @@ export async function createApp(config: AppConfig): Promise<App> {
     log.info("Creating Product SDK app", { name: config.name });
 
     // Initialize storage (container-only - will throw if not in container)
-    const kvStore = await createKvStore({ prefix: config.name });
+    const localKvStore = await createLocalKvStore({ prefix: config.name });
 
     // Initialize signer manager
     const signerManager = new SignerManager({
         dappName: config.name,
     });
 
-    // Initialize bulletin client (configurable, defaults to paseo).
+    // Initialize cloud storage client (configurable, defaults to paseo).
     //
-    // The signer is wrapped lazily so the bulletin client can be built before
+    // The signer is wrapped lazily so the cloud storage client can be built before
     // an account is selected. Uploads will throw a clear error if no signer
     // is available at submission time. Reads (fetch / fetchJson) don't need
     // a signer and work regardless.
-    const bulletinEnabled = config.bulletin !== false;
-    const bulletinEnvironment =
-        typeof config.bulletin === "object" ? config.bulletin.environment : "paseo";
-    const bulletinClient = bulletinEnabled
-        ? await BulletinClient.create({
-              environment: bulletinEnvironment,
+    const cloudStorageEnabled = config.cloudStorage !== false;
+    const cloudStorageEnvironment =
+        typeof config.cloudStorage === "object" ? config.cloudStorage.environment : "paseo";
+    const cloudStorageClient = cloudStorageEnabled
+        ? await CloudStorageClient.create({
+              environment: cloudStorageEnvironment,
               signer: createLazySigner(() => signerManager.getSigner()),
           })
         : null;
 
-    if (bulletinEnabled) {
-        log.debug("Bulletin client initialized", { environment: bulletinEnvironment });
+    if (cloudStorageEnabled) {
+        log.debug("Cloud Storage client (Bulletin) initialized", {
+            environment: cloudStorageEnvironment,
+        });
     } else {
-        log.debug("Bulletin client disabled");
+        log.debug("Cloud Storage client disabled");
     }
 
     // Create storage API adapter
-    const storageApi: StorageApi = {
-        get: (key) => kvStore.get(key),
-        set: (key, value) => kvStore.set(key, value),
-        getJSON: <T>(key: string) => kvStore.getJSON<T>(key),
-        setJSON: <T>(key: string, value: T) => kvStore.setJSON(key, value),
-        remove: (key) => kvStore.remove(key),
+    const localStorageApi: LocalStorageApi = {
+        get: (key) => localKvStore.get(key),
+        set: (key, value) => localKvStore.set(key, value),
+        getJSON: <T>(key: string) => localKvStore.getJSON<T>(key),
+        setJSON: <T>(key: string, value: T) => localKvStore.setJSON(key, value),
+        remove: (key) => localKvStore.remove(key),
         clear: async () => {
-            // KvStore doesn't have clear - this is a no-op
+            // LocalKvStore doesn't have clear - this is a no-op
             log.debug("clear() is not supported in container storage mode");
         },
     };
@@ -153,27 +161,27 @@ export async function createApp(config: AppConfig): Promise<App> {
         },
     };
 
-    // Create bulletin API adapter (null if disabled)
-    const bulletinApi: BulletinApi | null = bulletinClient
+    // Create Cloud Storage API adapter (null if disabled)
+    const cloudStorageApi: CloudStorageApi | null = cloudStorageClient
         ? {
               upload: async (data) => {
                   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
                   // Explicitly request a DAG-PB manifest so chunked uploads always
                   // resolve to a single root CID. Without this, AsyncBulletinClient
                   // can return `result.cid: undefined` for chunked-without-manifest
-                  // uploads — but BulletinApi.upload promises a string return, and
+                  // uploads — but CloudStorageApi.upload promises a string return, and
                   // app consumers expect a CID they can hand to `fetch(cid)`. Keep
                   // the defensive null-check below as belt-and-braces in case the
                   // upstream contract shifts.
-                  const result = await bulletinClient.store(bytes).withManifest(true).send();
+                  const result = await cloudStorageClient.store(bytes).withManifest(true).send();
                   if (!result.cid) {
                       throw new Error(
-                          "Bulletin upload returned no CID despite .withManifest(true). Upstream contract may have shifted — file an issue.",
+                          "Cloud storage upload returned no CID despite .withManifest(true). Upstream contract may have shifted — file an issue.",
                       );
                   }
                   return result.cid.toString();
               },
-              fetch: (cid) => bulletinClient.fetchBytes(cid),
+              fetch: (cid) => cloudStorageClient.fetchBytes(cid),
               computeCid: async (data) => {
                   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
                   const cid = await calculateCid(bytes);
@@ -184,14 +192,14 @@ export async function createApp(config: AppConfig): Promise<App> {
 
     log.info("Product SDK app created", {
         name: config.name,
-        bulletin: bulletinEnabled ? bulletinEnvironment : "disabled",
+        cloudStorage: cloudStorageEnabled ? cloudStorageEnvironment : "disabled",
     });
 
     return {
         wallet: walletApi,
-        storage: storageApi,
+        localStorage: localStorageApi,
         chain: chainApi,
-        bulletin: bulletinApi,
+        cloudStorage: cloudStorageApi,
         getAppInfo: () => ({ ...config }),
     };
 }

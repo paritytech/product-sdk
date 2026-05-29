@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 import { blake2b256 } from "@parity/product-sdk-utils";
 
 import type { ChannelHash, TopicFilter, TopicHash, SdkTopicFilter } from "./types.js";

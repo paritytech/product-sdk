@@ -6,7 +6,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-CHAINS="polkadot-asset-hub kusama-asset-hub paseo-asset-hub previewnet-asset-hub paseo-bulletin previewnet-bulletin paseo-individuality previewnet-individuality"
+CHAINS="polkadot-asset-hub kusama-asset-hub paseo-asset-hub paseo-bulletin paseo-individuality"
 
 for chain in $CHAINS; do
     dir="chains/$chain"

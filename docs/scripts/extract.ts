@@ -1,3 +1,5 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 // Pre-extract step for `docs:extract`.
 //
 // Discovers documentable packages via the workspace registry and writes a
