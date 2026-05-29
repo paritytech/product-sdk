@@ -71,7 +71,7 @@ function extractOverrides<T>(
  * padded, i.e. `"modlpy/reviv"` + 20 trailing zero bytes.
  */
 const REVIVE_PALLET_ACCOUNT = new Uint8Array(32);
-REVIVE_PALLET_ACCOUNT.set([...new TextEncoder().encode("modlpy/reviv")]);
+REVIVE_PALLET_ACCOUNT.set(new TextEncoder().encode("modlpy/reviv"));
 const QUERY_FALLBACK_ORIGIN = ss58Address(REVIVE_PALLET_ACCOUNT) as SS58String;
 
 function resolveOrigin(
