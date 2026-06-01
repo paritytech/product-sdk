@@ -3,6 +3,10 @@ packages:
   - "examples/*"
   - "scripts/bench-consumer"
 
+allowBuilds:
+  '@biomejs/biome': true
+  esbuild: true
+
 catalog:
   polkadot-api: ^2.1.2
   "@novasamatech/host-api-wrapper": ^0.7.9
@@ -18,6 +22,14 @@ catalog:
   "@parity/host-api-test-sdk": ^0.8.3
   vite: ^6.3.0
   viem: ^2.46.2
+
+overrides:
+  # A stale transitive (@polkadot-api/substrate-client@0.1.4) drags in
+  # json-rpc-provider@0.0.1, which lacks the `isResponse` export that the
+  # current @novasamatech/host-papp / host-api-wrapper (and thus
+  # product-sdk-terminal) import. Pin to 0.2.0 (superset; JsonRpcProvider
+  # core type is stable across 0.x) so terminal builds + tests resolve it.
+  "@polkadot-api/json-rpc-provider": "0.2.0"
 
 onlyBuiltDependencies:
   - "@biomejs/biome"
