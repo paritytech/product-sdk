@@ -111,7 +111,7 @@ interface NeverthrowResultAsync<T, E> {
  * `"signPayload"` path wraps via PJS and throws
  * `"PJS does not support this signed-extension: AsPgas"` on those chains.
  *
- * Nova's `host-api-wrapper@0.7.9` already defaults to `"createTransaction"`,
+ * Nova's `host-api-wrapper@0.8.0` already defaults to `"createTransaction"`,
  * so this is a defensive pin rather than an opt-in — it guards against a
  * future upstream default flip and makes the routing legible at the call
  * site. The legacy-account signer doesn't expose this switch.
@@ -478,10 +478,11 @@ export class HostProvider implements SignerProvider {
         // will surface a clear error if permission is missing.
         //
         // The legal v1 RemotePermission variants per
-        // `@novasamatech/host-api@0.7.7` are: Remote, WebRTC, ChainSubmit,
+        // `@novasamatech/host-api@0.8.0` are: Remote, WebRtc, ChainSubmit,
         // PreimageSubmit, StatementSubmit. ChainSubmit is the chain-tx
         // permission (was named TransactionSubmit in earlier host-api
-        // revisions; renamed in 0.7).
+        // revisions; renamed in 0.7). `WebRtc` was spelled `WebRTC` before
+        // 0.8.
         if (this.requestChainSubmitPermission && sdk.hostApi) {
             try {
                 const hostApiEnum = await this.loadHostApiEnum();
