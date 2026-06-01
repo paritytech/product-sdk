@@ -92,7 +92,7 @@ Order, highest wins:
 1. Explicit `{ signer }` / `{ origin }` in the call options
 2. `signerManager`'s currently selected account
 3. Static `defaultSigner` / `defaultOrigin`
-4. (Queries only) Dev fallback (Alice) for dry-run gas estimation
+4. (Queries only) pallet-revive account fallback for the dry-run
 
 Throws `ContractSignerMissingError` from `.tx()` if no signer is available. `.query()` and `.prepare()` never need a signer.
 
@@ -151,7 +151,7 @@ const b = registry.publish.prepare("app-two00", "ipfs://...", 0);
 await batchSubmitAndWatch([a, b], client.raw.assetHub, signer);
 ```
 
-**`.prepare()` doesn't require a signer.** The resolved origin is used purely for dry-run gas estimation; the batch submission's signer is the dispatched origin at submission time.
+**`.prepare()` doesn't require a signer.** The resolved origin is only used for the dry-run; the batch submission's signer is the dispatched origin at submission time.
 
 `PrepareOptions` accepts: `origin`, `value`, `gasLimit`, `storageDepositLimit`. Signer and submission lifecycle options (`signer`, `waitFor`, etc.) are intentionally absent — those belong to the batch submit, not the individual prepared call.
 

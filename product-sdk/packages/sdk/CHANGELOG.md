@@ -1,5 +1,12 @@
 # @parity/product-sdk
 
+## 0.7.1
+
+### Patch Changes
+
+- @parity/product-sdk-chain-client@0.5.1
+- @parity/product-sdk-cloud-storage@0.5.1
+
 ## 0.7.0
 
 ### Minor Changes

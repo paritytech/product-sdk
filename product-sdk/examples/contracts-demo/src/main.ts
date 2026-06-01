@@ -6,7 +6,7 @@
  * Wires up SignerManager + chain-client + ContractManager against the
  * t3rminal @t3rminal/bulletin-index contract deployed on Paseo Asset Hub.
  *
- * Contract address: 0x3331A87C2B9312E246E6A7eE8D0C0AdD8d282B6F (CDM v3)
+ * Contract address: 0xD35CFc6E9F07B42Cc524A9Fa4A001F6ac90586E2 (redeployed)
  *
  * Exercises the two core host-API paths in @parity/product-sdk-contracts:
  *   - query()  — dry-run via chain RPC (no signing)

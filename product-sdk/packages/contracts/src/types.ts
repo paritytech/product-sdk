@@ -200,7 +200,7 @@ export type Contract<C extends ContractDef> = {
          * cost gas. Returns the decoded response and estimated gas required.
          *
          * Origin is resolved from: explicit `{ origin }` option → signerManager →
-         * defaultOrigin → dev fallback (Alice).
+         * defaultOrigin → pallet-revive account fallback.
          */
         query: (
             ...args: [...C["methods"][K]["args"], opts?: QueryOptions]
@@ -229,7 +229,7 @@ export type Contract<C extends ContractDef> = {
          *
          * Sizing: when either `gasLimit` or `storageDepositLimit` is
          * omitted, `.prepare()` runs a `ReviveApi.call` dry-run (same as
-         * `.tx()`) against the dev fallback origin to fill the missing
+         * `.tx()`) against the fallback origin to fill the missing
          * field(s) — pass both to skip the dry-run entirely. A failing
          * dry-run throws {@link ContractDryRunFailedError} before the
          * call is constructed.
