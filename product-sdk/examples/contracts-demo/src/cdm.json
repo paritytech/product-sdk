@@ -15,7 +15,7 @@
         "929b5c63e2cb5202": {
             "@t3rminal/bulletin-index": {
                 "version": 3,
-                "address": "0x3331A87C2B9312E246E6A7eE8D0C0AdD8d282B6F",
+                "address": "0xD35CFc6E9F07B42Cc524A9Fa4A001F6ac90586E2",
                 "abi": [
                     {
                         "anonymous": false,
