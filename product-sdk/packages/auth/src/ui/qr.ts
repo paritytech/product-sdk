@@ -14,9 +14,9 @@
 // limitations under the License.
 
 /**
- * `@parity/product-sdk-auth/ui` — terminal UI helpers (QR rendering + login/
- * logout status formatters). Separate entrypoint so headless consumers can
- * import the package root without pulling terminal-rendering deps.
+ * QR rendering for the terminal. Re-exported from `@parity/product-sdk-terminal`
+ * so consumers get the login QR without depending on the terminal package
+ * directly. Lives under the `./ui` entrypoint (pulls terminal-rendering deps);
+ * headless consumers import the package root instead.
  */
-export { renderQrCode } from "./qr.js";
-export { renderLoginStatus, renderLogoutStatus } from "./status.js";
+export { renderQrCode } from "@parity/product-sdk-terminal";
