@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk",
-    "version": "0.7.0",
+    "version": "0.7.1",
     "description": "Unified SDK for building products in the Polkadot ecosystem - umbrella package",
     "type": "module",
     "sideEffects": false,
