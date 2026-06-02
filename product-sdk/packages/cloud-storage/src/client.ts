@@ -154,7 +154,6 @@ export class CloudStorageClient {
         }
         const chain = await createChainClient({
             chains: { bulletin: descriptor },
-            rpcs: { bulletin: [] },
         });
         const inner = new AsyncBulletinClient(
             chain.bulletin as BulletinTypedApi,

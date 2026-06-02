@@ -58,10 +58,6 @@ import { paseo_bulletin } from "@parity/product-sdk-descriptors/paseo-bulletin";
 // Only import what you need
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
-    rpcs: {
-        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
-        bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
-    },
 });
 ```
 

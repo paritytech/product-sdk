@@ -34,9 +34,6 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
  * is designed to run exclusively inside a host container (Polkadot Browser / Desktop).
  * Throws if no host provider is available; there is no direct-WebSocket fallback.
  *
- * The `config.rpcs` field is currently unused at runtime (kept for API compatibility
- * and BYOD documentation), since the host owns the chain connection.
- *
  * Results are cached by genesis-hash fingerprint — calling with the same descriptors
  * returns the same instance.
  *
@@ -48,10 +45,6 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
  *
  * const client = await createChainClient({
  *     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
- *     rpcs: {
- *         assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
- *         bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
- *     },
  * });
  *
  * // Fully typed from your descriptors
@@ -275,7 +268,6 @@ if (import.meta.vitest) {
         clientInstances.set(fp, Promise.resolve(fakeResult));
         const result = await createChainClient({
             chains: { a: fakeDescriptor },
-            rpcs: { a: [] },
         });
         expect(result).toBe(fakeResult);
     });
@@ -285,8 +277,8 @@ if (import.meta.vitest) {
         const fp = configFingerprint({ x: fakeDescriptor });
         clientInstances.set(fp, Promise.resolve(fakeResult));
         const [a, b] = await Promise.all([
-            createChainClient({ chains: { x: fakeDescriptor }, rpcs: { x: [] } }),
-            createChainClient({ chains: { x: fakeDescriptor }, rpcs: { x: [] } }),
+            createChainClient({ chains: { x: fakeDescriptor } }),
+            createChainClient({ chains: { x: fakeDescriptor } }),
         ]);
         expect(a).toBe(b);
     });
@@ -298,8 +290,8 @@ if (import.meta.vitest) {
         const resultB = {} as ChainClient<any>;
         clientInstances.set(configFingerprint({ a: descA }), Promise.resolve(resultA));
         clientInstances.set(configFingerprint({ b: descB }), Promise.resolve(resultB));
-        const a = await createChainClient({ chains: { a: descA }, rpcs: { a: [] } });
-        const b = await createChainClient({ chains: { b: descB }, rpcs: { b: [] } });
+        const a = await createChainClient({ chains: { a: descA } });
+        const b = await createChainClient({ chains: { b: descB } });
         expect(a).not.toBe(b);
     });
 
