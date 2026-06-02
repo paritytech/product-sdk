@@ -11,7 +11,12 @@
  *
  * @packageDocumentation
  */
-export { ContractManager, createContract, createContractFromClient } from "./manager.js";
+export {
+    ContractManager,
+    createContract,
+    createContractFromClient,
+    withLiveContractAddresses,
+} from "./manager.js";
 export {
     createContractRuntime,
     createContractRuntimeFromClient,
@@ -34,14 +39,15 @@ export {
     ContractError,
     ContractSignerMissingError,
     ContractNotFoundError,
+    ContractLiveAddressResolutionError,
     ContractDryRunFailedError,
     ContractRevertedError,
 } from "./errors.js";
 export type { ContractRevertInfo, DecodedContractRevert } from "./errors.js";
 export type {
     CdmJson,
-    CdmJsonTarget,
     CdmJsonContract,
+    CdmJsonDependencyVersion,
     AbiParam,
     AbiEntry,
     ContractDef,
@@ -56,4 +62,5 @@ export type {
     ContractDefaults,
     ContractManagerOptions,
     ContractOptions,
+    LiveContractResolutionOptions,
 } from "./types.js";

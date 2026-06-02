@@ -12,11 +12,7 @@ export type { TxResult, SubmitOptions, BatchableCall } from "@parity/product-sdk
 // cdm.json schema
 // ---------------------------------------------------------------------------
 
-/** Pins a target to specific asset-hub and Bulletin chain hashes in `cdm.json`. */
-export interface CdmJsonTarget {
-    "asset-hub": string;
-    bulletin: string;
-}
+export type CdmJsonDependencyVersion = number | string;
 
 /**
  * A deployed contract's on-chain address, ABI, and optional metadata CID.
@@ -32,11 +28,11 @@ export interface CdmJsonContract {
     metadataCid?: string;
 }
 
-/** A project's `cdm.json` manifest: declared targets, runtime dependencies, and per-target contract deployments. */
+/** A project's `cdm.json` manifest. */
 export interface CdmJson {
-    targets: Record<string, CdmJsonTarget>;
-    dependencies: Record<string, Record<string, number | string>>;
-    contracts?: Record<string, Record<string, CdmJsonContract>>;
+    dependencies: Record<string, CdmJsonDependencyVersion>;
+    contracts?: Record<string, CdmJsonContract>;
+    registry?: HexString;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,9 +178,16 @@ export interface ContractOptions {
 }
 
 /** Options for {@link ContractManager} construction. */
-export interface ContractManagerOptions extends ContractOptions {
-    /** Explicit target hash to select from cdm.json. Defaults to the first target. */
-    targetHash?: string;
+export type ContractManagerOptions = ContractOptions;
+
+/** Options for resolving installed CDM contract addresses from the live CDM registry. */
+export interface LiveContractResolutionOptions {
+    /** CDM registry contract address. Defaults to `cdm.json.registry`. */
+    registryAddress?: HexString;
+    /** Subset of installed libraries to resolve. Defaults to every contract in the manifest. */
+    libraries?: readonly string[];
+    /** Origin used for CDM registry dry-run queries. Defaults to `defaultOrigin` in manager helpers. */
+    registryOrigin?: SS58String;
 }
 
 /**

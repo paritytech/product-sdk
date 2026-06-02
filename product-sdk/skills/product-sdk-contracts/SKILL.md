@@ -23,7 +23,7 @@ const client = await createChainClient({
     rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
-const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
+const manager = ContractManager.fromClient(cdmJson, client.raw.assetHub, paseo_asset_hub, {
     signerManager, // from @parity/product-sdk-signer
 });
 
@@ -57,8 +57,9 @@ const client = await createChainClient({
     rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
-const counter = await createContractFromClient(
+const counter = createContractFromClient(
     client.raw.assetHub,
+    paseo_asset_hub,
     "0xYourContractAddress...",
     abi,
     { signerManager }
@@ -164,7 +165,7 @@ const productRes = await signerManager.getProductAccount("your-app.dot", 0);
 if (!productRes.ok) throw productRes.error;
 const productAccount = productRes.value;
 
-const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
+const manager = ContractManager.fromClient(cdmJson, client.raw.assetHub, paseo_asset_hub, {
     signerManager,
 });
 
@@ -179,7 +180,7 @@ for full end-to-end references.
 You can also set a default signer or origin:
 
 ```typescript
-const manager = await ContractManager.fromClient(cdmJson, client.raw.assetHub, {
+const manager = ContractManager.fromClient(cdmJson, client.raw.assetHub, paseo_asset_hub, {
     defaultSigner: mySigner,
     defaultOrigin: "0x...",
 });
@@ -234,6 +235,7 @@ import {
     loadPvmContractArtifacts,
 } from "@parity/product-sdk-contracts/pvm";
 import { createContractFromClient } from "@parity/product-sdk-contracts";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 // 1. In-memory (browser-safe)
 import abiJson from "./counter.release.abi.json" with { type: "json" };
@@ -246,7 +248,7 @@ const abi2 = await loadPvmContractAbi("./target/counter.release.abi.json");
 const { abi: abi3, bytecode } = await loadPvmContractArtifacts("./target/counter.release");
 
 // Hand the parsed ABI straight to the existing factories
-const counter = await createContractFromClient(client.raw.assetHub, "0xC472...", abi);
+const counter = createContractFromClient(client.raw.assetHub, paseo_asset_hub, "0xC472...", abi);
 const { value } = await counter.get.query();
 await counter.increment.tx(1n, { signer });
 ```
@@ -284,7 +286,7 @@ The typed-API factory `createContractRuntime(typedApi, { at })` is also exported
 
 3. **Wrong signer type** — Contract transactions need a `PolkadotSigner`. Don't confuse with `StatementSignerWithKey` (for statement-store).
 
-4. **Forgetting await** — Both `ContractManager.fromClient()` and `createContractFromClient()` return Promises.
+4. **Adding a spurious `await`** — `ContractManager.fromClient()` and `createContractFromClient()` are **synchronous**; don't `await` them. Only the live-resolution factories `ContractManager.fromLive()` / `fromLiveClient()` (and `withLiveContractAddresses()`) return Promises.
 
 5. **Assuming `tx()` only fails for signer/dispatch reasons** — `tx()` also throws `ContractRevertedError` when the dry-run shows the contract would revert. Catch it (or its base `ContractError`) if you're surfacing revert reasons to users.
 

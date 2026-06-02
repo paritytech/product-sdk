@@ -239,8 +239,9 @@ async function main() {
     const signerManager = new SignerManager();
     await signerManager.connect();
 
-    const counter = await createContractFromClient(
+    const counter = createContractFromClient(
         client.raw.assetHub,
+        paseo_asset_hub,
         "0xYourContractAddress...",
         counterAbi,
         { signerManager }
