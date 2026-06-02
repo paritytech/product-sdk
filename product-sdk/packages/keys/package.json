@@ -24,7 +24,7 @@
         "@parity/product-sdk-crypto": "workspace:*",
         "@parity/product-sdk-local-storage": "workspace:*",
         "@polkadot-labs/hdkd": "^0.0.28",
-        "@polkadot-labs/hdkd-helpers": "^0.0.10",
+        "@polkadot-labs/hdkd-helpers": "catalog:",
         "@scure/sr25519": "^2.2.0",
         "polkadot-api": "catalog:",
         "scale-ts": "^1.6.1"
