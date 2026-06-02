@@ -89,7 +89,7 @@
         "@types/react": "^18.0.0",
         "react": "^18.0.0",
         "typescript": "^5.7.0",
-        "vitest": "^3.0.0"
+        "vitest": "^4.1.0"
     },
     "keywords": ["polkadot", "parity", "sdk", "blockchain", "web3"],
     "license": "Apache-2.0"
