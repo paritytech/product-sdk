@@ -3,7 +3,7 @@
     "description": "QR code login and signing for CLI/terminal apps via Polkadot mobile wallet pairing",
     "version": "0.2.1",
     "type": "module",
-    "sideEffects": ["./dist/register.js"],
+    "sideEffects": false,
     "main": "./dist/index.js",
     "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -11,10 +11,6 @@
         ".": {
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
-        },
-        "./register": {
-            "types": "./dist/register.d.ts",
-            "import": "./dist/register.js"
         },
         "./testing": {
             "types": "./dist/testing.d.ts",
@@ -25,12 +21,11 @@
             "import": "./dist/host.js"
         }
     },
-    "files": ["dist", "scripts"],
+    "files": ["dist"],
     "publishConfig": {
         "access": "public"
     },
     "scripts": {
-        "postinstall": "bash scripts/patch-wasm.sh",
         "build": "tsup",
         "clean": "rm -rf dist",
         "pretest": "tsup",
@@ -40,10 +35,11 @@
         "@noble/ciphers": "^2.1.0",
         "@noble/curves": "^2.0.1",
         "@noble/hashes": "^2.2.0",
-        "@novasamatech/host-papp": "^0.7.7",
-        "@novasamatech/statement-store": "^0.7.7",
-        "@novasamatech/storage-adapter": "^0.7.7",
+        "@novasamatech/host-papp": "^0.8.1",
+        "@novasamatech/statement-store": "^0.8.1",
+        "@novasamatech/storage-adapter": "^0.8.1",
         "@parity/product-sdk-logger": "workspace:*",
+        "@polkadot-api/substrate-bindings": "^0.20.2",
         "@polkadot-api/utils": "^0.4.0",
         "@polkadot-api/ws-provider": "^0.9.0",
         "@polkadot-labs/hdkd-helpers": "catalog:",

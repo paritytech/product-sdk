@@ -38,15 +38,21 @@ import {
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
-import { Bytes, Struct, Vector, str } from "scale-ts";
+import { Bytes, Option, Struct, Vector, str } from "scale-ts";
 
 import { sanitizeKey } from "./node-storage.js";
 
 // Mirrors the internal codec in @novasamatech/host-papp's userSessionRepository.
+// host-papp 0.8 appended three fields (rootAccountId + two `Option`-wrapped V2
+// extras); the order and the fixed `Bytes(65)` inner for the chat key must match
+// the upstream codec exactly or the real SsoSessionManager fails to decode.
 const storedUserSessionCodec = Struct({
     id: str,
     localAccount: LocalSessionAccountCodec,
     remoteAccount: RemoteSessionAccountCodec,
+    rootAccountId: AccountIdCodec,
+    identityAccountId: Option(AccountIdCodec),
+    identityChatPublicKey: Option(Bytes(65)),
 });
 const sessionsCodec = Vector(storedUserSessionCodec);
 
@@ -160,7 +166,7 @@ export interface TestSession {
  * const storageDir = mkdtempSync(join(tmpdir(), "e2e-"));
  * const { sessionId } = await createTestSession({ appId: "dot-cli", storageDir });
  *
- * const adapter = createTerminalAdapter({ appId: "dot-cli", metadataUrl: "…", storageDir });
+ * const adapter = createTerminalAdapter({ appId: "dot-cli", storageDir });
  * const sessions = await waitForSessions(adapter);
  * // sessions[0].id === sessionId
  * ```
@@ -198,6 +204,12 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
             sharedSecret,
             undefined,
         ),
+        // host-papp 0.8: the paired wallet's root account. For a synthesized
+        // session the remote (wallet) account doubles as the root.
+        rootAccountId: createAccountId(remotePublicKey),
+        // V2 identity extras — unset for a basic test session.
+        identityAccountId: undefined,
+        identityChatPublicKey: undefined,
     };
 
     await writeFile(

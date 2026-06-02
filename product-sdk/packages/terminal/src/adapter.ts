@@ -30,8 +30,6 @@ const log = createLogger("terminal");
 export interface TerminalAdapterOptions {
     /** Unique app identifier. Used as the storage namespace. */
     appId: string;
-    /** URL to the app's metadata JSON (name + icon), shown during pairing. */
-    metadataUrl: string;
     /** Statement store WebSocket endpoints. Defaults to Paseo stable endpoints. */
     endpoints?: string[];
     /** Optional host metadata for the Sign-In screen. */
@@ -109,7 +107,6 @@ export function createTerminalAdapter(options: TerminalAdapterOptions): Terminal
 
     const adapter = createPappAdapter({
         appId: options.appId,
-        metadata: options.metadataUrl,
         hostMetadata: options.hostMetadata,
         adapters: {
             storage,
