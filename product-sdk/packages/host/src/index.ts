@@ -16,6 +16,7 @@ export {
     createHostLocalStorage,
     getHostProvider,
     getStatementStore,
+    ChainNotSupportedError,
 } from "./container.js";
 export type {
     HostLocalStorage,

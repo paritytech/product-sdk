@@ -27,4 +27,8 @@ export { WellKnownChain } from "./well-known-chain.js";
 export type { WellKnownChainHash } from "./well-known-chain.js";
 
 // Re-export from host
-export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-host";
+export {
+    isInsideContainer,
+    isInsideContainerSync,
+    ChainNotSupportedError,
+} from "@parity/product-sdk-host";
