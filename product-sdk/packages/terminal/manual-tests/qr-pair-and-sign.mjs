@@ -42,8 +42,7 @@
  * From the package directory:
  *
  *   cd packages/terminal
- *   node --import @parity/product-sdk-terminal/register \
- *        manual-tests/qr-pair-and-sign.mjs
+ *   node manual-tests/qr-pair-and-sign.mjs
  *
  * (The cd is needed so Node resolves @parity/product-sdk-terminal through
  * the package's own node_modules — running from the repo root resolves
@@ -55,7 +54,7 @@
  *   mkdir /tmp/manual-test && cd /tmp/manual-test
  *   pnpm init && pnpm add file:/tmp/parity-product-sdk-terminal-0.0.0.tgz
  *   cp <repo>/packages/terminal/manual-tests/qr-pair-and-sign.mjs .
- *   node --import @parity/product-sdk-terminal/register qr-pair-and-sign.mjs
+ *   node qr-pair-and-sign.mjs
  *
  * The script writes session state to a temp directory under $TMPDIR so it
  * doesn't pollute your real ~/.polkadot-apps. The temp dir is printed on
@@ -65,8 +64,7 @@
  * Example second-run invocation (from packages/terminal):
  *
  *   STORAGE_DIR=/tmp/terminal-manual-XXXX \
- *     node --import @parity/product-sdk-terminal/register \
- *          manual-tests/qr-pair-and-sign.mjs
+ *     node manual-tests/qr-pair-and-sign.mjs
  *
  * ─────────────────────────────────────────────────────────────────────────
  */
@@ -281,8 +279,7 @@ try {
         console.log("\n  Next: re-run with the same storageDir to verify session persistence");
         console.log("  (from packages/terminal):");
         console.log(`\n    STORAGE_DIR=${storageDir} \\`);
-        console.log(`      node --import @parity/product-sdk-terminal/register \\`);
-        console.log(`           manual-tests/qr-pair-and-sign.mjs\n`);
+        console.log(`      node manual-tests/qr-pair-and-sign.mjs\n`);
     }
 
     // destroy() schedules a setTimeout for the console.error restoration —

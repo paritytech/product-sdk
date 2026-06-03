@@ -1,5 +1,51 @@
 # @parity/product-sdk-contracts
 
+## 0.7.0
+
+### Minor Changes
+
+- dc3a452: **Support the flattened `cdm.json` manifest shape and add live CDM registry address resolution.**
+
+  `cdm.json` is no longer bucketed by target hash. The manifest is now flat:
+
+  ```jsonc
+  {
+    "registry": "0x…",
+    "dependencies": { "@org/contract-name": "latest" },
+    "contracts": {
+      "@org/contract-name": {
+        "version": 6,
+        "address": "0x…",
+        "abi": [
+          /* … */
+        ]
+      }
+    }
+  }
+  ```
+
+  - `CdmJson` loses `targets` and the per-target `dependencies` / `contracts` buckets; `dependencies` and `contracts` are now keyed directly by library name, with an optional top-level `registry` address.
+  - `ContractManagerOptions.targetHash` and the `CdmJsonTarget` type are removed. `ContractManager` resolves contracts directly from the flat `contracts` map.
+  - `ContractNotFoundError` no longer carries a `targetHash`.
+  - New `ContractManager.fromLive(...)` / `fromLiveClient(...)` and the standalone `withLiveContractAddresses(...)` helper strictly resolve installed contract addresses from the live CDM registry (ABIs still come from the installed snapshot). `"latest"` dependencies resolve the registry's latest address; pinned numeric dependencies resolve the installed version's address. Backed by the new `LiveContractResolutionOptions` type and `ContractLiveAddressResolutionError`.
+  - New exported type alias `CdmJsonDependencyVersion`.
+
+### Patch Changes
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-signer@0.6.0
+  - @parity/product-sdk-keys@0.3.3
+  - @parity/product-sdk-tx@0.2.7
+
 ## 0.6.2
 
 ### Patch Changes

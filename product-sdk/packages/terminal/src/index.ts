@@ -26,7 +26,6 @@ export { createNodeStorageAdapter } from "./node-storage.js";
 export type {
     PappAdapter,
     HostMetadata,
-    AttestationStatus,
     PairingStatus,
     UserSession,
     StoredUserSession,

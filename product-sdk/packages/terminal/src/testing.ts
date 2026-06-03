@@ -38,16 +38,22 @@ import {
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
-import { Bytes, Struct, Vector, str } from "scale-ts";
+import { Bytes, type Codec, Option, Struct, Vector, str } from "scale-ts";
+import type { StoredUserSession } from "@novasamatech/host-papp";
 
 import { sanitizeKey } from "./node-storage.js";
 
-// Mirrors the internal codec in @novasamatech/host-papp's userSessionRepository.
+// Mirror of host-papp's internal stored-session codec (not exported — only the
+// `StoredUserSession` type is). `satisfies` guards drift at build time, the
+// interop test at runtime; field order and the `Bytes(65)` chat key must match.
 const storedUserSessionCodec = Struct({
     id: str,
     localAccount: LocalSessionAccountCodec,
     remoteAccount: RemoteSessionAccountCodec,
-});
+    rootAccountId: AccountIdCodec,
+    identityAccountId: Option(AccountIdCodec),
+    identityChatPublicKey: Option(Bytes(65)),
+}) satisfies Codec<StoredUserSession>;
 const sessionsCodec = Vector(storedUserSessionCodec);
 
 // Mirrors the internal StoredUserSecretsCodec in host-papp's userSecretRepository.
@@ -160,7 +166,7 @@ export interface TestSession {
  * const storageDir = mkdtempSync(join(tmpdir(), "e2e-"));
  * const { sessionId } = await createTestSession({ appId: "dot-cli", storageDir });
  *
- * const adapter = createTerminalAdapter({ appId: "dot-cli", metadataUrl: "…", storageDir });
+ * const adapter = createTerminalAdapter({ appId: "dot-cli", storageDir });
  * const sessions = await waitForSessions(adapter);
  * // sessions[0].id === sessionId
  * ```
@@ -198,6 +204,10 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
             sharedSecret,
             undefined,
         ),
+        // synthesized session: the remote (wallet) account doubles as root.
+        rootAccountId: createAccountId(remotePublicKey),
+        identityAccountId: undefined,
+        identityChatPublicKey: undefined,
     };
 
     await writeFile(
