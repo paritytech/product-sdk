@@ -86,7 +86,7 @@ Update `origin`, `signer`, or `signerManager` after construction. Only the field
 
 ### `ContractManager.fromLive(cdmJson, runtime, options?)` / `fromLiveClient(cdmJson, client, descriptor, options?)`
 
-**Async** factories. Like `fromClient`, but before constructing the manager they resolve each installed contract's address from the **live CDM registry** instead of trusting the address baked into `cdm.json`. ABIs and versions still come from the installed snapshot — only addresses are refreshed.
+**Async** factories. Like `fromClient`, but before constructing the manager they resolve each installed contract's address from the **live CDM registry** instead of trusting the address baked into `cdm.json`. ABIs still come from the installed snapshot — only addresses are refreshed. Dependencies requested as `"latest"` resolve the registry's latest address; pinned numeric dependencies resolve `getAddressAtVersion(...)` so the live address stays aligned with the installed ABI/version.
 
 ```ts
 const manager = await ContractManager.fromLiveClient(cdmJson, client.raw.assetHub, paseo_asset_hub, {

@@ -20,12 +20,32 @@ import type {
 
 type ContractMap = Record<string, CdmJsonContract>;
 type OptionAddress = { isSome: boolean; value: HexString };
+type LiveVersionSpec = number | "latest";
 
 const CDM_REGISTRY_ABI: AbiEntry[] = [
     {
         type: "function",
         name: "getAddress",
         inputs: [{ name: "contract_name", type: "string" }],
+        outputs: [
+            {
+                name: "",
+                type: "tuple",
+                components: [
+                    { name: "isSome", type: "bool" },
+                    { name: "value", type: "address" },
+                ],
+            },
+        ],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "getAddressAtVersion",
+        inputs: [
+            { name: "contract_name", type: "string" },
+            { name: "version", type: "uint32" },
+        ],
         outputs: [
             {
                 name: "",
@@ -69,14 +89,37 @@ function patchContractAddress(cdmJson: CdmJson, library: string, address: HexStr
     contract.address = address;
 }
 
+function resolveLiveVersionSpec(
+    cdmJson: CdmJson,
+    library: string,
+    contract: CdmJsonContract,
+): LiveVersionSpec {
+    const requested = cdmJson.dependencies[library];
+    if (typeof requested === "number" && Number.isInteger(requested) && requested >= 0) {
+        return requested;
+    }
+    if (typeof requested === "string") {
+        if (requested === "latest") return "latest";
+        const parsed = Number(requested);
+        if (Number.isInteger(parsed) && parsed >= 0) return parsed;
+    }
+    return contract.version;
+}
+
 async function queryLiveAddress(
     registry: Contract<ContractDef>,
     library: string,
+    version: LiveVersionSpec,
 ): Promise<HexString> {
-    const result = await registry.getAddress.query(library);
+    const result =
+        version === "latest"
+            ? await registry.getAddress.query(library)
+            : await registry.getAddressAtVersion.query(library, version);
     if (!result.success) {
         throw new ContractLiveAddressResolutionError(
-            `Failed to resolve live address for "${library}" from the CDM registry`,
+            version === "latest"
+                ? `Failed to resolve live address for "${library}" from the CDM registry`
+                : `Failed to resolve live address for "${library}" version ${version} from the CDM registry`,
             { library, detail: result.value },
         );
     }
@@ -84,7 +127,9 @@ async function queryLiveAddress(
     const value = result.value as OptionAddress | undefined;
     if (!value?.isSome) {
         throw new ContractLiveAddressResolutionError(
-            `Contract "${library}" is not registered in the CDM registry`,
+            version === "latest"
+                ? `Contract "${library}" is not registered in the CDM registry`
+                : `Contract "${library}" version ${version} is not registered in the CDM registry`,
             { library, detail: result.value },
         );
     }
@@ -124,10 +169,10 @@ export async function withLiveContractAddresses(
         defaultOrigin: options?.registryOrigin,
     });
     const liveAddresses = await Promise.all(
-        libraries.map(async (library): Promise<readonly [string, HexString]> => [
-            library,
-            await queryLiveAddress(registry, library),
-        ]),
+        libraries.map(async (library): Promise<readonly [string, HexString]> => {
+            const version = resolveLiveVersionSpec(cdmJson, library, contracts[library]);
+            return [library, await queryLiveAddress(registry, library, version)];
+        }),
     );
 
     const resolved = cloneCdmJson(cdmJson);
@@ -433,27 +478,54 @@ if (import.meta.vitest) {
         } as unknown as ContractRuntime;
     }
 
-    async function registryRuntimeFor(value: OptionAddress): Promise<ContractRuntime> {
-        const { encodeFunctionResult, hexToBytes } = await import("viem");
-        const data = hexToBytes(
-            encodeFunctionResult({
-                abi: CDM_REGISTRY_ABI as any,
-                functionName: "getAddress",
-                result: value,
-            }) as `0x${string}`,
+    async function registryRuntimeFor(
+        value:
+            | OptionAddress
+            | ((call: { functionName: string; args: readonly unknown[] }) => OptionAddress),
+    ): Promise<{ runtime: ContractRuntime; calls: { functionName: string; args: unknown[] }[] }> {
+        const { bytesToHex, decodeFunctionData, encodeFunctionResult, hexToBytes } = await import(
+            "viem"
         );
+        const calls: { functionName: string; args: unknown[] }[] = [];
 
-        return {
+        const runtime = {
             ...fakeRuntime(),
-            dryRunCall: async () => ({
-                weight_consumed: { ref_time: 0n, proof_size: 0n },
-                weight_required: { ref_time: 1n, proof_size: 1n },
-                storage_deposit: { type: "Refund", value: 0n },
-                max_storage_deposit: { type: "Refund", value: 0n },
-                gas_consumed: 0n,
-                result: { success: true, value: { flags: 0, data } },
-            }),
+            dryRunCall: async (
+                _origin: unknown,
+                _dest: unknown,
+                _value: unknown,
+                _gasLimit: unknown,
+                _storageDepositLimit: unknown,
+                calldata: Uint8Array,
+            ) => {
+                const decoded = decodeFunctionData({
+                    abi: CDM_REGISTRY_ABI as any,
+                    data: bytesToHex(calldata),
+                });
+                const call = {
+                    functionName: decoded.functionName,
+                    args: [...(decoded.args ?? [])],
+                };
+                calls.push(call);
+                const resultValue = typeof value === "function" ? value(call) : value;
+                const data = hexToBytes(
+                    encodeFunctionResult({
+                        abi: CDM_REGISTRY_ABI as any,
+                        functionName: decoded.functionName,
+                        result: resultValue,
+                    }) as `0x${string}`,
+                );
+                return {
+                    weight_consumed: { ref_time: 0n, proof_size: 0n },
+                    weight_required: { ref_time: 1n, proof_size: 1n },
+                    storage_deposit: { type: "Refund" as const, value: 0n },
+                    max_storage_deposit: { type: "Refund" as const, value: 0n },
+                    gas_consumed: 0n,
+                    result: { success: true, value: { flags: 0, data } },
+                };
+            },
         };
+        return { runtime, calls };
     }
 
     describe("ContractManager — cdm.json resolution", () => {
@@ -484,20 +556,70 @@ if (import.meta.vitest) {
 
         test("strictly patches flattened manifests with live registry addresses", async () => {
             const liveAddress = "0x7777777777777777777777777777777777777777";
-            const runtime = await registryRuntimeFor({ isSome: true, value: liveAddress });
+            const { runtime, calls } = await registryRuntimeFor({
+                isSome: true,
+                value: liveAddress,
+            });
 
             const resolved = await withLiveContractAddresses(flattenedCdm, runtime, {
                 registryOrigin: "5LiveOrigin" as SS58String,
             });
 
             expect(resolved.contracts?.["@w3s/playground-registry"].address).toBe(liveAddress);
+            expect(calls[0]).toMatchObject({
+                functionName: "getAddress",
+                args: ["@w3s/playground-registry"],
+            });
             expect(flattenedCdm.contracts?.["@w3s/playground-registry"].address).toBe(
                 "0x4A37B123b0BA2A894cA5953f472264921d44e298",
             );
         });
 
+        test("uses versioned registry lookup for pinned dependencies", async () => {
+            const latestAddress = "0x7777777777777777777777777777777777777777";
+            const versionedAddress = "0x6666666666666666666666666666666666666666";
+            const { runtime, calls } = await registryRuntimeFor(({ functionName }) => ({
+                isSome: true,
+                value: functionName === "getAddressAtVersion" ? versionedAddress : latestAddress,
+            }));
+            const pinnedCdm: CdmJson = {
+                ...flattenedCdm,
+                dependencies: {
+                    "@w3s/playground-registry": 6,
+                },
+            };
+
+            const resolved = await withLiveContractAddresses(pinnedCdm, runtime);
+
+            expect(resolved.contracts?.["@w3s/playground-registry"].address).toBe(versionedAddress);
+            expect(calls[0]).toMatchObject({
+                functionName: "getAddressAtVersion",
+                args: ["@w3s/playground-registry", 6],
+            });
+        });
+
+        test("falls back to installed contract version when dependency entry is absent", async () => {
+            const versionedAddress = "0x5555555555555555555555555555555555555555";
+            const { runtime, calls } = await registryRuntimeFor({
+                isSome: true,
+                value: versionedAddress,
+            });
+            const missingDependencyCdm: CdmJson = {
+                ...flattenedCdm,
+                dependencies: {},
+            };
+
+            const resolved = await withLiveContractAddresses(missingDependencyCdm, runtime);
+
+            expect(resolved.contracts?.["@w3s/playground-registry"].address).toBe(versionedAddress);
+            expect(calls[0]).toMatchObject({
+                functionName: "getAddressAtVersion",
+                args: ["@w3s/playground-registry", 6],
+            });
+        });
+
         test("live registry resolution fails instead of falling back to the snapshot", async () => {
-            const runtime = await registryRuntimeFor({
+            const { runtime } = await registryRuntimeFor({
                 isSome: false,
                 value: "0x0000000000000000000000000000000000000000",
             });
