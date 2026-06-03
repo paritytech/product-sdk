@@ -36,7 +36,11 @@
 import type { SignerAccount } from "@parity/product-sdk-signer";
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
-import { ContractManager, ensureContractAccountMapped } from "@parity/product-sdk-contracts";
+import {
+    ContractManager,
+    ensureContractAccountMapped,
+    type CdmJson,
+} from "@parity/product-sdk-contracts";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 import cdm from "./cdm.json";
@@ -272,7 +276,7 @@ async function init() {
         // upgrade. Pass the raw client + descriptor so it can wire up both
         // typed (extrinsics + storage) and unsafe (dry-run) paths.
         contractManager = ContractManager.fromClient(
-            cdm as never,
+            cdm as CdmJson,
             chain.raw.assetHub,
             paseo_asset_hub,
             { signerManager: manager },

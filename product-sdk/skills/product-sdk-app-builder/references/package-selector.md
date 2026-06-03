@@ -11,10 +11,10 @@ START
 │  YES → @parity/product-sdk-chain-client + polkadot-api (always required)
 │  │
 │  ├─ Want zero-config for a known environment (paseo/polkadot/kusama)?
-│  │  YES → getChainAPI("paseo") — built-in descriptors + RPCs
+│  │  YES → getChainAPI("paseo") — built-in descriptors
 │  │
-│  └─ Need custom chains, custom RPCs, or minimal bundle?
-│     YES → createChainClient({ chains, rpcs }) — bring your own descriptors
+│  └─ Need custom chains or minimal bundle?
+│     YES → createChainClient({ chains }) — bring your own descriptors
 │
 ├─ Need to submit transactions?
 │  YES → @parity/product-sdk-tx

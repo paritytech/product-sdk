@@ -40,9 +40,10 @@ needs a live deployment. The next step is identical to the existing
 ```ts
 import { createContractFromClient } from "@parity/product-sdk-contracts";
 import { loadPvmContractAbi } from "@parity/product-sdk-contracts/pvm";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 const abi = await loadPvmContractAbi("./target/counter.release.abi.json");
-const counter = await createContractFromClient(client, "0xC472...", abi);
+const counter = createContractFromClient(client, paseo_asset_hub, "0xC472...", abi);
 
 const { value } = await counter.get.query();
 await counter.increment.tx(1, { signer });

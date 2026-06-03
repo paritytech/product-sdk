@@ -1,105 +1,212 @@
 {
-    "targets": {
-        "929b5c63e2cb5202": {
-            "asset-hub": "wss://paseo-asset-hub-next-rpc.polkadot.io",
-            "bulletin": "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
-            "registry": "0xa7ae171c78f06c248a9b2556c793aa1df5c9173a"
-        }
-    },
+    "registry": "0xa7ae171c78f06c248a9b2556c793aa1df5c9173a",
     "dependencies": {
-        "929b5c63e2cb5202": {
-            "@t3rminal/bulletin-index": 3
-        }
+        "@t3rminal/bulletin-index": 3
     },
     "contracts": {
-        "929b5c63e2cb5202": {
-            "@t3rminal/bulletin-index": {
-                "version": 3,
-                "address": "0xD35CFc6E9F07B42Cc524A9Fa4A001F6ac90586E2",
-                "abi": [
-                    {
-                        "anonymous": false,
-                        "inputs": [
-                            { "indexed": true, "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
-                            { "indexed": true, "internalType": "string", "name": "date", "type": "string" },
-                            { "indexed": false, "internalType": "string", "name": "cid", "type": "string" },
-                            { "indexed": false, "internalType": "uint256", "name": "entryCount", "type": "uint256" },
-                            { "indexed": false, "internalType": "address", "name": "writer", "type": "address" }
-                        ],
-                        "name": "DailyReportStored",
-                        "type": "event"
-                    },
-                    {
-                        "inputs": [
-                            { "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
-                            { "internalType": "string", "name": "date", "type": "string" }
-                        ],
-                        "name": "dateExists",
-                        "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
-                        "stateMutability": "view",
-                        "type": "function"
-                    },
-                    {
-                        "inputs": [{ "internalType": "bytes32", "name": "shopKey", "type": "bytes32" }],
-                        "name": "getAllDates",
-                        "outputs": [{ "internalType": "string[]", "name": "", "type": "string[]" }],
-                        "stateMutability": "view",
-                        "type": "function"
-                    },
-                    {
-                        "inputs": [
-                            { "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
-                            { "internalType": "string", "name": "date", "type": "string" }
-                        ],
-                        "name": "getCID",
-                        "outputs": [{ "internalType": "string", "name": "", "type": "string" }],
-                        "stateMutability": "view",
-                        "type": "function"
-                    },
-                    {
-                        "inputs": [
-                            { "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
-                            { "internalType": "string", "name": "date", "type": "string" }
-                        ],
-                        "name": "getMetadata",
-                        "outputs": [
-                            {
-                                "components": [
-                                    { "internalType": "string", "name": "cid", "type": "string" },
-                                    { "internalType": "uint256", "name": "entryCount", "type": "uint256" },
-                                    { "internalType": "uint256", "name": "publishedAt", "type": "uint256" },
-                                    { "internalType": "bool", "name": "exists", "type": "bool" }
-                                ],
-                                "internalType": "struct IT3rminalBulletinIndex.DayMetadata",
-                                "name": "",
-                                "type": "tuple"
-                            }
-                        ],
-                        "stateMutability": "view",
-                        "type": "function"
-                    },
-                    {
-                        "inputs": [{ "internalType": "bytes32", "name": "shopKey", "type": "bytes32" }],
-                        "name": "getReportCount",
-                        "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-                        "stateMutability": "view",
-                        "type": "function"
-                    },
-                    {
-                        "inputs": [
-                            { "internalType": "bytes32", "name": "shopKey", "type": "bytes32" },
-                            { "internalType": "string", "name": "date", "type": "string" },
-                            { "internalType": "string", "name": "cid", "type": "string" },
-                            { "internalType": "uint256", "name": "entryCount", "type": "uint256" }
-                        ],
-                        "name": "storeDailyReport",
-                        "outputs": [],
-                        "stateMutability": "nonpayable",
-                        "type": "function"
-                    }
-                ],
-                "metadataCid": "bafk2bzacecs43cb4byqnwi4p7fj5iqzyrbluuwbp5aho2gxyxrzuqp5jkedn2"
-            }
+        "@t3rminal/bulletin-index": {
+            "version": 3,
+            "address": "0xD35CFc6E9F07B42Cc524A9Fa4A001F6ac90586E2",
+            "abi": [
+                {
+                    "anonymous": false,
+                    "inputs": [
+                        {
+                            "indexed": true,
+                            "internalType": "bytes32",
+                            "name": "shopKey",
+                            "type": "bytes32"
+                        },
+                        {
+                            "indexed": true,
+                            "internalType": "string",
+                            "name": "date",
+                            "type": "string"
+                        },
+                        {
+                            "indexed": false,
+                            "internalType": "string",
+                            "name": "cid",
+                            "type": "string"
+                        },
+                        {
+                            "indexed": false,
+                            "internalType": "uint256",
+                            "name": "entryCount",
+                            "type": "uint256"
+                        },
+                        {
+                            "indexed": false,
+                            "internalType": "address",
+                            "name": "writer",
+                            "type": "address"
+                        }
+                    ],
+                    "name": "DailyReportStored",
+                    "type": "event"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "bytes32",
+                            "name": "shopKey",
+                            "type": "bytes32"
+                        },
+                        {
+                            "internalType": "string",
+                            "name": "date",
+                            "type": "string"
+                        }
+                    ],
+                    "name": "dateExists",
+                    "outputs": [
+                        {
+                            "internalType": "bool",
+                            "name": "",
+                            "type": "bool"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "bytes32",
+                            "name": "shopKey",
+                            "type": "bytes32"
+                        }
+                    ],
+                    "name": "getAllDates",
+                    "outputs": [
+                        {
+                            "internalType": "string[]",
+                            "name": "",
+                            "type": "string[]"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "bytes32",
+                            "name": "shopKey",
+                            "type": "bytes32"
+                        },
+                        {
+                            "internalType": "string",
+                            "name": "date",
+                            "type": "string"
+                        }
+                    ],
+                    "name": "getCID",
+                    "outputs": [
+                        {
+                            "internalType": "string",
+                            "name": "",
+                            "type": "string"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "bytes32",
+                            "name": "shopKey",
+                            "type": "bytes32"
+                        },
+                        {
+                            "internalType": "string",
+                            "name": "date",
+                            "type": "string"
+                        }
+                    ],
+                    "name": "getMetadata",
+                    "outputs": [
+                        {
+                            "components": [
+                                {
+                                    "internalType": "string",
+                                    "name": "cid",
+                                    "type": "string"
+                                },
+                                {
+                                    "internalType": "uint256",
+                                    "name": "entryCount",
+                                    "type": "uint256"
+                                },
+                                {
+                                    "internalType": "uint256",
+                                    "name": "publishedAt",
+                                    "type": "uint256"
+                                },
+                                {
+                                    "internalType": "bool",
+                                    "name": "exists",
+                                    "type": "bool"
+                                }
+                            ],
+                            "internalType": "struct IT3rminalBulletinIndex.DayMetadata",
+                            "name": "",
+                            "type": "tuple"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "bytes32",
+                            "name": "shopKey",
+                            "type": "bytes32"
+                        }
+                    ],
+                    "name": "getReportCount",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "bytes32",
+                            "name": "shopKey",
+                            "type": "bytes32"
+                        },
+                        {
+                            "internalType": "string",
+                            "name": "date",
+                            "type": "string"
+                        },
+                        {
+                            "internalType": "string",
+                            "name": "cid",
+                            "type": "string"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "entryCount",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "storeDailyReport",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ],
+            "metadataCid": "bafk2bzacecs43cb4byqnwi4p7fj5iqzyrbluuwbp5aho2gxyxrzuqp5jkedn2"
         }
     }
 }

@@ -144,11 +144,7 @@ export async function createApp(config: AppConfig): Promise<App> {
 
         async connect<T extends Record<string, ChainDefinition>>(chains: T) {
             log.debug("connect called", { chains: Object.keys(chains) });
-            // Build empty rpcs object (required by API but unused - host routes connections)
-            const rpcs = Object.fromEntries(
-                Object.keys(chains).map((k) => [k, [] as readonly string[]]),
-            ) as { [K in keyof T]: readonly string[] };
-            return createChainClient({ chains, rpcs });
+            return createChainClient({ chains });
         },
 
         isConnected(descriptor) {

@@ -233,14 +233,14 @@ const counterAbi = [
 async function main() {
     const client = await createChainClient({
         chains: { assetHub: paseo_asset_hub },
-        rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
     });
 
     const signerManager = new SignerManager();
     await signerManager.connect();
 
-    const counter = await createContractFromClient(
+    const counter = createContractFromClient(
         client.raw.assetHub,
+        paseo_asset_hub,
         "0xYourContractAddress...",
         counterAbi,
         { signerManager }

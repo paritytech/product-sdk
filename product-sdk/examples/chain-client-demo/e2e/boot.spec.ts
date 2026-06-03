@@ -15,7 +15,7 @@ import { waitForAppReady } from "./helpers";
  *
  * Host API surface tested:
  *   - chain-client provider routing via host genesis hash matching
- *   - createChainClient with BYOD descriptor/RPCs
+ *   - createChainClient with BYOD descriptors
  *   - isConnected(descriptor) -> synchronous cache lookup
  */
 test.describe("@parity/product-sdk-chain-client via Host API — BYOD", () => {

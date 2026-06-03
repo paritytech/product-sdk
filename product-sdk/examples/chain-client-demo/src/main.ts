@@ -9,7 +9,7 @@
  * Flow inside the host-api-test-sdk test host:
  *   1. SignerManager.connect() auto-detects -> HostProvider (product-sdk)
  *   2. Host responds with Bob's non-product account
- *   3. BYOD: createChainClient({ chains: { assetHub }, rpcs: {...} }) connects via host
+ *   3. BYOD: createChainClient({ chains: { assetHub } }) connects via host
  *   4. isConnected(descriptor) verifies connection state
  *   5. Controls allow refresh and destroy operations
  *
@@ -126,7 +126,6 @@ async function init() {
     try {
         byodClient = await createChainClient({
             chains: { assetHub: paseo_asset_hub },
-            rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
         });
         log("BYOD connected", "ok");
 

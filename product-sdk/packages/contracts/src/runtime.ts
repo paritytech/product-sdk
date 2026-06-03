@@ -134,7 +134,6 @@ export type ReviveDryRunCall = (
  *
  * const client = await createChainClient({
  *     chains: { assetHub: paseo_asset_hub },
- *     rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
  * });
  * const runtime = createContractRuntimeFromClient(client.raw.assetHub, paseo_asset_hub);
  * ```

@@ -35,7 +35,6 @@ import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
 const account = await client.assetHub.query.System.Account.getValue(
@@ -49,9 +48,8 @@ client.destroy();
 
 | | `getChainAPI` (Preset) | `createChainClient` (BYOD) |
 |---|---|---|
-| **When** | Known environments (paseo, polkadot, kusama) | Custom chains, custom RPCs, or subset of chains |
+| **When** | Known environments (paseo, polkadot, kusama) | Custom chains or a subset of chains |
 | **Descriptors** | Built-in, lazy-loaded | You import and provide them |
-| **RPCs** | Built-in | You provide them |
 | **Chains** | Always assetHub + bulletin + individuality | Any combination you choose |
 | **Bundle size** | Slightly larger (~6.3 MB for all 3 chains) | Minimal (only what you import) |
 
@@ -59,7 +57,6 @@ client.destroy();
 
 **Use `createChainClient`** when you need:
 - Only one chain (e.g., just Asset Hub for contracts)
-- Custom RPC endpoints
 - Chains not in the preset list
 - Minimal bundle size
 

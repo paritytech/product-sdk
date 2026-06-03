@@ -1,5 +1,24 @@
 # @parity/product-sdk-host
 
+## 0.6.1
+
+### Patch Changes
+
+- dc3a452: Bump `@novasamatech/host-api` and `@novasamatech/host-api-wrapper` to `^0.8.4`.
+
+  0.8.4 ships the `getLegacyAccountSigner` SS58 fix: the wrapper now sends an
+  SS58 address as the wire `signer` instead of a raw hex public key, so
+  legacy-account `signRaw`/`signPayload` are accepted by the wallet instead of
+  rejected. Fixes the root cause behind
+  [paritytech/product-sdk#156](https://github.com/paritytech/product-sdk/issues/156).
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+
 ## 0.6.0
 
 ### Minor Changes

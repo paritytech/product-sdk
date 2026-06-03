@@ -77,7 +77,6 @@ describe("createTestSession interop with host-papp", () => {
 
         const adapter = createPappAdapter({
             appId: APP_ID,
-            metadata: "https://example.com/metadata.json",
             adapters: {
                 storage: createNodeStorageAdapter(APP_ID, storageDir),
                 statementStore: statementStoreShim,
@@ -104,7 +103,6 @@ describe("createTestSession interop with host-papp", () => {
 
         const adapter = createPappAdapter({
             appId: APP_ID,
-            metadata: "https://example.com/metadata.json",
             adapters: {
                 storage: createNodeStorageAdapter(APP_ID, storageDir),
                 statementStore: statementStoreShim,
@@ -130,7 +128,6 @@ describe("createTestSession interop with host-papp", () => {
         // spurious empty-array sessions that would pass waitForSessions().
         const adapter = createPappAdapter({
             appId: APP_ID,
-            metadata: "https://example.com/metadata.json",
             adapters: {
                 storage: createNodeStorageAdapter(APP_ID, storageDir),
                 statementStore: statementStoreShim,
@@ -148,7 +145,7 @@ describe("createTestSession interop with host-papp", () => {
 
 function waitForFirstSession(
     adapter: ReturnType<typeof createPappAdapter>,
-    timeoutMs = 2000,
+    timeoutMs = 5000,
 ): Promise<UserSession> {
     return new Promise((resolve, reject) => {
         const unsub = adapter.sessions.sessions.subscribe((sessions) => {

@@ -16,22 +16,7 @@ pnpm add @parity/product-sdk-terminal
 
 **Requires Node ≥21.** The package relies on the global `WebSocket` exposed by Node 21+ (via `@polkadot-api/ws-provider@0.9`). On older Node versions the WebSocket connection fails at runtime with `WebSocket is not defined`.
 
-**Register the WASM loader** — the host-papp SDK depends on `verifiablejs` which uses inline WASM (browser-only). The register hook redirects it to the Node.js WASM build. Pass it via `--import`:
-
-```bash
-node --import @parity/product-sdk-terminal/register app.js
-tsx --import @parity/product-sdk-terminal/register app.ts
-```
-
-Or in your `package.json` scripts:
-
-```json
-{
-    "scripts": {
-        "start": "tsx --import @parity/product-sdk-terminal/register index.ts"
-    }
-}
-```
+> **Note (≥0.3):** The `@parity/product-sdk-terminal/register` WASM loader hook has been removed. It existed only to patch `verifiablejs` (a browser-only inline-WASM dependency of `@novasamatech/host-papp`). host-papp ≥0.7.9 no longer uses `verifiablejs` — its sr25519 primitives are pure JS — so no loader hook is needed. Drop any `--import @parity/product-sdk-terminal/register` flags from your `node`/`tsx` invocations.
 
 ## Quick Start
 
@@ -41,7 +26,6 @@ import { createTerminalAdapter, renderQrCode, waitForSessions } from "@parity/pr
 // 1. Create the adapter
 const adapter = createTerminalAdapter({
     appId: "my-terminal-app",
-    metadataUrl: "https://example.com/metadata.json",
 });
 
 // 2. Subscribe to pairing status to show the QR code
@@ -79,7 +63,6 @@ Creates a terminal adapter backed by the host-papp SDK.
 
 **Options:**
 - `appId` -- unique app identifier (used as storage namespace)
-- `metadataUrl` -- URL to metadata JSON shown during pairing
 - `endpoints?` -- statement store WebSocket endpoints (defaults to Paseo)
 - `hostMetadata?` -- optional host environment info
 - `storageDir?` -- override the on-disk session directory (defaults to `~/.polkadot-apps/`). Useful in tests and containerised environments.
@@ -174,7 +157,7 @@ For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing se
 | Concern | `@polkadot-apps/terminal` | `@parity/product-sdk-terminal` |
 | --- | --- | --- |
 | Package name | `@polkadot-apps/terminal` | `@parity/product-sdk-terminal` |
-| Register import path | `--import @polkadot-apps/terminal/register` | `--import @parity/product-sdk-terminal/register` |
+| WASM loader hook | `--import @polkadot-apps/terminal/register` (required) | **removed** — no `--import` needed (host-papp ≥0.7.9 dropped `verifiablejs`) |
 | `createTerminalAdapter` | `async` — returned `Promise<TerminalAdapter>` | **sync** — returns `TerminalAdapter` directly. Drop the `await`. |
 | Default account signer | `createSessionSigner(session)` | `createSessionSigner(session, adapter)` — pass the adapter as second arg |
 | Non-default sub-account signer | not exposed | `createSessionSignerForAccount(session, { productId, derivationIndex })` |
@@ -195,7 +178,7 @@ The single-argument `createSessionSigner(session)` from `@polkadot-apps/terminal
 ### Migration steps
 
 1. **Replace the dep**: `pnpm remove @polkadot-apps/terminal && pnpm add @parity/product-sdk-terminal`
-2. **Update the `--import` flag** in your `node` / `tsx` invocations or `package.json` scripts.
+2. **Remove the `--import @.../register` flag** from your `node` / `tsx` invocations or `package.json` scripts — the WASM loader hook no longer exists (and is no longer needed).
 3. **Drop `await`** in front of `createTerminalAdapter(...)` calls.
 4. **Update each `createSessionSigner` call site**: change `createSessionSigner(session)` → `createSessionSigner(session, adapter)`.
 5. **Verify Node version** is ≥21 (`node --version`).
@@ -221,7 +204,6 @@ const { sessionId } = await createTestSession({
 
 const adapter = createTerminalAdapter({
     appId: "my-terminal-app",
-    metadataUrl: "https://example.com/metadata.json",
     storageDir,
 });
 const sessions = await waitForSessions(adapter);
@@ -251,16 +233,6 @@ After login and attestation, the paired wallet can sign both transactions and ra
 The adapter uses `@polkadot-api/ws-provider@0.9`, which relies on the global `WebSocket` exposed by Node ≥21. Older Node versions (18, 20) will fail at connect time with `WebSocket is not defined` — upgrade Node, or pass an explicit `websocketClass` from the [`ws`](https://www.npmjs.com/package/ws) package.
 
 The default WebSocket is constructed without `followRedirects: true`, so endpoints behind an HTTP redirect will fail to connect. If you must point at an endpoint that does, supply the resolved URL directly via the `endpoints` option.
-
-### `ExperimentalWarning: Importing WebAssembly module instances`
-
-You'll see this warning at startup:
-
-```
-(node:NNNNN) ExperimentalWarning: Importing WebAssembly module instances is an experimental feature and might change at any time
-```
-
-It's emitted by Node when the loader hook imports the `verifiablejs` WASM. Harmless. To silence it, run with `--no-warnings=ExperimentalWarning`.
 
 ## How It Works
 
