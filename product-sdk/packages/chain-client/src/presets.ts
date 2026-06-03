@@ -1,7 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import type { ChainDefinition } from "polkadot-api";
-import { BULLETIN_RPCS } from "@parity/product-sdk-host";
 import { createChainClient } from "./clients.js";
 import type { ChainClient } from "./types.js";
 
@@ -16,35 +15,11 @@ import type { paseo_asset_hub as PaseoAssetHubDef } from "@parity/product-sdk-de
 import type { paseo_bulletin as PaseoBulletinDef } from "@parity/product-sdk-descriptors/paseo-bulletin";
 import type { paseo_individuality as PaseoIndividualityDef } from "@parity/product-sdk-descriptors/paseo-individuality";
 
-/** Known network environment with built-in descriptors and RPC endpoints. */
+/** Known network environment with built-in descriptors. */
 export type Environment = "polkadot" | "kusama" | "paseo";
 
 /** Environments where all chains (asset hub, bulletin, individuality) are live. */
 const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo"]);
-
-const rpcs = {
-    polkadot: {
-        assetHub: [
-            "wss://polkadot-asset-hub-rpc.polkadot.io",
-            "wss://sys.ibp.network/asset-hub-polkadot",
-        ],
-        bulletin: [...BULLETIN_RPCS.polkadot],
-        individuality: [] as string[],
-    },
-    kusama: {
-        assetHub: [
-            "wss://kusama-asset-hub-rpc.polkadot.io",
-            "wss://sys.ibp.network/asset-hub-kusama",
-        ],
-        bulletin: [...BULLETIN_RPCS.kusama],
-        individuality: [] as string[],
-    },
-    paseo: {
-        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
-        bulletin: [...BULLETIN_RPCS.paseo],
-        individuality: ["wss://paseo-people-next-system-rpc.polkadot.io"],
-    },
-} as const;
 
 /**
  * Lazy-load descriptors for a specific environment.
@@ -121,7 +96,7 @@ type PresetDescriptors = {
 export type PresetChains<E extends Environment> = PresetDescriptors[E];
 
 /**
- * Get a chain client for a known environment with built-in descriptors and RPCs.
+ * Get a chain client for a known environment with built-in descriptors.
  *
  * This is the **zero-config** path — no need to import descriptors or specify
  * endpoints. For custom chains or BYOD descriptors, use
@@ -156,18 +131,12 @@ export async function getChainAPI<E extends Environment>(
     }
 
     const descriptors = await loadDescriptors(env);
-    const envRpcs = rpcs[env];
 
     return createChainClient({
         chains: {
             assetHub: descriptors.assetHub,
             bulletin: descriptors.bulletin,
             individuality: descriptors.individuality,
-        },
-        rpcs: {
-            assetHub: [...envRpcs.assetHub],
-            bulletin: [...envRpcs.bulletin],
-            individuality: [...envRpcs.individuality],
         },
     }) as Promise<ChainClient<PresetChains<E>>>;
 }
@@ -180,9 +149,9 @@ if (import.meta.vitest) {
     const GENESIS = {
         polkadot_asset_hub: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
         kusama_asset_hub: "0x48239ef607d7928874027a43a67689209727dfb3d3dc5e5b03a39bdc2eda771a",
-        paseo_asset_hub: "0x173cea9df45656cf612c8b8ece56e04e9a693c69cfaac47d3628dae735067af8",
+        paseo_asset_hub: "0xbf0488dbe9daa1de1c08c5f743e26fdc2a4ecd74cf87dd1b4b1eeb99ae4ef19f",
         paseo_bulletin: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
-        paseo_individuality: "0x053e1a785bb0990b98768124d9609e963d9ca3558f5ac6e90a4297aaa0a0bd4b",
+        paseo_individuality: "0xc5af1826b31493f08b7e2a823842f98575b806a784126f28da9608c68665afa5",
     } as const;
 
     beforeEach(() => {
@@ -195,21 +164,6 @@ if (import.meta.vitest) {
         for (const hash of Object.values(GENESIS)) {
             expect(hash).toMatch(/^0x[a-f0-9]{64}$/);
         }
-    });
-
-    // --- RPC config ---
-
-    test("rpcs defined for all environments", () => {
-        for (const env of ["polkadot", "kusama", "paseo"] as const) {
-            const envRpcs = rpcs[env];
-            expect(envRpcs.assetHub.length).toBeGreaterThan(0);
-        }
-    });
-
-    test("paseo has RPCs for all chains", () => {
-        const envRpcs = rpcs.paseo;
-        expect(envRpcs.bulletin.length).toBeGreaterThan(0);
-        expect(envRpcs.individuality.length).toBeGreaterThan(0);
     });
 
     // --- getChainAPI ---

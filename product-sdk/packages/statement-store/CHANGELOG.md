@@ -1,5 +1,62 @@
 # @parity/product-sdk-statement-store
 
+## 0.4.1
+
+### Patch Changes
+
+- dc3a452: Bump `@novasamatech/host-api` and `@novasamatech/host-api-wrapper` to `^0.8.4`.
+
+  0.8.4 ships the `getLegacyAccountSigner` SS58 fix: the wrapper now sends an
+  SS58 address as the wire `signer` instead of a raw hex public key, so
+  legacy-account `signRaw`/`signPayload` are accepted by the wallet instead of
+  rejected. Fixes the root cause behind
+  [paritytech/product-sdk#156](https://github.com/paritytech/product-sdk/issues/156).
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-host@0.6.1
+
+## 0.4.0
+
+### Minor Changes
+
+- 551c1bb: **Migrate to `@novasamatech/host-api(-wrapper)` v0.8.**
+
+  Hosts now deliver `host-api` 0.8, and products must run a matching
+  `@novasamatech/host-api-wrapper` — v0.8 is wire-incompatible with v0.7.
+  The catalog now pins both at `^0.8.0`, and the `host` / `statement-store`
+  peer ranges require `>=0.8.0`. The Polkadot Module / SSO integration
+  (`@novasamatech/host-papp` and friends, used by
+  `@parity/product-sdk-terminal`) intentionally stays on 0.7.x for now, so
+  `terminal` is unchanged.
+
+  Breaking changes surfaced to consumers of these packages:
+
+  - **`@parity/product-sdk-host` — theme payload is now a struct.** The
+    `subscribeTheme` callback (`getThemeProvider`) delivers a `ThemeMode`
+    `{ name, variant }` object instead of a flat `"Light" | "Dark"` string.
+    Read `theme.variant` for the light/dark value and `theme.name` for the
+    theme name (`{ tag: "Default" }` or `{ tag: "Custom", value }`). New
+    `ThemeVariant` and `ThemeName` types are exported.
+  - **`@parity/product-sdk-host` — resource-allocation tag renamed.** The
+    `AllocatableResource` / `AllocatableResourceTag` value `BulletInAllowance`
+    is now `BulletinAllowance`; the `RemotePermission` tag `WebRTC` is now
+    `WebRtc` (pure renames from the upstream codec).
+  - **`@parity/product-sdk-signer` / `@parity/product-sdk-statement-store`**
+    now require the v0.8 wrapper to stay wire-compatible with a v0.8 host.
+
+### Patch Changes
+
+- Updated dependencies [551c1bb]
+  - @parity/product-sdk-host@0.6.0
+
 ## 0.3.0
 
 ### Minor Changes

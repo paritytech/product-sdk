@@ -1,5 +1,118 @@
 # @parity/product-sdk
 
+## 0.9.0
+
+### Minor Changes
+
+- dc3a452: **Add `HostProviderOptions.productAccount` for product-account-only apps.**
+
+  Apps that sign exclusively with a per-dapp derived product account (no
+  wallet picker — typical for the modern PoP-mediated flow) can now pass
+  `productAccount: { dotNsIdentifier, derivationIndex? }` when constructing
+  `HostProvider`. When set, `connect()`:
+
+  - Skips `getLegacyAccounts()` entirely.
+  - Fetches the product account via `getProductAccount(dotNsIdentifier, derivationIndex)`.
+  - Best-effort fetches the user's primary username via `getUserId()`
+    and uses it as `SignerAccount.name` so apps can render
+    `Hello, {name}` instead of a truncated address. Failures
+    (`NotConnected`, `PermissionDenied`, codec drift) leave `name` null —
+    connect still succeeds, callers fall back to whatever display rule
+    they already use.
+  - Returns it as a single-element `SignerAccount[]` so it flows into
+    `SignerState.accounts` and becomes `selectedAccount` like any other
+    account.
+  - Wires `getSigner` through `getProductAccountSigner` (pinned to
+    `createTransaction`).
+
+  This obsoletes the ~25-line `class extends HostProvider` workaround every
+  product app was carrying. Critically, it also fixes a v0.5.0 regression:
+  when the host returns no legacy accounts, `super.connect()` rejects with
+  `NoAccountsError` _before_ any product-account fetch can happen — leaving
+  product-only apps stuck in `status: "disconnected"`. The new option
+  bypasses that branch entirely.
+
+  Existing consumers (apps that don't set `productAccount`) see no
+  behavior change.
+
+  Example:
+
+  ```ts
+  new HostProvider({
+    productAccount: { dotNsIdentifier: "myapp.dot" },
+  });
+  ```
+
+### Patch Changes
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-host@0.6.1
+  - @parity/product-sdk-signer@0.6.0
+  - @parity/product-sdk-chain-client@0.5.3
+  - @parity/product-sdk-cloud-storage@0.5.3
+  - @parity/product-sdk-contracts@0.7.0
+  - @parity/product-sdk-keys@0.3.3
+  - @parity/product-sdk-tx@0.2.7
+  - @parity/product-sdk-local-storage@0.2.2
+
+## 0.8.0
+
+### Minor Changes
+
+- 551c1bb: **Migrate to `@novasamatech/host-api(-wrapper)` v0.8.**
+
+  Hosts now deliver `host-api` 0.8, and products must run a matching
+  `@novasamatech/host-api-wrapper` — v0.8 is wire-incompatible with v0.7.
+  The catalog now pins both at `^0.8.0`, and the `host` / `statement-store`
+  peer ranges require `>=0.8.0`. The Polkadot Module / SSO integration
+  (`@novasamatech/host-papp` and friends, used by
+  `@parity/product-sdk-terminal`) intentionally stays on 0.7.x for now, so
+  `terminal` is unchanged.
+
+  Breaking changes surfaced to consumers of these packages:
+
+  - **`@parity/product-sdk-host` — theme payload is now a struct.** The
+    `subscribeTheme` callback (`getThemeProvider`) delivers a `ThemeMode`
+    `{ name, variant }` object instead of a flat `"Light" | "Dark"` string.
+    Read `theme.variant` for the light/dark value and `theme.name` for the
+    theme name (`{ tag: "Default" }` or `{ tag: "Custom", value }`). New
+    `ThemeVariant` and `ThemeName` types are exported.
+  - **`@parity/product-sdk-host` — resource-allocation tag renamed.** The
+    `AllocatableResource` / `AllocatableResourceTag` value `BulletInAllowance`
+    is now `BulletinAllowance`; the `RemotePermission` tag `WebRTC` is now
+    `WebRtc` (pure renames from the upstream codec).
+  - **`@parity/product-sdk-signer` / `@parity/product-sdk-statement-store`**
+    now require the v0.8 wrapper to stay wire-compatible with a v0.8 host.
+
+### Patch Changes
+
+- Updated dependencies [551c1bb]
+  - @parity/product-sdk-host@0.6.0
+  - @parity/product-sdk-signer@0.5.0
+  - @parity/product-sdk-chain-client@0.5.2
+  - @parity/product-sdk-cloud-storage@0.5.2
+  - @parity/product-sdk-local-storage@0.2.1
+  - @parity/product-sdk-contracts@0.6.2
+  - @parity/product-sdk-keys@0.3.2
+  - @parity/product-sdk-tx@0.2.6
+
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [2498950]
+  - @parity/product-sdk-contracts@0.6.1
+
+## 0.7.1
+
+### Patch Changes
+
+- @parity/product-sdk-chain-client@0.5.1
+- @parity/product-sdk-cloud-storage@0.5.1
+
 ## 0.7.0
 
 ### Minor Changes

@@ -10,7 +10,7 @@ pnpm add @parity/product-sdk-contracts
 
 ## Quick start (with cdm.json)
 
-The `cdm.json` flow is the primary path. A `cdm.json` manifest in your project root pins each contract to an address + ABI per target chain; `ContractManager.fromClient(cdm, client, descriptor)` resolves them at runtime.
+The `cdm.json` flow is the primary path. A `cdm.json` manifest in your project root pins each installed contract to an address + ABI; `ContractManager.fromClient(cdm, client, descriptor)` resolves them at runtime.
 
 ```ts
 import { createChainClient } from "@parity/product-sdk-chain-client";
@@ -21,7 +21,6 @@ import cdmJson from "./cdm.json";
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
 const signerManager = new SignerManager();
@@ -55,7 +54,6 @@ Synchronous factory. Builds a `ContractRuntime` internally that wires the typed 
 | `options.signerManager?` | `SignerManager` | Resolves signer + origin from the logged-in account |
 | `options.defaultOrigin?` | `SS58String` | Static fallback origin for queries |
 | `options.defaultSigner?` | `PolkadotSigner` | Static fallback signer for txs |
-| `options.targetHash?` | `string` | Pin to a specific target. Defaults to first target in the manifest. |
 
 ### `manager.getContract(library)`
 
@@ -75,7 +73,7 @@ await registry.publish.tx("domain", "ipfs://cid", 0);
 //                       ^ args typed
 ```
 
-Throws `ContractNotFoundError` if the library name isn't in the manifest for the active target.
+Throws `ContractNotFoundError` if the library name isn't in the manifest.
 
 ### `manager.getAddress(library)`
 
@@ -85,6 +83,25 @@ Returns the on-chain address. Useful for logging or display.
 
 Update `origin`, `signer`, or `signerManager` after construction. Only the fields you pass are updated.
 
+### `ContractManager.fromLive(cdmJson, runtime, options?)` / `fromLiveClient(cdmJson, client, descriptor, options?)`
+
+**Async** factories. Like `fromClient`, but before constructing the manager they resolve each installed contract's address from the **live CDM registry** instead of trusting the address baked into `cdm.json`. ABIs still come from the installed snapshot — only addresses are refreshed. Dependencies requested as `"latest"` resolve the registry's latest address; pinned numeric dependencies resolve `getAddressAtVersion(...)` so the live address stays aligned with the installed ABI/version.
+
+```ts
+const manager = await ContractManager.fromLiveClient(cdmJson, client.raw.assetHub, paseo_asset_hub, {
+    signerManager,
+    // registryAddress?: HexString  — defaults to cdmJson.registry
+    // libraries?: string[]         — subset to resolve; defaults to every contract
+    // registryOrigin?: SS58String  — origin for the registry dry-run; defaults to defaultOrigin
+});
+```
+
+This path is **strict**: if `cdmJson.registry` (or `registryAddress`) is missing, or a contract isn't registered on-chain, or the registry query fails, the promise rejects with `ContractLiveAddressResolutionError` — it never silently falls back to the snapshot address. Use `fromClient` for snapshot-only behavior.
+
+### `withLiveContractAddresses(cdmJson, runtime, options?)`
+
+Standalone helper behind `fromLive`. Returns a **cloned** `cdm.json` whose contract addresses have been replaced with live registry addresses (the input is never mutated). Useful when you want the resolved manifest without immediately building a manager. Takes the same `LiveContractResolutionOptions` as `fromLive`.
+
 ## Signer / origin resolution
 
 Order, highest wins:
@@ -92,7 +109,7 @@ Order, highest wins:
 1. Explicit `{ signer }` / `{ origin }` in the call options
 2. `signerManager`'s currently selected account
 3. Static `defaultSigner` / `defaultOrigin`
-4. (Queries only) Dev fallback (Alice) for dry-run gas estimation
+4. (Queries only) pallet-revive account fallback for the dry-run
 
 Throws `ContractSignerMissingError` from `.tx()` if no signer is available. `.query()` and `.prepare()` never need a signer.
 
@@ -151,7 +168,7 @@ const b = registry.publish.prepare("app-two00", "ipfs://...", 0);
 await batchSubmitAndWatch([a, b], client.raw.assetHub, signer);
 ```
 
-**`.prepare()` doesn't require a signer.** The resolved origin is used purely for dry-run gas estimation; the batch submission's signer is the dispatched origin at submission time.
+**`.prepare()` doesn't require a signer.** The resolved origin is only used for the dry-run; the batch submission's signer is the dispatched origin at submission time.
 
 `PrepareOptions` accepts: `origin`, `value`, `gasLimit`, `storageDepositLimit`. Signer and submission lifecycle options (`signer`, `waitFor`, etc.) are intentionally absent — those belong to the batch submit, not the individual prepared call.
 
@@ -185,30 +202,21 @@ Top-level shape:
 
 ```jsonc
 {
-  "targets": {
-    "<targetHash>": {
-      "asset-hub": "wss://paseo-asset-hub-next-rpc.polkadot.io",
-      "bulletin": "https://paseo-bulletin-next-ipfs.polkadot.io"
-    }
-  },
+  "registry": "0xf62c2ece29cd8df2e10040ecfa5a894a5c5d9cb0",
   "dependencies": {
-    "<targetHash>": {
-      "@org/contract-name": "latest"
-    }
+    "@org/contract-name": "latest"
   },
   "contracts": {
-    "<targetHash>": {
-      "@org/contract-name": {
-        "version": 6,
-        "address": "0x4A37B123b0BA2A894cA5953f472264921d44e298",
-        "abi": [ /* Solidity-compatible ABI entries */ ]
-      }
+    "@org/contract-name": {
+      "version": 6,
+      "address": "0x4A37B123b0BA2A894cA5953f472264921d44e298",
+      "abi": [ /* Solidity-compatible ABI entries */ ]
     }
   }
 }
 ```
 
-`<targetHash>` is a 16-character hex string identifying a chain runtime + Bulletin gateway pairing. A manifest can declare multiple targets; `ContractManager` defaults to the first, or pin one via `options.targetHash`.
+`registry` is used by `ContractManager.fromLive(...)` / `withLiveContractAddresses(...)` to resolve current contract addresses from the live CDM registry. `ContractManager.fromClient(...)` uses the installed `contracts` snapshot directly.
 
 A real-world example: [`paritytech/playground-cli/cdm.json`](https://github.com/paritytech/playground-cli/blob/main/cdm.json).
 
@@ -237,8 +245,9 @@ Without codegen, `getContract()` still works — methods are accessible but unty
 
 | Error | When |
 | --- | --- |
-| `ContractNotFoundError` | `getContract(name)` and `name` isn't in the manifest for the active target |
+| `ContractNotFoundError` | `getContract(name)` and `name` isn't in the manifest |
 | `ContractSignerMissingError` | `.tx()` called with no signer + no signerManager + no defaultSigner |
+| `ContractLiveAddressResolutionError` | `fromLive(...)` / `withLiveContractAddresses(...)` couldn't resolve an address from the live CDM registry (no `registry` set, contract unregistered, or the registry query failed) |
 | `ContractDryRunFailedError` | `.tx()` pre-flight `ReviveApi.call` reported failure — `dispatchError` carries the chain's encoded error (e.g. `ContractReverted`, `OutOfGas`, `AccountNotMapped`) |
 | Generic | viem ABI decode failures, RPC errors, weight/storage-limit estimation failures — surface from the underlying PAPI typed API |
 
@@ -252,10 +261,12 @@ export {
     createContractFromClient,
     createContractRuntime,
     createContractRuntimeFromClient,
+    withLiveContractAddresses,
     ensureContractAccountMapped,
     ContractError,
     ContractSignerMissingError,
     ContractNotFoundError,
+    ContractLiveAddressResolutionError,
     ContractDryRunFailedError,
 };
 export type {
@@ -264,8 +275,8 @@ export type {
     ReviveDryRunResult,
     ReviveDryRunCall,
     CdmJson,
-    CdmJsonTarget,
     CdmJsonContract,
+    CdmJsonDependencyVersion,
     AbiParam,
     AbiEntry,
     Contract,
@@ -280,6 +291,7 @@ export type {
     ContractDefaults,
     ContractManagerOptions,
     ContractOptions,
+    LiveContractResolutionOptions,
 };
 
 // `@parity/product-sdk-contracts/codegen` (Node-only — build tooling)

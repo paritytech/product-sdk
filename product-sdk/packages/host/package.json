@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-host",
-    "version": "0.5.0",
+    "version": "0.6.1",
     "description": "Host container detection and storage access for Polkadot Desktop and Mobile environments",
     "type": "module",
     "sideEffects": false,
@@ -24,8 +24,8 @@
         "polkadot-api": "catalog:"
     },
     "peerDependencies": {
-        "@novasamatech/host-api-wrapper": ">=0.1.0",
-        "@novasamatech/host-api": ">=0.6.0"
+        "@novasamatech/host-api-wrapper": ">=0.8.0",
+        "@novasamatech/host-api": ">=0.8.0"
     },
     "peerDependenciesMeta": {
         "@novasamatech/host-api-wrapper": {

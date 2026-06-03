@@ -7,7 +7,14 @@
  * have to wire the subscription envelope themselves. `getThemeProvider`
  * returns the `@novasamatech/host-api-wrapper` theme provider object directly,
  * giving callers a `subscribeTheme(cb)` method that resolves to a typed
- * `ThemeMode` ("Light" | "Dark") and yields a `Subscription<void>` handle.
+ * {@link ThemeMode} — a `{ name, variant }` struct where `variant` is
+ * `"Light" | "Dark"` — and yields a `Subscription<void>` handle.
+ *
+ * @remarks
+ * As of `host-api(-wrapper)` v0.8 the theme payload is a struct, not a flat
+ * `"light" | "dark"` string: read {@link ThemeMode.variant} for the
+ * light/dark value (now capitalized) and {@link ThemeMode.name} for the
+ * active theme name (`Default`, or `Custom` carrying a string id).
  *
  * @module
  */
@@ -23,7 +30,7 @@ const log = createLogger("host:theme");
 
 /**
  * Host theme provider handle. Exposes `subscribeTheme(callback)` which
- * receives a typed `ThemeMode` on every change and returns a
+ * receives a typed {@link ThemeMode} struct on every change and returns a
  * `Subscription<void>` (`unsubscribe` + `onInterrupt`).
  *
  * Type identical to `createThemeProvider()` from
@@ -31,8 +38,22 @@ const log = createLogger("host:theme");
  */
 export type ThemeProvider = ReturnType<typeof createThemeProvider>;
 
-/** Host theme mode value. Re-exported from `@novasamatech/host-api-wrapper`. */
+/**
+ * Host theme value. Re-exported from `@novasamatech/host-api-wrapper`.
+ *
+ * A `{ name, variant }` struct as of v0.8 (previously a flat
+ * `"light" | "dark"` string).
+ */
 export type ThemeMode = NovasamaThemeMode;
+
+/** Light/dark variant of the active theme: `"Light" | "Dark"`. */
+export type ThemeVariant = ThemeMode["variant"];
+
+/**
+ * Active theme name: `{ tag: "Default" }`, or `{ tag: "Custom", value }`
+ * carrying the custom theme's string id.
+ */
+export type ThemeName = ThemeMode["name"];
 
 /**
  * Get the host theme provider.
@@ -57,8 +78,9 @@ export type ThemeMode = NovasamaThemeMode;
  *
  * const provider = await getThemeProvider();
  * if (provider) {
- *   const sub = provider.subscribeTheme((mode) => {
- *     document.documentElement.dataset.theme = mode.toLowerCase();
+ *   const sub = provider.subscribeTheme((theme) => {
+ *     document.documentElement.dataset.theme = theme.variant.toLowerCase();
+ *     if (theme.name.tag === "Custom") loadCustomTheme(theme.name.value);
  *   });
  *   // sub.unsubscribe() to stop listening
  * }

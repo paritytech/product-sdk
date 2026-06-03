@@ -8,11 +8,8 @@ export type Environment = "polkadot" | "kusama" | "paseo" | "local" | "westend";
 /**
  * Configuration for {@link createChainClient}.
  *
- * Provide named chain descriptors and their RPC endpoints.
- * TypeScript enforces that `rpcs` has the same keys as `chains`.
- *
- * Note: The SDK routes all connections through the host provider. The `rpcs`
- * field is currently unused but kept for API compatibility.
+ * Provide named chain descriptors. The SDK routes all connections through the
+ * host provider, so no RPC endpoints are required.
  *
  * @typeParam TChains - Record mapping user-chosen chain names to PAPI descriptors.
  *
@@ -24,10 +21,6 @@ export type Environment = "polkadot" | "kusama" | "paseo" | "local" | "westend";
  *
  * const client = await createChainClient({
  *     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
- *     rpcs: {
- *         assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
- *         bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
- *     },
  * });
  * ```
  */
@@ -36,8 +29,6 @@ export interface ChainClientConfig<
 > {
     /** Named chain descriptors (PAPI `ChainDefinition` objects). */
     chains: TChains;
-    /** RPC endpoints per chain name (currently unused - connections route through host). */
-    rpcs: { [K in keyof TChains]: readonly string[] };
 }
 
 /**

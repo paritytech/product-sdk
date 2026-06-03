@@ -16,6 +16,7 @@ export {
     createHostLocalStorage,
     getHostProvider,
     getStatementStore,
+    ChainNotSupportedError,
 } from "./container.js";
 export type {
     HostLocalStorage,
@@ -73,7 +74,7 @@ export type { DevicePermissionKind, RemotePermissionItem } from "./permissions.j
 
 // Theme provider
 export { getThemeProvider } from "./theme.js";
-export type { ThemeMode, ThemeProvider } from "./theme.js";
+export type { ThemeMode, ThemeName, ThemeProvider, ThemeVariant } from "./theme.js";
 
 // Entropy derivation (RFC-0007)
 export { deriveEntropy } from "./entropy.js";

@@ -3,23 +3,26 @@
 /**
  * Create a PolkadotSigner from a QR-paired session.
  *
- * Builds the `PolkadotSigner` via PAPI-native `getPolkadotSigner` and routes
- * **transaction signing** through `session.signRaw` with the `Payload` tag
- * — a tagged-bytes wire route in host-papp that signs the SCALE-encoded
- * extrinsic payload as-is, with no `<Bytes>...</Bytes>` anti-phishing
- * envelope. PAPI assembles the full payload (`callData ‖ extras ‖
- * additionalSigneds`) from runtime metadata, so every signed extension
- * declared by the chain — including extensions not known to PAPI's PJS
- * adapter (e.g. `AsPgas` on Paseo Next v2) — survives end-to-end as opaque
- * bytes that the wallet just signs.
+ * Routes **transaction signing** through `session.createTransaction` — the
+ * host-papp `CreateTransactionRequest`/`CreateTransactionResponse` SSO
+ * message pair. We hand the mobile app the structured
+ * `ProductAccountTransaction` (`signer`, `genesisHash`, `callData`, the
+ * per-extension `{ extra, additionalSigned }`, and `txExtVersion`) and it
+ * **builds and signs** the full extrinsic, returning the signed bytes.
  *
- * **Raw-message signing** (`signBytes`) keeps the `Bytes` tag so the wallet
- * applies the anti-phishing wrap once on its side. Correct for arbitrary
- * user data; wrong for extrinsic payloads (which is why the two paths split).
+ * Two properties fall out of this:
+ *  - The wallet can **decode and display** the transaction instead of
+ *    blind-signing an opaque hash (which is what the older
+ *    `session.signRaw({ tag: "Payload" })` route did).
+ *  - Every signed extension the chain declares — including ones PAPI's PJS
+ *    adapter doesn't know (e.g. `AsPgas` on Paseo Next v2) — is forwarded
+ *    verbatim as `{ id, extra, additionalSigned }`, so nothing is lost in
+ *    translation.
  *
- * Bypasses `getPolkadotSignerFromPjs` whose built-in mapper table covers
- * only eight extensions and throws `PJS does not support this
- * signed-extension: <name>` on anything else.
+ * **Raw-message signing** (`signBytes`) keeps the `session.signRaw` `Bytes`
+ * tag so the wallet applies the `<Bytes>...</Bytes>` anti-phishing wrap once
+ * on its side. Correct for arbitrary user data; wrong for extrinsic payloads
+ * (which is why the two paths split).
  *
  * @example
  * ```ts
@@ -38,9 +41,8 @@
  * ```
  */
 import type { UserSession } from "@novasamatech/host-papp";
-import { toHex } from "@polkadot-api/utils";
+import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import type { PolkadotSigner } from "polkadot-api";
-import { getPolkadotSigner } from "polkadot-api/signer";
 
 import type { TerminalAdapter } from "./adapter.js";
 
@@ -57,34 +59,126 @@ export interface ProductAccountRef {
     productId: string;
     /** Child-key derivation index. `0` is the default account. */
     derivationIndex: number;
+    /**
+     * The **product account's** sr25519 public key (32 bytes), as derived by the
+     * host for `[productId, derivationIndex]`.
+     *
+     * PAPI stamps this into the extrinsic's signer address and verifies the
+     * signature against it, so it must be the *product* account's key — not the
+     * wallet's selected/root account (`session.remoteAccount.accountId`). A
+     * mismatch produces an invalid signature.
+     *
+     * When omitted, the signer falls back to the session's selected account,
+     * which is only correct when the product account *is* the selected account.
+     */
+    publicKey?: Uint8Array;
 }
 
 /**
- * Sign function PAPI calls for transaction signing.
- *
- * PAPI's `getPolkadotSigner` assembles `callData ‖ extras ‖ additionalSigneds`
- * for every extension declared in `metadata.extrinsic.signedExtensions`,
- * concatenates them, blake2-hashes the result if >256 bytes, and hands the
- * bytes here. We forward them to the mobile wallet under the `Payload` tag
- * — opaque hex; no envelope — and return the raw signature.
- *
- * Any extension carried by the chain survives because the bytes are the
- * source of truth: the wallet does not inspect the payload's structure, it
- * just signs it.
+ * The `signedExtensions` map PAPI hands to `PolkadotSigner.signTx`: keyed by
+ * extension identifier, each entry carries the SCALE-encoded `extra` (goes in
+ * the extrinsic body, as `value`) and `additionalSigned` (implicit data).
  */
-function makeTxSignCallback(session: UserSession, productAccountId: [string, number]) {
-    return async (toSign: Uint8Array): Promise<Uint8Array> => {
-        const result = await session.signRaw({
-            productAccountId,
-            data: { tag: "Payload", value: toHex(toSign) },
-        });
+type PapiSignedExtensions = Parameters<PolkadotSigner["signTx"]>[1];
 
-        if (result.isErr()) {
-            throw new Error(`Mobile signing rejected: ${result.error.message}`);
-        }
+/**
+ * Build the host-papp `CreateTransactionRequest` from PAPI's `signTx` inputs.
+ *
+ * Maps every signed extension verbatim into the wire `{ id, extra,
+ * additionalSigned }` triplets — no allow-list, no reshaping — so chain-specific
+ * extensions (e.g. `AsPgas` on Paseo Next v2) survive. The mobile app uses
+ * these plus `txExtVersion` to assemble and sign the extrinsic.
+ *
+ * Pure and synchronous so the wire-shape contract can be unit-tested without a
+ * paired phone; the metadata decode + SSO round-trip live in {@link makeTxSignTx}.
+ */
+function buildCreateTransactionRequest(
+    productAccountId: [string, number],
+    callData: Uint8Array,
+    signedExtensions: PapiSignedExtensions,
+    txExtVersion: number,
+): Parameters<UserSession["createTransaction"]>[0] {
+    const checkGenesis = signedExtensions.CheckGenesis;
+    if (!checkGenesis) {
+        throw new Error(
+            "Cannot build transaction: chain did not provide the CheckGenesis signed extension",
+        );
+    }
 
-        return result.value.signature;
+    return {
+        payload: {
+            tag: "v1" as const,
+            value: {
+                signer: productAccountId,
+                // CheckGenesis carries the genesis hash as its additionalSigned (implicit) data.
+                genesisHash: checkGenesis.additionalSigned,
+                callData,
+                extensions: Object.values(signedExtensions).map(
+                    ({ identifier, value, additionalSigned }) => ({
+                        id: identifier,
+                        extra: value,
+                        additionalSigned,
+                    }),
+                ),
+                txExtVersion,
+            },
+        },
     };
+}
+
+/**
+ * Transaction-extension version the mobile app must assemble:
+ *  - Extrinsic V4 → `0` (the protocol mandates 0 for V4).
+ *  - Extrinsic V5 → the runtime's version (highest the metadata advertises).
+ */
+function txExtVersionFromMetadata(metadata: Uint8Array): number {
+    const decoded = unifyMetadata(decAnyMetadata(metadata));
+    const latestVersion = decoded.extrinsic.version.reduce((max, v) => Math.max(max, v), 0);
+    return latestVersion === 4 ? 0 : latestVersion;
+}
+
+/**
+ * Send the request to the paired wallet's `createTransaction` and unwrap it.
+ *
+ * Extracted and named so the SSO round-trip + error handling can be
+ * unit-tested without a real phone or chain metadata; the metadata decode and
+ * payload assembly live in {@link makeTxSignTx} / {@link buildCreateTransactionRequest}.
+ */
+async function requestSignedTransaction(
+    session: UserSession,
+    request: Parameters<UserSession["createTransaction"]>[0],
+): Promise<Uint8Array> {
+    const result = await session.createTransaction(request);
+    if (result.isErr()) {
+        throw new Error(`Mobile transaction signing rejected: ${result.error.message}`);
+    }
+    // host-papp returns the fully signed extrinsic bytes.
+    return result.value;
+}
+
+/**
+ * The `signTx` function PAPI calls for transaction signing.
+ *
+ * Forwards the structured payload to the paired mobile wallet via
+ * `session.createTransaction`; the wallet builds + signs the extrinsic and
+ * returns the signed bytes. Unlike the old `signRaw({ tag: "Payload" })`
+ * route, the wallet sees a real transaction (not opaque bytes) and unknown
+ * signed extensions are preserved by {@link buildCreateTransactionRequest}.
+ */
+function makeTxSignTx(
+    session: UserSession,
+    productAccountId: [string, number],
+): PolkadotSigner["signTx"] {
+    return async (callData, signedExtensions, metadata) =>
+        requestSignedTransaction(
+            session,
+            buildCreateTransactionRequest(
+                productAccountId,
+                callData,
+                signedExtensions,
+                txExtVersionFromMetadata(metadata),
+            ),
+        );
 }
 
 /**
@@ -116,29 +210,25 @@ function makeRawBytesSignCallback(session: UserSession, productAccountId: [strin
 
 function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
     const productAccountId: [string, number] = [ref.productId, ref.derivationIndex];
-    const publicKey = new Uint8Array(session.remoteAccount.accountId);
 
-    // host-papp pairs sr25519 accounts only — `createSr25519Secret` /
-    // `deriveSr25519PublicKey` are the sole key-derivation primitives in
-    // its SSO flow. If host-papp ever supports mixed schemes, this becomes
-    // a session-driven field.
-    const base = getPolkadotSigner(
-        publicKey,
-        "Sr25519",
-        makeTxSignCallback(session, productAccountId),
-    );
+    // The signer's public key must be the *product* account's key — the one the
+    // wallet signs with for [productId, derivationIndex] — not the wallet's
+    // selected root account. PAPI stamps this into the extrinsic's address and
+    // verifies against it, so a mismatch yields an invalid signature. The host
+    // supplies the derived key via `ref.publicKey`; we fall back to the
+    // session's selected account only when none is provided (i.e. product
+    // account == selected account). See {@link ProductAccountRef.publicKey}.
+    const publicKey = ref.publicKey ?? new Uint8Array(session.remoteAccount.accountId);
 
-    // Override `signBytes`: `getPolkadotSigner` returns `signBytes:
-    // getSignBytes(sign)`, which wraps incoming data with
-    // `<Bytes>...</Bytes>` and then funnels it through the same `sign`
-    // callback as tx signing. Routing pre-wrapped bytes through the
-    // `Payload` tag would let the wallet sign the wrap as-is (the
-    // `Payload` route deliberately skips the wallet-side envelope),
-    // producing signatures that don't verify against the un-wrapped user
-    // data. Routing `signBytes` through the `Bytes` tag instead applies
-    // the envelope exactly once, on the wallet side.
     return {
-        ...base,
+        publicKey,
+        // Transaction signing → host-papp `createTransaction`: the wallet builds
+        // and signs the extrinsic, so it can show a decoded tx (no `<Bytes>`
+        // envelope) and unknown signed extensions (e.g. `AsPgas`) survive.
+        signTx: makeTxSignTx(session, productAccountId),
+        // Arbitrary-byte signing keeps the `Bytes` tag so the wallet applies the
+        // `<Bytes>...</Bytes>` anti-phishing envelope exactly once on its side
+        // (correct for non-extrinsic user data).
         signBytes: makeRawBytesSignCallback(session, productAccountId),
     };
 }
@@ -152,12 +242,17 @@ function buildSessionSigner(session: UserSession, ref: ProductAccountRef): Polka
  * @param session The paired user session.
  * @param adapter The {@link TerminalAdapter} that loaded the session. Its `appId`
  *   is used as the `productId` in the wire request.
+ * @param publicKey The product account's sr25519 public key for
+ *   `[adapter.appId, 0]`, as derived by the host. See
+ *   {@link ProductAccountRef.publicKey}; omit only when the product account is
+ *   the session's selected account.
  */
 export function createSessionSigner(
     session: UserSession,
     adapter: TerminalAdapter,
+    publicKey?: Uint8Array,
 ): PolkadotSigner {
-    return buildSessionSigner(session, { productId: adapter.appId, derivationIndex: 0 });
+    return buildSessionSigner(session, { productId: adapter.appId, derivationIndex: 0, publicKey });
 }
 
 /**
@@ -180,16 +275,16 @@ export function createSessionSignerForAccount(
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
     const { ok, err } = await import("neverthrow");
-    const { fromHex } = await import("@polkadot-api/utils");
 
     /**
-     * Build a minimal `UserSession`-shaped stub. Both `signPayload` and
-     * `signRaw` accept request-capturing functions so tests can assert on
-     * exactly which host-papp method got called and with what payload.
+     * Build a minimal `UserSession`-shaped stub. `signPayload`, `signRaw`, and
+     * `createTransaction` accept request-capturing functions so tests can assert
+     * on exactly which host-papp method got called and with what payload.
      */
     function makeSession(opts: {
         signPayload?: (req: unknown) => Promise<unknown>;
         signRaw?: (req: unknown) => Promise<unknown>;
+        createTransaction?: (req: unknown) => Promise<unknown>;
         accountIdBytes?: number[];
     }): UserSession {
         const accountIdBytes = opts.accountIdBytes ?? new Array(32).fill(0).map((_, i) => i);
@@ -207,7 +302,25 @@ if (import.meta.vitest) {
                         throw new Error("signRaw not stubbed in this test");
                     }),
             ),
+            createTransaction: vi.fn(
+                opts.createTransaction ??
+                    (async () => {
+                        throw new Error("createTransaction not stubbed in this test");
+                    }),
+            ),
         } as unknown as UserSession;
+    }
+
+    /**
+     * A minimal PAPI `signedExtensions` entry. `value` is the SCALE-encoded
+     * "extra" (extrinsic body); `additionalSigned` is the implicit data.
+     */
+    function ext(identifier: string, value: number[], additionalSigned: number[]) {
+        return {
+            identifier,
+            value: new Uint8Array(value),
+            additionalSigned: new Uint8Array(additionalSigned),
+        };
     }
 
     function fakeAdapter(appId: string): TerminalAdapter {
@@ -216,13 +329,28 @@ if (import.meta.vitest) {
     }
 
     describe("createSessionSigner", () => {
-        test("exposes Sr25519 public key matching remoteAccount.accountId", () => {
+        test("falls back to remoteAccount.accountId when no product key is passed", () => {
             const bytes = Array.from({ length: 32 }, (_, i) => i);
             const signer = createSessionSigner(
                 makeSession({ accountIdBytes: bytes }),
                 fakeAdapter("test-app"),
             );
             expect(signer.publicKey).toEqual(new Uint8Array(bytes));
+        });
+
+        test("uses the host-supplied product-account public key when provided", () => {
+            // The product account's key differs from the wallet's selected
+            // account (`remoteAccount.accountId`). PAPI must stamp the *product*
+            // key into the extrinsic, so the explicit key must win.
+            const walletBytes = Array.from({ length: 32 }, (_, i) => i);
+            const productKey = new Uint8Array(32).fill(0xab);
+            const signer = createSessionSigner(
+                makeSession({ accountIdBytes: walletBytes }),
+                fakeAdapter("test-app"),
+                productKey,
+            );
+            expect(signer.publicKey).toEqual(productKey);
+            expect(signer.publicKey).not.toEqual(new Uint8Array(walletBytes));
         });
 
         test("signBytes routes through session.signRaw with the Bytes tag", async () => {
@@ -283,105 +411,126 @@ if (import.meta.vitest) {
         });
     });
 
-    describe("makeTxSignCallback — tx signing path (the AsPgas fix)", () => {
-        // Bypasses PAPI's getPolkadotSigner wrapper to assert directly on
-        // the wire translation. The full PAPI signTx → callback → chain
-        // roundtrip is exercised by the manual smoke test in
-        // `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive a real
-        // phone.
+    describe("buildCreateTransactionRequest — tx payload (the AsPgas fix)", () => {
+        // Asserts the wire shape handed to the wallet. The full PAPI signTx →
+        // metadata decode → SSO round-trip is exercised by the manual smoke
+        // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
+        // a real phone.
 
-        test("forwards bytes-to-sign under the Payload tag with the right productAccountId", async () => {
+        const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
+
+        test("wraps the payload as v1 with signer, callData, and txExtVersion", () => {
+            const callData = new Uint8Array([0xca, 0x11]);
+            const req = buildCreateTransactionRequest(
+                ["my-app", 3],
+                callData,
+                { CheckGenesis: checkGenesis },
+                5,
+            );
+            expect(req.payload.tag).toBe("v1");
+            expect(req.payload.value.signer).toEqual(["my-app", 3]);
+            expect(req.payload.value.callData).toEqual(callData);
+            expect(req.payload.value.txExtVersion).toBe(5);
+        });
+
+        test("takes the genesis hash from CheckGenesis.additionalSigned", () => {
+            const req = buildCreateTransactionRequest(
+                ["my-app", 0],
+                new Uint8Array([0]),
+                { CheckGenesis: checkGenesis },
+                0,
+            );
+            expect(req.payload.value.genesisHash).toEqual(new Uint8Array([0x11, 0x22, 0x33]));
+        });
+
+        test("maps every signed extension to { id, extra, additionalSigned }", () => {
+            const req = buildCreateTransactionRequest(
+                ["my-app", 0],
+                new Uint8Array([0]),
+                { CheckGenesis: checkGenesis, CheckNonce: ext("CheckNonce", [0x07], []) },
+                0,
+            );
+            expect(req.payload.value.extensions).toEqual([
+                {
+                    id: "CheckGenesis",
+                    extra: new Uint8Array([]),
+                    additionalSigned: new Uint8Array([0x11, 0x22, 0x33]),
+                },
+                {
+                    id: "CheckNonce",
+                    extra: new Uint8Array([0x07]),
+                    additionalSigned: new Uint8Array([]),
+                },
+            ]);
+        });
+
+        test("preserves an unknown signed extension verbatim (e.g. AsPgas)", () => {
+            // The whole reason for moving off PJS: an extension PAPI's PJS
+            // adapter doesn't know must pass through untouched.
+            const req = buildCreateTransactionRequest(
+                ["my-app", 0],
+                new Uint8Array([0]),
+                { CheckGenesis: checkGenesis, AsPgas: ext("AsPgas", [0xde, 0xad], [0xbe, 0xef]) },
+                0,
+            );
+            expect(req.payload.value.extensions).toContainEqual({
+                id: "AsPgas",
+                extra: new Uint8Array([0xde, 0xad]),
+                additionalSigned: new Uint8Array([0xbe, 0xef]),
+            });
+        });
+
+        test("throws a clear error when CheckGenesis is absent", () => {
+            expect(() =>
+                buildCreateTransactionRequest(["my-app", 0], new Uint8Array([0]), {}, 0),
+            ).toThrow(/CheckGenesis/);
+        });
+    });
+
+    describe("requestSignedTransaction — SSO round-trip", () => {
+        const request = buildCreateTransactionRequest(
+            ["my-app", 0],
+            new Uint8Array([0]),
+            { CheckGenesis: ext("CheckGenesis", [], [0x01]) },
+            0,
+        );
+
+        test("returns the signed extrinsic bytes from the mobile response", async () => {
+            const signed = new Uint8Array([0xab, 0xcd, 0xef]);
+            const session = makeSession({ createTransaction: async () => ok(signed) });
+
+            const out = await requestSignedTransaction(session, request);
+            expect(out).toBe(signed);
+        });
+
+        test("calls session.createTransaction — never signRaw/signPayload — with the request", async () => {
             const captured: unknown[] = [];
             const session = makeSession({
-                signRaw: async (req) => {
+                createTransaction: async (req) => {
                     captured.push(req);
-                    return ok({ signature: new Uint8Array([0xaa, 0xbb]) });
+                    return ok(new Uint8Array([1]));
                 },
             });
 
-            const callback = makeTxSignCallback(session, ["my-app", 0]);
-            await callback(new Uint8Array([0xde, 0xad, 0xbe, 0xef]));
+            await requestSignedTransaction(session, request);
 
-            expect(captured).toHaveLength(1);
-            const req = captured[0] as {
-                productAccountId: [string, number];
-                data: { tag: string; value: string };
-            };
-            expect(req.productAccountId).toEqual(["my-app", 0]);
-            expect(req.data.tag).toBe("Payload");
-            // Value is the 0x-prefixed hex of the input bytes — the wallet
-            // signs this opaque payload without inspecting it, which is
-            // what lets new signed extensions (e.g. AsPgas) survive.
-            expect(req.data.value).toBe("0xdeadbeef");
-        });
-
-        test("never calls session.signPayload (legacy PJS-shape regression guard)", async () => {
-            // The whole point of the AsPgas fix: tx signing must hit
-            // session.signRaw with the Payload tag, never session.signPayload.
-            // session.signPayload's wire codec has fixed slots and cannot
-            // carry arbitrary signed-extension extras.
-            const session = makeSession({
-                signRaw: async () => ok({ signature: new Uint8Array([1]) }),
-            });
-
-            const callback = makeTxSignCallback(session, ["my-app", 0]);
-            await callback(new Uint8Array([1, 2, 3]));
-
-            const sessionWithSpies = session as unknown as {
+            expect(captured).toEqual([request]);
+            const spies = session as unknown as {
                 signPayload: { mock: { calls: unknown[] } };
                 signRaw: { mock: { calls: unknown[] } };
+                createTransaction: { mock: { calls: unknown[] } };
             };
-            expect(sessionWithSpies.signPayload.mock.calls).toHaveLength(0);
-            expect(sessionWithSpies.signRaw.mock.calls).toHaveLength(1);
-        });
-
-        test("returns the raw signature bytes from the mobile response", async () => {
-            const sig = new Uint8Array([0xab, 0xcd, 0xef]);
-            const session = makeSession({
-                signRaw: async () => ok({ signature: sig }),
-            });
-
-            const callback = makeTxSignCallback(session, ["my-app", 0]);
-            const out = await callback(new Uint8Array([0]));
-
-            expect(out).toBe(sig);
-        });
-
-        test("preserves arbitrary signed-extension payload bytes verbatim", async () => {
-            // Simulates what PAPI hands the callback when the chain
-            // declares a custom signed extension: an opaque byte stream
-            // built from `callData ‖ extras ‖ additionalSigneds`. The
-            // callback must not interpret or reshape these bytes; it
-            // forwards them as-is under the Payload tag.
-            const customExtensionBytes = new Uint8Array([
-                // arbitrary scale-encoded extension payload — content
-                // doesn't matter, only that it round-trips exactly
-                0x01, 0x02, 0x03, 0xff, 0xfe, 0xfd, 0x42, 0x43, 0x44,
-            ]);
-            const captured: unknown[] = [];
-            const session = makeSession({
-                signRaw: async (req) => {
-                    captured.push(req);
-                    return ok({ signature: new Uint8Array([0]) });
-                },
-            });
-
-            const callback = makeTxSignCallback(session, ["my-app", 0]);
-            await callback(customExtensionBytes);
-
-            const req = captured[0] as { data: { value: string } };
-            expect(fromHex(req.data.value)).toEqual(customExtensionBytes);
+            expect(spies.createTransaction.mock.calls).toHaveLength(1);
+            expect(spies.signPayload.mock.calls).toHaveLength(0);
+            expect(spies.signRaw.mock.calls).toHaveLength(0);
         });
 
         test("throws a clear error when the mobile rejects", async () => {
             const session = makeSession({
-                signRaw: async () => err({ message: "user declined" }),
+                createTransaction: async () => err({ message: "user declined" }),
             });
-
-            const callback = makeTxSignCallback(session, ["my-app", 0]);
-
-            await expect(callback(new Uint8Array([0]))).rejects.toThrow(
-                "Mobile signing rejected: user declined",
+            await expect(requestSignedTransaction(session, request)).rejects.toThrow(
+                "Mobile transaction signing rejected: user declined",
             );
         });
     });

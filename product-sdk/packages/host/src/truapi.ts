@@ -321,7 +321,7 @@ export type RemotePermissionTag = RemotePermission["tag"];
  * @example
  * ```ts
  * const outcomes = await requestResourceAllocation([
- *   { tag: "BulletInAllowance", value: undefined },
+ *   { tag: "BulletinAllowance", value: undefined },
  * ]);
  * if (outcomes[0].tag === "Allocated") { ... }
  * ```
@@ -525,7 +525,7 @@ if (import.meta.vitest) {
         const api = await getTruApi();
         if (api === null) {
             await expect(
-                requestResourceAllocation([{ tag: "BulletInAllowance", value: undefined }]),
+                requestResourceAllocation([{ tag: "BulletinAllowance", value: undefined }]),
             ).rejects.toThrow(/TruAPI unavailable/);
         } else {
             expect(typeof requestResourceAllocation).toBe("function");

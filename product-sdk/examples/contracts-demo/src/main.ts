@@ -6,7 +6,7 @@
  * Wires up SignerManager + chain-client + ContractManager against the
  * t3rminal @t3rminal/bulletin-index contract deployed on Paseo Asset Hub.
  *
- * Contract address: 0x3331A87C2B9312E246E6A7eE8D0C0AdD8d282B6F (CDM v3)
+ * Contract address: 0xD35CFc6E9F07B42Cc524A9Fa4A001F6ac90586E2 (redeployed)
  *
  * Exercises the two core host-API paths in @parity/product-sdk-contracts:
  *   - query()  — dry-run via chain RPC (no signing)
@@ -36,7 +36,11 @@
 import type { SignerAccount } from "@parity/product-sdk-signer";
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
-import { ContractManager, ensureContractAccountMapped } from "@parity/product-sdk-contracts";
+import {
+    ContractManager,
+    ensureContractAccountMapped,
+    type CdmJson,
+} from "@parity/product-sdk-contracts";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 import cdm from "./cdm.json";
@@ -272,7 +276,7 @@ async function init() {
         // upgrade. Pass the raw client + descriptor so it can wire up both
         // typed (extrinsics + storage) and unsafe (dry-run) paths.
         contractManager = ContractManager.fromClient(
-            cdm as never,
+            cdm as CdmJson,
             chain.raw.assetHub,
             paseo_asset_hub,
             { signerManager: manager },

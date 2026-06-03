@@ -114,10 +114,9 @@ jobs:
               uses: peter-evans/create-pull-request@v7
               with:
                   token: ${{ steps.app-token.outputs.token }}
-                  path: product-sdk
                   add-paths: |
-                      pnpm-workspace.yaml
-                      pnpm-lock.yaml
+                      product-sdk/pnpm-workspace.yaml
+                      product-sdk/pnpm-lock.yaml
                   branch: deps/novasamatech-updates
                   delete-branch: true
                   commit-message: "chore(deps): bump @novasamatech catalog deps"

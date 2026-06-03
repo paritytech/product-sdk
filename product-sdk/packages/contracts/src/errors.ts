@@ -24,13 +24,27 @@ export class ContractSignerMissingError extends ContractError {
 /** A contract was not found in the cdm.json manifest. */
 export class ContractNotFoundError extends ContractError {
     readonly library: string;
-    readonly targetHash: string;
 
-    constructor(library: string, targetHash: string) {
-        super(`Contract "${library}" not found in cdm.json for target ${targetHash}`);
+    constructor(library: string) {
+        super(`Contract "${library}" not found in cdm.json`);
         this.name = "ContractNotFoundError";
         this.library = library;
-        this.targetHash = targetHash;
+    }
+}
+
+/** Live CDM registry address resolution failed. */
+export class ContractLiveAddressResolutionError extends ContractError {
+    readonly library: string | undefined;
+    readonly detail: unknown;
+
+    constructor(
+        message: string,
+        options?: { library?: string; detail?: unknown; cause?: unknown },
+    ) {
+        super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
+        this.name = "ContractLiveAddressResolutionError";
+        this.library = options?.library;
+        this.detail = options?.detail;
     }
 }
 
@@ -129,7 +143,8 @@ if (import.meta.vitest) {
 
         test("instanceof catches all contract errors", () => {
             expect(new ContractSignerMissingError()).toBeInstanceOf(ContractError);
-            expect(new ContractNotFoundError("@a/b", "abc")).toBeInstanceOf(ContractError);
+            expect(new ContractNotFoundError("@a/b")).toBeInstanceOf(ContractError);
+            expect(new ContractLiveAddressResolutionError("test")).toBeInstanceOf(ContractError);
             expect(new ContractDryRunFailedError("foo", "x")).toBeInstanceOf(ContractError);
             expect(new ContractRevertedError("foo", "0x" as HexString)).toBeInstanceOf(
                 ContractError,
@@ -147,12 +162,23 @@ if (import.meta.vitest) {
     });
 
     describe("ContractNotFoundError", () => {
-        test("includes library and target", () => {
-            const err = new ContractNotFoundError("@test/foo", "abc123");
+        test("includes library", () => {
+            const err = new ContractNotFoundError("@test/foo");
             expect(err.library).toBe("@test/foo");
-            expect(err.targetHash).toBe("abc123");
-            expect(err.message).toContain("@test/foo");
-            expect(err.message).toContain("abc123");
+            expect(err.message).toBe('Contract "@test/foo" not found in cdm.json');
+        });
+    });
+
+    describe("ContractLiveAddressResolutionError", () => {
+        test("captures library and detail", () => {
+            const detail = { success: false };
+            const err = new ContractLiveAddressResolutionError("failed", {
+                library: "@test/foo",
+                detail,
+            });
+            expect(err.name).toBe("ContractLiveAddressResolutionError");
+            expect(err.library).toBe("@test/foo");
+            expect(err.detail).toBe(detail);
         });
     });
 

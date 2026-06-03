@@ -117,21 +117,14 @@ console.log("Max block weight:", blockWeights.maxBlock);
 client.destroy();
 ```
 
-## BYOD with Custom RPCs
+## BYOD with Custom Descriptors
 
 ```typescript
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
-// Use multiple RPC endpoints for failover
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: {
-        assetHub: [
-            "wss://paseo-asset-hub-next-rpc.polkadot.io",
-            "wss://asset-hub-paseo.dotters.network",
-        ],
-    },
 });
 
 const block = await client.assetHub.query.System.Number.getValue();
@@ -166,7 +159,6 @@ import { createContractRuntime } from "@parity/product-sdk-contracts";
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 
 // Create ContractRuntime from raw client
@@ -191,11 +183,6 @@ const client = await createChainClient({
         assetHub: paseo_asset_hub,
         bulletin: paseo_bulletin,
         individuality: paseo_individuality,
-    },
-    rpcs: {
-        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
-        bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
-        individuality: ["wss://paseo-people-next-system-rpc.polkadot.io"],
     },
 });
 
