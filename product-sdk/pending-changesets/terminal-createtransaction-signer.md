@@ -19,4 +19,4 @@ Transaction signing (`PolkadotSigner.signTx`) now goes through `session.createTr
 
 - **Removed the `@parity/product-sdk-terminal/register` entrypoint** (and its `postinstall` WASM patch). It existed only to redirect `verifiablejs`'s browser-only inline WASM to a Node build; host-papp 0.8 no longer depends on `verifiablejs` (its sr25519 primitives are pure JS), so the loader is obsolete. **Migration:** drop any `--import @parity/product-sdk-terminal/register` flag from your `node`/`tsx` invocations — nothing replaces it.
 - **Dropped the `AttestationStatus` type re-export**, which was removed upstream from `@novasamatech/host-papp` in the same release line.
-- **Deprecated `TerminalAdapterOptions.metadataUrl`** — host-papp 0.8 no longer embeds app metadata in the pairing proposal, so the field is now a no-op and optional. Safe to drop from `createTerminalAdapter(...)` calls.
+- **Removed `TerminalAdapterOptions.metadataUrl`** — host-papp 0.8 no longer embeds app metadata in the pairing proposal, so the field had no effect. **Migration:** drop it from `createTerminalAdapter(...)` calls.

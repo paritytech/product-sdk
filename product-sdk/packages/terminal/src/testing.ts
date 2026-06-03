@@ -38,14 +38,14 @@ import {
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
-import { Bytes, Option, Struct, Vector, str } from "scale-ts";
+import { Bytes, type Codec, Option, Struct, Vector, str } from "scale-ts";
+import type { StoredUserSession } from "@novasamatech/host-papp";
 
 import { sanitizeKey } from "./node-storage.js";
 
-// Mirrors the internal codec in @novasamatech/host-papp's userSessionRepository.
-// host-papp 0.8 appended three fields (rootAccountId + two `Option`-wrapped V2
-// extras); the order and the fixed `Bytes(65)` inner for the chat key must match
-// the upstream codec exactly or the real SsoSessionManager fails to decode.
+// Mirror of host-papp's internal stored-session codec (not exported — only the
+// `StoredUserSession` type is). `satisfies` guards drift at build time, the
+// interop test at runtime; field order and the `Bytes(65)` chat key must match.
 const storedUserSessionCodec = Struct({
     id: str,
     localAccount: LocalSessionAccountCodec,
@@ -53,7 +53,7 @@ const storedUserSessionCodec = Struct({
     rootAccountId: AccountIdCodec,
     identityAccountId: Option(AccountIdCodec),
     identityChatPublicKey: Option(Bytes(65)),
-});
+}) satisfies Codec<StoredUserSession>;
 const sessionsCodec = Vector(storedUserSessionCodec);
 
 // Mirrors the internal StoredUserSecretsCodec in host-papp's userSecretRepository.
@@ -204,10 +204,8 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
             sharedSecret,
             undefined,
         ),
-        // host-papp 0.8: the paired wallet's root account. For a synthesized
-        // session the remote (wallet) account doubles as the root.
+        // synthesized session: the remote (wallet) account doubles as root.
         rootAccountId: createAccountId(remotePublicKey),
-        // V2 identity extras — unset for a basic test session.
         identityAccountId: undefined,
         identityChatPublicKey: undefined,
     };
