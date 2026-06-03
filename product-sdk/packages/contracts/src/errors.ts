@@ -37,7 +37,10 @@ export class ContractLiveAddressResolutionError extends ContractError {
     readonly library: string | undefined;
     readonly detail: unknown;
 
-    constructor(message: string, options?: { library?: string; detail?: unknown; cause?: unknown }) {
+    constructor(
+        message: string,
+        options?: { library?: string; detail?: unknown; cause?: unknown },
+    ) {
         super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
         this.name = "ContractLiveAddressResolutionError";
         this.library = options?.library;

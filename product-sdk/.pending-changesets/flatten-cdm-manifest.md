@@ -17,5 +17,5 @@
 - `CdmJson` loses `targets` and the per-target `dependencies` / `contracts` buckets; `dependencies` and `contracts` are now keyed directly by library name, with an optional top-level `registry` address.
 - `ContractManagerOptions.targetHash` and the `CdmJsonTarget` type are removed. `ContractManager` resolves contracts directly from the flat `contracts` map.
 - `ContractNotFoundError` no longer carries a `targetHash`.
-- New `ContractManager.fromLive(...)` / `fromLiveClient(...)` and the standalone `withLiveContractAddresses(...)` helper strictly resolve installed contract addresses from the live CDM registry (ABIs still come from the installed snapshot). Backed by the new `LiveContractResolutionOptions` type and `ContractLiveAddressResolutionError`.
+- New `ContractManager.fromLive(...)` / `fromLiveClient(...)` and the standalone `withLiveContractAddresses(...)` helper strictly resolve installed contract addresses from the live CDM registry (ABIs still come from the installed snapshot). `"latest"` dependencies resolve the registry's latest address; pinned numeric dependencies resolve the installed version's address. Backed by the new `LiveContractResolutionOptions` type and `ContractLiveAddressResolutionError`.
 - New exported type alias `CdmJsonDependencyVersion`.
