@@ -14,21 +14,32 @@ on:
             - "docs/**"
             - ".github/workflows/docs-verify.yml"
 
+# Read-only build: only needs to clone the repo to verify it builds.
 permissions:
     contents: read
+
+# Cancel in-flight runs on the same PR / ref so a quick succession of pushes
+# doesn't queue a backlog of redundant verifies.
+concurrency:
+    group: docs-verify-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
 
 jobs:
     build:
         name: "docs: Verify Generate & Build"
         runs-on: parity-default
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+              with:
+                  # Verify-only job; clear the token from .git/config after checkout
+                  # so subsequent steps can't accidentally exfiltrate it.
+                  persist-credentials: false
 
-            - uses: pnpm/action-setup@v6
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
               with:
                   version: 10
 
-            - uses: actions/setup-node@v4
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
               with:
                   node-version: "22"
                   cache: "pnpm"

@@ -1,13 +1,24 @@
 name: "product-sdk: Release"
 
+# Triggered after a successful CI run on `main`. `workflow_run` is flagged by
+# zizmor as dangerous because of how PRs from forks can game it; we are safe
+# because (a) `branches: [main]` gates the trigger to the main branch, where
+# PRs from forks cannot push, and (b) the `bot` step below short-circuits on
+# the version-bump commit so the release loop can't recurse.
 on:
     workflow_run:
         workflows: ["product-sdk: CI"]
         types: [completed]
         branches: [main]
 
+# Default workflow scope: read-only. The release job below requests
+# `contents: write` explicitly for pushing version-bump commits + tags.
 permissions:
-    contents: write
+    contents: read
+
+concurrency:
+    group: product-sdk-release
+    cancel-in-progress: false
 
 defaults:
     run:
@@ -18,18 +29,29 @@ jobs:
         if: github.event.workflow_run.conclusion == 'success'
         runs-on: parity-default
         environment: main
+        permissions:
+            # Required to push the `chore: version packages` commit + per-package
+            # release tags. Token comes from the App below; this permission scope
+            # applies if/when a step falls back to `secrets.GITHUB_TOKEN`.
+            contents: write
         steps:
             - name: Generate GitHub App token
               id: app-token
-              uses: actions/create-github-app-token@v1
+              # Constrain the App token's installation permissions to what this
+              # job actually does: push version commits + tags to `main`.
+              uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
               with:
                   app-id: ${{ secrets.APP_ID }}
                   private-key: ${{ secrets.APP_PRIVATE_KEY }}
+                  permission-contents: write
 
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   fetch-depth: 0
                   token: ${{ steps.app-token.outputs.token }}
+                  # The token IS persisted intentionally — subsequent git push
+                  # operations (version-bump commit + tags) need it.
+                  persist-credentials: true
 
             # Skip if the triggering commit was a version bump by the bot
             - name: Check if bot commit
@@ -53,12 +75,12 @@ jobs:
                   fi
 
             - if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
-              uses: pnpm/action-setup@v6
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
               with:
                   version: 10
 
             - if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
               with:
                   node-version: "22"
                   registry-url: "https://registry.npmjs.org"
@@ -83,12 +105,17 @@ jobs:
               if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
               run: pnpm format
 
-            # Commit version bumps
+            # Commit version bumps. `secrets.APP_ID` is a numeric App ID we own
+            # (not user input) — interpolated through an env var to keep
+            # zizmor's `template-injection` audit clean and to avoid any future
+            # shell-quoting surprises.
             - name: Commit version changes
               if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
+              env:
+                  APP_ID: ${{ secrets.APP_ID }}
               run: |
                   git config user.name "product-sdk-release-bot[bot]"
-                  git config user.email "${{ secrets.APP_ID }}+product-sdk-release-bot[bot]@users.noreply.github.com"
+                  git config user.email "${APP_ID}+product-sdk-release-bot[bot]@users.noreply.github.com"
                   git add -A
                   git diff --cached --quiet || git commit -m "chore: version packages"
                   git pull --rebase
@@ -121,7 +148,7 @@ jobs:
 
             - name: Upload package artifacts
               if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: packages
                   path: product-sdk/artifacts/*.tgz
@@ -129,7 +156,7 @@ jobs:
             # Dispatch to npm_publish_automation for publishing
             - name: Publish via npm_publish_automation
               if: steps.bot.outputs.skip != 'true' && steps.changesets.outputs.found == 'true'
-              uses: octokit/request-action@v2.x
+              uses: octokit/request-action@02f5e7c637a73a3b12ed81015fa7fb5f11cc5d7d # v2.x
               with:
                   route: POST /repos/paritytech/npm_publish_automation/actions/workflows/publish.yml/dispatches
                   ref: main

@@ -9,6 +9,10 @@ on:
       - edited
       - synchronize
 
+# No write access needed at workflow level — the validate action only reads PR
+# metadata. Per-job grants below.
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -16,11 +20,12 @@ concurrency:
 jobs:
   validate-title:
     permissions:
+      # Read-only access to PR title + metadata; no write needed.
       pull-requests: read
     name: Validate PR Title
     runs-on: parity-default
     steps:
       - name: semantic-pull-request
-        uses: amannn/action-semantic-pull-request@v6
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
