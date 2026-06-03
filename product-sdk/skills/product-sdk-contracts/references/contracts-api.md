@@ -41,6 +41,34 @@ const manager = ContractManager.fromClient(cdmJson, client.raw.assetHub, paseo_a
 });
 ```
 
+#### fromLive / fromLiveClient
+
+**Async.** Resolve each installed contract's address from the live CDM registry before constructing the manager, instead of trusting the address baked into `cdm.json`. ABIs and versions still come from the installed snapshot — only addresses are refreshed. Strict: rejects with `ContractLiveAddressResolutionError` if an address can't be resolved (never falls back to the snapshot).
+
+```typescript
+static fromLive(
+    cdmJson: CdmJson,
+    runtime: ContractRuntime,
+    options?: ContractManagerOptions & LiveContractResolutionOptions,
+): Promise<ContractManager>
+
+static fromLiveClient<TDescriptor>(
+    cdmJson: CdmJson,
+    client: PolkadotClient,
+    descriptor: TDescriptor,
+    options?: ContractManagerOptions & ContractRuntimeOptions & LiveContractResolutionOptions,
+): Promise<ContractManager>
+```
+
+```typescript
+const manager = await ContractManager.fromLiveClient(
+    cdmJson,
+    client.raw.assetHub,
+    paseo_asset_hub,
+    { signerManager }, // registryAddress defaults to cdmJson.registry
+);
+```
+
 ### Instance Methods
 
 #### getContract
@@ -143,6 +171,27 @@ const counter = createContractFromClient(
 
 ---
 
+## withLiveContractAddresses
+
+Standalone helper behind `ContractManager.fromLive`. Returns a **cloned** `cdm.json` whose installed contract addresses have been replaced with live addresses from the CDM registry. The input manifest is never mutated. Strict — rejects with `ContractLiveAddressResolutionError` if any requested address can't be resolved.
+
+```typescript
+function withLiveContractAddresses(
+    cdmJson: CdmJson,
+    runtime: ContractRuntime,
+    options?: LiveContractResolutionOptions,
+): Promise<CdmJson>
+```
+
+```typescript
+const resolved = await withLiveContractAddresses(cdmJson, runtime, {
+    libraries: ["@example/counter"], // optional subset; defaults to all
+});
+const manager = new ContractManager(resolved, runtime);
+```
+
+---
+
 ## generateContractTypes
 
 Generate a TypeScript module augmentation for typed contract handles.
@@ -205,7 +254,19 @@ Thrown when `getContract()` is called with an unknown library name.
 
 ```typescript
 class ContractNotFoundError extends ContractError {
-    constructor(library: string, targetHash: string)
+    constructor(library: string)
+}
+```
+
+### ContractLiveAddressResolutionError
+
+Thrown by `ContractManager.fromLive` / `fromLiveClient` / `withLiveContractAddresses` when a live registry address can't be resolved (no `registry` configured, the contract isn't registered, or the registry query failed).
+
+```typescript
+class ContractLiveAddressResolutionError extends ContractError {
+    readonly library: string | undefined;
+    readonly detail: unknown;
+    constructor(message: string, options?: { library?: string; detail?: unknown; cause?: unknown })
 }
 ```
 
@@ -289,10 +350,24 @@ interface ContractDefaults {
 
 ```typescript
 interface ContractManagerOptions {
-    targetHash?: string;
     signerManager?: SignerManager;
     defaultOrigin?: HexString;
     defaultSigner?: PolkadotSigner;
+}
+```
+
+### LiveContractResolutionOptions
+
+Options for the live-resolution factories (`fromLive`, `fromLiveClient`, `withLiveContractAddresses`).
+
+```typescript
+interface LiveContractResolutionOptions {
+    /** CDM registry contract address. Defaults to `cdm.json.registry`. */
+    registryAddress?: HexString;
+    /** Subset of installed libraries to resolve. Defaults to every contract in the manifest. */
+    libraries?: readonly string[];
+    /** Origin used for CDM registry dry-run queries. Defaults to `defaultOrigin` in manager helpers. */
+    registryOrigin?: SS58String;
 }
 ```
 
@@ -312,18 +387,16 @@ The CDM manifest format.
 
 ```typescript
 interface CdmJson {
-    targets: Record<string, CdmJsonTarget>;
-    contracts?: Record<string, Record<string, CdmJsonContract>>;
-}
-
-interface CdmJsonTarget {
-    chainId: string;
-    rpc: string;
+    dependencies: Record<string, number | string>;
+    contracts?: Record<string, CdmJsonContract>;
+    registry?: HexString;
 }
 
 interface CdmJsonContract {
+    version: number;
     address: HexString;
     abi: AbiEntry[];
+    metadataCid?: string;
 }
 ```
 

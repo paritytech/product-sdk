@@ -1,5 +1,70 @@
 # @parity/product-sdk-signer
 
+## 0.6.0
+
+### Minor Changes
+
+- dc3a452: **Add `HostProviderOptions.productAccount` for product-account-only apps.**
+
+  Apps that sign exclusively with a per-dapp derived product account (no
+  wallet picker — typical for the modern PoP-mediated flow) can now pass
+  `productAccount: { dotNsIdentifier, derivationIndex? }` when constructing
+  `HostProvider`. When set, `connect()`:
+
+  - Skips `getLegacyAccounts()` entirely.
+  - Fetches the product account via `getProductAccount(dotNsIdentifier, derivationIndex)`.
+  - Best-effort fetches the user's primary username via `getUserId()`
+    and uses it as `SignerAccount.name` so apps can render
+    `Hello, {name}` instead of a truncated address. Failures
+    (`NotConnected`, `PermissionDenied`, codec drift) leave `name` null —
+    connect still succeeds, callers fall back to whatever display rule
+    they already use.
+  - Returns it as a single-element `SignerAccount[]` so it flows into
+    `SignerState.accounts` and becomes `selectedAccount` like any other
+    account.
+  - Wires `getSigner` through `getProductAccountSigner` (pinned to
+    `createTransaction`).
+
+  This obsoletes the ~25-line `class extends HostProvider` workaround every
+  product app was carrying. Critically, it also fixes a v0.5.0 regression:
+  when the host returns no legacy accounts, `super.connect()` rejects with
+  `NoAccountsError` _before_ any product-account fetch can happen — leaving
+  product-only apps stuck in `status: "disconnected"`. The new option
+  bypasses that branch entirely.
+
+  Existing consumers (apps that don't set `productAccount`) see no
+  behavior change.
+
+  Example:
+
+  ```ts
+  new HostProvider({
+    productAccount: { dotNsIdentifier: "myapp.dot" },
+  });
+  ```
+
+### Patch Changes
+
+- dc3a452: Bump `@novasamatech/host-api` and `@novasamatech/host-api-wrapper` to `^0.8.4`.
+
+  0.8.4 ships the `getLegacyAccountSigner` SS58 fix: the wrapper now sends an
+  SS58 address as the wire `signer` instead of a raw hex public key, so
+  legacy-account `signRaw`/`signPayload` are accepted by the wallet instead of
+  rejected. Fixes the root cause behind
+  [paritytech/product-sdk#156](https://github.com/paritytech/product-sdk/issues/156).
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-host@0.6.1
+  - @parity/product-sdk-keys@0.3.3
+
 ## 0.5.0
 
 ### Minor Changes

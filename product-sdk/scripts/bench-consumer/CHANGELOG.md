@@ -1,5 +1,27 @@
 # @parity/product-sdk-bench-consumer
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-host@0.6.1
+  - @parity/product-sdk-signer@0.6.0
+  - @parity/product-sdk-statement-store@0.4.1
+  - @parity/product-sdk-chain-client@0.5.3
+  - @parity/product-sdk-cloud-storage@0.5.3
+  - @parity/product-sdk-contracts@0.7.0
+  - @parity/product-sdk-descriptors@0.5.2
+  - @parity/product-sdk-keys@0.3.3
+  - @parity/product-sdk-tx@0.2.7
+  - @parity/product-sdk@0.9.0
+  - @parity/product-sdk-terminal@0.3.0
+  - @parity/product-sdk-local-storage@0.2.2
+
 ## 0.0.10
 
 ### Patch Changes

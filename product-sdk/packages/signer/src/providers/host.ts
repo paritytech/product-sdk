@@ -50,6 +50,21 @@ export interface HostProviderOptions {
     requestChainSubmitPermission?: boolean;
     /** @deprecated Renamed to `requestChainSubmitPermission`. */
     requestTransactionSubmitPermission?: boolean;
+    /**
+     * If set, `connect()` returns a single product account for the given
+     * `dotNsIdentifier`, skipping the legacy fetch entirely. For apps
+     * that sign exclusively with a per-dapp derived account.
+     *
+     * `SignerAccount.name` is populated best-effort from
+     * `accounts.getUserId().primaryUsername`; failures leave it null.
+     * Signing is pinned to `createTransaction` (see PR #96).
+     */
+    productAccount?: {
+        /** App identifier (e.g., `"playground.dot"`). */
+        dotNsIdentifier: string;
+        /** Derivation index within the app scope. Default: 0. */
+        derivationIndex?: number;
+    };
 }
 
 /**
@@ -134,6 +149,7 @@ export interface AccountsProvider {
         dotNsIdentifier: string,
         derivationIndex?: number,
     ) => NeverthrowResultAsync<ContextualAlias, unknown>;
+    getUserId: () => NeverthrowResultAsync<{ primaryUsername: string }, unknown>;
     createRingVRFProof: (
         dotNsIdentifier: string,
         derivationIndex: number,
@@ -195,6 +211,7 @@ export class HostProvider implements SignerProvider {
     private readonly loadSdk: () => Promise<ProductSdkModule>;
     private readonly loadHostApiEnum: () => Promise<HostApiEnumHelper>;
     private readonly requestChainSubmitPermission: boolean;
+    private readonly productAccount: HostProviderOptions["productAccount"];
 
     private accountsProvider: AccountsProvider | null = null;
     private statusCleanup: (() => void) | null = null;
@@ -212,6 +229,7 @@ export class HostProvider implements SignerProvider {
             options?.requestChainSubmitPermission ??
             options?.requestTransactionSubmitPermission ??
             true;
+        this.productAccount = options?.productAccount;
     }
 
     async connect(signal?: AbortSignal): Promise<Result<SignerAccount[], SignerError>> {
@@ -440,27 +458,46 @@ export class HostProvider implements SignerProvider {
         const provider = sdk.createAccountsProvider();
         this.accountsProvider = provider;
 
-        // Step 3: Fetch non-product accounts
-        let rawAccounts: RawAccount[];
-        try {
-            rawAccounts = (await provider.getLegacyAccounts().match(
-                (accounts) => accounts,
-                (error) => {
-                    throw new Error(`Host rejected account request: ${formatError(error)}`);
-                },
-            )) as RawAccount[];
-        } catch (cause) {
-            log.error("failed to get accounts from host", { cause });
-            return err(
-                new HostRejectedError(
-                    cause instanceof Error ? cause.message : "Failed to get accounts from host",
-                ),
+        // Step 3: Fetch accounts.
+        //
+        // When `productAccount` is configured, skip the legacy fetch entirely
+        // and return a single product account. Product-account-only apps
+        // (no wallet picker) often run against hosts that have no legacy
+        // accounts to surface — calling `getLegacyAccounts()` there returns
+        // an empty list and the connect would fail with `NoAccountsError`.
+        let signerAccounts: SignerAccount[];
+        if (this.productAccount) {
+            const accountResult = await this.fetchProductSignerAccount(
+                provider,
+                this.productAccount.dotNsIdentifier,
+                this.productAccount.derivationIndex ?? 0,
             );
-        }
+            if (!accountResult.ok) return accountResult;
+            signerAccounts = [accountResult.value];
+        } else {
+            let rawAccounts: RawAccount[];
+            try {
+                rawAccounts = (await provider.getLegacyAccounts().match(
+                    (accounts) => accounts,
+                    (error) => {
+                        throw new Error(`Host rejected account request: ${formatError(error)}`);
+                    },
+                )) as RawAccount[];
+            } catch (cause) {
+                log.error("failed to get accounts from host", { cause });
+                return err(
+                    new HostRejectedError(
+                        cause instanceof Error ? cause.message : "Failed to get accounts from host",
+                    ),
+                );
+            }
 
-        if (rawAccounts.length === 0) {
-            log.warn("host returned no accounts");
-            return err(new NoAccountsError("host"));
+            if (rawAccounts.length === 0) {
+                log.warn("host returned no accounts");
+                return err(new NoAccountsError("host"));
+            }
+
+            signerAccounts = this.mapAccounts(rawAccounts);
         }
 
         // Step 4: Request ChainSubmit permission up-front.
@@ -505,9 +542,7 @@ export class HostProvider implements SignerProvider {
             }
         }
 
-        // Step 5: Map to SignerAccount[]
-        const accounts = this.mapAccounts(rawAccounts);
-        log.info("host connected", { accounts: accounts.length });
+        log.info("host connected", { accounts: signerAccounts.length });
 
         // Step 6: Subscribe to connection status
         const sub = provider.subscribeAccountConnectionStatus((status) => {
@@ -519,7 +554,43 @@ export class HostProvider implements SignerProvider {
         });
         this.statusCleanup = typeof sub === "function" ? sub : () => sub.unsubscribe();
 
-        return ok(accounts);
+        return ok(signerAccounts);
+    }
+
+    private async fetchProductSignerAccount(
+        provider: AccountsProvider,
+        dotNsIdentifier: string,
+        derivationIndex: number,
+    ): Promise<Result<SignerAccount, SignerError>> {
+        // Run the account fetch and the best-effort username fetch in
+        // parallel — they're independent host RPCs. `getUserId` failures
+        // (NotConnected, PermissionDenied, codec drift) resolve to `null`
+        // so they never abort connect; the account name falls back to
+        // whatever `getProductAccount` returned (typically also null,
+        // since product accounts are nameless on the host side).
+        const fetchUsername = async (): Promise<string | null> => {
+            try {
+                return await provider.getUserId().match(
+                    (result) => result.primaryUsername,
+                    (error) => {
+                        log.debug("getUserId failed; product account name stays null", {
+                            error: formatError(error),
+                        });
+                        return null as string | null;
+                    },
+                );
+            } catch (cause) {
+                log.debug("getUserId threw; product account name stays null", { cause });
+                return null;
+            }
+        };
+        const [accountResult, primaryUsername] = await Promise.all([
+            this.getProductAccount(dotNsIdentifier, derivationIndex),
+            fetchUsername(),
+        ]);
+        if (!accountResult.ok) return accountResult;
+        const account = accountResult.value;
+        return ok({ ...account, name: account.name ?? primaryUsername });
     }
 
     private mapAccounts(rawAccounts: ReadonlyArray<RawAccount>): SignerAccount[] {
@@ -604,6 +675,7 @@ if (import.meta.vitest) {
             accounts?: RawAccountTest[];
             shouldReject?: boolean;
             error?: unknown;
+            primaryUsername?: string;
         } = {},
     ) {
         const accounts = options.accounts ?? [];
@@ -657,6 +729,17 @@ if (import.meta.vitest) {
                 },
             }),
             subscribeAccountConnectionStatus: vi.fn().mockReturnValue(() => {}),
+            getUserId: vi.fn().mockReturnValue({
+                match: async (
+                    onOk: (v: { primaryUsername: string }) => unknown,
+                    onErr: (e: unknown) => unknown,
+                ) => {
+                    if (shouldReject) {
+                        return onErr(options.error ?? "Unknown");
+                    }
+                    return onOk({ primaryUsername: options.primaryUsername ?? "" });
+                },
+            }),
         };
     }
 
@@ -814,6 +897,93 @@ if (import.meta.vitest) {
             const unsub = provider.onAccountsChange(cb);
             expect(typeof unsub).toBe("function");
             unsub();
+        });
+
+        test("productAccount option returns the derived account, populates name via getUserId, and skips the legacy fetch", async () => {
+            const productPubkey = new Uint8Array(32).fill(0xcc);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+                primaryUsername: "alice",
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                productAccount: { dotNsIdentifier: "myapp.dot", derivationIndex: 0 },
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toHaveLength(1);
+                expect(result.value[0].publicKey).toEqual(productPubkey);
+                expect(result.value[0].source).toBe("host");
+                expect(result.value[0].name).toBe("alice");
+                result.value[0].getSigner();
+                expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
+                    expect.objectContaining({
+                        dotNsIdentifier: "myapp.dot",
+                        derivationIndex: 0,
+                    }),
+                    "createTransaction",
+                );
+            }
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("myapp.dot", 0);
+            expect(mockProvider.getUserId).toHaveBeenCalled();
+            expect(mockProvider.getLegacyAccounts).not.toHaveBeenCalled();
+        });
+
+        test("productAccount option survives getUserId failure (name stays null, connect still succeeds)", async () => {
+            const productPubkey = new Uint8Array(32).fill(0xee);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+            });
+            // Force getUserId to reject — connect must still succeed with name=null.
+            mockProvider.getUserId.mockReturnValue({
+                match: async (
+                    _onOk: (v: { primaryUsername: string }) => unknown,
+                    onErr: (e: unknown) => unknown,
+                ) => onErr({ tag: "v1", value: { tag: "GetUserIdErr::PermissionDenied" } }),
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                productAccount: { dotNsIdentifier: "myapp.dot" },
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value[0].name).toBeNull();
+            }
+        });
+
+        test("productAccount option succeeds when host has no legacy accounts (regression: signer 0.5.0 NoAccountsError)", async () => {
+            // Without the option, this scenario returned `err(NoAccountsError)`
+            // before any product-account fetch could happen — breaking every
+            // product-only app whose host doesn't surface legacy accounts.
+            const productPubkey = new Uint8Array(32).fill(0xdd);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+            });
+            // Force the legacy path to look empty if it were ever consulted.
+            mockProvider.getLegacyAccounts.mockReturnValue({
+                match: async (
+                    onOk: (v: RawAccountTest[]) => unknown,
+                    _onErr: (e: unknown) => unknown,
+                ) => onOk([]),
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                productAccount: { dotNsIdentifier: "playground.dot" },
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toHaveLength(1);
+                expect(result.value[0].publicKey).toEqual(productPubkey);
+            }
         });
     });
 

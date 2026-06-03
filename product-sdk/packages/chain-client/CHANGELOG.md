@@ -1,5 +1,21 @@
 # @parity/product-sdk-chain-client
 
+## 0.5.3
+
+### Patch Changes
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-host@0.6.1
+  - @parity/product-sdk-descriptors@0.5.2
+
 ## 0.5.2
 
 ### Patch Changes

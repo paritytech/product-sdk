@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-cloud-storage",
-    "version": "0.5.2",
+    "version": "0.5.3",
     "description": "TypeScript SDK for uploading and retrieving data from the Cloud (currently through the Polkadot Bulletin Chain)",
     "type": "module",
     "sideEffects": false,
