@@ -353,7 +353,6 @@ if (import.meta.vitest) {
         const bad = { genesis: "0xbad" } as ChainDefinition;
         const client = (await createChainClient({
             chains: { good, bad },
-            rpcs: { good: [], bad: [] },
         })) as any;
 
         // The whole client still resolves; the supported chain is fully usable.

@@ -29,7 +29,6 @@ import { createChainClient, ChainNotSupportedError } from "@parity/product-sdk-c
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
-    rpcs: {},
 });
 
 try {
