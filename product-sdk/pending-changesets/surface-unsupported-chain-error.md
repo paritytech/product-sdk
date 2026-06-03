@@ -13,24 +13,37 @@ dropped. Every query against that chain then awaited indefinitely — no rejecti
 no error, no built-in timeout.
 
 `getHostProvider` now verifies host support (via the same `host_feature_supported`
-check the wrapper performs internally) *before* handing a provider to PAPI. When
-the host can't serve the chain, it throws the new `ChainNotSupportedError`, which
-propagates out of `createChainClient` as a rejected promise. The error carries the
-offending `genesisHash` for programmatic handling:
+check the wrapper performs internally) *before* handing a provider to PAPI, and
+throws the new `ChainNotSupportedError` (carrying the offending `genesisHash`) when
+the host can't serve the chain.
+
+`createChainClient` degrades per-chain rather than all-or-nothing: supported chains
+in the same call stay fully usable, and an unsupported chain's API throws
+`ChainNotSupportedError` on first use (e.g. `client.assetHub.query…`) instead of
+hanging. This matches the reported behaviour where one chain (Bulletin) keeps
+working while another is unavailable. A hard failure (e.g. not running inside a
+container) still rejects the whole call as before.
 
 ```ts
 import { createChainClient, ChainNotSupportedError } from "@parity/product-sdk-chain-client";
 
+const client = await createChainClient({
+    chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
+    rpcs: {},
+});
+
 try {
-    const client = await createChainClient({ chains: { assetHub: paseo_asset_hub }, rpcs: {} });
+    await client.assetHub.query.System.Number.getValue();
 } catch (err) {
     if (err instanceof ChainNotSupportedError) {
         // err.genesisHash — the chain the host refused
     }
 }
+
+// Other chains in the same client are unaffected:
+await client.bulletin.query.TransactionStorage.ByteFee.getValue();
 ```
 
 `ChainNotSupportedError` is exported from both `@parity/product-sdk-host` and
-`@parity/product-sdk-chain-client`. Supported chains are unaffected; connecting
-outside a host container still returns `null`/throws the existing "host provider
-unavailable" error.
+`@parity/product-sdk-chain-client`. Connecting outside a host container still
+returns `null` / throws the existing "host provider unavailable" error.
