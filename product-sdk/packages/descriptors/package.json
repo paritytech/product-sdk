@@ -30,6 +30,7 @@
     "scripts": {
         "generate": "./scripts/generate.sh",
         "build": "./scripts/build.sh",
+        "regenerate": "./scripts/regen-with-rpc.sh",
         "clean": "rm -rf chains/*/generated/dist chains/*/generated/src chains/*/generated/generated.json"
     },
     "dependencies": {
