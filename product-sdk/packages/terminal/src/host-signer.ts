@@ -16,6 +16,26 @@ import type { TerminalAdapter } from "./adapter.js";
 import { type CachedAllocation, loadCache, readCacheEntry } from "./host-cache.js";
 import type { AllocatableResource } from "./host.js";
 
+function bytesToNumberLE(bytes: Uint8Array): bigint {
+    let n = 0n;
+    for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i]);
+    return n;
+}
+function numberToBytesLE(value: bigint, length: number): Uint8Array {
+    const out = new Uint8Array(length);
+    for (let i = 0; i < length; i++) out[i] = Number((value >> BigInt(8 * i)) & 0xffn);
+    return out;
+}
+
+// schnorrkel to_bytes() (canonical scalar) -> to_ed25519_bytes() form @scure expects (×8 cofactor).
+function canonicalSr25519SecretToEd25519Bytes(secret: Uint8Array): Uint8Array {
+    const ed25519Scalar = numberToBytesLE(bytesToNumberLE(secret.subarray(0, 32)) << 3n, 32);
+    const out = new Uint8Array(64);
+    out.set(ed25519Scalar, 0);
+    out.set(secret.subarray(32, 64), 32);
+    return out;
+}
+
 // Wire encoding for slotAccountKey isn't pinned: mobile may send a
 // 32-byte mini-secret or a 64-byte expanded secret. Detect length and
 // route; any other length throws.
@@ -29,9 +49,10 @@ function buildKeypair(secret: Uint8Array): {
         return { publicKey: keypair.publicKey, sign: (data) => keypair.sign(data) };
     }
     if (secret.length === 64) {
+        const ed25519Secret = canonicalSr25519SecretToEd25519Bytes(secret);
         return {
-            publicKey: sr25519.getPublicKey(secret),
-            sign: (data) => sr25519.sign(data, secret),
+            publicKey: sr25519.getPublicKey(ed25519Secret),
+            sign: (data) => sr25519.sign(data, ed25519Secret),
         };
     }
     throw new Error(
@@ -189,10 +210,9 @@ if (import.meta.vitest) {
         });
 
         test("64-byte expanded-secret form produces a valid signer", async () => {
-            // Pre-computed: @scure/sr25519's secretFromSeed(mnemonicToMiniSecret(DEV_PHRASE)).
-            // Public key must match the 32-byte path's derived key.
+            // Canonical schnorrkel to_bytes() for DEV_PHRASE (scalar + nonce), the mobile wire form.
             const SECRET_64_HEX =
-                "0x28b0ae221c6bb06856b287f60d7ea0d98552ea5a16db16956849aa371db3eb51fd190cce74df356432b410bd64682309d6dedb27c76845daf388557cbac3ca34";
+                "0x05d65584630d16cd4af6d0bec10f34bb504a5dcb62dba2122d49f5a663763d0afd190cce74df356432b410bd64682309d6dedb27c76845daf388557cbac3ca34";
 
             await saveCache(
                 "p",
