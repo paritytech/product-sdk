@@ -46,6 +46,10 @@ import { sanitizeKey } from "./node-storage.js";
 // Mirror of host-papp's internal stored-session codec (not exported — only the
 // `StoredUserSession` type is). `satisfies` guards drift at build time, the
 // interop test at runtime; field order and the `Bytes(65)` chat key must match.
+//
+// host-papp 0.8.5 appended `ssoEncPubKey` (Mobile SSO spec v0.2.2):
+// the peer's 65-byte uncompressed P-256 encryption pubkey. `None` for
+// pre-v0.2.2 peers; we synthesize as `undefined` below.
 const storedUserSessionCodec = Struct({
     id: str,
     localAccount: LocalSessionAccountCodec,
@@ -53,6 +57,7 @@ const storedUserSessionCodec = Struct({
     rootAccountId: AccountIdCodec,
     identityAccountId: Option(AccountIdCodec),
     identityChatPublicKey: Option(Bytes(65)),
+    ssoEncPubKey: Option(Bytes(65)),
 }) satisfies Codec<StoredUserSession>;
 const sessionsCodec = Vector(storedUserSessionCodec);
 
@@ -208,6 +213,8 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
         rootAccountId: createAccountId(remotePublicKey),
         identityAccountId: undefined,
         identityChatPublicKey: undefined,
+        // pre-v0.2.2 peer: no SSO encryption pubkey on the wire.
+        ssoEncPubKey: undefined,
     };
 
     await writeFile(
