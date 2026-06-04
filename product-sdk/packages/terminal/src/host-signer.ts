@@ -7,6 +7,7 @@
  *
  * @module
  */
+import { bytesToNumberLE, numberToBytesLE } from "@noble/curves/utils.js";
 import { fromHex } from "@polkadot-api/utils";
 import { createDerive, sr25519, sr25519Derive } from "@polkadot-labs/hdkd-helpers";
 import type { PolkadotSigner } from "polkadot-api";
@@ -15,17 +16,6 @@ import { getPolkadotSigner } from "polkadot-api/signer";
 import type { TerminalAdapter } from "./adapter.js";
 import { type CachedAllocation, loadCache, readCacheEntry } from "./host-cache.js";
 import type { AllocatableResource } from "./host.js";
-
-function bytesToNumberLE(bytes: Uint8Array): bigint {
-    let n = 0n;
-    for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i]);
-    return n;
-}
-function numberToBytesLE(value: bigint, length: number): Uint8Array {
-    const out = new Uint8Array(length);
-    for (let i = 0; i < length; i++) out[i] = Number((value >> BigInt(8 * i)) & 0xffn);
-    return out;
-}
 
 // schnorrkel to_bytes() (canonical scalar) -> to_ed25519_bytes() form @scure expects (×8 cofactor).
 function canonicalSr25519SecretToEd25519Bytes(secret: Uint8Array): Uint8Array {
