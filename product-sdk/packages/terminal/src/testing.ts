@@ -327,7 +327,10 @@ if (import.meta.vitest) {
             ).resolves.toMatch(/^0x/);
 
             await expect(
-                readFile(join(storageDir, `my-app_UserSecretsV2_${result.sessionId}.json`), "utf-8"),
+                readFile(
+                    join(storageDir, `my-app_UserSecretsV2_${result.sessionId}.json`),
+                    "utf-8",
+                ),
             ).rejects.toThrow(/ENOENT/);
         });
 
@@ -484,7 +487,10 @@ if (import.meta.vitest) {
                 readFile(join(storageDir, `my-app_UserSecretsV2_${first.sessionId}.json`), "utf-8"),
             ).resolves.toMatch(/^0x/);
             await expect(
-                readFile(join(storageDir, `my-app_UserSecretsV2_${second.sessionId}.json`), "utf-8"),
+                readFile(
+                    join(storageDir, `my-app_UserSecretsV2_${second.sessionId}.json`),
+                    "utf-8",
+                ),
             ).resolves.toMatch(/^0x/);
         });
 
