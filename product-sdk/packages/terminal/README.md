@@ -112,9 +112,58 @@ File-based storage adapter for Node.js. Data persists in `storageDir` (defaults 
 
 Waits for the session list to emit at least one entry, or resolves with `[]` after `timeoutMs`.
 
-## Allowance management (`./host` subpath)
+## Allowance signers — the canonical path
 
-For CLIs that need to write to Bulletin / Statement Store / Asset Hub smart contracts: the QR-paired mobile wallet is the Account Holder, the CLI plays the Host role, and `@parity/product-sdk-terminal/host` exposes that Host-runner surface (the [RFC-10](https://github.com/paritytech/triangle-js-sdks/blob/valentunn-rfc-0010/docs/rfcs/0010-allowance.md) Accounts Protocol companion, an on-disk allowance-key cache, and a local sr25519 signer over the cached keys).
+For CLIs that need to write to Bulletin or publish to the Statement Store: ask the paired wallet for an allowance slot, get a `PolkadotSigner` back, sign extrinsics with it. This is what most consumers want.
+
+```ts
+import {
+    createTerminalAdapter,
+    getBulletinSigner,
+    getStatementStoreProver,
+    waitForSessions,
+} from "@parity/product-sdk-terminal";
+
+const adapter = createTerminalAdapter({ appId: "my-cli" });
+
+// ...QR pair the phone, wait for the session...
+await waitForSessions(adapter);
+
+// First call prompts the wallet for an allowance slot; subsequent calls
+// return the cached slot key — no wire round-trip.
+const bulletinSigner = await getBulletinSigner(adapter, "my-cli.dot");
+await bulletinClient.tx.TransactionStorage.store({ data }).signAndSubmit(bulletinSigner);
+
+// Same idea, returns a StatementProver for `@novasamatech/statement-store` writes.
+const prover = await getStatementStoreProver(adapter, "my-cli.dot");
+```
+
+### `getBulletinSigner(adapter, productId, sessionId?): Promise<PolkadotSigner>`
+
+### `getStatementStoreProver(adapter, productId, sessionId?): Promise<StatementProver>`
+
+Both default `sessionId` to the only paired session. With zero or more than one paired sessions and no explicit id, both throw `AllowanceError` with `reason: 'NoSession'`. Pass an explicit `sessionId` to disambiguate.
+
+Failures from the host (`Rejected`, `NotAvailable`, codec drift) surface as `AllowanceError`:
+
+```ts
+import { AllowanceError } from "@parity/product-sdk-terminal";
+
+try {
+    const signer = await getBulletinSigner(adapter, "my-cli.dot");
+} catch (err) {
+    if (err instanceof AllowanceError && err.reason === "Rejected") {
+        // user denied the allowance request on the phone
+    }
+    throw err;
+}
+```
+
+Behind the scenes both helpers wrap `adapter.allowance` (inherited from host-papp's `PappAdapter`) and unwrap its neverthrow `ResultAsync` into a throwing `Promise`. If you want to keep neverthrow's `.match()` / `.mapErr()` ergonomics or need explicit multi-session handling, call `adapter.allowance.getBulletinSigner(sessionId, productId)` / `getStatementStoreProver(...)` directly.
+
+## Allowance management — manual cache + AP control (`./host` subpath)
+
+For CLIs that need finer control — pre-allocating multiple resources in one wallet prompt, inspecting the cache before round-tripping, or building a signer over a cached key without consulting the wallet — the `@parity/product-sdk-terminal/host` subpath exposes the lower-level Host-runner surface (the [RFC-10](https://github.com/paritytech/triangle-js-sdks/blob/valentunn-rfc-0010/docs/rfcs/0010-allowance.md) Accounts Protocol companion, an on-disk allowance-key cache, and a local sr25519 signer over the cached keys). Most CLIs don't need this — start with `getBulletinSigner` / `getStatementStoreProver` above.
 
 ```ts
 import {

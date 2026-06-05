@@ -12,6 +12,14 @@ export type { TerminalAdapterOptions, TerminalAdapter } from "./adapter.js";
 export { createSessionSigner, createSessionSignerForAccount } from "./signer.js";
 export type { ProductAccountRef } from "./signer.js";
 
+// Allowance service — `adapter.allowance` lives on every TerminalAdapter (inherited
+// from host-papp's PappAdapter). These helpers default the session id to the only
+// paired session and unwrap the underlying ResultAsync into a throw, matching the
+// idiom of the rest of this package.
+export { getBulletinSigner, getStatementStoreProver } from "./allowance.js";
+export { AllowanceError } from "@novasamatech/host-papp";
+export type { AllowanceService, AllowanceErrorReason } from "@novasamatech/host-papp";
+
 // Session helpers
 export { waitForSessions } from "./sessions.js";
 

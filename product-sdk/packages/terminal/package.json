@@ -50,6 +50,7 @@
         "scale-ts": "^1.6.1"
     },
     "devDependencies": {
+        "@novasamatech/substrate-slot-sr25519-wasm": "^0.8.6",
         "@types/qrcode": "^1.5.5",
         "tsup": "catalog:",
         "typescript": "catalog:",
