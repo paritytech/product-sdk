@@ -36,3 +36,9 @@ product-sdk/bundle-size.md
 product-sdk/bundle-size.base.json
 product-sdk/bundle-size.head.json
 product-sdk/bundle-size.diff.md
+
+# AI session/per-developer state (keep .claude/commands, .claude/skills,
+# .claude/agents, CLAUDE.md, .claude-plugin/ — those are intentional team config)
+.claude/sessions/
+.claude/cache/
+.claude/settings.local.json

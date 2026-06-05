@@ -43,5 +43,6 @@
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
-    }
+    },
+    "license": "Apache-2.0"
 }

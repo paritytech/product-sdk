@@ -67,3 +67,7 @@ Or open a new Claude Code session and ask "build me a Polkadot app" — the `pro
 | `migrating-to-product-sdk` | Porting an existing codebase from legacy stacks |
 
 Skills live under [`product-sdk/skills/`](./product-sdk/skills/) and are auto-discovered by Claude Code at install time.
+
+## License
+
+[Apache-2.0](./LICENSE)
