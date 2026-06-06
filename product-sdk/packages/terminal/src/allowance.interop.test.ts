@@ -18,8 +18,6 @@
  * + real wallet round-trip can only be exercised by a manual smoke test
  * against a phone.
  */
-import { gcm } from "@noble/ciphers/aes.js";
-import { blake2b } from "@noble/hashes/blake2.js";
 import { createPappAdapter, type UserSession } from "@novasamatech/host-papp";
 import {
     deriveSlotAccountPublicKey,
@@ -28,17 +26,21 @@ import {
     type StatementStoreAdapter,
 } from "@novasamatech/statement-store";
 import { substrateSlotSecretFromSeedBytes } from "@novasamatech/substrate-slot-sr25519-wasm";
-import { toHex } from "@polkadot-api/utils";
 import { entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { okAsync } from "neverthrow";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Bytes, Enum, Struct, Vector, _void, str } from "scale-ts";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { getBulletinSigner, getStatementStoreProver } from "./allowance.js";
-import { createNodeStorageAdapter, sanitizeKey } from "./node-storage.js";
+import {
+    getBulletinSigner,
+    getStatementStoreProver,
+    hasBulletinAllowance,
+    hasStatementStoreAllowance,
+} from "./allowance.js";
+import { type AllowanceResourceKind, writeStoredAllowances } from "./allowance-cache.js";
+import { createNodeStorageAdapter } from "./node-storage.js";
 import { createTestSession } from "./testing.js";
 
 const APP_ID = "allowance-interop";
@@ -55,39 +57,10 @@ const PRODUCT_ID = "allowance-interop.dot";
 const SLOT_MNEMONIC = "legal winner thank year wave sausage worth useful legal winner thank yellow";
 const SLOT_SECRET_SEED = entropyToMiniSecret(mnemonicToEntropy(SLOT_MNEMONIC));
 
-// Mirror of host-papp's `AllowanceRepository` codec — vendored here for the
-// same reason `testing.ts` mirrors the session codec: the codec is internal
-// to host-papp and not exported. If host-papp changes the codec, this test
-// fails immediately rather than letting the change slip past CI.
-const AllowanceResourceKindCodec = Enum({
-    bulletin: _void,
-    statementStore: _void,
-});
-const StoredAllowanceEntryCodec = Struct({
-    productId: str,
-    resource: AllowanceResourceKindCodec,
-    slotAccountKey: Bytes(),
-});
-const StoredAllowancesCodec = Vector(StoredAllowanceEntryCodec);
-
-/**
- * Mirror of host-papp's `AllowanceRepository` AES-GCM wrapper. Same key
- * derivation as the user-secrets repository: blake2b(appId, 16) for the AES
- * key, blake2b("nonce", 32) for the nonce. host-papp re-uses these for the
- * allowance store so a single salt seeds both repositories on the same
- * appId.
- */
-function encryptAllowances(appId: string, plaintext: Uint8Array): string {
-    const key = blake2b(new TextEncoder().encode(appId), { dkLen: 16 });
-    const nonce = blake2b(new TextEncoder().encode("nonce"), { dkLen: 32 });
-    return toHex(gcm(key, nonce).encrypt(plaintext));
-}
-
 /**
  * Pre-populate the allowance cache for a session so `adapter.allowance.*`
- * hits the cache path instead of attempting a wire allocation. Mirrors what
- * the SDK would have written on a previous run after the wallet allocated
- * a slot.
+ * hits the cache path instead of attempting a wire allocation. Thin wrapper
+ * over the shared `writeStoredAllowances` helper from `allowance-cache.ts`.
  */
 async function seedAllowanceCache({
     storageDir,
@@ -101,24 +74,12 @@ async function seedAllowanceCache({
     appId: string;
     sessionId: string;
     productId: string;
-    resource: "bulletin" | "statementStore";
+    resource: AllowanceResourceKind;
     slotAccountKey: Uint8Array;
 }): Promise<void> {
-    const entries = [
-        {
-            productId,
-            resource: { tag: resource, value: undefined } as
-                | { tag: "bulletin"; value: undefined }
-                | { tag: "statementStore"; value: undefined },
-            slotAccountKey,
-        },
-    ];
-    const encoded = StoredAllowancesCodec.enc(entries);
-    const encrypted = encryptAllowances(appId, encoded);
-    // host-papp writes the allowance keys under `AllowanceKeys_<sessionId>`
-    // via the same `createKey` shape it uses for user secrets.
-    const fileName = `${sanitizeKey(appId, `AllowanceKeys_${sessionId}`)}.json`;
-    await writeFile(join(storageDir, fileName), encrypted, "utf-8");
+    await writeStoredAllowances(storageDir, appId, sessionId, [
+        { productId, resource: { tag: resource, value: undefined }, slotAccountKey },
+    ]);
 }
 
 // Shim adapters mirroring `testing.interop.test.ts` — none of these are
@@ -263,6 +224,216 @@ describe("allowance helpers — interop with the real host-papp AllowanceService
         // (not a stub or shape mismatch).
         expect(typeof prover.generateMessageProof).toBe("function");
         expect(typeof prover.verifyMessageProof).toBe("function");
+
+        pappAdapter.sessions.dispose();
+    });
+
+    // ── Cache-only probes ──────────────────────────────────────────────────
+    //
+    // hasBulletinAllowance / hasStatementStoreAllowance read host-papp's
+    // encrypted AllowanceKeys file directly via the codec mirror in
+    // `allowance-cache.ts`. The interop test asserts the mirror's decode
+    // round-trips against a cache entry the SDK would have written: we use
+    // the shared `writeStoredAllowances` (encode + AES-GCM encrypt + write)
+    // to seed, then assert `has*Allowance` reads it back as `true`.
+    //
+    // Because the production code reads `adapter.appId` and `adapter.storageDir`
+    // (fields on `TerminalAdapter` but not `PappAdapter`), the cast object
+    // here augments the bare `PappAdapter` with both. The other adapter
+    // fields aren't touched by these helpers.
+
+    test("hasBulletinAllowance returns true when a slot key for the tuple is cached", async () => {
+        const { sessionId } = await createTestSession({
+            appId: APP_ID,
+            storageDir,
+            localMnemonic: LOCAL_MNEMONIC,
+            remoteMnemonic: REMOTE_MNEMONIC,
+        });
+        await seedAllowanceCache({
+            storageDir,
+            appId: APP_ID,
+            sessionId,
+            productId: PRODUCT_ID,
+            resource: "bulletin",
+            slotAccountKey: fakeSlotSecret,
+        });
+
+        const pappAdapter = createPappAdapter({
+            appId: APP_ID,
+            adapters: {
+                storage: createNodeStorageAdapter(APP_ID, storageDir),
+                statementStore: statementStoreShim,
+                lazyClient: lazyClientShim,
+            },
+        });
+        await waitForFirstSession(pappAdapter);
+        const terminalAdapter = Object.assign(pappAdapter, {
+            appId: APP_ID,
+            storageDir,
+        }) as unknown as Parameters<typeof hasBulletinAllowance>[0];
+
+        expect(await hasBulletinAllowance(terminalAdapter, PRODUCT_ID)).toBe(true);
+
+        pappAdapter.sessions.dispose();
+    });
+
+    test("hasBulletinAllowance returns false when no slot key is cached", async () => {
+        await createTestSession({
+            appId: APP_ID,
+            storageDir,
+            localMnemonic: LOCAL_MNEMONIC,
+            remoteMnemonic: REMOTE_MNEMONIC,
+        });
+        // Critically: no seedAllowanceCache call. The session exists but no
+        // allowance has been allocated for it yet.
+
+        const pappAdapter = createPappAdapter({
+            appId: APP_ID,
+            adapters: {
+                storage: createNodeStorageAdapter(APP_ID, storageDir),
+                statementStore: statementStoreShim,
+                lazyClient: lazyClientShim,
+            },
+        });
+        await waitForFirstSession(pappAdapter);
+        const terminalAdapter = Object.assign(pappAdapter, {
+            appId: APP_ID,
+            storageDir,
+        }) as unknown as Parameters<typeof hasBulletinAllowance>[0];
+
+        expect(await hasBulletinAllowance(terminalAdapter, PRODUCT_ID)).toBe(false);
+
+        pappAdapter.sessions.dispose();
+    });
+
+    test("hasBulletinAllowance returns false when the cached entry is for a different productId", async () => {
+        const { sessionId } = await createTestSession({
+            appId: APP_ID,
+            storageDir,
+            localMnemonic: LOCAL_MNEMONIC,
+            remoteMnemonic: REMOTE_MNEMONIC,
+        });
+        // Seed an entry for a DIFFERENT product — we're asserting `hasAllowance`
+        // matches on productId, not just any entry under the session.
+        await seedAllowanceCache({
+            storageDir,
+            appId: APP_ID,
+            sessionId,
+            productId: "some-other.dot",
+            resource: "bulletin",
+            slotAccountKey: fakeSlotSecret,
+        });
+
+        const pappAdapter = createPappAdapter({
+            appId: APP_ID,
+            adapters: {
+                storage: createNodeStorageAdapter(APP_ID, storageDir),
+                statementStore: statementStoreShim,
+                lazyClient: lazyClientShim,
+            },
+        });
+        await waitForFirstSession(pappAdapter);
+        const terminalAdapter = Object.assign(pappAdapter, {
+            appId: APP_ID,
+            storageDir,
+        }) as unknown as Parameters<typeof hasBulletinAllowance>[0];
+
+        expect(await hasBulletinAllowance(terminalAdapter, PRODUCT_ID)).toBe(false);
+
+        pappAdapter.sessions.dispose();
+    });
+
+    test("hasBulletinAllowance returns true after getBulletinSigner has populated the cache (login-readiness flow)", async () => {
+        // End-to-end-style: the exact sequence a CLI login health check
+        // would hit on a second run. First call (`getBulletinSigner`)
+        // pulls a slot key through host-papp's real AllowanceService and
+        // writes the encrypted `AllowanceKeys_<sessionId>.json` file.
+        // Second call (`hasBulletinAllowance`) reads that same file via
+        // the codec mirror in `allowance-cache.ts` and must report `true`
+        // without prompting a wallet. Catches drift between what
+        // host-papp writes and what our probe reads — the one place
+        // byte-level disagreement matters for the cache-only API.
+        const { sessionId } = await createTestSession({
+            appId: APP_ID,
+            storageDir,
+            localMnemonic: LOCAL_MNEMONIC,
+            remoteMnemonic: REMOTE_MNEMONIC,
+        });
+        await seedAllowanceCache({
+            storageDir,
+            appId: APP_ID,
+            sessionId,
+            productId: PRODUCT_ID,
+            resource: "bulletin",
+            slotAccountKey: fakeSlotSecret,
+        });
+
+        const pappAdapter = createPappAdapter({
+            appId: APP_ID,
+            adapters: {
+                storage: createNodeStorageAdapter(APP_ID, storageDir),
+                statementStore: statementStoreShim,
+                lazyClient: lazyClientShim,
+            },
+        });
+        await waitForFirstSession(pappAdapter);
+        const terminalAdapter = Object.assign(pappAdapter, {
+            appId: APP_ID,
+            storageDir,
+        }) as unknown as Parameters<typeof hasBulletinAllowance>[0];
+
+        // Step 1 — fetch the signer. This is the prompt-allowed path; on a
+        // cache hit (which we have, via seedAllowanceCache) host-papp re-
+        // reads + re-writes the same file. Asserting the pubkey matches
+        // confirms the signer actually came from the cached slot key.
+        const signer = await getBulletinSigner(terminalAdapter, PRODUCT_ID);
+        expect(signer.publicKey).toEqual(deriveSlotAccountPublicKey(fakeSlotSecret));
+
+        // Step 2 — the cache-only probe must agree. If the codec mirror in
+        // `allowance-cache.ts` ever drifts from what host-papp writes,
+        // this assertion flips to `false` and we catch it here rather
+        // than in production.
+        expect(await hasBulletinAllowance(terminalAdapter, PRODUCT_ID)).toBe(true);
+
+        pappAdapter.sessions.dispose();
+    });
+
+    test("hasStatementStoreAllowance distinguishes resource kinds for the same productId", async () => {
+        const { sessionId } = await createTestSession({
+            appId: APP_ID,
+            storageDir,
+            localMnemonic: LOCAL_MNEMONIC,
+            remoteMnemonic: REMOTE_MNEMONIC,
+        });
+        // Seed a bulletin entry, then query for statementStore — same product,
+        // different resource. The check must distinguish them.
+        await seedAllowanceCache({
+            storageDir,
+            appId: APP_ID,
+            sessionId,
+            productId: PRODUCT_ID,
+            resource: "bulletin",
+            slotAccountKey: fakeSlotSecret,
+        });
+
+        const pappAdapter = createPappAdapter({
+            appId: APP_ID,
+            adapters: {
+                storage: createNodeStorageAdapter(APP_ID, storageDir),
+                statementStore: statementStoreShim,
+                lazyClient: lazyClientShim,
+            },
+        });
+        await waitForFirstSession(pappAdapter);
+        const terminalAdapter = Object.assign(pappAdapter, {
+            appId: APP_ID,
+            storageDir,
+        }) as unknown as Parameters<typeof hasStatementStoreAllowance>[0];
+
+        // Bulletin: present.
+        expect(await hasBulletinAllowance(terminalAdapter, PRODUCT_ID)).toBe(true);
+        // StatementStore: not present.
+        expect(await hasStatementStoreAllowance(terminalAdapter, PRODUCT_ID)).toBe(false);
 
         pappAdapter.sessions.dispose();
     });
