@@ -25,6 +25,7 @@ import type { StatementProver } from "@novasamatech/statement-store";
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { TerminalAdapter } from "./adapter.js";
+import { type AllowanceResourceKind, readStoredAllowances } from "./allowance-cache.js";
 
 /**
  * Pick the session id to use for an allowance request, defaulting to the
@@ -121,6 +122,89 @@ export async function getStatementStoreProver(
             throw err;
         },
     );
+}
+
+/**
+ * Cache-only probe: read host-papp's encrypted on-disk allowance list and
+ * resolve to whether an entry exists for `(sessionId, productId, resource)`.
+ *
+ * Never invokes `requestResourceAllocation`, so this is safe to call from
+ * paths that must not prompt the paired wallet (e.g. login health checks).
+ * Resolves `false` for: file absent, file present with no entry for the
+ * tuple. Rejects only on decrypt / decode failures — a corrupted cache
+ * file is a real failure that should not silently degrade into "no
+ * allowance."
+ *
+ * Reads the file at `<storageDir>/<appId>_AllowanceKeys_<sessionId>.json`
+ * — same path host-papp writes to from its `AllowanceRepository`. The
+ * decode is via a vendored mirror of host-papp's internal codec; see
+ * `allowance-cache.ts` for drift-detection guards.
+ */
+async function hasAllowanceForResource(
+    adapter: TerminalAdapter,
+    productId: string,
+    resource: AllowanceResourceKind,
+    sessionId?: string,
+): Promise<boolean> {
+    const resolvedSessionId = resolveSessionId(adapter, sessionId);
+    if (adapter.storageDir === undefined) {
+        // The on-disk cache only exists when the adapter knows where its files
+        // live. Without an explicit `storageDir` the production host-papp
+        // backend may write through a non-disk storage adapter that this
+        // helper can't read; we conservatively answer false so callers don't
+        // skip pairing on a missed cache.
+        return false;
+    }
+    const entries = await readStoredAllowances(
+        adapter.storageDir,
+        adapter.appId,
+        resolvedSessionId,
+    );
+    return entries.some(
+        (entry) => entry.productId === productId && entry.resource.tag === resource,
+    );
+}
+
+/**
+ * Cache-only probe for a Bulletin allowance slot. Resolves `true` when a
+ * slot key for `(sessionId, productId, bulletin)` is already cached on
+ * disk; `false` when it is not. Never prompts the paired wallet.
+ *
+ * Pair with {@link getBulletinSigner} for the "check first, fetch only
+ * if needed" flow:
+ *
+ * @example
+ * ```ts
+ * if (await hasBulletinAllowance(adapter, "my-cli.dot")) {
+ *     // happy path — fetch the signer without risking a wallet prompt
+ *     const signer = await getBulletinSigner(adapter, "my-cli.dot");
+ * } else {
+ *     // tell the user a wallet prompt will fire, then call getBulletinSigner
+ * }
+ * ```
+ */
+export async function hasBulletinAllowance(
+    adapter: TerminalAdapter,
+    productId: string,
+    sessionId?: string,
+): Promise<boolean> {
+    return hasAllowanceForResource(adapter, productId, "bulletin", sessionId);
+}
+
+/**
+ * Cache-only probe for a Statement Store allowance slot. Resolves `true`
+ * when a slot key for `(sessionId, productId, statementStore)` is already
+ * cached on disk; `false` when it is not. Never prompts the paired wallet.
+ *
+ * Pair with {@link getStatementStoreProver} for the "check first, fetch
+ * only if needed" flow.
+ */
+export async function hasStatementStoreAllowance(
+    adapter: TerminalAdapter,
+    productId: string,
+    sessionId?: string,
+): Promise<boolean> {
+    return hasAllowanceForResource(adapter, productId, "statementStore", sessionId);
 }
 
 // ── vitest in-source tests ─────────────────────────────────────────────────
@@ -222,6 +306,42 @@ if (import.meta.vitest) {
             const result = await getStatementStoreProver(adapter, "my-app.dot");
             expect(result).toBe(fakeProver);
             expect(getStatementStoreProverFn).toHaveBeenCalledWith("sess-only", "my-app.dot");
+        });
+    });
+
+    describe("has*Allowance — sessionId defaulting + storageDir fallback", () => {
+        // Cache-hit / cache-miss against real disk + the host-papp codec are
+        // covered by `allowance.interop.test.ts`. These unit tests cover the
+        // branches that don't reach the filesystem.
+
+        test("hasBulletinAllowance throws AllowanceError('NoSession') when zero sessions and no id", async () => {
+            const adapter = makeAdapter({ sessions: [] });
+            await expect(hasBulletinAllowance(adapter, "p")).rejects.toBeInstanceOf(AllowanceError);
+            await expect(hasBulletinAllowance(adapter, "p")).rejects.toMatchObject({
+                reason: "NoSession",
+            });
+        });
+
+        test("hasBulletinAllowance returns false (conservative) when storageDir is undefined", async () => {
+            // Production: a TerminalAdapter without an explicit storageDir
+            // may be backed by a non-disk StorageAdapter that this helper
+            // can't read. Returning false avoids the trap of "we report
+            // 'no allowance cached' confidently when we just couldn't read."
+            const adapter = makeAdapter({ sessions: [{ id: "sess-only" }] });
+            // Mock has no storageDir field — the helper should short-circuit.
+            expect(await hasBulletinAllowance(adapter, "p")).toBe(false);
+        });
+
+        test("hasStatementStoreAllowance throws AllowanceError('NoSession') when zero sessions and no id", async () => {
+            const adapter = makeAdapter({ sessions: [] });
+            await expect(hasStatementStoreAllowance(adapter, "p")).rejects.toBeInstanceOf(
+                AllowanceError,
+            );
+        });
+
+        test("hasStatementStoreAllowance returns false (conservative) when storageDir is undefined", async () => {
+            const adapter = makeAdapter({ sessions: [{ id: "sess-only" }] });
+            expect(await hasStatementStoreAllowance(adapter, "p")).toBe(false);
         });
     });
 }
