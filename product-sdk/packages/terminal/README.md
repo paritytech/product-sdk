@@ -161,6 +161,36 @@ try {
 
 Behind the scenes both helpers wrap `adapter.allowance` (inherited from host-papp's `PappAdapter`) and unwrap its neverthrow `ResultAsync` into a throwing `Promise`. If you want to keep neverthrow's `.match()` / `.mapErr()` ergonomics or need explicit multi-session handling, call `adapter.allowance.getBulletinSigner(sessionId, productId)` / `getStatementStoreProver(...)` directly.
 
+### Cache-only probes — `hasBulletinAllowance` / `hasStatementStoreAllowance`
+
+For paths that must run silently — login health checks, "would calling `getBulletinSigner` prompt the phone?" decisions, readiness probes — use the cache-only variants. They read host-papp's on-disk allowance file directly and **never** trigger a wallet prompt.
+
+```ts
+import {
+    getBulletinSigner,
+    hasBulletinAllowance,
+} from "@parity/product-sdk-terminal";
+
+if (await hasBulletinAllowance(adapter, "my-cli.dot")) {
+    // happy path — fetch the signer without risking a wallet prompt
+    const signer = await getBulletinSigner(adapter, "my-cli.dot");
+} else {
+    // tell the user a wallet prompt will fire, then call getBulletinSigner
+    console.log("Approve the allowance request on your phone…");
+    const signer = await getBulletinSigner(adapter, "my-cli.dot");
+}
+```
+
+#### `hasBulletinAllowance(adapter, productId, sessionId?): Promise<boolean>`
+
+#### `hasStatementStoreAllowance(adapter, productId, sessionId?): Promise<boolean>`
+
+Resolves `true` when a slot key for `(sessionId, productId, resource)` is already cached on disk; `false` when it is not (file absent, or present with no matching entry). Same `sessionId` defaulting as the fetching helpers: defaults to the only paired session, throws `AllowanceError('NoSession')` for zero or multiple paired sessions without an explicit id.
+
+Rejects only on decrypt or decode failures — a corrupted cache file is a real failure, not a "no allowance" signal.
+
+> The cache-only check uses an internal mirror of host-papp's `AllowanceRepository` codec because host-papp doesn't expose a public probe today. We'll switch to the upstream API when one ships; the public surface (`hasBulletinAllowance` / `hasStatementStoreAllowance`) won't change.
+
 ## Allowance management — manual cache + AP control (`./host` subpath)
 
 For CLIs that need finer control — pre-allocating multiple resources in one wallet prompt, inspecting the cache before round-tripping, or building a signer over a cached key without consulting the wallet — the `@parity/product-sdk-terminal/host` subpath exposes the lower-level Host-runner surface (the [RFC-10](https://github.com/paritytech/triangle-js-sdks/blob/valentunn-rfc-0010/docs/rfcs/0010-allowance.md) Accounts Protocol companion, an on-disk allowance-key cache, and a local sr25519 signer over the cached keys). Most CLIs don't need this — start with `getBulletinSigner` / `getStatementStoreProver` above.
