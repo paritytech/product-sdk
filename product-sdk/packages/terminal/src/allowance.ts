@@ -307,6 +307,49 @@ if (import.meta.vitest) {
             expect(result).toBe(fakeProver);
             expect(getStatementStoreProverFn).toHaveBeenCalledWith("sess-only", "my-app.dot");
         });
+
+        test("uses the explicit sessionId when supplied", async () => {
+            const fakeProver = { _tag: "prover" };
+            const getStatementStoreProverFn = vi.fn(() => ok(fakeProver));
+            const adapter = makeAdapter({
+                sessions: [{ id: "sess-a" }, { id: "sess-b" }],
+                getStatementStoreProver: getStatementStoreProverFn,
+            });
+
+            await getStatementStoreProver(adapter, "my-app.dot", "sess-b");
+            expect(getStatementStoreProverFn).toHaveBeenCalledWith("sess-b", "my-app.dot");
+        });
+
+        test("throws AllowanceError('NoSession') when zero sessions and no id", async () => {
+            const adapter = makeAdapter({ sessions: [] });
+            await expect(getStatementStoreProver(adapter, "my-app.dot")).rejects.toBeInstanceOf(
+                AllowanceError,
+            );
+            await expect(getStatementStoreProver(adapter, "my-app.dot")).rejects.toMatchObject({
+                reason: "NoSession",
+            });
+        });
+
+        test("throws AllowanceError('NoSession') when multiple sessions and no id", async () => {
+            const adapter = makeAdapter({ sessions: [{ id: "a" }, { id: "b" }] });
+            await expect(getStatementStoreProver(adapter, "my-app.dot")).rejects.toBeInstanceOf(
+                AllowanceError,
+            );
+            await expect(getStatementStoreProver(adapter, "my-app.dot")).rejects.toMatchObject({
+                reason: "NoSession",
+            });
+        });
+    });
+
+    describe("getStatementStoreProver — error unwrapping", () => {
+        test("rethrows the AllowanceError from the underlying service as a thrown exception", async () => {
+            const underlyingErr = new AllowanceError("Rejected", "user said no");
+            const adapter = makeAdapter({
+                sessions: [{ id: "s" }],
+                getStatementStoreProver: vi.fn(() => err(underlyingErr)),
+            });
+            await expect(getStatementStoreProver(adapter, "p")).rejects.toBe(underlyingErr);
+        });
     });
 
     describe("has*Allowance — sessionId defaulting + storageDir fallback", () => {
