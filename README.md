@@ -1,5 +1,7 @@
 # Product SDK
 
+> The following is a prototype, reference implementation, and proof-of-concept. This open source code is provided for research, experimentation, and developer education only. This code has not been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete features. Use at your own risk.
+
 Monorepo for the `@parity/product-sdk` family of packages and tooling.
 
 ## Documentation
@@ -71,3 +73,4 @@ Skills live under [`product-sdk/skills/`](./product-sdk/skills/) and are auto-di
 ## License
 
 [Apache-2.0](./LICENSE)
+
