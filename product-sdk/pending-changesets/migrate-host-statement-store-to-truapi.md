@@ -8,9 +8,11 @@ Migrate `@parity/product-sdk-host`'s low-level host-API surface — plus the sta
 
 A new sandbox-bootstrap module detects the host environment (iframe / webview / injected message port), builds the `@parity/truapi` transport, creates the client, and runs the `system.handshake` — replacing the wrapper's auto-detected `hostApi` singleton. `@parity/truapi` is now a hard runtime dependency of `host` (alongside `neverthrow`); the `@novasamatech/*` packages remain **optional peers** for the surfaces still routed through the wrapper (marked with `TODO`s in the source). Behavior of those surfaces is unchanged.
 
-**Migrated to `@parity/truapi`:** `getTruApi`, `requestResourceAllocation`, `requestPermission`, `requestDevicePermission`, `deriveEntropy`, `getHostLocalStorage` / `createHostLocalStorage` (adapted onto `localStorage.read/write/clear`), `isInsideContainer` / `isInsideContainerSync`, `getStatementStore` + `createProofAuthorized` (`statementStore.*`), and `getPreimageManager` / `createHostPreimageManager` (`preimage.*`).
+**Migrated to `@parity/truapi`:** `getTruApi`, `requestResourceAllocation`, `requestPermission`, `requestDevicePermission`, `deriveEntropy`, `getHostLocalStorage` / `createHostLocalStorage` (adapted onto `localStorage.read/write/clear`), `isInsideContainer` / `isInsideContainerSync`, `getStatementStore` + `createProofAuthorized` (`statementStore.*`), `getPreimageManager` / `createHostPreimageManager` (`preimage.*`), `getThemeProvider` (`theme.*`), `getChatManager` (`chat.*`), and `getPaymentManager` (`payment.*`).
 
-**Still on `@novasamatech/host-api-wrapper`:** `getHostProvider` (the PAPI `JsonRpcProvider`), `getAccountsProvider`, `getThemeProvider`, `getChatManager`, `getPaymentManager`.
+**Still on `@novasamatech/host-api-wrapper`:** `getHostProvider` (the PAPI `JsonRpcProvider`) and `getAccountsProvider`.
+
+**Removed:** chat custom-message rendering — `matchChatCustomRenderers`, `getChatManager().onCustomMessageRenderingRequest`, and the `ChatCustomMessageRenderer` / `ChatCustomMessageRendererParams` types. `@parity/truapi` models custom render as a different, currently-stubbed client subscription with no product-as-renderer primitive; this will be reintroduced when that flow lands. The chat / theme / payment types (`ChatRoom`, `ChatMessageContent`, `ChatReceivedAction`, `ChatRoomRegistrationResult` / `ChatBotRegistrationResult`, `ThemeMode` / `ThemeName` / `ThemeVariant`, `PaymentBalance`, `PaymentStatus`, `TopUpSource`) are now re-exported from `@parity/truapi` — proofs/statuses use `{ tag }`, and `PaymentStatus` / `TopUpSource` follow the truapi shapes.
 
 **`@parity/product-sdk-host` breaking (shape) changes** — minor-bumped because the package is pre-1.0:
 

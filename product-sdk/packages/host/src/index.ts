@@ -80,7 +80,7 @@ export type { ThemeMode, ThemeName, ThemeProvider, ThemeVariant } from "./theme.
 export { deriveEntropy } from "./entropy.js";
 
 // Chat
-export { getChatManager, matchChatCustomRenderers } from "./chat.js";
+export { getChatManager } from "./chat.js";
 export type {
     ChatManager,
     ChatMessageContent,
@@ -88,8 +88,6 @@ export type {
     ChatRoom,
     ChatRoomRegistrationResult,
     ChatBotRegistrationResult,
-    ChatCustomMessageRenderer,
-    ChatCustomMessageRendererParams,
 } from "./chat.js";
 
 // Payments (RFC-0006)

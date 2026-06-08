@@ -1,74 +1,52 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Higher-level wrapper for the host's theme subscription.
+ * Higher-level wrapper for the host's theme subscription, backed by
+ * `truApi.theme.subscribe`.
  *
- * `hostApi.themeSubscribe` is reachable via {@link getTruApi}, but consumers
- * have to wire the subscription envelope themselves. `getThemeProvider`
- * returns the `@novasamatech/host-api-wrapper` theme provider object directly,
- * giving callers a `subscribeTheme(cb)` method that resolves to a typed
- * {@link ThemeMode} — a `{ name, variant }` struct where `variant` is
- * `"Light" | "Dark"` — and yields a `Subscription<void>` handle.
- *
- * @remarks
- * As of `host-api(-wrapper)` v0.8 the theme payload is a struct, not a flat
- * `"light" | "dark"` string: read {@link ThemeMode.variant} for the
- * light/dark value (now capitalized) and {@link ThemeMode.name} for the
- * active theme name (`Default`, or `Custom` carrying a string id).
+ * `getThemeProvider` returns a handle whose `subscribeTheme(cb)` delivers a
+ * typed {@link ThemeMode} — a `{ name, variant }` struct where `variant` is
+ * `"Light" | "Dark"` and `name` is `{ tag: "Default" }` or
+ * `{ tag: "Custom", value }` — and yields a {@link HostSubscription}
+ * (`unsubscribe` + `onInterrupt`).
  *
  * @module
  */
 
-import { createLogger } from "@parity/product-sdk-logger";
+import type { HostThemeSubscribeItem, TrUApiClient } from "@parity/truapi";
 
-import type {
-    createThemeProvider,
-    ThemeMode as NovasamaThemeMode,
-} from "@novasamatech/host-api-wrapper";
-
-const log = createLogger("host:theme");
+import { getClient, subscribeWithInterrupt } from "./transport.js";
+import type { HostSubscription } from "./types.js";
 
 /**
- * Host theme provider handle. Exposes `subscribeTheme(callback)` which
- * receives a typed {@link ThemeMode} struct on every change and returns a
- * `Subscription<void>` (`unsubscribe` + `onInterrupt`).
- *
- * Type identical to `createThemeProvider()` from
- * `@novasamatech/host-api-wrapper`.
+ * Host theme value. A `{ name, variant }` struct re-exported from
+ * `@parity/truapi`.
  */
-export type ThemeProvider = ReturnType<typeof createThemeProvider>;
+export type ThemeMode = HostThemeSubscribeItem;
+
+/** Light/dark variant of the active theme (`"Light" | "Dark"`) and the active theme name. Re-exported from `@parity/truapi`. */
+export type { ThemeName, ThemeVariant } from "@parity/truapi";
 
 /**
- * Host theme value. Re-exported from `@novasamatech/host-api-wrapper`.
- *
- * A `{ name, variant }` struct as of v0.8 (previously a flat
- * `"light" | "dark"` string).
+ * Host theme provider handle. `subscribeTheme(callback)` receives a typed
+ * {@link ThemeMode} on every change and returns a {@link HostSubscription}.
  */
-export type ThemeMode = NovasamaThemeMode;
+export interface ThemeProvider {
+    subscribeTheme(callback: (theme: ThemeMode) => void): HostSubscription;
+}
 
-/** Light/dark variant of the active theme: `"Light" | "Dark"`. */
-export type ThemeVariant = ThemeMode["variant"];
+/** Build a {@link ThemeProvider} over a TruAPI client's `theme` domain. */
+function adaptThemeProvider(client: TrUApiClient): ThemeProvider {
+    return {
+        subscribeTheme(callback) {
+            return subscribeWithInterrupt(client.theme.subscribe(), callback);
+        },
+    };
+}
 
 /**
- * Active theme name: `{ tag: "Default" }`, or `{ tag: "Custom", value }`
- * carrying the custom theme's string id.
- */
-export type ThemeName = ThemeMode["name"];
-
-/**
- * Get the host theme provider.
- *
- * Returns the theme-subscription handle exported by
- * `@novasamatech/host-api-wrapper`, or `null` if the package is unavailable
- * (running outside a host container or the optional peer dep isn't
- * installed).
- *
- * Implementation note: upstream `@novasamatech/host-api-wrapper` exports only
- * the `createThemeProvider` factory and no `themeProvider` singleton, so
- * this getter constructs a fresh instance on each call (unlike
- * {@link getPreimageManager} or {@link getHostLocalStorage}, which return
- * upstream singletons). The constructed provider is cheap to allocate; it
- * only opens a subscription when `subscribeTheme` is called.
+ * Get the host theme provider, backed by `truApi.theme.*`. Returns `null` when
+ * running outside a host container.
  *
  * @returns The theme provider, or `null` if unavailable.
  *
@@ -87,20 +65,14 @@ export type ThemeName = ThemeMode["name"];
  * ```
  */
 export async function getThemeProvider(): Promise<ThemeProvider | null> {
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.createThemeProvider();
-    } catch (err) {
-        log.debug("getThemeProvider unavailable", err);
-        return null;
-    }
+    const client = await getClient();
+    return client ? adaptThemeProvider(client) : null;
 }
 
 if (import.meta.vitest) {
     const { test, expect } = import.meta.vitest;
 
-    test("getThemeProvider returns provider when SDK is available", async () => {
-        const provider = await getThemeProvider();
-        expect(provider === null || typeof provider === "object").toBe(true);
+    test("getThemeProvider returns null outside a container", async () => {
+        expect(await getThemeProvider()).toBeNull();
     });
 }

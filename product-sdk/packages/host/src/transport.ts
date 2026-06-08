@@ -188,8 +188,8 @@ export async function isReady(): Promise<boolean> {
  * `complete` (a host interrupt frame) or `error` (transport close). Shared by
  * the statement-store and preimage adapters, which both expose this shape.
  */
-export function subscribeWithInterrupt<Item>(
-    observable: ObservableLike<Item>,
+export function subscribeWithInterrupt<Item, Reason = never>(
+    observable: ObservableLike<Item, Reason>,
     onNext: (item: Item) => void,
 ): HostSubscription {
     let interruptCallback: ((reason?: unknown) => void) | undefined;

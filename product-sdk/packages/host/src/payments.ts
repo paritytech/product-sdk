@@ -1,61 +1,96 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Wrapper for the host's payment manager (RFC-0006).
+ * Wrapper for the host's payment manager (RFC-0006), backed by
+ * `truApi.payment.*`.
  *
- * Shipped flat-in-host rather than as `getTruApi().payment.*` because the
- * upstream JS `hostApi` is itself a flat object - there is no `.payment`
- * accessor to mirror. A flat `getPaymentManager()` matches the singleton
- * pattern already used by {@link getPreimageManager},
- * {@link getHostLocalStorage}, and {@link getAccountsProvider}.
- *
- * Returns the shared `paymentManager` singleton from
- * `@novasamatech/host-api-wrapper` (not a fresh `createPaymentManager()`
- * instance) so callers share one wrapper + hostApi closure across the app.
- *
- * Distinct from the CoinPayment / merchant-payments surface tracked under
- * `@parity/product-sdk-merchant-payments` (RFC-0017). RFC-0006 is the
- * user-initiated balance / top-up / payment-request flow; RFC-0017 is the
- * merchant-initiated checkout flow.
+ * Exposes balance subscription, top-up, payment requests, and payment-status
+ * subscription. Distinct from the CoinPayment / merchant-payments surface
+ * (RFC-0017): RFC-0006 is the user-initiated balance / top-up / payment-request
+ * flow.
  *
  * @module
  */
 
-import { createLogger } from "@parity/product-sdk-logger";
-
 import type {
-    PaymentBalance as NovasamaPaymentBalance,
-    PaymentStatus as NovasamaPaymentStatus,
-    TopUpSource as NovasamaTopUpSource,
-    paymentManager,
-} from "@novasamatech/host-api-wrapper";
+    Balance,
+    CoinPaymentPurseId,
+    HexString,
+    HostPaymentBalanceSubscribeItem,
+    HostPaymentStatusSubscribeItem,
+    PaymentTopUpSource,
+    TrUApiClient,
+} from "@parity/truapi";
 
-const log = createLogger("host:payments");
+import { getClient, subscribeWithInterrupt } from "./transport.js";
+import { unwrapHostResult } from "./truapi.js";
+import type { HostSubscription } from "./types.js";
 
-/** Available balance for the user's payment account. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type PaymentBalance = NovasamaPaymentBalance;
+/** Available balance for the user's payment account (`{ available }`). Re-exported from `@parity/truapi`. */
+export type PaymentBalance = HostPaymentBalanceSubscribeItem;
 
-/** Status of an in-flight payment request. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type PaymentStatus = NovasamaPaymentStatus;
+/** Status of an in-flight payment request (`{ tag: "Processing" | "Completed" | "Failed" }`). Re-exported from `@parity/truapi`. */
+export type PaymentStatus = HostPaymentStatusSubscribeItem;
 
-/** Source for {@link PaymentManager.topUp}. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type TopUpSource = NovasamaTopUpSource;
+/** Source for {@link PaymentManager.topUp} (`ProductAccount` / `PrivateKey` / `Coins`, hex keys). Re-exported from `@parity/truapi`. */
+export type TopUpSource = PaymentTopUpSource;
 
 /**
  * Payment manager handle. Exposes balance subscription, top-up, payment
- * requests, and payment status subscription.
- *
- * Type identical to `paymentManager` from `@novasamatech/host-api-wrapper`.
+ * requests, and payment-status subscription.
  */
-export type PaymentManager = typeof paymentManager;
+export interface PaymentManager {
+    subscribeBalance(
+        callback: (balance: PaymentBalance) => void,
+        purse?: CoinPaymentPurseId,
+    ): HostSubscription;
+    topUp(amount: Balance, source: TopUpSource, into?: CoinPaymentPurseId): Promise<void>;
+    requestPayment(
+        amount: Balance,
+        destination: HexString,
+        from?: CoinPaymentPurseId,
+    ): Promise<{ id: string }>;
+    subscribePaymentStatus(
+        paymentId: string,
+        callback: (status: PaymentStatus) => void,
+    ): HostSubscription;
+}
+
+/** Build a {@link PaymentManager} over a TruAPI client's `payment` domain. */
+function adaptPaymentManager(client: TrUApiClient): PaymentManager {
+    const payment = client.payment;
+    return {
+        subscribeBalance(callback, purse) {
+            return subscribeWithInterrupt(
+                payment.balanceSubscribe({ request: { purse } }),
+                callback,
+            );
+        },
+        topUp(amount, source, into) {
+            return unwrapHostResult(
+                payment.topUp({ into, amount, source }),
+                "payment topUp failed",
+            );
+        },
+        async requestPayment(amount, destination, from) {
+            const response = await unwrapHostResult(
+                payment.request({ from, amount, destination }),
+                "payment requestPayment failed",
+            );
+            return { id: response.id };
+        },
+        subscribePaymentStatus(paymentId, callback) {
+            return subscribeWithInterrupt(
+                payment.statusSubscribe({ request: { paymentId } }),
+                callback,
+            );
+        },
+    };
+}
 
 /**
- * Get the host payment manager.
- *
- * Returns the shared `paymentManager` singleton from
- * `@novasamatech/host-api-wrapper`, or `null` if the package is unavailable
- * (running outside a host container or the optional peer dep isn't
- * installed).
+ * Get the host payment manager, backed by `truApi.payment.*`. Returns `null`
+ * when running outside a host container.
  *
  * @returns The payment manager, or `null` if unavailable.
  *
@@ -66,35 +101,21 @@ export type PaymentManager = typeof paymentManager;
  * const payments = await getPaymentManager();
  * if (payments) {
  *   const sub = payments.subscribeBalance((b) => { ... });
- *   await payments.topUp(1_000_000n, { type: "productAccount", derivationIndex: 0 });
- *   const destination = new Uint8Array(32);
- *   const { id } = await payments.requestPayment(500n, destination);
+ *   await payments.topUp(1_000_000n, { tag: "ProductAccount", value: { derivationIndex: 0 } });
+ *   const { id } = await payments.requestPayment(500n, "0x…");
  *   sub.unsubscribe();
  * }
  * ```
  */
 export async function getPaymentManager(): Promise<PaymentManager | null> {
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.paymentManager;
-    } catch (err) {
-        log.debug("getPaymentManager unavailable", err);
-        return null;
-    }
+    const client = await getClient();
+    return client ? adaptPaymentManager(client) : null;
 }
 
 if (import.meta.vitest) {
     const { test, expect } = import.meta.vitest;
 
-    test("getPaymentManager returns manager with full RFC-0006 surface when SDK is available", async () => {
-        const payments = await getPaymentManager();
-        if (payments === null) {
-            // Acceptable: SDK couldn't load (e.g. peer dep missing in some envs).
-            return;
-        }
-        expect(typeof payments.subscribeBalance).toBe("function");
-        expect(typeof payments.topUp).toBe("function");
-        expect(typeof payments.requestPayment).toBe("function");
-        expect(typeof payments.subscribePaymentStatus).toBe("function");
+    test("getPaymentManager returns null outside a container", async () => {
+        expect(await getPaymentManager()).toBeNull();
     });
 }

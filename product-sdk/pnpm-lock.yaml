@@ -46,7 +46,7 @@ catalogs:
 overrides:
   '@polkadot-api/json-rpc-provider': ^0.2.0
 
-pnpmfileChecksum: sha256-KtVboJeKeUohKB1l1eSsuD+o1EZfy+wU3vayhKz1e3I=
+pnpmfileChecksum: sha256-o/8a/tYvC191TyhXvJJy6EDXiN4v5G+vdeP5j+7AoLo=
 
 importers:
 
