@@ -22,23 +22,13 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@novasamatech/sdk-statement": "catalog:",
         "@polkadot-api/substrate-client": "catalog:",
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-utils": "workspace:*",
         "polkadot-api": "catalog:"
     },
-    "peerDependencies": {
-        "@novasamatech/host-api-wrapper": ">=0.8.0"
-    },
-    "peerDependenciesMeta": {
-        "@novasamatech/host-api-wrapper": {
-            "optional": true
-        }
-    },
     "devDependencies": {
-        "@novasamatech/host-api-wrapper": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

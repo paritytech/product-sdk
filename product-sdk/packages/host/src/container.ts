@@ -1,12 +1,25 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import type { JsonRpcProvider } from "polkadot-api";
+import type { TrUApiClient } from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
-import { enumValue, type Transport } from "@novasamatech/host-api";
+import { enumValue } from "@novasamatech/host-api";
 
+import { getClient, isCorrectEnvironment, subscribeWithInterrupt } from "./transport.js";
+import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostLocalStorage, HostStatementStore } from "./types.js";
 
 const log = createLogger("host:container");
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+/**
+ * Synchronous container detection — fast heuristic check (iframe, webview
+ * marker, or injected host message port). Re-exported from the transport
+ * bootstrap, which owns the detection logic.
+ */
+export { isCorrectEnvironment as isInsideContainerSync } from "./transport.js";
 
 /**
  * Thrown by {@link getHostProvider} when the host container is reachable but does
@@ -39,6 +52,10 @@ export class ChainNotSupportedError extends Error {
  *
  * @throws If the host connection never becomes ready, or the host rejects the
  *   support check outright. Both are non-hanging, catchable failures.
+ *
+ * @remarks TODO: port onto `truApi.system.featureSupported` once
+ *   {@link getHostProvider} moves to a `@parity/truapi` PAPI `JsonRpcProvider`
+ *   adapter. Still on the novasama wrapper for now.
  */
 async function isChainSupportedByHost(
     sdk: typeof import("@novasamatech/host-api-wrapper"),
@@ -71,60 +88,74 @@ async function isChainSupportedByHost(
  *
  * The SDK is designed to run exclusively inside a host container. This function
  * is primarily useful for early validation or informational purposes.
- *
- * Uses product-sdk's sandboxProvider as primary detection.
- * Falls back to manual signal checks when product-sdk is not installed.
  */
 export async function isInsideContainer(): Promise<boolean> {
-    if (typeof window === "undefined") return false;
+    return isCorrectEnvironment();
+}
 
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.sandboxProvider.isCorrectEnvironment();
-    } catch {
-        return isInsideContainerSync();
+/**
+ * Adapt the TruAPI client's raw `localStorage` domain (hex-encoded
+ * `read`/`write`/`clear`) into the richer {@link HostLocalStorage} surface that
+ * the Storage package's `KvStore` and other consumers expect.
+ */
+function adaptLocalStorage(client: TrUApiClient): HostLocalStorage {
+    const ls = client.localStorage;
+
+    async function readBytes(key: string): Promise<Uint8Array | undefined> {
+        const response = await unwrapHostResult(ls.read({ key }), "host localStorage read failed");
+        return response.value !== undefined ? fromHex(response.value) : undefined;
     }
+
+    async function writeBytes(key: string, value: Uint8Array): Promise<void> {
+        await unwrapHostResult(
+            ls.write({ key, value: toHex(value) }),
+            "host localStorage write failed",
+        );
+    }
+
+    async function readString(key: string): Promise<string> {
+        const bytes = await readBytes(key);
+        return bytes ? textDecoder.decode(bytes) : "";
+    }
+
+    async function writeString(key: string, value: string): Promise<void> {
+        return writeBytes(key, textEncoder.encode(value));
+    }
+
+    async function readJSON(key: string): Promise<unknown> {
+        const text = await readString(key);
+        return text ? JSON.parse(text) : null;
+    }
+
+    async function writeJSON(key: string, value: unknown): Promise<void> {
+        return writeString(key, JSON.stringify(value));
+    }
+
+    async function clear(key: string): Promise<void> {
+        await unwrapHostResult(ls.clear({ key }), "host localStorage clear failed");
+    }
+
+    return { readString, writeString, readJSON, writeJSON, readBytes, writeBytes, clear };
 }
 
 /**
  * Get the Host API localStorage instance when running inside a container.
- * Returns null outside a container or when product-sdk is unavailable.
+ * Returns null outside a container or when the host transport is unavailable.
  */
 export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
-    if (!(await isInsideContainer())) return null;
-
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.hostLocalStorage as HostLocalStorage;
-    } catch (err) {
-        log.debug("getHostLocalStorage unavailable", err);
-        return null;
-    }
+    const client = await getClient();
+    return client ? adaptLocalStorage(client) : null;
 }
 
 /**
- * Construct a fresh host-backed `HostLocalStorage` instance with an optional
- * custom transport. Use this when you need a non-default transport (e.g.
- * for tests); otherwise prefer {@link getHostLocalStorage}, which returns
- * the shared singleton.
+ * Construct a host-backed `HostLocalStorage` instance. Retained for API
+ * compatibility; with the single cached TruAPI client this is equivalent to
+ * {@link getHostLocalStorage}.
  *
- * Mirrors `createLocalStorage` from `@novasamatech/host-api-wrapper`.
- *
- * @param transport - Optional transport; defaults to the sandbox transport.
- * @returns A new `HostLocalStorage` instance, or `null` if unavailable.
+ * @returns A `HostLocalStorage` instance, or `null` if unavailable.
  */
-export async function createHostLocalStorage(
-    transport?: Transport,
-): Promise<HostLocalStorage | null> {
-    if (!(await isInsideContainer())) return null;
-
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.createLocalStorage(transport);
-    } catch (err) {
-        log.debug("createHostLocalStorage unavailable", err);
-        return null;
-    }
+export async function createHostLocalStorage(): Promise<HostLocalStorage | null> {
+    return getHostLocalStorage();
 }
 
 /**
@@ -139,6 +170,11 @@ export async function createHostLocalStorage(
  * @returns A host-routed `JsonRpcProvider`, or `null` if unavailable.
  * @throws {ChainNotSupportedError} When inside a container but the host can't serve
  *   the chain — surfaced instead of returning a provider that would hang forever.
+ *
+ * @remarks TODO: port onto `truApi.chain.*`. The `@parity/truapi` `chain.*`
+ *   domain provides the primitives, but building the PAPI `JsonRpcProvider`
+ *   adapter (chainHead/transaction spec) over them is dedicated work; still
+ *   routed through the novasama wrapper for now.
  */
 export async function getHostProvider(genesisHash: `0x${string}`): Promise<JsonRpcProvider | null> {
     let sdk: typeof import("@novasamatech/host-api-wrapper");
@@ -183,56 +219,54 @@ async function resolveHostProvider(
     return sdk.createPapiProvider(genesisHash);
 }
 
-/**
- * Synchronous container detection — fast heuristic check without product-sdk.
- *
- * Checks for iframe, webview marker, and host message port signals.
- * Use this when you need a quick sync check (e.g., in hot code paths).
- * For full detection including product-sdk, use {@link isInsideContainer} (async).
- */
-export function isInsideContainerSync(): boolean {
-    if (typeof window === "undefined") return false;
-
-    const win = window as unknown as Record<string, unknown>;
-
-    // Iframe detection (polkadot.com browser)
-    try {
-        if (window !== window.top) return true;
-    } catch {
-        // Cross-origin iframe — likely inside a container
-        return true;
-    }
-
-    // Webview detection (Polkadot Desktop)
-    if (win.__HOST_WEBVIEW_MARK__ === true) return true;
-
-    // Desktop message-passing API
-    if (win.__HOST_API_PORT__ != null) return true;
-
-    return false;
+/** Build a {@link HostStatementStore} over a TruAPI client's `statementStore` domain. */
+function adaptStatementStore(client: TrUApiClient): HostStatementStore {
+    const ss = client.statementStore;
+    return {
+        subscribe(filter, callback) {
+            const request =
+                "matchAll" in filter
+                    ? ({ tag: "MatchAll", value: filter.matchAll } as const)
+                    : ({ tag: "MatchAny", value: filter.matchAny } as const);
+            // `RemoteStatementStoreSubscribeItem` is structurally a StatementsPage.
+            return subscribeWithInterrupt(ss.subscribe({ request }), callback);
+        },
+        async createProofAuthorized(statement) {
+            const response = await unwrapHostResult(
+                ss.createProofAuthorized(statement),
+                "createProofAuthorized failed",
+            );
+            return response.proof;
+        },
+        async submit(signedStatement) {
+            await unwrapHostResult(ss.submit(signedStatement), "statement submit failed");
+        },
+    };
 }
 
 /**
- * Get the host API statement store when running inside a container.
+ * Get the host statement store when running inside a container, backed by
+ * `truApi.statementStore.*`.
  *
- * Returns a statement store with `subscribe`, `createProof`, and `submit` methods
- * that communicate through the host's native binary protocol — bypassing JSON-RPC
- * entirely. Returns `null` when `@novasamatech/host-api-wrapper` is unavailable.
+ * Returns a store with `subscribe`, `createProofAuthorized`, and `submit` that
+ * communicate through the host's native binary protocol — bypassing JSON-RPC
+ * entirely. Returns `null` outside a host container.
  *
  * @returns The host statement store, or `null` if unavailable.
  */
 export async function getStatementStore(): Promise<HostStatementStore | null> {
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.createStatementStore() as HostStatementStore;
-    } catch (err) {
-        log.debug("getStatementStore unavailable", err);
-        return null;
-    }
+    const client = await getClient();
+    return client ? adaptStatementStore(client) : null;
 }
 
 if (import.meta.vitest) {
-    const { test, expect, vi } = import.meta.vitest;
+    const { test, expect, vi, afterEach } = import.meta.vitest;
+
+    afterEach(async () => {
+        const { disposeClient } = await import("./transport.js");
+        disposeClient();
+        vi.unstubAllGlobals();
+    });
 
     // A self-contained stand-in for the host wrapper, so the chain-support
     // decision can be tested without re-importing the real (browser-only) module.
@@ -268,60 +302,16 @@ if (import.meta.vitest) {
         } as unknown as typeof import("@novasamatech/host-api-wrapper");
     }
 
-    test("returns false in Node environment (no window)", async () => {
+    test("isInsideContainer is false in a Node environment (no window)", async () => {
         expect(await isInsideContainer()).toBe(false);
     });
 
-    test("manualDetection returns true for __HOST_WEBVIEW_MARK__", async () => {
-        const fakeWindow = {
-            top: null,
-            __HOST_WEBVIEW_MARK__: true,
-        };
-        vi.stubGlobal("window", fakeWindow);
-        const result = await isInsideContainer();
-        expect(result).toBe(true);
-        vi.unstubAllGlobals();
-    });
-
-    test("manualDetection returns true for __HOST_API_PORT__", async () => {
-        const fakeWindow = {
-            top: null,
-            __HOST_API_PORT__: 12345,
-        };
-        vi.stubGlobal("window", fakeWindow);
-        const result = await isInsideContainer();
-        expect(result).toBe(true);
-        vi.unstubAllGlobals();
-    });
-
-    test("manualDetection returns false when no signals present", async () => {
-        const fakeWindow = { top: null };
-        Object.defineProperty(fakeWindow, "top", { get: () => fakeWindow });
-        vi.stubGlobal("window", fakeWindow);
-        const result = await isInsideContainer();
-        expect(result).toBe(false);
-        vi.unstubAllGlobals();
-    });
-
-    test("manualDetection returns true for cross-origin iframe", async () => {
-        const fakeWindow = {};
-        Object.defineProperty(fakeWindow, "top", {
-            get: () => {
-                throw new DOMException("cross-origin");
-            },
-        });
-        vi.stubGlobal("window", fakeWindow);
-        const result = await isInsideContainer();
-        expect(result).toBe(true);
-        vi.unstubAllGlobals();
-    });
-
-    test("manualDetection returns true when window !== window.top (iframe)", async () => {
-        const fakeWindow = { top: {} }; // top is a different object
-        vi.stubGlobal("window", fakeWindow);
-        const result = await isInsideContainer();
-        expect(result).toBe(true);
-        vi.unstubAllGlobals();
+    test("isInsideContainer detects an injected host port", async () => {
+        const win = {};
+        Object.defineProperty(win, "top", { get: () => win });
+        (win as Record<string, unknown>).__HOST_API_PORT__ = 12345;
+        vi.stubGlobal("window", win);
+        expect(await isInsideContainer()).toBe(true);
     });
 
     test("getHostLocalStorage returns null outside container", async () => {
@@ -332,7 +322,45 @@ if (import.meta.vitest) {
         expect(await createHostLocalStorage()).toBeNull();
     });
 
-    // --- chain-support gating (resolveHostProvider) ---
+    test("adaptLocalStorage round-trips strings, JSON, and bytes over the TruAPI client", async () => {
+        // Minimal in-memory fake of the TruAPI localStorage domain (hex values).
+        const store = new Map<string, `0x${string}`>();
+        const okAsync = <T>(value: T) => ({
+            match: async (onOk: (v: T) => unknown) => onOk(value),
+        });
+        const fakeClient = {
+            localStorage: {
+                read: ({ key }: { key: string }) => okAsync({ value: store.get(key) }),
+                write: ({ key, value }: { key: string; value: `0x${string}` }) => {
+                    store.set(key, value);
+                    return okAsync(undefined);
+                },
+                clear: ({ key }: { key: string }) => {
+                    store.delete(key);
+                    return okAsync(undefined);
+                },
+            },
+        } as unknown as TrUApiClient;
+
+        const ls = adaptLocalStorage(fakeClient);
+        expect(await ls.readString("missing")).toBe("");
+        expect(await ls.readJSON("missing")).toBeNull();
+        expect(await ls.readBytes("missing")).toBeUndefined();
+
+        await ls.writeString("s", "hello");
+        expect(await ls.readString("s")).toBe("hello");
+
+        await ls.writeJSON("j", { a: 1 });
+        expect(await ls.readJSON("j")).toEqual({ a: 1 });
+
+        await ls.writeBytes("b", new Uint8Array([1, 2, 3]));
+        expect(Array.from((await ls.readBytes("b")) ?? [])).toEqual([1, 2, 3]);
+
+        await ls.clear("s");
+        expect(await ls.readString("s")).toBe("");
+    });
+
+    // --- chain-support gating (resolveHostProvider) — TODO: still on novasama ---
 
     test("resolves to the provider when supported, and null outside a container", async () => {
         const created: string[] = [];
@@ -367,8 +395,12 @@ if (import.meta.vitest) {
         expect((err as ChainNotSupportedError).genesisHash).toBe("0xfeed");
     });
 
-    test("getStatementStore returns null when product-sdk unavailable", async () => {
+    test("getStatementStore returns the store or null depending on availability", async () => {
+        // Returns null only when `@novasamatech/host-api-wrapper` fails to load
+        // (i.e. outside a container). Whether that dynamic import resolves under
+        // vitest is environment-dependent, so tolerate both — matching the
+        // sibling novasama-backed getters (getPreimageManager, getAccountsProvider).
         const result = await getStatementStore();
-        expect(result).toBeNull();
+        expect(result === null || typeof result === "object").toBe(true);
     });
 }

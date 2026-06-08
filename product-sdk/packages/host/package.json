@@ -21,6 +21,8 @@
     },
     "dependencies": {
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/truapi": "catalog:",
+        "neverthrow": "^8.2.0",
         "polkadot-api": "catalog:"
     },
     "peerDependencies": {

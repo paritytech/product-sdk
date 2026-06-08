@@ -1,30 +1,23 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-// Re-export statement types from @novasamatech/sdk-statement
+// Re-export statement value types from the local ./statement module.
 
 /** A record published to the Statement Store. Every field is optional: a `data` payload, `topics` for routing, a `channel` for last-write-wins, an `expiry`, and a `proof` once signed. */
-export type { Statement } from "@novasamatech/sdk-statement";
+export type { Statement } from "./statement.js";
 
 /** A {@link Statement} with its `proof` attached and ready for submission — the only field the submission path actually requires. */
-export type { SignedStatement } from "@novasamatech/sdk-statement";
+export type { SignedStatement } from "./statement.js";
 
 /** A {@link Statement} before signing — the same optional fields, minus `proof`. */
-export type { UnsignedStatement } from "@novasamatech/sdk-statement";
+export type { UnsignedStatement } from "./statement.js";
 
-/** Signature attached to a statement — `sr25519`/`ed25519`/`ecdsa` plus public key, or an on-chain witness referencing a block event. */
-export type { Proof } from "@novasamatech/sdk-statement";
+/** Signature attached to a statement — `Sr25519`/`Ed25519`/`Ecdsa` plus public key, or an on-chain witness referencing a block event. Re-exported from the truapi wire types (`{ tag }` discriminant). */
+export type { Proof } from "./statement.js";
 
-/** Outcome of a submission — new, already-known, known-expired, rejected, invalid, or internal-error. */
-export type { SubmitResult } from "@novasamatech/sdk-statement";
+/** Hex-string topic filter shape — same `"any"` / `matchAll` / `matchAny` structure as {@link TopicFilter}, but carries topics as `0x`-prefixed hex strings rather than the `Uint8Array`-based {@link TopicHash}. Reach for this when working with a {@link StatementTransport} directly. */
+export type { TopicFilter as SdkTopicFilter } from "./statement.js";
 
-/** Upstream topic filter shape — same `"any"` / `matchAll` / `matchAny` structure as {@link TopicFilter}, but carries topics as 32-byte hex strings (`SizedHex<32>`) rather than the SDK's `Uint8Array`-based {@link TopicHash}. Reach for this when working with a {@link StatementTransport} directly. */
-export type { TopicFilter as SdkTopicFilter } from "@novasamatech/sdk-statement";
-
-import type {
-    Statement,
-    SignedStatement,
-    TopicFilter as SdkTopicFilter,
-} from "@novasamatech/sdk-statement";
+import type { Statement, SignedStatement, TopicFilter as SdkTopicFilter } from "./statement.js";
 
 // ============================================================================
 // Constants
@@ -101,13 +94,15 @@ export interface StatementSignerWithKey {
 /**
  * Credentials for connecting to the statement store.
  *
- * - **Host mode**: Inside a container, proof creation is delegated to the host API.
- *   The `accountId` is a `[ss58Address, chainPrefix]` tuple from product-sdk.
+ * - **Host mode**: Inside a container, proof creation is delegated to the host
+ *   via the RFC-10 sponsored path (`createProofAuthorized`) — the host signs
+ *   with the product's allowance account, so `accountId` is no longer required
+ *   and is ignored if supplied (kept for backward compatibility).
  * - **Local mode**: Outside a container, statements are signed locally using the
  *   provided Sr25519 signer.
  */
 export type ConnectionCredentials =
-    | { mode: "host"; accountId: [string, number] }
+    | { mode: "host"; accountId?: [string, number] }
     | { mode: "local"; signer: StatementSignerWithKey };
 
 // ============================================================================

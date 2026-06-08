@@ -41,13 +41,12 @@ export {
     StatementDataTooLargeError,
 } from "./errors.js";
 
-// Types — re-exported from @novasamatech/sdk-statement
+// Statement value types — derived from the truapi wire types (see ./statement.ts)
 export type {
     Statement,
     SignedStatement,
     UnsignedStatement,
     Proof,
-    SubmitResult,
     SdkTopicFilter,
 } from "./types.js";
 

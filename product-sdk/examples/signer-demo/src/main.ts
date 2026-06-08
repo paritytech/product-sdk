@@ -94,7 +94,7 @@ const manager = new SignerManager({
                 log("onConnect aborted before completing", "info");
                 return;
             }
-            $onConnectResult.textContent = `outcomes: ${outcomes.map((o) => o.tag).join(", ")}`;
+            $onConnectResult.textContent = `outcomes: ${outcomes.join(", ")}`;
             $onConnectResult.classList.remove("err");
         } catch (cause) {
             if (signal.aborted) return;

@@ -3,46 +3,40 @@
 /**
  * Higher-level wrappers for the host's single-permission flows.
  *
- * `hostApi.permission` / `hostApi.devicePermission` take a versioned
- * envelope (`enumValue("v1", ...)`) and return a neverthrow `ResultAsync`
- * of an unwrapped versioned response. Consumers rebuild that wrap/unwrap
- * dance every time. {@link requestPermission} and
- * {@link requestDevicePermission} collapse it to one-liners that match the
- * shape of {@link requestResourceAllocation} (throws on error, returns
- * the unwrapped payload on success).
+ * `truApi.permissions.requestRemotePermission` / `requestDevicePermission`
+ * return a neverthrow `ResultAsync` of a `{ granted }` response.
+ * {@link requestPermission} and {@link requestDevicePermission} collapse that
+ * to one-liners that match the shape of {@link requestResourceAllocation}
+ * (throws on error, returns the unwrapped boolean on success).
  *
  * @module
  */
 
+import type { HostDevicePermissionRequest } from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import type { CodecType } from "@novasamatech/host-api";
-import type { DevicePermission as DevicePermissionCodec } from "@novasamatech/host-api";
-
-import { enumValue, formatHostError, getTruApi, type RemotePermission } from "./truapi.js";
+import { getTruApi, type RemotePermission, unwrapHostResult } from "./truapi.js";
 
 const log = createLogger("host:permissions");
 
 /**
  * Device permission the dapp can ask the host to grant via
- * {@link requestDevicePermission}.
- *
- * Derived from the upstream codec so variant renames surface as compile
- * errors, not runtime failures.
+ * {@link requestDevicePermission}. A string union (`"Camera"`, `"Microphone"`,
+ * …) re-exported from `@parity/truapi`.
  */
-export type DevicePermissionKind = CodecType<typeof DevicePermissionCodec>;
+export type DevicePermissionKind = HostDevicePermissionRequest;
 
 /**
  * Alias of {@link RemotePermission} matching the upstream
- * `@novasamatech/host-api-wrapper` name. Use either freely.
+ * `host-api-wrapper` name. Use either freely.
  */
 export type RemotePermissionItem = RemotePermission;
 
 /**
  * Request a single remote permission from the host.
  *
- * Builds the `v1` envelope, calls `hostApi.permission`, unwraps the response,
- * and returns the host's boolean granted/denied outcome.
+ * Calls `truApi.permissions.requestRemotePermission` and returns the host's
+ * boolean granted/denied outcome.
  *
  * @param permission - The remote permission to request.
  * @returns `true` if the host granted the permission, `false` if denied.
@@ -63,20 +57,19 @@ export async function requestPermission(permission: RemotePermission): Promise<b
     }
     log.debug("requestPermission", { tag: permission.tag });
 
-    return await truApi.permission(enumValue("v1", permission)).match(
-        (envelope: { tag: "v1"; value: boolean }) => envelope.value,
-        (err: unknown) => {
-            throw new Error(`requestPermission failed: ${formatHostError(err)}`, { cause: err });
-        },
+    const response = await unwrapHostResult(
+        truApi.permissions.requestRemotePermission({ permission }),
+        "requestPermission failed",
     );
+    return response.granted;
 }
 
 /**
  * Request a single device permission (camera, microphone, etc.) from the
  * host.
  *
- * Builds the `v1` envelope, calls `hostApi.devicePermission`, unwraps the
- * response, and returns the host's boolean granted/denied outcome.
+ * Calls `truApi.permissions.requestDevicePermission` and returns the host's
+ * boolean granted/denied outcome.
  *
  * @param permission - The device permission to request.
  * @returns `true` if the host granted the permission, `false` if denied.
@@ -97,34 +90,33 @@ export async function requestDevicePermission(permission: DevicePermissionKind):
     }
     log.debug("requestDevicePermission", { permission });
 
-    return await truApi.devicePermission(enumValue("v1", permission)).match(
-        (envelope: { tag: "v1"; value: boolean }) => envelope.value,
-        (err: unknown) => {
-            throw new Error(`requestDevicePermission failed: ${formatHostError(err)}`, {
-                cause: err,
-            });
-        },
+    const response = await unwrapHostResult(
+        truApi.permissions.requestDevicePermission(permission),
+        "requestDevicePermission failed",
     );
+    return response.granted;
 }
 
 if (import.meta.vitest) {
     const { test, expect, describe, vi } = import.meta.vitest;
 
+    function okAsync<T>(value: T) {
+        return { match: async (onOk: (v: T) => unknown) => onOk(value) };
+    }
+    function errAsync<E>(error: E) {
+        return {
+            match: async (_onOk: (v: unknown) => unknown, onErr: (e: E) => unknown) => onErr(error),
+        };
+    }
+
     async function withMockedTruApi<T>(
-        bridge: {
-            permission?: (req: unknown) => unknown;
-            devicePermission?: (req: unknown) => unknown;
-        } | null,
+        client: unknown,
         fn: (mod: typeof import("./permissions.js")) => Promise<T>,
     ): Promise<T> {
         vi.resetModules();
         vi.doMock("./truapi.js", async (importOriginal) => {
             const original = await importOriginal<typeof import("./truapi.js")>();
-            return {
-                ...original,
-                getTruApi: async () => bridge,
-                enumValue: (version: string, value: unknown) => ({ tag: version, value }),
-            };
+            return { ...original, getTruApi: async () => client };
         });
         try {
             const mod = await import("./permissions.js");
@@ -144,13 +136,12 @@ if (import.meta.vitest) {
             });
         });
 
-        test("unwraps the v1 boolean outcome", async () => {
+        test("returns the granted flag", async () => {
             await withMockedTruApi(
                 {
-                    permission: vi.fn().mockReturnValue({
-                        match: async (onOk: (v: unknown) => unknown) =>
-                            onOk({ tag: "v1", value: true }),
-                    }),
+                    permissions: {
+                        requestRemotePermission: vi.fn(() => okAsync({ granted: true })),
+                    },
                 },
                 async (mod) => {
                     const granted = await mod.requestPermission({
@@ -165,21 +156,14 @@ if (import.meta.vitest) {
         test("wraps host errors with a diagnostic message", async () => {
             await withMockedTruApi(
                 {
-                    permission: vi.fn().mockReturnValue({
-                        match: async (
-                            _onOk: (v: unknown) => unknown,
-                            onErr: (e: unknown) => unknown,
-                        ) =>
-                            onErr({
-                                tag: "v1",
-                                value: { name: "GenericError", message: "boom" },
-                            }),
-                    }),
+                    permissions: {
+                        requestRemotePermission: vi.fn(() => errAsync({ reason: "boom" })),
+                    },
                 },
                 async (mod) => {
                     await expect(
                         mod.requestPermission({ tag: "ChainSubmit", value: undefined }),
-                    ).rejects.toThrow(/requestPermission failed: GenericError: boom/);
+                    ).rejects.toThrow(/requestPermission failed: boom/);
                 },
             );
         });
@@ -194,17 +178,15 @@ if (import.meta.vitest) {
             });
         });
 
-        test("unwraps the v1 boolean outcome", async () => {
+        test("returns the granted flag", async () => {
             await withMockedTruApi(
                 {
-                    devicePermission: vi.fn().mockReturnValue({
-                        match: async (onOk: (v: unknown) => unknown) =>
-                            onOk({ tag: "v1", value: true }),
-                    }),
+                    permissions: {
+                        requestDevicePermission: vi.fn(() => okAsync({ granted: true })),
+                    },
                 },
                 async (mod) => {
-                    const granted = await mod.requestDevicePermission("Camera");
-                    expect(granted).toBe(true);
+                    expect(await mod.requestDevicePermission("Camera")).toBe(true);
                 },
             );
         });
@@ -212,20 +194,13 @@ if (import.meta.vitest) {
         test("wraps host errors with a diagnostic message", async () => {
             await withMockedTruApi(
                 {
-                    devicePermission: vi.fn().mockReturnValue({
-                        match: async (
-                            _onOk: (v: unknown) => unknown,
-                            onErr: (e: unknown) => unknown,
-                        ) =>
-                            onErr({
-                                tag: "v1",
-                                value: { name: "GenericError", message: "boom" },
-                            }),
-                    }),
+                    permissions: {
+                        requestDevicePermission: vi.fn(() => errAsync({ reason: "boom" })),
+                    },
                 },
                 async (mod) => {
                     await expect(mod.requestDevicePermission("Camera")).rejects.toThrow(
-                        /requestDevicePermission failed: GenericError: boom/,
+                        /requestDevicePermission failed: boom/,
                     );
                 },
             );

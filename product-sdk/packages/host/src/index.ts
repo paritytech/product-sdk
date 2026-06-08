@@ -32,7 +32,7 @@ export type {
 } from "./types.js";
 export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 
-// TruAPI - re-exports from @novasamatech/host-api-wrapper and @novasamatech/host-api
+// TruAPI - @parity/truapi client accessor + convenience wrappers.
 export {
     getTruApi,
     getPreimageManager,
@@ -41,7 +41,7 @@ export {
     requestResourceAllocation,
     createProofAuthorized,
     formatHostError,
-    // Helpers from @novasamatech/host-api
+    // Enum / Result / hex helpers
     enumValue,
     isEnumVariant,
     assertEnumVariant,

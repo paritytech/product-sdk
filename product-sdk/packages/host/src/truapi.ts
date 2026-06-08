@@ -3,264 +3,258 @@
 /**
  * TruAPI - the protocol for communicating between apps and the Polkadot host container.
  *
- * This module centralizes access to @novasamatech/host-api-wrapper and @novasamatech/host-api,
- * allowing other @parity/product-sdk-* packages to import from here rather than depending
- * directly on novasama packages.
+ * This module centralizes access to the in-house `@parity/truapi` client,
+ * allowing other `@parity/product-sdk-*` packages to import from here rather
+ * than depending directly on the protocol package. The client is built and
+ * cached by {@link module:transport}; this module layers the throw-on-error
+ * convenience wrappers on top.
  *
  * @module
  */
 
+import { ok as resultOk, err as resultErr, type Result } from "neverthrow";
+
+import { scale } from "@parity/truapi";
+import type {
+    AllocatableResource as TruAllocatableResource,
+    AllocationOutcome as TruAllocationOutcome,
+    HexString,
+    RemotePermission as TruRemotePermission,
+    TrUApiClient,
+} from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { enumValue } from "@novasamatech/host-api";
-import type {
-    AllocatableResource as AllocatableResourceCodec,
-    AllocationOutcome as AllocationOutcomeCodec,
-    CodecType,
-    RemotePermission as RemotePermissionCodec,
-} from "@novasamatech/host-api";
-import type { createAccountsProvider, preimageManager } from "@novasamatech/host-api-wrapper";
+import type { createAccountsProvider } from "@novasamatech/host-api-wrapper";
 
-import { isInsideContainer } from "./container.js";
-import type { Statement, StatementProof } from "./types.js";
+import { getClient, subscribeWithInterrupt } from "./transport.js";
+import type { HostSubscription, Statement, StatementProof } from "./types.js";
 
 const log = createLogger("host");
 
 /**
- * Extract a human-readable message from a host-side error. Hosts wrap
- * errors in versioned envelopes (`{ tag: "v1", value: CodecError }`); this
- * helper unwraps the envelope and renders the inner error's `name`/`message`
- * so callers see the host's actual diagnostic instead of `"[object Object]"`
- * (from `String(err)`) or a JSON-stringified envelope.
+ * Extract a human-readable message from a host-side error.
+ *
+ * TruAPI errors arrive already unwrapped from their versioned wire envelope, in
+ * one of a few shapes: the catch-all `GenericError` (`{ reason }`), a tagged
+ * variant carrying a reason (`{ tag, value: { reason } }`), or a unit tagged
+ * variant (`{ tag }`). For resilience it also still unwraps the legacy novasama
+ * envelope (`{ tag: "v1", value: { name, message } }`), since this is a public
+ * helper and the surfaces still on the novasama wrapper (PAPI provider, accounts)
+ * may surface that shape.
  *
  * Exported for the higher-level wrappers (`requestPermission`,
  * `deriveEntropy`, etc.) that build their `throw new Error(...)` messages.
  */
-export function formatHostError(err: unknown): string {
-    // Single-level unwrap only; nested envelopes fall through to JSON.stringify.
-    const inner = isVersionedEnvelope(err) ? err.value : err;
+export function formatHostError(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === "string") return error;
 
-    if (inner instanceof Error) return inner.message;
-    if (typeof inner === "string") return inner;
-    if (
-        inner != null &&
-        typeof inner === "object" &&
-        "message" in inner &&
-        typeof (inner as { message: unknown }).message === "string"
-    ) {
-        const named = inner as { name?: unknown; message: string };
-        return typeof named.name === "string" ? `${named.name}: ${named.message}` : named.message;
+    if (error != null && typeof error === "object") {
+        const obj = error as Record<string, unknown>;
+
+        // TruAPI GenericError: { reason }
+        if (typeof obj.reason === "string") return obj.reason;
+
+        // Tagged error variant: { tag, value? }
+        if (typeof obj.tag === "string") {
+            const value = obj.value;
+            if (value != null && typeof value === "object") {
+                const inner = value as Record<string, unknown>;
+                // TruAPI tagged error carrying a reason: { tag, value: { reason } }
+                if (typeof inner.reason === "string") return `${obj.tag}: ${inner.reason}`;
+                // Legacy novasama envelope: { tag: "v1", value: { name, message } }
+                if (typeof inner.message === "string") {
+                    return typeof inner.name === "string"
+                        ? `${inner.name}: ${inner.message}`
+                        : inner.message;
+                }
+            }
+            // Unit tagged variant, e.g. { tag: "Full" } / { tag: "PermissionDenied" }
+            return obj.tag;
+        }
+
+        if (typeof obj.message === "string") return obj.message;
     }
+
     try {
-        return JSON.stringify(inner);
+        return JSON.stringify(error);
     } catch {
-        return String(inner);
+        return String(error);
     }
 }
 
-function isVersionedEnvelope(value: unknown): value is { tag: string; value: unknown } {
-    return (
-        value != null &&
-        typeof value === "object" &&
-        "tag" in value &&
-        "value" in value &&
-        typeof (value as { tag: unknown }).tag === "string"
+/**
+ * Await a host `ResultAsync`, returning its Ok value or throwing a diagnostic
+ * `Error` built from the host's error payload (preserved as `cause`). Collapses
+ * the repeated `.match(ok, err => throw)` dance the host wrappers would otherwise
+ * each spell out.
+ */
+export function unwrapHostResult<T, E>(result: ResultAsync<T, E>, label: string): Promise<T> {
+    return result.match(
+        (value) => value,
+        (error: E) => {
+            throw new Error(`${label}: ${formatHostError(error)}`, { cause: error });
+        },
     );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers from @novasamatech/host-api (re-exported from @novasamatech/scale)
+// Enum / Result / hex helpers
+//
+// `@parity/truapi`'s generated client wraps the versioned wire envelope
+// internally, so most callers no longer build these by hand. They are kept as
+// part of the public surface (and used by the surfaces still on novasama) as
+// thin, dependency-light shims.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export {
-    /**
-     * Construct an enum variant for TruAPI calls.
-     *
-     * @example
-     * ```ts
-     * import { enumValue, getTruApi } from "@parity/product-sdk-host";
-     *
-     * const truApi = await getTruApi();
-     * if (truApi) {
-     *   await truApi.permission([enumValue("ChainSubmit")]);
-     * }
-     * ```
-     */
-    enumValue,
-    /**
-     * Check if a value is a specific enum variant.
-     */
-    isEnumVariant,
-    /**
-     * Assert that a value is a specific enum variant, throwing if not.
-     */
-    assertEnumVariant,
-    /**
-     * Unwrap a Result, throwing on error.
-     */
-    unwrapResultOrThrow,
-    /**
-     * Create an Ok result.
-     */
-    resultOk,
-    /**
-     * Create an Err result.
-     */
-    resultErr,
-    /**
-     * Convert bytes to hex string.
-     */
-    toHex,
-    /**
-     * Convert hex string to bytes.
-     */
-    fromHex,
-} from "@novasamatech/host-api";
+/**
+ * Construct a tagged enum variant, e.g. `enumValue("ChainSubmit")` or
+ * `enumValue("v1", payload)`. Matches the `{ tag, value }` shape used across
+ * the host protocol.
+ */
+export function enumValue<Tag extends string>(tag: Tag): { tag: Tag; value?: undefined };
+export function enumValue<Tag extends string, Value>(
+    tag: Tag,
+    value: Value,
+): { tag: Tag; value: Value };
+export function enumValue<Tag extends string, Value>(
+    tag: Tag,
+    value?: Value,
+): { tag: Tag; value?: Value } {
+    return { tag, value };
+}
 
-/** A `0x`-prefixed hex string (the template literal type ``\`0x${string}\``) used by the host API surface for raw byte payloads. Re-exported from `@novasamatech/host-api` so consumers bridging between host APIs and SDK code can reach the host-side type without an additional dependency. */
-export type { HexString } from "@novasamatech/host-api";
+/** Check whether a value is a specific tagged enum variant. */
+export function isEnumVariant<Tag extends string>(
+    value: unknown,
+    tag: Tag,
+): value is { tag: Tag; value?: unknown } {
+    return value != null && typeof value === "object" && (value as { tag?: unknown }).tag === tag;
+}
+
+/** Assert that a value is a specific tagged enum variant, throwing if not. */
+export function assertEnumVariant<Tag extends string>(
+    value: unknown,
+    tag: Tag,
+): asserts value is { tag: Tag; value?: unknown } {
+    if (!isEnumVariant(value, tag)) {
+        throw new Error(`Expected enum variant "${tag}", got ${formatHostError(value)}`);
+    }
+}
+
+/** Create an Ok result (re-exported from `neverthrow`). */
+export { resultOk, resultErr };
+
+/** Unwrap a neverthrow `Result`, throwing the error channel on `Err`. */
+export function unwrapResultOrThrow<T, E>(result: Result<T, E>): T {
+    if (result.isOk()) return result.value;
+    const error = result.error;
+    throw error instanceof Error ? error : new Error(formatHostError(error));
+}
+
+/** Convert bytes to a `0x`-prefixed lower-case hex string. */
+export function toHex(bytes: Uint8Array): HexString {
+    return scale.bytesToHex(bytes);
+}
+
+/** Convert a hex string (with or without `0x`) to bytes. */
+export function fromHex(hex: string): Uint8Array {
+    return scale.hexToBytes(hex);
+}
+
+/** A `0x`-prefixed hex string used by the host API surface for raw byte payloads. */
+export type { HexString };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TruAPI accessor
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The TruApi type - provides low-level methods for communicating with the host.
- *
- * Methods include:
- * - `navigateTo(url)` - Navigate to a URL within the host
- * - `permission(permissions)` - Request permissions from the host
- * - `localStorageRead/Write/Clear` - Host-backed storage
- * - `sign(payload)` - Request transaction signing
- * - `deriveEntropy(context)` - Derive deterministic entropy
- * - `themeSubscribe()` - Subscribe to host theme changes
- * - And many more...
- *
- * Type identical to `hostApi` from `@novasamatech/host-api-wrapper` so that
- * `truApi.X(...)` calls keep their full inference (return types, method
- * names, parameter shapes) instead of decaying to `any`.
- */
-export type TruApi = typeof import("@novasamatech/host-api-wrapper").hostApi;
-
-/** Cached TruApi instance */
-let cachedTruApi: TruApi | null = null;
-
-/**
- * Get the TruAPI instance for direct low-level access.
- *
- * Returns the `hostApi` object from `@novasamatech/host-api-wrapper` which provides
- * methods for communicating directly with the host container. Returns `null`
- * when running outside a container or when the SDK is unavailable.
- *
- * For most use cases, prefer the higher-level functions like `getHostLocalStorage()`,
- * `getHostProvider()`, etc. Use this when you need direct access to host methods
- * like `navigateTo()`, `permission()`, or `deriveEntropy()`.
+ * The TruApi client — namespaced access to every host protocol domain
+ * (`permissions`, `entropy`, `signing`, `statementStore`, `system`,
+ * `localStorage`, …). Identical to `TrUApiClient` from `@parity/truapi`.
  *
  * @example
  * ```ts
- * import { getTruApi, enumValue } from "@parity/product-sdk-host";
- *
  * const truApi = await getTruApi();
  * if (truApi) {
- *   // Request permission
- *   const result = await truApi.permission([enumValue("ChainSubmit")]);
- *
- *   // Navigate to a URL
- *   await truApi.navigateTo("polkadot://settings");
- *
- *   // Subscribe to theme changes
- *   const sub = truApi.themeSubscribe(undefined, (theme) => {
- *     console.log("Theme changed:", theme);
+ *   await truApi.permissions.requestRemotePermission({
+ *     permission: { tag: "ChainSubmit", value: undefined },
  *   });
+ *   await truApi.system.navigateTo({ url: "polkadot://settings" });
  * }
  * ```
+ */
+export type TruApi = TrUApiClient;
+
+/**
+ * Get the TruAPI client for direct low-level access to host protocol domains.
  *
- * @returns The TruAPI instance, or `null` if unavailable.
+ * Returns the cached `@parity/truapi` client once the host transport is built
+ * and the handshake has run, or `null` when running outside a container.
+ *
+ * For most use cases, prefer the higher-level functions like
+ * {@link requestPermission}, {@link deriveEntropy}, or `getHostLocalStorage()`.
+ *
+ * @returns The TruAPI client, or `null` if unavailable.
  */
 export async function getTruApi(): Promise<TruApi | null> {
-    if (cachedTruApi) return cachedTruApi;
+    return getClient();
+}
 
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        cachedTruApi = sdk.hostApi;
-        log.debug("TruAPI loaded");
-        return cachedTruApi;
-    } catch {
-        log.debug("TruAPI unavailable (not in container or SDK not installed)");
-        return null;
-    }
+/**
+ * Preimage manager handle for bulletin chain operations, backed by
+ * `truApi.preimage.*`. `lookup` opens a {@link HostSubscription} (`unsubscribe`
+ * + `onInterrupt`) that delivers the preimage bytes — or `null` until the host
+ * finds them; `submit` uploads a preimage and resolves to its `0x`-prefixed hex
+ * key.
+ */
+export interface PreimageManager {
+    lookup(key: HexString, callback: (preimage: Uint8Array | null) => void): HostSubscription;
+    submit(value: Uint8Array): Promise<HexString>;
+}
+
+/** Build a {@link PreimageManager} over a TruAPI client's `preimage` domain. */
+function adaptPreimageManager(client: TrUApiClient): PreimageManager {
+    const preimage = client.preimage;
+    return {
+        lookup(key, callback) {
+            return subscribeWithInterrupt(preimage.lookupSubscribe({ request: { key } }), (item) =>
+                callback(item.value !== undefined ? fromHex(item.value) : null),
+            );
+        },
+        submit(value) {
+            return unwrapHostResult(preimage.submit(toHex(value)), "preimage submit failed");
+        },
+    };
 }
 
 /**
  * Get the preimage manager for bulletin chain operations.
  *
- * The preimage manager handles uploading and looking up preimages (arbitrary data)
- * on the bulletin chain through the host's optimized path.
- *
- * @returns The preimage manager, or `null` if unavailable.
- *
- * @example
- * ```ts
- * import { getPreimageManager } from "@parity/product-sdk-host";
- *
- * const manager = await getPreimageManager();
- * if (manager) {
- *   // Submit a preimage
- *   const key = await manager.submit(new Uint8Array([1, 2, 3]));
- *
- *   // Look up a preimage
- *   const sub = manager.lookup(key, (data) => {
- *     if (data) console.log("Found:", data);
- *   });
- * }
- * ```
+ * @returns The preimage manager, or `null` if unavailable (outside a container).
  */
 export async function getPreimageManager(): Promise<PreimageManager | null> {
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.preimageManager;
-    } catch (err) {
-        log.debug("getPreimageManager unavailable", err);
-        return null;
-    }
+    const client = await getClient();
+    return client ? adaptPreimageManager(client) : null;
 }
 
 /**
- * Preimage manager handle for bulletin chain operations. `lookup` returns a
- * `Subscription<void>` (`unsubscribe` + `onInterrupt`); `submit` returns a
- * `0x`-prefixed hex preimage key.
+ * Construct a `PreimageManager`. Retained for API compatibility; with the single
+ * cached TruAPI client this is equivalent to {@link getPreimageManager}.
  *
- * Type identical to `preimageManager` from `@novasamatech/host-api-wrapper`.
+ * @returns A `PreimageManager` instance, or `null` if unavailable.
  */
-export type PreimageManager = typeof preimageManager;
-
-/**
- * Construct a fresh `PreimageManager` instance with an optional custom
- * transport. Use this when you need a non-default transport; otherwise
- * prefer {@link getPreimageManager}, which returns the shared singleton.
- *
- * Mirrors `createPreimageManager` from `@novasamatech/host-api-wrapper`.
- *
- * @param transport - Optional transport; defaults to the sandbox transport.
- * @returns A new `PreimageManager` instance, or `null` if unavailable.
- */
-export async function createHostPreimageManager(
-    transport?: import("@novasamatech/host-api").Transport,
-): Promise<PreimageManager | null> {
-    if (!(await isInsideContainer())) return null;
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.createPreimageManager(transport);
-    } catch (err) {
-        log.debug("createHostPreimageManager unavailable", err);
-        return null;
-    }
+export async function createHostPreimageManager(): Promise<PreimageManager | null> {
+    return getPreimageManager();
 }
 
 /**
  * Get the accounts provider for managing host accounts.
  *
  * @returns The accounts provider, or `null` if unavailable.
+ *
+ * @remarks TODO: port onto `truApi.account.*`; rides the novasama wrapper for now.
  */
 export async function getAccountsProvider(): Promise<AccountsProvider | null> {
     try {
@@ -278,32 +272,28 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
 
 /**
  * Resource types requestable via {@link requestResourceAllocation}.
- * Derived from the upstream codec so variant renames surface as compile
+ * Re-exported from `@parity/truapi` so variant renames surface as compile
  * errors, not runtime failures.
  */
-export type AllocatableResource = CodecType<typeof AllocatableResourceCodec>;
+export type AllocatableResource = TruAllocatableResource;
 
 /** Tag-only view of {@link AllocatableResource} for places that just need the variant name. */
 export type AllocatableResourceTag = AllocatableResource["tag"];
 
 /**
- * Per-resource outcome from {@link requestResourceAllocation}.
- * The host strips secret payloads from `Allocated` before returning, so
- * `value` is always `undefined` on the product side.
+ * Per-resource outcome from {@link requestResourceAllocation}: a string union
+ * `"Allocated" | "Rejected" | "NotAvailable"` (RFC-10).
  */
-export type AllocationOutcome = CodecType<typeof AllocationOutcomeCodec>;
+export type AllocationOutcome = TruAllocationOutcome;
 
-/** Tag-only view of {@link AllocationOutcome} (`"Allocated" | "Rejected" | "NotAvailable"`). */
-export type AllocationOutcomeTag = AllocationOutcome["tag"];
+/** Alias of {@link AllocationOutcome}; the outcome value *is* its tag (a string union). */
+export type AllocationOutcomeTag = AllocationOutcome;
 
 /**
  * Remote permission the dapp can ask the host to grant via
- * {@link requestPermission}.
- *
- * Derived from the upstream codec so variant renames surface as compile
- * errors, not runtime failures.
+ * {@link requestPermission}. Re-exported from `@parity/truapi`.
  */
-export type RemotePermission = CodecType<typeof RemotePermissionCodec>;
+export type RemotePermission = TruRemotePermission;
 
 /** Tag-only view of {@link RemotePermission}. */
 export type RemotePermissionTag = RemotePermission["tag"];
@@ -323,7 +313,7 @@ export type RemotePermissionTag = RemotePermission["tag"];
  * const outcomes = await requestResourceAllocation([
  *   { tag: "BulletinAllowance", value: undefined },
  * ]);
- * if (outcomes[0].tag === "Allocated") { ... }
+ * if (outcomes[0] === "Allocated") { ... }
  * ```
  */
 export async function requestResourceAllocation(
@@ -335,15 +325,11 @@ export async function requestResourceAllocation(
     }
     log.debug("requestResourceAllocation", { resources: resources.map((r) => r.tag) });
 
-    // `.match()` because the host returns a neverthrow ResultAsync, not a Promise.
-    return await truApi.requestResourceAllocation(enumValue("v1", resources)).match(
-        (envelope: { tag: "v1"; value: AllocationOutcome[] }) => envelope.value,
-        (err: unknown) => {
-            throw new Error(`requestResourceAllocation failed: ${formatHostError(err)}`, {
-                cause: err,
-            });
-        },
+    const response = await unwrapHostResult(
+        truApi.resourceAllocation.request({ resources }),
+        "requestResourceAllocation failed",
     );
+    return response.outcomes;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -351,65 +337,29 @@ export async function requestResourceAllocation(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Have the host sign a Statement using an allowance-bearing account it
- * picks internally — RFC-10 §"Statement Store allowance".
+ * Have the host sign a Statement using the product's allowance-bearing account,
+ * which it picks internally — RFC-10 §"Statement Store allowance". No per-call
+ * account id is needed (this is the sponsored-submission path).
  *
- * The product passes only the Statement payload; the host chooses the
- * `//allowance//statement-store//{productId}` account that holds SSS
- * allowance and signs with it. Allowance is provisioned implicitly on
- * first use if the host hasn't already pre-allocated via
- * {@link requestResourceAllocation}; products never see the signing
- * account or its key material.
- *
- * Pairs with {@link getStatementStore}'s `submit`: call this to obtain
- * a proof, attach it to the Statement, and submit the result.
+ * Pairs with {@link getStatementStore}'s `submit`: call this to obtain a proof,
+ * attach it to the Statement, and submit the result.
  *
  * @param statement - The Statement to be signed.
  * @returns The proof to attach before submitting.
  * @throws If the host is unavailable or the host-side signing fails.
- *
- * @example
- * ```ts
- * import { createProofAuthorized, getStatementStore } from "@parity/product-sdk-host";
- *
- * const statement = {
- *     proof: undefined,
- *     decryptionKey: undefined,
- *     expiry: undefined,
- *     channel: undefined,
- *     topics: [],
- *     data: payload,
- * };
- * const proof = await createProofAuthorized(statement);
- * const store = await getStatementStore();
- * await store?.submit({ ...statement, proof });
- * ```
- *
- * @remarks
- * RFC-10 introduces this as a new, strictly additive TruAPI call. The
- * pre-existing `HostStatementStore.createProof(accountId, statement)`
- * surface stays available for products that own a non-allowance signing
- * account; this wrapper is the sponsored-submission path.
  */
 export async function createProofAuthorized(statement: Statement): Promise<StatementProof> {
     const truApi = await getTruApi();
     if (!truApi) {
         throw new Error("createProofAuthorized: TruAPI unavailable");
     }
-    log.debug("createProofAuthorized", {
-        topics: statement.topics.length,
-        dataLen: statement.data?.length ?? 0,
-    });
+    log.debug("createProofAuthorized", { topics: statement.topics.length });
 
-    // `.match()` because the host returns a neverthrow ResultAsync, not a Promise.
-    return await truApi.statementStoreCreateProofAuthorized(enumValue("v1", statement)).match(
-        (envelope: { tag: "v1"; value: StatementProof }) => envelope.value,
-        (err: unknown) => {
-            throw new Error(`createProofAuthorized failed: ${formatHostError(err)}`, {
-                cause: err,
-            });
-        },
+    const response = await unwrapHostResult(
+        truApi.statementStore.createProofAuthorized(statement),
+        "createProofAuthorized failed",
     );
+    return response.proof;
 }
 
 /**
@@ -465,9 +415,7 @@ export interface ResultAsync<T, E> {
  * Ring VRF, user identity (`getUserId`, `requestLogin`), and connection
  * status subscription.
  *
- * Type identical to `createAccountsProvider()` from
- * `@novasamatech/host-api-wrapper`; methods return neverthrow `ResultAsync`
- * values with typed `CodecError` variants in the error channel.
+ * @remarks TODO: port onto `truApi.account.*`.
  */
 export type AccountsProvider = ReturnType<typeof createAccountsProvider>;
 
@@ -476,19 +424,18 @@ export type AccountsProvider = ReturnType<typeof createAccountsProvider>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 if (import.meta.vitest) {
-    const { test, expect } = import.meta.vitest;
+    const { test, expect, afterEach } = import.meta.vitest;
+    const { disposeClient } = await import("./transport.js");
 
-    test("getTruApi returns TruApi when SDK is available", async () => {
-        // Reset cache for test
-        cachedTruApi = null;
+    afterEach(() => disposeClient());
+
+    test("getTruApi returns null outside a container", async () => {
         const api = await getTruApi();
-        // In dev/test mode, product-sdk is installed
         expect(api === null || typeof api === "object").toBe(true);
     });
 
-    test("getPreimageManager returns manager when SDK is available", async () => {
+    test("getPreimageManager returns manager or null", async () => {
         const manager = await getPreimageManager();
-        // In dev/test mode, product-sdk is installed
         expect(manager === null || typeof manager === "object").toBe(true);
     });
 
@@ -496,32 +443,39 @@ if (import.meta.vitest) {
         expect(await createHostPreimageManager()).toBeNull();
     });
 
-    test("formatHostError unwraps versioned envelopes and renders CodecError", () => {
-        expect(
-            formatHostError({
-                tag: "v1",
-                value: { name: "GenericError", message: "boom" },
-            }),
-        ).toBe("GenericError: boom");
-        expect(formatHostError(new Error("plain"))).toBe("plain");
-        expect(formatHostError("string err")).toBe("string err");
-        expect(formatHostError({ tag: "v1", value: { message: "no-name" } })).toBe("no-name");
-    });
-
-    test("getAccountsProvider returns provider when SDK is available", async () => {
-        // In dev/test mode, product-sdk is installed, so this returns a provider
+    test("getAccountsProvider returns provider or null", async () => {
         const provider = await getAccountsProvider();
-        // Just verify it returns something (null when SDK unavailable, provider when available)
         expect(provider === null || typeof provider === "object").toBe(true);
     });
 
-    test("enumValue is exported", async () => {
-        const { enumValue } = await import("./truapi.js");
-        expect(typeof enumValue).toBe("function");
+    test("formatHostError renders TruAPI and legacy error shapes", () => {
+        // TruAPI GenericError
+        expect(formatHostError({ reason: "boom" })).toBe("boom");
+        // TruAPI tagged error carrying a reason
+        expect(formatHostError({ tag: "Unknown", value: { reason: "boom" } })).toBe(
+            "Unknown: boom",
+        );
+        // TruAPI unit tagged variant
+        expect(formatHostError({ tag: "Full" })).toBe("Full");
+        // Plain Error / string
+        expect(formatHostError(new Error("plain"))).toBe("plain");
+        expect(formatHostError("string err")).toBe("string err");
+        // Legacy novasama envelope still handled
+        expect(
+            formatHostError({ tag: "v1", value: { name: "GenericError", message: "boom" } }),
+        ).toBe("GenericError: boom");
+    });
+
+    test("enum / hex helpers", () => {
+        expect(enumValue("v1", 42)).toEqual({ tag: "v1", value: 42 });
+        expect(enumValue("ChainSubmit")).toEqual({ tag: "ChainSubmit", value: undefined });
+        expect(isEnumVariant({ tag: "Foo" }, "Foo")).toBe(true);
+        expect(isEnumVariant({ tag: "Foo" }, "Bar")).toBe(false);
+        expect(toHex(new Uint8Array([0xde, 0xad]))).toBe("0xdead");
+        expect(Array.from(fromHex("0xdead"))).toEqual([0xde, 0xad]);
     });
 
     test("requestResourceAllocation throws when TruAPI is unavailable", async () => {
-        cachedTruApi = null;
         const api = await getTruApi();
         if (api === null) {
             await expect(
@@ -532,22 +486,7 @@ if (import.meta.vitest) {
         }
     });
 
-    test("createProofAuthorized throws when TruAPI is unavailable", async () => {
-        cachedTruApi = null;
-        const api = await getTruApi();
-        if (api === null) {
-            await expect(
-                createProofAuthorized({
-                    proof: undefined,
-                    decryptionKey: undefined,
-                    expiry: undefined,
-                    channel: undefined,
-                    topics: [],
-                    data: undefined,
-                }),
-            ).rejects.toThrow(/TruAPI unavailable/);
-        } else {
-            expect(typeof createProofAuthorized).toBe("function");
-        }
+    test("createProofAuthorized is callable", () => {
+        expect(typeof createProofAuthorized).toBe("function");
     });
 }

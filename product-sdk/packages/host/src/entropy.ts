@@ -3,18 +3,18 @@
 /**
  * Higher-level wrapper for the host's entropy derivation (RFC-0007).
  *
- * `hostApi.deriveEntropy` is reachable via {@link getTruApi}, but consumers
- * have to wrap the value in the versioned envelope (`enumValue("v1", ...)`)
- * and unwrap the neverthrow `ResultAsync` themselves. `deriveEntropy`
- * collapses that to a throw-on-error Promise that matches the shape of
- * {@link requestPermission} and {@link requestResourceAllocation}.
+ * `truApi.entropy.derive` takes a hex `context` and returns a hex `entropy`
+ * payload wrapped in a neverthrow `ResultAsync`. `deriveEntropy` keeps the
+ * ergonomic `Uint8Array → Uint8Array` signature: it hex-encodes the context on
+ * the way in, decodes the entropy on the way out, and throws on error — the
+ * shape of {@link requestPermission} and {@link requestResourceAllocation}.
  *
  * @module
  */
 
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { enumValue, formatHostError, getTruApi } from "./truapi.js";
+import { fromHex, getTruApi, toHex, unwrapHostResult } from "./truapi.js";
 
 const log = createLogger("host:entropy");
 
@@ -43,25 +43,56 @@ export async function deriveEntropy(key: Uint8Array): Promise<Uint8Array> {
     }
     log.debug("deriveEntropy", { keyLen: key.length });
 
-    return await truApi.deriveEntropy(enumValue("v1", key)).match(
-        (envelope: { tag: "v1"; value: Uint8Array }) => envelope.value,
-        (err: unknown) => {
-            throw new Error(`deriveEntropy failed: ${formatHostError(err)}`, { cause: err });
-        },
+    const response = await unwrapHostResult(
+        truApi.entropy.derive({ context: toHex(key) }),
+        "deriveEntropy failed",
     );
+    return fromHex(response.entropy);
 }
 
 if (import.meta.vitest) {
-    const { test, expect } = import.meta.vitest;
+    const { test, expect, describe, vi } = import.meta.vitest;
 
-    test("deriveEntropy throws when TruAPI is unavailable", async () => {
-        const api = await getTruApi();
-        if (api === null) {
-            await expect(deriveEntropy(new Uint8Array([1, 2, 3]))).rejects.toThrow(
-                /TruAPI unavailable/,
-            );
-        } else {
-            expect(typeof deriveEntropy).toBe("function");
+    function okAsync<T>(value: T) {
+        return { match: async (onOk: (v: T) => unknown) => onOk(value) };
+    }
+
+    async function withMockedTruApi<T>(
+        client: unknown,
+        fn: (mod: typeof import("./entropy.js")) => Promise<T>,
+    ): Promise<T> {
+        vi.resetModules();
+        vi.doMock("./truapi.js", async (importOriginal) => {
+            const original = await importOriginal<typeof import("./truapi.js")>();
+            return { ...original, getTruApi: async () => client };
+        });
+        try {
+            const mod = await import("./entropy.js");
+            return await fn(mod);
+        } finally {
+            vi.doUnmock("./truapi.js");
+            vi.resetModules();
         }
+    }
+
+    // Tests live inside `describe` so the re-import in `withMockedTruApi`
+    // (via `vi.resetModules`) doesn't re-register top-level `test()` calls.
+    describe("deriveEntropy", () => {
+        test("throws when TruAPI is unavailable", async () => {
+            await withMockedTruApi(null, async (mod) => {
+                await expect(mod.deriveEntropy(new Uint8Array([1, 2, 3]))).rejects.toThrow(
+                    /TruAPI unavailable/,
+                );
+            });
+        });
+
+        test("hex-encodes the context and decodes the entropy bytes", async () => {
+            const derive = vi.fn(() => okAsync({ entropy: "0xc0ffee" }));
+            await withMockedTruApi({ entropy: { derive } }, async (mod) => {
+                const out = await mod.deriveEntropy(new Uint8Array([0xab, 0xcd]));
+                expect(derive).toHaveBeenCalledWith({ context: "0xabcd" });
+                expect(Array.from(out)).toEqual([0xc0, 0xff, 0xee]);
+            });
+        });
     });
 }

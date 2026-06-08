@@ -18,8 +18,8 @@ import type {
 } from "./types.js";
 import { DEFAULT_TTL_SECONDS } from "./types.js";
 
-import type { Statement } from "@novasamatech/sdk-statement";
-import { createExpiry } from "@novasamatech/sdk-statement";
+import { createExpiry } from "./statement.js";
+import type { Statement } from "./statement.js";
 import type { SdkTopicFilter } from "./types.js";
 
 const log = createLogger("statement-store");
