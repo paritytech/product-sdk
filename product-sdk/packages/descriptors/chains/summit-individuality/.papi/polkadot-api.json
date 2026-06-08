@@ -1,0 +1,12 @@
+{
+    "version": 0,
+    "descriptorPath": "generated",
+    "entries": {
+        "summit_individuality": {
+            "wsUrl": "wss://summit-people-rpc.polkadot.io",
+            "metadata": "../../.papi/metadata/summit_individuality.scale",
+            "genesis": "0xbe5238f82c3553bc57ac3be43bef110bd58c49ad0744110814985195ca7d8c4e",
+            "codeHash": "0x5790f153dbe4dbfdbd999c1a79edc3e6719134ee9ef56c7ecb86e8d1dde88587"
+        }
+    }
+}

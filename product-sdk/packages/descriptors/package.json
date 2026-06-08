@@ -25,6 +25,18 @@
         "./polkadot-asset-hub": {
             "types": "./chains/polkadot-asset-hub/generated/dist/index.d.ts",
             "import": "./chains/polkadot-asset-hub/generated/dist/index.js"
+        },
+        "./summit-asset-hub": {
+            "types": "./chains/summit-asset-hub/generated/dist/index.d.ts",
+            "import": "./chains/summit-asset-hub/generated/dist/index.js"
+        },
+        "./summit-bulletin": {
+            "types": "./chains/summit-bulletin/generated/dist/index.d.ts",
+            "import": "./chains/summit-bulletin/generated/dist/index.js"
+        },
+        "./summit-individuality": {
+            "types": "./chains/summit-individuality/generated/dist/index.d.ts",
+            "import": "./chains/summit-individuality/generated/dist/index.js"
         }
     },
     "scripts": {
