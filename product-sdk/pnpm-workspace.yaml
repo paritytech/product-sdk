@@ -19,5 +19,13 @@ catalog:
   vite: ^6.3.0
   vitest: ^3.1.4
 
+overrides:
+  "@polkadot-api/json-rpc-provider": "^0.2.0"
+
 onlyBuiltDependencies:
   - "@biomejs/biome"
+  - "esbuild"
+
+allowBuilds:
+  "@biomejs/biome": true
+  esbuild: true
