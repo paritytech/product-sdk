@@ -6,7 +6,7 @@
             "wsUrl": "wss://paseo-people-next-system-rpc.polkadot.io",
             "metadata": "../../.papi/metadata/paseo_individuality.scale",
             "genesis": "0xc5af1826b31493f08b7e2a823842f98575b806a784126f28da9608c68665afa5",
-            "codeHash": "0xdfcf2d11fd7a3a9f6f792c4c0501aacb13e890fee3e8477088c0aa4aa17ed0e3"
+            "codeHash": "0x5a93619ebbd5d28ea82fc159f6b01e8610e32ca1e1a00acb934e76757fd0c387"
         }
     }
 }
