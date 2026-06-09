@@ -1,0 +1,202 @@
+---
+title: Migrating to @parity/truapi
+description: How to update direct getTruApi() calls now that the host client is @parity/truapi instead of the host-api-wrapper.
+---
+
+# Migrating to `@parity/truapi`
+
+`@parity/product-sdk-host` now talks to the host through Parity's own
+[`@parity/truapi`](https://github.com/paritytech/truapi) client instead of the
+third-party `@novasamatech/host-api-wrapper`.
+
+If you stick to the high-level helpers, you can stop reading. `getStatementStore`,
+`getPaymentManager`, `getThemeProvider`, `getChatManager`, `getHostProvider`,
+`getAccountsProvider`, `requestPermission`, `requestResourceAllocation`, host
+`localStorage`, and the rest all keep the same signatures and behavior.
+
+This guide is for code that reaches for `getTruApi()` directly. That raw client
+changed shape. If you only hit the smaller facade tweaks, skip ahead to
+[Smaller changes](#smaller-changes).
+
+## What changed
+
+`getTruApi()` used to return a flat object whose methods took a
+`{ tag: "v1", value }` envelope. Now it returns truapi's namespaced client. Four
+things change, and between them they cover almost every call:
+
+1. Methods live under a domain now. `truApi.devicePermission(…)` becomes
+   `truApi.permissions.requestDevicePermission(…)`. The domains are `account`,
+   `chain`, `chat`, `coinPayment`, `entropy`, `localStorage`, `notifications`,
+   `payment`, `permissions`, `preimage`, `resourceAllocation`, `signing`,
+   `statementStore`, `system`, and `theme`.
+2. The `{ tag: "v1", value }` envelope is gone. Pass the request object straight
+   in and let the client version the wire format for you.
+3. Requests and responses use named fields instead of positional tuples or a bare
+   `res.value`. An account id is `{ dotNsIdentifier, derivationIndex }` rather than
+   `[dotNs, idx]`, a chain is `{ genesisHash }`, raw bytes are `{ bytes: "0x…" }`,
+   and responses read off fields like `granted`, `supported`, `signature`, and
+   `outcomes`.
+4. Errors use truapi's shapes. The catch-all `GenericError` is `{ reason }`, and
+   tagged errors are `{ tag, value? }`. (They used to be `{ value: { name, … } }`.)
+
+## Cheat-sheet
+
+| Operation | Before (`host-api-wrapper`) | After (`@parity/truapi`) |
+| --- | --- | --- |
+| Device permission | `truApi.devicePermission({ tag: "v1", value: "Camera" })` → `res.value` | `truApi.permissions.requestDevicePermission("Camera")` → `res.granted` |
+| Remote permission | `truApi.permission({ tag: "v1", value: { tag: "Remote", value: [url] } })` | `truApi.permissions.requestRemotePermission({ permission: { tag: "Remote", value: { domains: [url] } } })` → `res.granted` |
+| Resource allocation | `truApi.requestResourceAllocation({ tag: "v1", value: [{ tag: "SmartContractAllowance", value: i }] })` → `res.value[0].tag` | `truApi.resourceAllocation.request({ resources: [{ tag: "SmartContractAllowance", value: i }] })` → `res.outcomes[0]` |
+| Feature check | `truApi.featureSupported({ tag: "v1", value: { tag: "Chain", value: genesis } })` → `res.value` | `truApi.system.featureSupported({ tag: "Chain", value: { genesisHash: genesis } })` → `res.supported` |
+| Sign raw | `truApi.signRaw({ tag: "v1", value: { account: [dotNs, 0], payload: { tag: "Bytes", value: bytes } } })` → `res.value` | `truApi.signing.signRaw({ account: { dotNsIdentifier: dotNs, derivationIndex: 0 }, payload: { tag: "Bytes", value: { bytes: toHex(bytes) } } })` → `res.signature` |
+| Error reason | `err.value.name` | `err.reason` (or `err.tag` for tagged variants) |
+| Hex helpers | `import { toHex, fromHex } from "polkadot-api/utils"` | `import { toHex, fromHex } from "@parity/product-sdk-host"` |
+
+## Examples
+
+### Device permission
+
+```ts
+// before
+const result = await truApi.devicePermission({ tag: "v1", value: "Camera" });
+result.match(
+  (res) => (res.value ? grant() : deny()),
+  (err) => fail(err.value.name),
+);
+
+// after
+const result = await truApi.permissions.requestDevicePermission("Camera");
+result.match(
+  (res) => (res.granted ? grant() : deny()),
+  (err) => fail(err.reason),
+);
+```
+
+### Resource allocation
+
+Outcomes used to be tagged enums. They're a plain string union now, so you compare
+the string directly.
+
+```ts
+// before
+const result = await truApi.requestResourceAllocation({
+  tag: "v1",
+  value: [{ tag: "SmartContractAllowance", value: derivationIndex }],
+});
+result.match(
+  (res) => (res.value[0]?.tag === "Allocated" ? ok() : fail()),
+  (err) => fail(err.value.name),
+);
+
+// after
+const result = await truApi.resourceAllocation.request({
+  resources: [{ tag: "SmartContractAllowance", value: derivationIndex }],
+});
+result.match(
+  (res) => (res.outcomes[0] === "Allocated" ? ok() : fail()),
+  (err) => fail(err.value.reason),
+);
+```
+
+### Feature check
+
+```ts
+// before
+const result = await truApi.featureSupported({
+  tag: "v1",
+  value: { tag: "Chain", value: genesis },
+});
+result.match((res) => show(res.value), (err) => fail(err.value.name));
+
+// after
+const result = await truApi.system.featureSupported({
+  tag: "Chain",
+  value: { genesisHash: genesis },
+});
+result.match((res) => show(res.supported), (err) => fail(err.reason));
+```
+
+### Sign raw bytes
+
+The account is an object now, and `Bytes` carries a `0x` hex string rather than a
+`Uint8Array`.
+
+```ts
+import { toHex } from "@parity/product-sdk-host";
+
+// before
+const result = await truApi.signRaw({
+  tag: "v1",
+  value: {
+    account: [dotNsIdentifier, 0],
+    payload: { tag: "Bytes", value: messageBytes },
+  },
+});
+result.match((res) => use(res.value), (err) => fail(err.value.name));
+
+// after
+const result = await truApi.signing.signRaw({
+  account: { dotNsIdentifier, derivationIndex: 0 },
+  payload: { tag: "Bytes", value: { bytes: toHex(messageBytes) } },
+});
+result.match((res) => use(res.signature), (err) => fail(err.tag));
+```
+
+### Remote permission
+
+The variant payload is a named-field object too (`{ domains }`, not a bare array).
+
+```ts
+// before
+await truApi.permission({ tag: "v1", value: { tag: "Remote", value: [url] } });
+
+// after
+await truApi.permissions.requestRemotePermission({
+  permission: { tag: "Remote", value: { domains: [url] } },
+});
+```
+
+## Smaller changes
+
+These touch the facades, so they apply even if you never call `getTruApi()`.
+
+### Chat messages
+
+`ChatMessageContent`'s `Text` variant wraps its string in a `{ text }` object now,
+both when you send and when you read an incoming message.
+
+```ts
+// before
+chat.sendMessage(roomId, { tag: "Text", value: "hello" });
+const text = action.payload.value.value; // string
+
+// after
+chat.sendMessage(roomId, { tag: "Text", value: { text: "hello" } });
+const text = action.payload.value.value.text;
+```
+
+### Chat custom rendering is gone
+
+`getChatManager().onCustomMessageRenderingRequest`, the `matchChatCustomRenderers`
+helper, and the `ChatCustomMessageRenderer` / `ChatCustomMessageRendererParams`
+types have been removed. truapi models custom render as a different,
+currently-stubbed flow with no product-as-renderer primitive, so the API will come
+back once that flow lands.
+
+### Statement-store submission
+
+Host-mode submission now goes through the RFC-10 sponsored path
+(`createProofAuthorized`): statements are signed by the product's allowance account,
+so the per-call `accountId` credential is no longer used. It's optional and ignored
+if you still pass it, and submitted statements look the same on the wire.
+
+## A couple of notes
+
+`getTruApi()`'s `TruApi` type now resolves to truapi's `TrUApiClient`. Tagged values
+across the surface are `{ tag }` (with a `value` only when the variant carries data),
+so for example `AllocationOutcome` is the string union
+`"Allocated" | "Rejected" | "NotAvailable"` and you check `outcome === "Allocated"`
+rather than `outcome.tag === "Allocated"`.
+
+The `enumValue` / `isEnumVariant` / `assertEnumVariant` helpers are still exported
+from `@parity/product-sdk-host` for the occasional hand-built payload, but you won't
+need them for normal calls anymore.
