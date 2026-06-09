@@ -51,6 +51,12 @@ import { sanitizeKey } from "./node-storage.js";
 // `identityAccountId`, `identityChatPublicKey`, and `ssoEncPubKey` — all
 // three are now required — and appended `rootEntropySource: Bytes(32)`,
 // the layer-1 entropy the host consumes via `deriveProductEntropyFromSource`.
+//
+// host-papp 0.8.7-1 (PR #212) appended `deviceEncPubKey: Bytes(65)` — the
+// paired phone's long-lived ECDH key, lifted from `HandshakeResponseV2.
+// deviceEncPubKey`, used by the host's device-sync channel to address
+// the paired device. The storage key was renamed `SsoSessionsV2 → SsoSessionsV3`
+// in the same release; the old graceful-degrade for V2 blobs is gone.
 const storedUserSessionCodec = Struct({
     id: str,
     localAccount: LocalSessionAccountCodec,
@@ -60,6 +66,7 @@ const storedUserSessionCodec = Struct({
     identityChatPublicKey: Bytes(65),
     ssoEncPubKey: Bytes(65),
     rootEntropySource: Bytes(32),
+    deviceEncPubKey: Bytes(65),
 }) satisfies Codec<StoredUserSession>;
 const sessionsCodec = Vector(storedUserSessionCodec);
 
@@ -160,9 +167,9 @@ export interface TestSession {
  *   tracked via on-chain attestation state. See above for how expiry-path
  *   tests still work in practice.
  * - **Corrupted-session cases** don't need a helper — write garbage to
- *   `<storageDir>/<appId>_SsoSessionsV2.json` with `fs.writeFile` directly.
+ *   `<storageDir>/<appId>_SsoSessionsV3.json` with `fs.writeFile` directly.
  * - **Repeated calls replace the session list.** Each call writes a fresh
- *   single-entry `SsoSessionsV2` file, so calling twice on the same
+ *   single-entry `SsoSessionsV3` file, so calling twice on the same
  *   `storageDir`+`appId` leaves only the second session on disk. Use a
  *   fresh `mkdtempSync` per test to keep cases isolated.
  *
@@ -209,11 +216,13 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
 
     // host-papp 0.8.6 (RFC-0007) requires all of identityAccountId,
     // identityChatPublicKey, ssoEncPubKey, and rootEntropySource on the
-    // persisted session. For a synthesized test session we collapse the
-    // identity-side keys onto the remote account (the wallet doubles as
-    // identity), reuse the peer's P-256 encryption pubkey for both chat
-    // and SSO transports, and use the remote entropy as the RFC-0007
-    // root entropy source so the value is reproducible.
+    // persisted session. host-papp 0.8.7-1 added `deviceEncPubKey` (the
+    // peer device's long-lived ECDH key). For a synthesized test session
+    // we collapse the identity-side keys onto the remote account (the
+    // wallet doubles as identity), reuse the peer's P-256 encryption
+    // pubkey for chat, SSO, and the new device-sync transport, and use
+    // the remote entropy as the RFC-0007 root entropy source so the value
+    // is reproducible.
     const session = {
         id: sessionId,
         localAccount: createLocalSessionAccount(createAccountId(localPublicKey), undefined),
@@ -227,10 +236,11 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
         identityChatPublicKey: remoteEncrPublicKey,
         ssoEncPubKey: remoteEncrPublicKey,
         rootEntropySource: remoteEntropy,
+        deviceEncPubKey: remoteEncrPublicKey,
     };
 
     await writeFile(
-        join(options.storageDir, `${sanitizeKey(options.appId, "SsoSessionsV2")}.json`),
+        join(options.storageDir, `${sanitizeKey(options.appId, "SsoSessionsV3")}.json`),
         toHex(sessionsCodec.enc([session])),
         "utf-8",
     );
@@ -295,7 +305,7 @@ if (import.meta.vitest) {
     });
 
     describe("createTestSession", () => {
-        test("writes both SsoSessionsV2 and UserSecretsV2 files by default", async () => {
+        test("writes both SsoSessionsV3 and UserSecretsV2 files by default", async () => {
             const result = await createTestSession({
                 appId: "my-app",
                 storageDir,
@@ -303,7 +313,7 @@ if (import.meta.vitest) {
                 remoteMnemonic: REMOTE_MNEMONIC,
             });
 
-            const sessions = await readFile(join(storageDir, "my-app_SsoSessionsV2.json"), "utf-8");
+            const sessions = await readFile(join(storageDir, "my-app_SsoSessionsV3.json"), "utf-8");
             expect(sessions).toMatch(/^0x[0-9a-f]+$/);
 
             const secrets = await readFile(
@@ -323,7 +333,7 @@ if (import.meta.vitest) {
             });
 
             await expect(
-                readFile(join(storageDir, "my-app_SsoSessionsV2.json"), "utf-8"),
+                readFile(join(storageDir, "my-app_SsoSessionsV3.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
 
             await expect(
@@ -334,7 +344,7 @@ if (import.meta.vitest) {
             ).rejects.toThrow(/ENOENT/);
         });
 
-        test("SsoSessionsV2 file decodes with the host-papp session codec shape", async () => {
+        test("SsoSessionsV3 file decodes with the host-papp session codec shape", async () => {
             const result = await createTestSession({
                 appId: "my-app",
                 storageDir,
@@ -343,7 +353,7 @@ if (import.meta.vitest) {
                 sessionId: "stable-test-id",
             });
 
-            const hex = await readFile(join(storageDir, "my-app_SsoSessionsV2.json"), "utf-8");
+            const hex = await readFile(join(storageDir, "my-app_SsoSessionsV3.json"), "utf-8");
             const decoded = sessionsCodec.dec(fromHex(hex));
 
             expect(decoded).toHaveLength(1);
@@ -401,10 +411,10 @@ if (import.meta.vitest) {
             await createTestSession({ appId: "app-b", storageDir, sessionId: "id" });
 
             await expect(
-                readFile(join(storageDir, "app-a_SsoSessionsV2.json"), "utf-8"),
+                readFile(join(storageDir, "app-a_SsoSessionsV3.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
             await expect(
-                readFile(join(storageDir, "app-b_SsoSessionsV2.json"), "utf-8"),
+                readFile(join(storageDir, "app-b_SsoSessionsV3.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
         });
 
@@ -415,7 +425,7 @@ if (import.meta.vitest) {
                 sessionId: "id",
             });
             await expect(
-                readFile(join(storageDir, "app_with_spaces_SsoSessionsV2.json"), "utf-8"),
+                readFile(join(storageDir, "app_with_spaces_SsoSessionsV3.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
         });
 
@@ -423,7 +433,7 @@ if (import.meta.vitest) {
             const nested = join(storageDir, "does", "not", "exist");
             await createTestSession({ appId: "my-app", storageDir: nested });
             await expect(
-                readFile(join(nested, "my-app_SsoSessionsV2.json"), "utf-8"),
+                readFile(join(nested, "my-app_SsoSessionsV3.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
         });
 
@@ -477,7 +487,7 @@ if (import.meta.vitest) {
                 sessionId: "second",
             });
 
-            const hex = await readFile(join(storageDir, "my-app_SsoSessionsV2.json"), "utf-8");
+            const hex = await readFile(join(storageDir, "my-app_SsoSessionsV3.json"), "utf-8");
             const decoded = sessionsCodec.dec(fromHex(hex));
             expect(decoded).toHaveLength(1);
             expect(decoded[0].id).toBe("second");
