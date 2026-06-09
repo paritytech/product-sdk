@@ -95,3 +95,11 @@ export type {
 // Payments (RFC-0006)
 export { getPaymentManager } from "./payments.js";
 export type { PaymentManager, PaymentBalance, PaymentStatus, TopUpSource } from "./payments.js";
+
+// Notifications
+export { getNotificationManager, PushNotificationError } from "./notifications.js";
+export type {
+    NotificationManager,
+    NotificationId,
+    PushNotificationInput,
+} from "./notifications.js";
