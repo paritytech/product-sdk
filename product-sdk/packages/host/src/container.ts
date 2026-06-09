@@ -1,15 +1,12 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import type { JsonRpcProvider } from "polkadot-api";
-import type { TrUApiClient } from "@parity/truapi";
-import { createLogger } from "@parity/product-sdk-logger";
-import { enumValue } from "@novasamatech/host-api";
+import type { HexString, TrUApiClient } from "@parity/truapi";
 
+import { createHostPapiProvider } from "./papi-provider.js";
 import { getClient, isCorrectEnvironment, subscribeWithInterrupt } from "./transport.js";
-import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
+import { formatHostError, fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostLocalStorage, HostStatementStore } from "./types.js";
-
-const log = createLogger("host:container");
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -46,39 +43,24 @@ export class ChainNotSupportedError extends Error {
 }
 
 /**
- * Ask the host whether it can serve the given chain, using the same
- * `host_feature_supported` check the wrapper's provider performs internally
- * before it decides whether to start a real provider or a no-op one.
+ * Ask the host whether it can serve the given chain, via
+ * `system.featureSupported({ tag: "Chain", … })`. Gates {@link getHostProvider}
+ * the same way the upstream wrapper's provider gated itself internally before
+ * deciding whether to start a real provider or a no-op one.
  *
- * @throws If the host connection never becomes ready, or the host rejects the
- *   support check outright. Both are non-hanging, catchable failures.
- *
- * @remarks TODO: port onto `truApi.system.featureSupported` once
- *   {@link getHostProvider} moves to a `@parity/truapi` PAPI `JsonRpcProvider`
- *   adapter. Still on the novasama wrapper for now.
+ * @throws If the host rejects the support check outright — a non-hanging,
+ *   catchable failure.
  */
 async function isChainSupportedByHost(
-    sdk: typeof import("@novasamatech/host-api-wrapper"),
-    genesisHash: `0x${string}`,
+    client: TrUApiClient,
+    genesisHash: HexString,
 ): Promise<boolean> {
-    const ready = await sdk.sandboxTransport.isReady();
-    if (!ready) {
-        throw new Error(
-            `Host connection did not become ready; cannot verify support for chain ${genesisHash}.`,
-        );
-    }
-    const result = await sdk.hostApi.featureSupported(
-        enumValue("v1", enumValue("Chain", genesisHash)),
-    );
-    return result.match(
-        (ok) => ok.value === true,
-        (err) => {
-            // The reason lives at value.payload.reason for host-protocol errors and
-            // value.reason for request-level ones; tolerate both against upstream drift.
-            const value = (err as { value?: { payload?: { reason?: string }; reason?: string } })
-                ?.value;
-            const reason = value?.payload?.reason ?? value?.reason ?? "unknown reason";
-            throw new Error(`Host rejected the chain-support check for ${genesisHash}: ${reason}`);
+    return client.system.featureSupported({ tag: "Chain", value: { genesisHash } }).match(
+        (response) => response.supported,
+        (error) => {
+            throw new Error(
+                `Host rejected the chain-support check for ${genesisHash}: ${formatHostError(error)}`,
+            );
         },
     );
 }
@@ -161,62 +143,43 @@ export async function createHostLocalStorage(): Promise<HostLocalStorage | null>
 /**
  * Get a PAPI-compatible JSON-RPC provider that routes through the host connection.
  *
- * When running inside a Polkadot container, this wraps the chain connection via the
- * host's `createPapiProvider`, enabling shared connections and efficient routing.
- * Returns `null` when `@novasamatech/host-api-wrapper` is unavailable or when not
- * running inside a container.
+ * When running inside a Polkadot container, this builds a `JsonRpcProvider` over
+ * `truApi.chain.*` (see {@link module:papi-provider}), enabling shared
+ * connections and efficient routing. Returns `null` when not running inside a
+ * container.
  *
  * @param genesisHash - Genesis hash of the target chain (`0x`-prefixed hex string).
  * @returns A host-routed `JsonRpcProvider`, or `null` if unavailable.
  * @throws {ChainNotSupportedError} When inside a container but the host can't serve
  *   the chain — surfaced instead of returning a provider that would hang forever.
- *
- * @remarks TODO: port onto `truApi.chain.*`. The `@parity/truapi` `chain.*`
- *   domain provides the primitives, but building the PAPI `JsonRpcProvider`
- *   adapter (chainHead/transaction spec) over them is dedicated work; still
- *   routed through the novasama wrapper for now.
  */
-export async function getHostProvider(genesisHash: `0x${string}`): Promise<JsonRpcProvider | null> {
-    let sdk: typeof import("@novasamatech/host-api-wrapper");
-    try {
-        sdk = await import("@novasamatech/host-api-wrapper");
-    } catch (err) {
-        // Wrapper not installed — we're not running inside a container.
-        log.debug("getHostProvider unavailable", err);
-        return null;
-    }
-    return resolveHostProvider(sdk, genesisHash);
+export async function getHostProvider(genesisHash: HexString): Promise<JsonRpcProvider | null> {
+    const client = await getClient();
+    if (!client) return null;
+    return resolveHostProvider(client, genesisHash);
 }
 
 /**
- * Decide whether to build a host provider for `genesisHash`, given the resolved
- * wrapper module. Split out of {@link getHostProvider} so the decision logic can
- * be unit-tested with a fake wrapper, without re-importing the real
- * (browser-only) module.
+ * Decide whether to build a host provider for `genesisHash`, given a ready
+ * TruAPI client. Split out of {@link getHostProvider} so the decision logic can
+ * be unit-tested with a fake client.
  *
- * @returns the provider, or `null` when not inside a container.
+ * @returns the provider.
  * @throws {ChainNotSupportedError} when the host can't serve the chain.
  */
 async function resolveHostProvider(
-    sdk: typeof import("@novasamatech/host-api-wrapper"),
-    genesisHash: `0x${string}`,
-): Promise<JsonRpcProvider | null> {
-    // Outside a host container there is no provider to hand back. Mirrors
-    // createPapiProvider's own environment guard; callers treat null as
-    // "not inside a container".
-    if (!sdk.sandboxTransport.isCorrectEnvironment()) {
-        return null;
-    }
-
-    // Inside a container: confirm the host can actually serve this chain before
-    // handing PAPI a provider. When the host doesn't support the chain, the
-    // wrapper's fallback provider silently swallows every JSON-RPC request and
-    // the caller hangs forever with no rejection. Surface a catchable error.
-    if (!(await isChainSupportedByHost(sdk, genesisHash))) {
+    client: TrUApiClient,
+    genesisHash: HexString,
+): Promise<JsonRpcProvider> {
+    // Confirm the host can actually serve this chain before handing PAPI a
+    // provider. When the host doesn't support the chain, a provider would silently
+    // swallow every JSON-RPC request and the caller hangs forever with no
+    // rejection. Surface a catchable error instead.
+    if (!(await isChainSupportedByHost(client, genesisHash))) {
         throw new ChainNotSupportedError(genesisHash);
     }
 
-    return sdk.createPapiProvider(genesisHash);
+    return createHostPapiProvider(client, genesisHash);
 }
 
 /** Build a {@link HostStatementStore} over a TruAPI client's `statementStore` domain. */
@@ -268,38 +231,23 @@ if (import.meta.vitest) {
         vi.unstubAllGlobals();
     });
 
-    // A self-contained stand-in for the host wrapper, so the chain-support
-    // decision can be tested without re-importing the real (browser-only) module.
-    const fakeProvider = (() => {}) as unknown as JsonRpcProvider;
-    function makeFakeSdk(opts: {
-        inContainer?: boolean;
-        ready?: boolean;
-        supported?: boolean;
-        featureErr?: string | null;
-        onCreate?: (genesisHash: string) => void;
-    }) {
-        const { inContainer = true, ready = true, supported = true, featureErr = null } = opts;
+    // A self-contained fake TruAPI client exposing just the `system` and `chain`
+    // domains the provider gate touches, so the chain-support decision can be
+    // tested without a real host connection.
+    function makeFakeClient(opts: { supported?: boolean; featureErr?: string | null }) {
+        const { supported = true, featureErr = null } = opts;
         return {
-            sandboxTransport: {
-                isCorrectEnvironment: () => inContainer,
-                isReady: async () => ready,
-            },
-            hostApi: {
-                featureSupported: (_payload: unknown) => ({
+            system: {
+                featureSupported: (_request: unknown) => ({
                     match: (
-                        okFn: (ok: { tag: string; value: boolean }) => boolean,
-                        errFn: (err: { value: { payload: { reason: string } } }) => boolean,
-                    ) =>
-                        featureErr
-                            ? errFn({ value: { payload: { reason: featureErr } } })
-                            : okFn({ tag: "v1", value: supported }),
+                        okFn: (ok: { supported: boolean }) => boolean,
+                        errFn: (err: { reason: string }) => boolean,
+                    ) => (featureErr ? errFn({ reason: featureErr }) : okFn({ supported })),
                 }),
             },
-            createPapiProvider: (genesisHash: string) => {
-                opts.onCreate?.(genesisHash);
-                return fakeProvider;
-            },
-        } as unknown as typeof import("@novasamatech/host-api-wrapper");
+            // Read synchronously by createHostPapiProvider; never invoked here.
+            chain: {},
+        } as unknown as TrUApiClient;
     }
 
     test("isInsideContainer is false in a Node environment (no window)", async () => {
@@ -360,47 +308,33 @@ if (import.meta.vitest) {
         expect(await ls.readString("s")).toBe("");
     });
 
-    // --- chain-support gating (resolveHostProvider) — TODO: still on novasama ---
+    // --- chain-support gating (resolveHostProvider over truApi.system/chain) ---
 
-    test("resolves to the provider when supported, and null outside a container", async () => {
-        const created: string[] = [];
-        const onCreate = (g: string) => created.push(g);
-
-        // Inside a container, supported chain -> real provider.
-        expect(await resolveHostProvider(makeFakeSdk({ onCreate }), "0xabc")).toBe(fakeProvider);
-        // Outside a container -> null, without constructing a provider.
-        expect(
-            await resolveHostProvider(makeFakeSdk({ inContainer: false, onCreate }), "0xdef"),
-        ).toBeNull();
-
-        expect(created).toEqual(["0xabc"]);
+    test("resolves to a provider when the host supports the chain", async () => {
+        const provider = await resolveHostProvider(makeFakeClient({ supported: true }), "0xabc");
+        // createHostPapiProvider returns a JsonRpcProvider (an onMessage -> connection fn).
+        expect(typeof provider).toBe("function");
     });
 
-    test.each([
-        { when: "the host doesn't support the chain", opts: { supported: false } },
-        { when: "the host connection never becomes ready", opts: { ready: false } },
-    ])("throws (and never builds a provider) when $when", async ({ opts }) => {
-        const created: string[] = [];
-        const sdk = makeFakeSdk({ ...opts, onCreate: (g) => created.push(g) });
-        await expect(resolveHostProvider(sdk, "0xabc")).rejects.toThrow();
-        // Crucially: no provider is created, so PAPI never receives a hanging no-op.
-        expect(created).toEqual([]);
-    });
-
-    test("unsupported chains throw a ChainNotSupportedError carrying the genesis hash", async () => {
-        const err = await resolveHostProvider(makeFakeSdk({ supported: false }), "0xfeed").catch(
+    test("throws ChainNotSupportedError when the host doesn't support the chain", async () => {
+        const err = await resolveHostProvider(makeFakeClient({ supported: false }), "0xfeed").catch(
             (e) => e,
         );
         expect(err).toBeInstanceOf(ChainNotSupportedError);
         expect((err as ChainNotSupportedError).genesisHash).toBe("0xfeed");
     });
 
-    test("getStatementStore returns the store or null depending on availability", async () => {
-        // Returns null only when `@novasamatech/host-api-wrapper` fails to load
-        // (i.e. outside a container). Whether that dynamic import resolves under
-        // vitest is environment-dependent, so tolerate both — matching the
-        // sibling novasama-backed getters (getPreimageManager, getAccountsProvider).
-        const result = await getStatementStore();
-        expect(result === null || typeof result === "object").toBe(true);
+    test("throws when the host rejects the support check", async () => {
+        await expect(
+            resolveHostProvider(makeFakeClient({ featureErr: "boom" }), "0xabc"),
+        ).rejects.toThrow(/boom/);
+    });
+
+    test("getHostProvider returns null outside a container", async () => {
+        expect(await getHostProvider("0xabc")).toBeNull();
+    });
+
+    test("getStatementStore returns null outside a container", async () => {
+        expect(await getStatementStore()).toBeNull();
     });
 }

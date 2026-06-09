@@ -536,6 +536,9 @@ importers:
       '@parity/truapi':
         specifier: link:/Users/vale/Development/truapi/js/packages/truapi
         version: link:../../../../truapi/js/packages/truapi
+      '@polkadot-api/json-rpc-provider':
+        specifier: ^0.2.0
+        version: 0.2.0
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
