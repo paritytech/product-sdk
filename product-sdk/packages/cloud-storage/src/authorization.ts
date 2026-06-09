@@ -58,7 +58,11 @@ export async function checkAuthorization(
             Enum("Account", address),
         );
     } catch (error) {
-        log.error("checkAuthorization: query failed", { address, error });
+        // No log here — the thrown CloudStorageAuthorizationError carries the
+        // address and underlying error as `cause`. Logging before throwing
+        // would double-report transient failures (e.g. DisjointError) for
+        // callers that handle the throw (`.catch(() => null)`), spamming
+        // stderr they have no way to suppress.
         throw new CloudStorageAuthorizationError(address, error);
     }
 
@@ -360,6 +364,39 @@ if (import.meta.vitest) {
             expect(error.address).toBe("5GrwvaEF...");
             expect(error.cause).toBeInstanceOf(Error);
             expect((error.cause as Error).message).toBe("RPC connection lost");
+        });
+
+        test("does NOT emit any error-level log when the query fails (caller owns the throw)", async () => {
+            // Regression guard for the "double-report" UX bug: pre-fix,
+            // checkAuthorization logged at error level *before* throwing,
+            // so a caller catching the throw (e.g. `.catch(() => null)`)
+            // still got a scary stderr line they had no way to suppress.
+            // The throw carries the address + cause already; let the caller
+            // decide whether to log.
+            const { configure } = await import("@parity/product-sdk-logger");
+            type LogEntry = { level: string; namespace: string; message: string };
+            const entries: LogEntry[] = [];
+            configure({
+                level: "debug",
+                handler: (e) => entries.push(e as LogEntry),
+            });
+
+            const api = {
+                query: {
+                    TransactionStorage: {
+                        Authorizations: {
+                            getValue: vi.fn().mockRejectedValue(new Error("DisjointError")),
+                        },
+                    },
+                },
+            } as unknown as CloudStorageApi;
+
+            await checkAuthorization(api, "5GrwvaEF...").catch(() => null);
+
+            const errorLogs = entries.filter(
+                (e) => e.namespace === "cloudStorage" && e.level === "error",
+            );
+            expect(errorLogs).toEqual([]);
         });
 
         test("passes correct Enum key to the query", async () => {
