@@ -26,10 +26,6 @@
         "@parity/product-sdk-logger": "workspace:*",
         "polkadot-api": "catalog:"
     },
-    "optionalDependencies": {
-        "@novasamatech/host-api-wrapper": "catalog:",
-        "@novasamatech/host-api": "catalog:"
-    },
     "devDependencies": {
         "tsup": "catalog:",
         "typescript": "catalog:",

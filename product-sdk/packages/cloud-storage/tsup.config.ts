@@ -13,7 +13,4 @@ export default defineConfig({
     define: {
         "import.meta.vitest": "undefined",
     },
-    // Mark product-sdk as external since it's an optional peer dependency
-    // that's dynamically imported
-    external: ["@novasamatech/host-api-wrapper"],
 });

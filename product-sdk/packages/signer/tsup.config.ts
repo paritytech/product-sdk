@@ -10,7 +10,6 @@ export default defineConfig({
     clean: true,
     target: "es2022",
     treeshake: true,
-    external: ["@novasamatech/host-api-wrapper", "@novasamatech/host-api"],
     define: {
         "import.meta.vitest": "undefined",
     },

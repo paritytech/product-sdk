@@ -14,9 +14,7 @@
     },
     "dependencies": {
         "@parity/product-sdk-signer": "workspace:*",
-        "@parity/product-sdk-statement-store": "workspace:*",
-        "@novasamatech/host-api": "catalog:",
-        "@novasamatech/host-api-wrapper": "catalog:"
+        "@parity/product-sdk-statement-store": "workspace:*"
     },
     "devDependencies": {
         "@parity/host-api-test-sdk": "catalog:",
