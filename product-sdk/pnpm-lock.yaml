@@ -539,6 +539,9 @@ importers:
       '@polkadot-api/json-rpc-provider':
         specifier: ^0.2.0
         version: 0.2.0
+      '@polkadot-api/substrate-bindings':
+        specifier: ^0.20.3
+        version: 0.20.3
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0

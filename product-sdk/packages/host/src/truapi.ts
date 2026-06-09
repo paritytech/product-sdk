@@ -24,8 +24,6 @@ import type {
 } from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import type { createAccountsProvider } from "@novasamatech/host-api-wrapper";
-
 import { getClient, subscribeWithInterrupt } from "./transport.js";
 import type { HostSubscription, Statement, StatementProof } from "./types.js";
 
@@ -249,23 +247,6 @@ export async function createHostPreimageManager(): Promise<PreimageManager | nul
     return getPreimageManager();
 }
 
-/**
- * Get the accounts provider for managing host accounts.
- *
- * @returns The accounts provider, or `null` if unavailable.
- *
- * @remarks TODO: port onto `truApi.account.*`; rides the novasama wrapper for now.
- */
-export async function getAccountsProvider(): Promise<AccountsProvider | null> {
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.createAccountsProvider();
-    } catch (err) {
-        log.debug("getAccountsProvider unavailable", err);
-        return null;
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Resource allocation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,44 +344,6 @@ export async function createProofAuthorized(statement: Statement): Promise<State
 }
 
 /**
- * One of the user's existing wallet accounts, surfaced through the host and
- * identified by its public key and an optional name. Contrast with
- * {@link ProductAccount}, which is also user-controlled but derived by the
- * host for a specific app rather than picked from the user's existing keys.
- */
-export interface HostAccount {
-    publicKey: Uint8Array;
-    name?: string;
-}
-
-/**
- * A product account — an app-scoped derived account managed by the host wallet.
- *
- * The host derives a unique keypair for each app (identified by `dotNsIdentifier`)
- * so apps get their own account that the user controls but is scoped to the app.
- */
-export interface ProductAccount {
-    /** App identifier (e.g., "mark3t.dot"). */
-    dotNsIdentifier: string;
-    /** Derivation index within the app scope. Default: 0 */
-    derivationIndex: number;
-    /** Raw public key (32 bytes). */
-    publicKey: Uint8Array;
-}
-
-/**
- * A contextual alias obtained from Ring VRF.
- *
- * Proves account membership in a ring without revealing which account.
- */
-export interface ContextualAlias {
-    /** Ring context (32 bytes). */
-    context: Uint8Array;
-    /** The Ring VRF alias bytes. */
-    alias: Uint8Array;
-}
-
-/**
  * Neverthrow-style ResultAsync returned by product-sdk methods.
  *
  * Use `.match(onOk, onErr)` to handle success/error cases.
@@ -408,16 +351,6 @@ export interface ContextualAlias {
 export interface ResultAsync<T, E> {
     match: <A, B = A>(ok: (t: T) => A, err: (e: E) => B) => Promise<A | B>;
 }
-
-/**
- * Accounts provider handle from `@novasamatech/host-api-wrapper`. Surfaces the
- * full upstream API - host wallet accounts, app-scoped product accounts,
- * Ring VRF, user identity (`getUserId`, `requestLogin`), and connection
- * status subscription.
- *
- * @remarks TODO: port onto `truApi.account.*`.
- */
-export type AccountsProvider = ReturnType<typeof createAccountsProvider>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
@@ -441,11 +374,6 @@ if (import.meta.vitest) {
 
     test("createHostPreimageManager returns null outside container", async () => {
         expect(await createHostPreimageManager()).toBeNull();
-    });
-
-    test("getAccountsProvider returns provider or null", async () => {
-        const provider = await getAccountsProvider();
-        expect(provider === null || typeof provider === "object").toBe(true);
     });
 
     test("formatHostError renders TruAPI and legacy error shapes", () => {

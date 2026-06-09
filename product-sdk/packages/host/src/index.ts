@@ -37,7 +37,6 @@ export {
     getTruApi,
     getPreimageManager,
     createHostPreimageManager,
-    getAccountsProvider,
     requestResourceAllocation,
     createProofAuthorized,
     formatHostError,
@@ -55,10 +54,6 @@ export type {
     TruApi,
     HexString,
     PreimageManager,
-    AccountsProvider,
-    HostAccount,
-    ProductAccount,
-    ContextualAlias,
     ResultAsync,
     AllocatableResource,
     AllocatableResourceTag,
@@ -67,6 +62,16 @@ export type {
     RemotePermission,
     RemotePermissionTag,
 } from "./truapi.js";
+
+// Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
+export { getAccountsProvider } from "./accounts.js";
+export type {
+    AccountsProvider,
+    HostAccount,
+    ProductAccount,
+    ContextualAlias,
+    RingLocation,
+} from "./accounts.js";
 
 // Higher-level permission wrappers
 export { requestPermission, requestDevicePermission } from "./permissions.js";
