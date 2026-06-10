@@ -94,7 +94,9 @@ export async function createApp(config: AppConfig): Promise<App> {
     // The signer is wrapped lazily so the cloud storage client can be built before
     // an account is selected. Uploads will throw a clear error if no signer
     // is available at submission time. Reads (fetch / fetchJson) don't need
-    // a signer and work regardless.
+    // a signer, so they work regardless of whether an account is selected --
+    // but they are container-only and throw CloudStorageHostUnavailableError
+    // outside a host container (no IPFS-gateway fallback).
     const cloudStorageEnabled = config.cloudStorage !== false;
     const cloudStorageEnvironment =
         typeof config.cloudStorage === "object" ? config.cloudStorage.environment : "paseo";
