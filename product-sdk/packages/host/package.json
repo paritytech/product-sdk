@@ -20,24 +20,13 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
+        "@novasamatech/host-api": "catalog:",
+        "@novasamatech/host-api-wrapper": "catalog:",
         "@parity/product-sdk-logger": "workspace:*",
         "polkadot-api": "catalog:"
     },
-    "peerDependencies": {
-        "@novasamatech/host-api-wrapper": ">=0.8.0",
-        "@novasamatech/host-api": ">=0.8.0"
-    },
-    "peerDependenciesMeta": {
-        "@novasamatech/host-api-wrapper": {
-            "optional": true
-        },
-        "@novasamatech/host-api": {
-            "optional": true
-        }
-    },
     "devDependencies": {
-        "@novasamatech/host-api-wrapper": "catalog:",
-        "@novasamatech/host-api": "catalog:",
+        "tsup": "catalog:",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0"
     },

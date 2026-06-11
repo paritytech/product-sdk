@@ -13,7 +13,8 @@ export default defineConfig({
     define: {
         "import.meta.vitest": "undefined",
     },
-    // Mark novasama packages as external since they're optional peer dependencies
-    // that are dynamically imported or re-exported
+    // Mark novasama packages as external: they're runtime dependencies that are
+    // dynamically imported (host-api-wrapper) or statically re-exported (host-api),
+    // resolved from the consumer's node_modules rather than bundled.
     external: ["@novasamatech/host-api-wrapper", "@novasamatech/host-api"],
 });
