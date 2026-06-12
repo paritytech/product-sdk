@@ -181,6 +181,15 @@ export interface ProductSdkModule {
     createAccountsProvider: () => AccountsProvider;
     /** Present from product-sdk ≥ 0.6; used to request TransactionSubmit. */
     hostApi?: HostApiPermissionBridge;
+    /**
+     * `sandboxTransport.isCorrectEnvironment()` returns `false` when the app
+     * is loaded outside a Polkadot host container (e.g. a regular browser
+     * tab). Calling `getLegacyAccounts()` / `getProductAccount()` in that
+     * state surfaces the upstream `Environment is not correct` exception,
+     * so we pre-check during `connect()` and raise a specific
+     * {@link HostUnavailableError} with actionable guidance instead.
+     */
+    sandboxTransport?: { isCorrectEnvironment(): boolean };
 }
 
 /* @integration */
@@ -196,9 +205,13 @@ async function defaultLoadHostApiEnum(): Promise<HostApiEnumHelper> {
 /**
  * Provider for the Host API (Polkadot Desktop / Android).
  *
- * Dynamically imports `@novasamatech/host-api-wrapper` at runtime so it remains
- * an optional peer dependency. Apps running outside a host container will
- * gracefully get a `HOST_UNAVAILABLE` error.
+ * Dynamically imports `@novasamatech/host-api-wrapper` at runtime. Apps running
+ * outside a host container — e.g. a plain browser tab during `npm run dev` —
+ * resolve to {@link HostUnavailableError} with guidance on what to do (open
+ * the app inside a Polkadot host or pick a non-host provider). The check uses
+ * the wrapper's `sandboxTransport.isCorrectEnvironment()` predicate and runs
+ * before any host RPC call, so the user never sees the upstream
+ * `Environment is not correct` exception leaking through.
  *
  * Supports both non-product accounts (user's external wallets) and product
  * accounts (app-scoped derived accounts managed by the host).
@@ -454,11 +467,41 @@ export class HostProvider implements SignerProvider {
             );
         }
 
-        // Step 2: Create accounts provider
+        // Step 2: Verify we're actually running inside a host container.
+        //
+        // The upstream `host-api` transport throws `Error('Environment is not
+        // correct')` from inside `getLegacyAccounts()` / `getProductAccount()`
+        // when `sandboxTransport.isCorrectEnvironment()` returns false (i.e.
+        // we're not in an iframe under Polkadot Desktop, or a WebView under
+        // Polkadot Mobile). Without this pre-check, that exception used to
+        // surface as `HostRejectedError("Host rejected account request:
+        // Environment is not correct")` — misleading because no host rejected
+        // anything; there's no host at all.
+        //
+        // Returning `HostUnavailableError` here matches the TSDoc contract
+        // ("Apps running outside a host container will gracefully get a
+        // HOST_UNAVAILABLE error") and gives consumers actionable guidance.
+        //
+        // The `sandboxTransport` field is optional in `ProductSdkModule` so
+        // older wrapper versions (or test mocks that don't supply it) keep
+        // working — we fall through to the existing flow and rely on the
+        // catch in Step 4 as a safety net.
+        if (sdk.sandboxTransport && !sdk.sandboxTransport.isCorrectEnvironment()) {
+            log.warn("not inside a host container — Host API unavailable");
+            return err(
+                new HostUnavailableError(
+                    "Host API is not available: not running inside a Polkadot host container. " +
+                        "Open this app inside Polkadot Desktop or the Polkadot Mobile WebView, " +
+                        "or pick a non-host signer provider (e.g. dev accounts).",
+                ),
+            );
+        }
+
+        // Step 3: Create accounts provider
         const provider = sdk.createAccountsProvider();
         this.accountsProvider = provider;
 
-        // Step 3: Fetch accounts.
+        // Step 4: Fetch accounts.
         //
         // When `productAccount` is configured, skip the legacy fetch entirely
         // and return a single product account. Product-account-only apps
@@ -484,6 +527,24 @@ export class HostProvider implements SignerProvider {
                     },
                 )) as RawAccount[];
             } catch (cause) {
+                // Safety net: upstream `host-api/transport.js` throws
+                // `Error('Environment is not correct')` synchronously inside
+                // `getLegacyAccounts()` when the env check fails. The Step 2
+                // pre-check catches this normally, but we also re-classify
+                // here for older wrappers that don't expose `sandboxTransport`
+                // and for races where the env flips after the pre-check.
+                // Without this, the user sees a misleading "Host rejected
+                // account request:" prefix for an error nothing rejected.
+                if (cause instanceof Error && /environment is not correct/i.test(cause.message)) {
+                    log.warn("not inside a host container (detected at getLegacyAccounts)");
+                    return err(
+                        new HostUnavailableError(
+                            "Host API is not available: not running inside a Polkadot host container. " +
+                                "Open this app inside Polkadot Desktop or the Polkadot Mobile WebView, " +
+                                "or pick a non-host signer provider (e.g. dev accounts).",
+                        ),
+                    );
+                }
                 log.error("failed to get accounts from host", { cause });
                 return err(
                     new HostRejectedError(
@@ -500,7 +561,7 @@ export class HostProvider implements SignerProvider {
             signerAccounts = this.mapAccounts(rawAccounts);
         }
 
-        // Step 4: Request ChainSubmit permission up-front.
+        // Step 5: Request ChainSubmit permission up-front.
         //
         // The host gates signing on this permission — without it, the
         // production host rejects every sign request with `PermissionDenied`
@@ -747,11 +808,21 @@ if (import.meta.vitest) {
         mockProvider: ReturnType<typeof createMockProvider>,
         opts?: {
             hostApi?: HostApiPermissionBridge;
+            /**
+             * When provided, the mock's `sandboxTransport.isCorrectEnvironment()`
+             * returns this value — exercises the env-check branch added in the
+             * `connect()` flow. Omit to skip the check entirely (older-wrapper
+             * compatibility path).
+             */
+            isCorrectEnvironment?: boolean;
         },
     ): ProductSdkModule {
         return {
             createAccountsProvider: () => mockProvider as unknown as AccountsProvider,
             ...(opts?.hostApi ? { hostApi: opts.hostApi } : {}),
+            ...(opts?.isCorrectEnvironment !== undefined
+                ? { sandboxTransport: { isCorrectEnvironment: () => opts.isCorrectEnvironment! } }
+                : {}),
         };
     }
 
@@ -789,6 +860,89 @@ if (import.meta.vitest) {
                 expect(result.error).toBeInstanceOf(HostUnavailableError);
                 expect(result.error.message).toContain("Cannot find module");
             }
+        });
+
+        test("returns HOST_UNAVAILABLE with actionable guidance when not inside a host container", async () => {
+            // Repro for playground-cli#4: `pg mod foo` + `npm run dev` opens
+            // localhost in a plain browser tab (no iframe, no WebView).
+            // sandboxTransport.isCorrectEnvironment() returns false, and
+            // pre-fix we surfaced the upstream "Environment is not correct"
+            // as `HostRejectedError("Host rejected account request: ...")`.
+            // Post-fix: we pre-check during connect() and return a specific
+            // HostUnavailableError naming the host container and pointing
+            // the user at the fix path.
+            const mockProvider = createMockProvider({ accounts: [] });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () =>
+                    Promise.resolve(createMockSdk(mockProvider, { isCorrectEnvironment: false })),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostUnavailableError);
+                expect(result.error.message).toMatch(
+                    /not running inside a Polkadot host container/i,
+                );
+                expect(result.error.message).toMatch(/Polkadot Desktop|Polkadot Mobile/i);
+            }
+            // We never reached `getLegacyAccounts()` — proves the env check
+            // short-circuits before any RPC call, so users in a dev browser
+            // never see the upstream exception text leak through.
+            expect(mockProvider.getLegacyAccounts).not.toHaveBeenCalled();
+        });
+
+        test("safety net: re-classifies upstream 'Environment is not correct' as HOST_UNAVAILABLE", async () => {
+            // For older wrappers (or test mocks) that don't supply
+            // `sandboxTransport`, the Step 2 pre-check is skipped and the
+            // upstream throw surfaces at `getLegacyAccounts()`. The catch
+            // in Step 4 must re-classify it rather than wrapping with the
+            // misleading "Host rejected account request:" prefix.
+            const mockProvider = createMockProvider({
+                shouldReject: true,
+                error: "Environment is not correct",
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                // sandboxTransport intentionally omitted — exercises the
+                // safety-net path, not the pre-check path.
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostUnavailableError);
+                // Must NOT contain the misleading "Host rejected account request:" prefix.
+                expect(result.error.message).not.toMatch(/Host rejected/i);
+                expect(result.error.message).toMatch(
+                    /not running inside a Polkadot host container/i,
+                );
+            }
+        });
+
+        test("connect proceeds when sandboxTransport reports a correct environment", async () => {
+            // Mirror of the existing happy path, but with an explicit
+            // `isCorrectEnvironment: true` to prove the pre-check doesn't
+            // false-fail when the env IS correct.
+            const rawAccounts: RawAccountTest[] = [
+                { publicKey: new Uint8Array(32).fill(0x42), name: "Alice" },
+            ];
+            const mockProvider = createMockProvider({ accounts: rawAccounts });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () =>
+                    Promise.resolve(createMockSdk(mockProvider, { isCorrectEnvironment: true })),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toHaveLength(1);
+                expect(result.value[0].address).toMatch(/^5/);
+            }
+            expect(mockProvider.getLegacyAccounts).toHaveBeenCalled();
         });
 
         test("returns HOST_REJECTED when getLegacyAccounts fails", async () => {
