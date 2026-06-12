@@ -55,8 +55,6 @@ export interface HostProviderOptions {
      * `dotNsIdentifier`, skipping the legacy fetch entirely. For apps
      * that sign exclusively with a per-dapp derived account.
      *
-     * `SignerAccount.name` is populated best-effort from
-     * `accounts.getUserId().primaryUsername`; failures leave it null.
      * Signing is pinned to `createTransaction` (see PR #96).
      */
     productAccount?: {
@@ -64,6 +62,20 @@ export interface HostProviderOptions {
         dotNsIdentifier: string;
         /** Derivation index within the app scope. Default: 0. */
         derivationIndex?: number;
+        /**
+         * Populate `SignerAccount.name` best-effort from
+         * `accounts.getUserId().primaryUsername`.
+         *
+         * On by default. Set to `false` to skip the fetch: `getUserId`
+         * triggers a host identity-permission prompt, so apps that don't
+         * render the user's name (those with their own display chain, e.g.
+         * registry username → fallback) can opt out and avoid the prompt.
+         * When enabled and the fetch fails (NotConnected, PermissionDenied,
+         * codec drift) the name stays null and connect still succeeds. The
+         * name can also be fetched later on demand via
+         * {@link HostProvider.getUserId}. Default: `true`.
+         */
+        requestName?: boolean;
     };
 }
 
@@ -396,6 +408,43 @@ export class HostProvider implements SignerProvider {
     }
 
     /**
+     * Fetch the connected user's primary username from the host.
+     *
+     * Use this to retrieve the name lazily — e.g. on a profile screen that
+     * actually displays it — when `connect()` ran without
+     * `productAccount.requestName` (the default) and so never fetched it.
+     * Like the connect-time fetch this triggers a host identity-permission
+     * prompt; unlike it, the result is returned as a structured `Result` so
+     * callers can react to a `PermissionDenied` / `NotConnected` rejection
+     * explicitly instead of silently falling back to a nameless account.
+     *
+     * Requires a prior successful `connect()` call.
+     */
+    async getUserId(): Promise<Result<{ primaryUsername: string }, SignerError>> {
+        if (!this.accountsProvider) {
+            return err(new HostUnavailableError("Host provider is not connected"));
+        }
+
+        try {
+            const result = (await this.accountsProvider.getUserId().match(
+                (value) => value,
+                (error) => {
+                    throw new Error(`Host rejected user id request: ${formatError(error)}`);
+                },
+            )) as { primaryUsername: string };
+
+            return ok(result);
+        } catch (cause) {
+            log.error("failed to get user id", { cause });
+            return err(
+                new HostRejectedError(
+                    cause instanceof Error ? cause.message : "Failed to get user id",
+                ),
+            );
+        }
+    }
+
+    /**
      * Create a Ring VRF proof for anonymous operations.
      *
      * Proves that the signer is a member of the ring at the given location
@@ -471,6 +520,7 @@ export class HostProvider implements SignerProvider {
                 provider,
                 this.productAccount.dotNsIdentifier,
                 this.productAccount.derivationIndex ?? 0,
+                this.productAccount.requestName ?? true,
             );
             if (!accountResult.ok) return accountResult;
             signerAccounts = [accountResult.value];
@@ -561,14 +611,19 @@ export class HostProvider implements SignerProvider {
         provider: AccountsProvider,
         dotNsIdentifier: string,
         derivationIndex: number,
+        requestName: boolean,
     ): Promise<Result<SignerAccount, SignerError>> {
-        // Run the account fetch and the best-effort username fetch in
-        // parallel — they're independent host RPCs. `getUserId` failures
-        // (NotConnected, PermissionDenied, codec drift) resolve to `null`
-        // so they never abort connect; the account name falls back to
-        // whatever `getProductAccount` returned (typically also null,
-        // since product accounts are nameless on the host side).
+        // The name fetch is on by default; `requestName: false` opts out.
+        // `getUserId` triggers a host identity-permission prompt, so apps
+        // that don't render the user's name can skip it. When enabled it
+        // runs in parallel with the account fetch — they're independent host
+        // RPCs — and its failures (NotConnected, PermissionDenied, codec
+        // drift) resolve to `null` so they never abort connect; the account
+        // name then falls back to whatever `getProductAccount` returned
+        // (typically also null, since product accounts are nameless on the
+        // host side).
         const fetchUsername = async (): Promise<string | null> => {
+            if (!requestName) return null;
             try {
                 return await provider.getUserId().match(
                     (result) => result.primaryUsername,
@@ -899,7 +954,7 @@ if (import.meta.vitest) {
             unsub();
         });
 
-        test("productAccount option returns the derived account, populates name via getUserId, and skips the legacy fetch", async () => {
+        test("productAccount populates name via getUserId by default and skips the legacy fetch", async () => {
             const productPubkey = new Uint8Array(32).fill(0xcc);
             const mockProvider = createMockProvider({
                 accounts: [{ publicKey: productPubkey, name: undefined }],
@@ -932,7 +987,33 @@ if (import.meta.vitest) {
             expect(mockProvider.getLegacyAccounts).not.toHaveBeenCalled();
         });
 
-        test("productAccount option survives getUserId failure (name stays null, connect still succeeds)", async () => {
+        test("productAccount with requestName:false skips getUserId (no identity prompt) and leaves name null", async () => {
+            // Opt-out: `getUserId` triggers a host identity-permission prompt,
+            // so apps that don't render the name set `requestName: false`.
+            const productPubkey = new Uint8Array(32).fill(0xab);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+                primaryUsername: "alice",
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toHaveLength(1);
+                expect(result.value[0].publicKey).toEqual(productPubkey);
+                expect(result.value[0].name).toBeNull();
+            }
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("myapp.dot", 0);
+            expect(mockProvider.getUserId).not.toHaveBeenCalled();
+            expect(mockProvider.getLegacyAccounts).not.toHaveBeenCalled();
+        });
+
+        test("productAccount survives getUserId failure (name stays null, connect still succeeds)", async () => {
             const productPubkey = new Uint8Array(32).fill(0xee);
             const mockProvider = createMockProvider({
                 accounts: [{ publicKey: productPubkey, name: undefined }],
@@ -955,6 +1036,62 @@ if (import.meta.vitest) {
             if (result.ok) {
                 expect(result.value[0].name).toBeNull();
             }
+        });
+
+        test("getUserId() retrieves the primary username after a connect that opted out of the name fetch", async () => {
+            // The escape hatch for `requestName: false`: connect without the
+            // prompt (name=null), then fetch the name lazily later — e.g. when
+            // a profile screen needs to display it.
+            const productPubkey = new Uint8Array(32).fill(0xa1);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+                primaryUsername: "alice",
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            const connectResult = await provider.connect();
+            expect(connectResult.ok).toBe(true);
+            if (connectResult.ok) expect(connectResult.value[0].name).toBeNull();
+            // Not fetched during connect...
+            expect(mockProvider.getUserId).not.toHaveBeenCalled();
+
+            // ...but reachable on demand afterwards.
+            const userId = await provider.getUserId();
+            expect(userId.ok).toBe(true);
+            if (userId.ok) expect(userId.value.primaryUsername).toBe("alice");
+            expect(mockProvider.getUserId).toHaveBeenCalledTimes(1);
+        });
+
+        test("getUserId() returns HostUnavailableError before connect", async () => {
+            const provider = new HostProvider({ maxRetries: 1 });
+            const result = await provider.getUserId();
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(HostUnavailableError);
+        });
+
+        test("getUserId() surfaces a host rejection as HostRejectedError", async () => {
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0xa2), name: undefined }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            await provider.connect();
+            // After connect, force the host to reject the on-demand fetch.
+            mockProvider.getUserId.mockReturnValue({
+                match: async (
+                    _onOk: (v: { primaryUsername: string }) => unknown,
+                    onErr: (e: unknown) => unknown,
+                ) => onErr({ tag: "v1", value: { tag: "GetUserIdErr::PermissionDenied" } }),
+            });
+            const result = await provider.getUserId();
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(HostRejectedError);
         });
 
         test("productAccount option succeeds when host has no legacy accounts (regression: signer 0.5.0 NoAccountsError)", async () => {
