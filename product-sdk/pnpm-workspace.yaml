@@ -4,8 +4,8 @@ packages:
   - "scripts/bench-consumer"
 
 catalog:
-  "@novasamatech/host-api": ^0.8.8
-  "@novasamatech/host-api-wrapper": ^0.8.8
+  "@novasamatech/host-api": ^0.8.9
+  "@novasamatech/host-api-wrapper": ^0.8.9
   "@novasamatech/sdk-statement": ^0.6.0
   "@parity/host-api-test-sdk": ^0.9.0
   "@playwright/test": ^1.60.0
