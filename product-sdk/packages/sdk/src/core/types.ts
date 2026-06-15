@@ -199,7 +199,9 @@ export interface SignMessageWithDotNsIdentityArgs {
      *
      * The string is UTF-8 encoded and used as the storage key on
      * `Resources.UsernameOwnerOf` exactly as supplied — no `.dot` suffix
-     * handling is applied.
+     * handling is applied. On paseo-individuality today usernames are
+     * stored as bare strings (e.g. `alice`, not `alice.dot`); pass the
+     * exact value the chain has registered.
      */
     username?: string;
     /** Message to sign. Strings are UTF-8 encoded before signing. */
