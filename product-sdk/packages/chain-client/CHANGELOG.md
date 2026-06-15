@@ -1,5 +1,13 @@
 # @parity/product-sdk-chain-client
 
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-host@0.10.0
+
 ## 0.7.1
 
 ### Patch Changes

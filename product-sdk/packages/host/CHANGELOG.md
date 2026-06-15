@@ -1,5 +1,34 @@
 # @parity/product-sdk-host
 
+## 0.10.0
+
+### Minor Changes
+
+- acb2228: **Make `@novasamatech/*` runtime dependencies instead of optional peer dependencies.**
+
+  `@parity/product-sdk-host` now declares `@novasamatech/host-api` and
+  `@novasamatech/host-api-wrapper` as regular `dependencies` (via the existing `catalog:`
+  range) rather than optional `peerDependencies`. `host-api` was always required at runtime
+  — its `enumValue` is statically imported by the published bundle — so the optional-peer
+  declaration was incorrect; `host-api-wrapper` is loaded lazily by the host bridge and is
+  now pulled transitively too. Consumers can reach the host APIs purely through
+  `@parity/product-sdk-host` with no direct `@novasamatech/*` dependency of their own.
+
+### Patch Changes
+
+- acb2228: **Bump `@novasamatech/host-api` family from `^0.8.7-2` to `^0.8.7` (stable).**
+
+  Stable `0.8.7` is now published across the family (`host-api`, `host-api-wrapper`, `host-papp`, `statement-store`, `storage-adapter`, `substrate-slot-sr25519-wasm`). This bump removes the prerelease specifier from the published artifact — consumers see a cleaner semver range and get the same upstream code we've been testing against.
+
+  ### Delta vs `0.8.7-2`
+
+  - **`MAX_SSO_REQUEST_SIZE` raised** in `host-papp`: 256 KiB → 500 KiB. Larger Mobile-SSO statements now flow without splitting.
+  - **`ExpiryTooLowError` / `AccountFullError` constructors** in `statement-store` accept `bigint` instead of `number`. Internal — our code doesn't construct these directly.
+  - **New additive exports** in `statement-store`: `PRIORITY_EPOCH_OFFSET`, `createExpiryAllocator`, `ExpiryAllocator`, `submitWithRetry`, `isPriorityTooLow`, `SubmitRetryOptions`, `signAndSubmitStatement`, `submitStatementOnce`, `SubmitStatementParams`. Not consumed by product-sdk; opt-in for downstream callers.
+  - **No session/secrets codec changes.** The `testing.ts` codec mirror in `@parity/product-sdk-terminal` continues to round-trip through the real `SsoSessionManager` and `UserSecretRepository` against 0.8.7 — both interop tests pass.
+
+  No public API change on the product-sdk side; no migration needed.
+
 ## 0.9.0
 
 ### Minor Changes

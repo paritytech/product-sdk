@@ -1,5 +1,25 @@
 # @parity/product-sdk-bench-consumer
 
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-terminal@0.5.1
+  - @parity/product-sdk-host@0.10.0
+  - @parity/product-sdk-signer@0.7.0
+  - @parity/product-sdk-statement-store@0.4.6
+  - @parity/product-sdk@0.13.0
+  - @parity/product-sdk-chain-client@0.7.2
+  - @parity/product-sdk-cloud-storage@0.6.2
+  - @parity/product-sdk-local-storage@0.2.7
+  - @parity/product-sdk-contracts@0.7.5
+  - @parity/product-sdk-keys@0.3.8
+  - @parity/product-sdk-tx@0.2.12
+
 ## 0.0.15
 
 ### Patch Changes

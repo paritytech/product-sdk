@@ -1,5 +1,68 @@
 # @parity/product-sdk
 
+## 0.13.0
+
+### Minor Changes
+
+- acb2228: **Make `@novasamatech/*` runtime dependencies instead of optional peer dependencies.**
+
+  `@parity/product-sdk-host` now declares `@novasamatech/host-api` and
+  `@novasamatech/host-api-wrapper` as regular `dependencies` (via the existing `catalog:`
+  range) rather than optional `peerDependencies`. `host-api` was always required at runtime
+  — its `enumValue` is statically imported by the published bundle — so the optional-peer
+  declaration was incorrect; `host-api-wrapper` is loaded lazily by the host bridge and is
+  now pulled transitively too. Consumers can reach the host APIs purely through
+  `@parity/product-sdk-host` with no direct `@novasamatech/*` dependency of their own.
+
+- acb2228: **Add `productAccount.requestName` opt-out and a public `HostProvider.getUserId()`.**
+
+  When `HostProviderOptions.productAccount` is set, `connect()` populates
+  `SignerAccount.name` from the host primary username via `getUserId()`.
+  That host call triggers an identity-permission prompt, which is wasted
+  for apps that don't display the name.
+
+  Two additions, both backward-compatible (default behavior unchanged):
+
+  - **`productAccount.requestName`** (default `true`). Set it to `false` to
+    skip the `getUserId()` fetch entirely — no name, no prompt — for apps
+    with their own display chain (e.g. registry username → fallback).
+  - **`HostProvider.getUserId(): Promise<Result<{ primaryUsername }, SignerError>>`**.
+    Fetch the name lazily on demand — e.g. on a profile screen — for apps
+    that opted out at connect, or that want to react to a `PermissionDenied`
+    / `NotConnected` rejection explicitly rather than silently getting a
+    nameless account. Mirrors the existing `getProductAccount` /
+    `getProductAccountAlias` public methods.
+
+  Existing `productAccount` consumers see no change.
+
+  ```ts
+  // Default: name fetched at connect (host identity prompt), as before.
+  new HostProvider({ productAccount: { dotNsIdentifier: "myapp.dot" } });
+
+  // Opt out of the connect-time prompt; fetch the name later if needed.
+  const provider = new HostProvider({
+    productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+  });
+  // ...later, when a screen actually needs the name:
+  const result = await provider.getUserId();
+  if (result.ok) console.log(result.value.primaryUsername);
+  ```
+
+### Patch Changes
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-host@0.10.0
+  - @parity/product-sdk-signer@0.7.0
+  - @parity/product-sdk-chain-client@0.7.2
+  - @parity/product-sdk-cloud-storage@0.6.2
+  - @parity/product-sdk-local-storage@0.2.7
+  - @parity/product-sdk-contracts@0.7.5
+  - @parity/product-sdk-keys@0.3.8
+  - @parity/product-sdk-tx@0.2.12
+
 ## 0.12.0
 
 ### Minor Changes

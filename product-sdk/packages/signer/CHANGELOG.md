@@ -1,5 +1,93 @@
 # @parity/product-sdk-signer
 
+## 0.7.0
+
+### Minor Changes
+
+- acb2228: **Add `productAccount.requestName` opt-out and a public `HostProvider.getUserId()`.**
+
+  When `HostProviderOptions.productAccount` is set, `connect()` populates
+  `SignerAccount.name` from the host primary username via `getUserId()`.
+  That host call triggers an identity-permission prompt, which is wasted
+  for apps that don't display the name.
+
+  Two additions, both backward-compatible (default behavior unchanged):
+
+  - **`productAccount.requestName`** (default `true`). Set it to `false` to
+    skip the `getUserId()` fetch entirely — no name, no prompt — for apps
+    with their own display chain (e.g. registry username → fallback).
+  - **`HostProvider.getUserId(): Promise<Result<{ primaryUsername }, SignerError>>`**.
+    Fetch the name lazily on demand — e.g. on a profile screen — for apps
+    that opted out at connect, or that want to react to a `PermissionDenied`
+    / `NotConnected` rejection explicitly rather than silently getting a
+    nameless account. Mirrors the existing `getProductAccount` /
+    `getProductAccountAlias` public methods.
+
+  Existing `productAccount` consumers see no change.
+
+  ```ts
+  // Default: name fetched at connect (host identity prompt), as before.
+  new HostProvider({ productAccount: { dotNsIdentifier: "myapp.dot" } });
+
+  // Opt out of the connect-time prompt; fetch the name later if needed.
+  const provider = new HostProvider({
+    productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+  });
+  // ...later, when a screen actually needs the name:
+  const result = await provider.getUserId();
+  if (result.ok) console.log(result.value.primaryUsername);
+  ```
+
+### Patch Changes
+
+- acb2228: **Bump `@novasamatech/host-api` family from `^0.8.7-2` to `^0.8.7` (stable).**
+
+  Stable `0.8.7` is now published across the family (`host-api`, `host-api-wrapper`, `host-papp`, `statement-store`, `storage-adapter`, `substrate-slot-sr25519-wasm`). This bump removes the prerelease specifier from the published artifact — consumers see a cleaner semver range and get the same upstream code we've been testing against.
+
+  ### Delta vs `0.8.7-2`
+
+  - **`MAX_SSO_REQUEST_SIZE` raised** in `host-papp`: 256 KiB → 500 KiB. Larger Mobile-SSO statements now flow without splitting.
+  - **`ExpiryTooLowError` / `AccountFullError` constructors** in `statement-store` accept `bigint` instead of `number`. Internal — our code doesn't construct these directly.
+  - **New additive exports** in `statement-store`: `PRIORITY_EPOCH_OFFSET`, `createExpiryAllocator`, `ExpiryAllocator`, `submitWithRetry`, `isPriorityTooLow`, `SubmitRetryOptions`, `signAndSubmitStatement`, `submitStatementOnce`, `SubmitStatementParams`. Not consumed by product-sdk; opt-in for downstream callers.
+  - **No session/secrets codec changes.** The `testing.ts` codec mirror in `@parity/product-sdk-terminal` continues to round-trip through the real `SsoSessionManager` and `UserSecretRepository` against 0.8.7 — both interop tests pass.
+
+  No public API change on the product-sdk side; no migration needed.
+
+- acb2228: **`HostProvider.connect()` now returns a specific `HostUnavailableError` instead of a misleading `HostRejectedError` when the app is running outside a Polkadot host container.**
+
+  Reported externally as P0 ("`Failed to connect: Unknown. Environment is not correct`" surfaced by playground-cli's `npm run dev` flow with no way for the user to know what was wrong).
+
+  ### Root cause
+
+  The upstream `@novasamatech/host-api` transport throws `Error("Environment is not correct")` synchronously inside `getLegacyAccounts()` / `getProductAccount()` when `sandboxTransport.isCorrectEnvironment()` returns false (i.e. the app isn't loaded in an iframe under Polkadot Desktop or a WebView under Polkadot Mobile — the dominant case during local `npm run dev`).
+
+  `HostProvider.tryConnect()` was catching that exception at the `getLegacyAccounts()` step and wrapping it as `HostRejectedError("Host rejected account request: Environment is not correct")` — a label that's wrong (no host rejected anything; there's no host at all) and a message that gives the user nothing actionable.
+
+  ### Fix
+
+  Two layered changes, both in `HostProvider.tryConnect()`:
+
+  1. **Pre-check `sandboxTransport.isCorrectEnvironment()` between SDK load and provider creation.** If false, return `HostUnavailableError` with a specific message: _"Host API is not available: not running inside a Polkadot host container. Open this app inside Polkadot Desktop or the Polkadot Mobile WebView, or pick a non-host signer provider (e.g. dev accounts)."_ The check short-circuits before any RPC call, so the user never sees the upstream exception text leak through.
+
+  2. **Safety-net re-classification at the `getLegacyAccounts()` catch.** If the upstream throws `Environment is not correct` deeper than the pre-check (older wrappers without `sandboxTransport`, or race conditions in a WebView teardown), re-classify the error as `HostUnavailableError` rather than wrapping with the misleading `Host rejected account request:` prefix.
+
+  `ProductSdkModule` gains an optional `sandboxTransport?: { isCorrectEnvironment(): boolean }` field so tests and older wrappers without the field continue to work via the safety net.
+
+  `HostUnavailableError`'s TSDoc updated to call out "running outside a host container" as the dominant cause during local development, with `instanceof`-branching guidance for consumers.
+
+  ### Tests
+
+  Three new unit tests in `host.ts` (`signer` package now at 95 tests, was 92):
+
+  - `returns HOST_UNAVAILABLE with actionable guidance when not inside a host container` — exercises the pre-check; asserts `getLegacyAccounts` is never called.
+  - `safety net: re-classifies upstream 'Environment is not correct' as HOST_UNAVAILABLE` — exercises the catch-site re-classification for the legacy wrapper path.
+  - `connect proceeds when sandboxTransport reports a correct environment` — confirms the pre-check doesn't false-fail on the happy path.
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-host@0.10.0
+  - @parity/product-sdk-keys@0.3.8
+
 ## 0.6.4
 
 ### Patch Changes

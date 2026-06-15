@@ -1,5 +1,16 @@
 # @parity/product-sdk-contracts
 
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-signer@0.7.0
+  - @parity/product-sdk-keys@0.3.8
+  - @parity/product-sdk-tx@0.2.12
+
 ## 0.7.4
 
 ### Patch Changes

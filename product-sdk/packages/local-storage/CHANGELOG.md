@@ -1,5 +1,13 @@
 # @parity/product-sdk-local-storage
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-host@0.10.0
+
 ## 0.2.6
 
 ### Patch Changes
