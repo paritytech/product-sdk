@@ -600,7 +600,12 @@ export class HostProvider implements SignerProvider {
 function formatError(error: unknown): string {
     if (!error || typeof error !== "object") return String(error);
     const e = error as Record<string, unknown>;
-    if (!("tag" in e)) return String(error);
+    // truapi GenericError is { reason } with no `tag`.
+    if (!("tag" in e)) {
+        if (typeof e.reason === "string") return e.reason;
+        if (typeof e.message === "string") return e.message;
+        return String(error);
+    }
 
     const outerTag = String(e.tag);
     const inner = e.value;
@@ -1021,6 +1026,10 @@ if (import.meta.vitest) {
             expect(formatError(42)).toBe("42");
             expect(formatError(null)).toBe("null");
             expect(formatError(undefined)).toBe("undefined");
+        });
+
+        test("surfaces GenericError.reason when there is no tag", () => {
+            expect(formatError({ reason: "boom" })).toContain("boom");
         });
 
         test("surfaces inner Error name + message under the outer tag", () => {
