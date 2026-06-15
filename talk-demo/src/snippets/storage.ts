@@ -1,25 +1,12 @@
-import { requestResourceAllocation } from "@parity/product-sdk-host";
 import { app } from "../sdk";
 
-// ── LOCAL — on-device key/value. Instant. ────────────────────────────
+// On-device key/value storage. Instant — no chain, no fees.
 export const saveLocal = (key: string, value: string) => app.localStorage.set(key, value);
 export const loadLocal = (key: string) => app.localStorage.get(key);
 
-// ── CLOUD — same idea, but persisted on-chain (Bulletin). ────────────
-export async function saveCloud(text: string): Promise<string> {
-  if (!app.wallet.getSelectedAccount()) {
-    const { accounts } = await app.wallet.connect();
-    app.wallet.selectAccount(accounts[0].address);
-  }
-  // Ask the host for a Bulletin storage allowance — it sponsors the fee.
-  await requestResourceAllocation([{ tag: "BulletinAllowance", value: undefined }]);
-
-  if (!app.cloudStorage) throw new Error("cloud storage is disabled");
-  return app.cloudStorage.upload(text); // returns the CID
-}
-
-export async function loadCloud(cid: string): Promise<string> {
-  if (!app.cloudStorage) throw new Error("cloud storage is disabled");
-  const bytes = await app.cloudStorage.fetch(cid);
-  return new TextDecoder().decode(bytes);
-}
+// CLOUD (on-chain, via Bulletin) is the same shape — see SNIPPETS.md beat 4:
+//   const cid = await app.cloudStorage.upload(text);
+//   const bytes = await app.cloudStorage.fetch(cid);
+// Not wired in this demo: the paseoli host's Bulletin genesis doesn't match the
+// published descriptor, exposes no legacy signing account, and needs a funded
+// BulletinAllowance. Re-enable once the demo host is provisioned for Bulletin.

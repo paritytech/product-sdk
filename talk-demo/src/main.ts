@@ -9,7 +9,7 @@ import {
 } from "./snippets/permission";
 import { watchBlocks } from "./snippets/connect";
 import { getAccount } from "./snippets/account";
-import { saveLocal, loadLocal, saveCloud, loadCloud } from "./snippets/storage";
+import { saveLocal, loadLocal } from "./snippets/storage";
 import { signMessage } from "./snippets/transaction";
 
 function wire(id: string, handler: () => Promise<void>): void {
@@ -83,34 +83,17 @@ wire("btn-account", async () => {
   log(`account: ${account.address}`);
 });
 
-// 4a — Local storage
+// 4 — Store something (local)
 wire("btn-save-local", async () => {
   const value = getEl<HTMLInputElement>("in-storage").value || "hello Berlin";
   await saveLocal("greeting", value);
-  setResult("out-storage", `saved locally: "${value}"`);
-  log(`local set greeting="${value}"`);
+  setResult("out-storage", `saved: "${value}"`);
+  log(`set greeting="${value}"`);
 });
 wire("btn-load-local", async () => {
   const value = await loadLocal("greeting");
-  setResult("out-storage", `loaded locally: ${value ?? "null"}`);
-  log(`local get greeting → ${value ?? "null"}`);
-});
-
-// 4b — Cloud storage (Bulletin)
-wire("btn-save-cloud", async () => {
-  const value = getEl<HTMLInputElement>("in-storage").value || "hello Berlin";
-  log("uploading to cloud (Bulletin)…");
-  const cid = await saveCloud(value);
-  getEl<HTMLInputElement>("in-cid").value = cid;
-  setResult("out-storage", `cloud CID: ${cid}`);
-  log(`cloud stored — CID ${cid}`);
-});
-wire("btn-load-cloud", async () => {
-  const cid = getEl<HTMLInputElement>("in-cid").value;
-  log(`fetching CID ${cid}…`);
-  const text = await loadCloud(cid);
-  setResult("out-storage", `cloud loaded: "${text}"`);
-  log(`cloud fetched → "${text}"`);
+  setResult("out-storage", `loaded: ${value ?? "null"}`);
+  log(`get greeting → ${value ?? "null"}`);
 });
 
 // 5 — Sign a message (prompts the phone)
