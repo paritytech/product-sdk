@@ -284,7 +284,7 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
                     ? new TextEncoder().encode(args.message)
                     : args.message;
             const username = args.username ?? (await getPrimaryUsername(signerManager));
-            const accountId = await resolvePeopleUsernameOwner(username);
+            const accountId = await resolvePeopleUsernameOwner(username, args.peopleChain);
             if (!accountId) {
                 throw new Error(`No account owns DotNS username "${username}"`);
             }

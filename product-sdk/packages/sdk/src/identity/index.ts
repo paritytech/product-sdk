@@ -15,10 +15,8 @@ export {
     reverseDotNs,
     isDotNsAvailable,
     accountIdHexToBytes,
-    peopleUsernameOwnerStorageKey,
     resolvePeopleUsernameOwner,
 } from "./dotns.js";
-export type { PeopleUsernameEnvironment, ResolvePeopleUsernameOwnerOptions } from "./dotns.js";
 
 // Context alias utilities
 export {

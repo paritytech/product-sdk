@@ -49,9 +49,10 @@ export interface WalletApi {
     /**
      * Sign a message with the account that owns a People / People Lite DotNS identity.
      *
+     * Pass the People / Individuality chain descriptor used for username lookup.
      * Pass `username` to choose a specific identity. When omitted, the SDK first
      * asks the host for the user's primary DotNS name and signs with the account
-     * that owns that username on the People chain.
+     * that owns that username.
      */
     signMessageWithDotNsIdentity(
         args: SignMessageWithDotNsIdentityArgs,
@@ -174,6 +175,8 @@ export interface Account {
 
 /** Arguments for signing with a DotNS / People username identity. */
 export interface SignMessageWithDotNsIdentityArgs {
+    /** PAPI descriptor for the People / Individuality chain containing `Resources.UsernameOwnerOf`. */
+    peopleChain: ChainDefinition;
     /**
      * People / People Lite username to resolve before signing.
      *

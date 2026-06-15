@@ -60,7 +60,6 @@
     "files": ["dist", "src"],
     "scripts": {
         "build": "NODE_OPTIONS=--max-old-space-size=8192 tsup",
-        "test": "vitest",
         "clean": "rm -rf dist"
     },
     "dependencies": {
@@ -69,14 +68,12 @@
         "@parity/product-sdk-chain-client": "workspace:*",
         "@parity/product-sdk-contracts": "workspace:*",
         "@parity/product-sdk-crypto": "workspace:*",
-        "@parity/product-sdk-descriptors": "workspace:*",
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-local-storage": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
-        "@polkadot-api/substrate-bindings": "catalog:",
         "polkadot-api": "catalog:"
     },
     "peerDependencies": {
