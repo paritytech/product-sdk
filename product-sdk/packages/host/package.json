@@ -23,7 +23,7 @@
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/truapi": "catalog:",
         "@polkadot-api/json-rpc-provider": "catalog:",
-        "@polkadot-api/substrate-bindings": "^0.20.3",
+        "@polkadot-api/substrate-bindings": "catalog:",
         "neverthrow": "^8.2.0",
         "polkadot-api": "catalog:"
     },
