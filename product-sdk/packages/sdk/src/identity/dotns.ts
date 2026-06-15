@@ -10,20 +10,43 @@ import { accountIdBytes } from "@parity/product-sdk-address";
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import { bytesToHex, hexToBytes } from "@parity/product-sdk-crypto";
 import { createLogger } from "@parity/product-sdk-logger";
-import type { ChainDefinition } from "polkadot-api";
+import type {
+    ChainDefinition,
+    PalletsTypedef,
+    PlainDescriptor,
+    RuntimeDescriptor,
+    SS58String,
+    StorageDescriptor,
+    TxDescriptor,
+} from "polkadot-api";
 import type { DotNsRecord } from "./types.js";
 
 const log = createLogger("identity");
 
-type PeopleUsernameApi = {
-    query: {
-        Resources: {
-            UsernameOwnerOf: {
-                getValue(username: Uint8Array): Promise<string | undefined>;
-            };
-        };
+type AnyDescriptorEntry<T> = Record<string, Record<string, T>>;
+
+type PeopleUsernameStorage = {
+    Resources: {
+        UsernameOwnerOf: StorageDescriptor<[Uint8Array], SS58String, true, never>;
     };
 };
+
+type PeopleUsernamePallets = PalletsTypedef<
+    PeopleUsernameStorage,
+    AnyDescriptorEntry<TxDescriptor<any>>,
+    AnyDescriptorEntry<PlainDescriptor<any>>,
+    AnyDescriptorEntry<PlainDescriptor<any>>,
+    AnyDescriptorEntry<PlainDescriptor<any>>,
+    AnyDescriptorEntry<RuntimeDescriptor<any, any>>
+>;
+
+export type PeopleUsernameChain = ChainDefinition & {
+    descriptors: Promise<unknown> & {
+        pallets: PeopleUsernamePallets;
+    };
+};
+
+type GetPeopleUsernameOwner = (username: Uint8Array) => Promise<SS58String | undefined>;
 
 /**
  * Check if a string is a valid DotNS name
@@ -118,14 +141,14 @@ export async function isDotNsAvailable(name: string): Promise<boolean> {
  * Individuality chain descriptor. The returned value is the raw 32-byte account
  * id as a `0x`-prefixed hex string.
  */
-export async function resolvePeopleUsernameOwner(
+export async function resolvePeopleUsernameOwner<TPeopleChain extends PeopleUsernameChain>(
     username: string,
-    peopleChain: ChainDefinition,
+    peopleChain: TPeopleChain,
 ): Promise<`0x${string}` | null> {
     const client = await createChainClient({ chains: { people: peopleChain } });
-    const owner = await (
-        client.people as unknown as PeopleUsernameApi
-    ).query.Resources.UsernameOwnerOf.getValue(new TextEncoder().encode(username));
+    const getOwner = client.people.query.Resources.UsernameOwnerOf
+        .getValue as unknown as GetPeopleUsernameOwner;
+    const owner = await getOwner(new TextEncoder().encode(username));
     if (!owner) return null;
 
     return accountIdBytesToHex(accountIdBytes(owner));

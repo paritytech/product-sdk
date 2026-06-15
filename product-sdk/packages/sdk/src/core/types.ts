@@ -7,6 +7,7 @@
 import type { LogLevel } from "@parity/product-sdk-logger";
 import type { CloudStorageEnvironment } from "@parity/product-sdk-cloud-storage";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
+import type { PeopleUsernameChain } from "../identity/dotns.js";
 import type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";
 
 export type { LogLevel };
@@ -176,7 +177,7 @@ export interface Account {
 /** Arguments for signing with a DotNS / People username identity. */
 export interface SignMessageWithDotNsIdentityArgs {
     /** PAPI descriptor for the People / Individuality chain containing `Resources.UsernameOwnerOf`. */
-    peopleChain: ChainDefinition;
+    peopleChain: PeopleUsernameChain;
     /**
      * People / People Lite username to resolve before signing.
      *

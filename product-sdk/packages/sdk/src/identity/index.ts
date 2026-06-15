@@ -17,6 +17,7 @@ export {
     accountIdHexToBytes,
     resolvePeopleUsernameOwner,
 } from "./dotns.js";
+export type { PeopleUsernameChain } from "./dotns.js";
 
 // Context alias utilities
 export {
