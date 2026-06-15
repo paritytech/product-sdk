@@ -30,6 +30,7 @@ import {
     isConnected,
     destroyAll,
 } from "@parity/product-sdk-chain-client";
+import { accountIdHexToBytes, resolvePeopleUsernameOwner } from "../identity/dotns.js";
 
 const log = createLogger("app");
 
@@ -277,6 +278,43 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
             return result.value;
         },
 
+        async signMessageWithDotNsIdentity(args) {
+            const message =
+                typeof args.message === "string"
+                    ? new TextEncoder().encode(args.message)
+                    : args.message;
+            const username = args.username ?? (await getPrimaryUsername(signerManager));
+            const accountId = await resolvePeopleUsernameOwner(username);
+            if (!accountId) {
+                throw new Error(`No account owns DotNS username "${username}"`);
+            }
+
+            const owner = accountIdHexToBytes(accountId);
+            const account = signerManager
+                .getState()
+                .accounts.find((candidate) => bytesEqual(candidate.publicKey, owner));
+            if (!account) {
+                throw new Error(
+                    `DotNS username "${username}" resolves to ${accountId}, but no connected wallet account matches that AccountId.`,
+                );
+            }
+
+            try {
+                return {
+                    username,
+                    accountId,
+                    signature: await account.getSigner().signBytes(message),
+                };
+            } catch (cause) {
+                throw new Error(
+                    `Failed to sign with DotNS username "${username}": ${
+                        cause instanceof Error ? cause.message : String(cause)
+                    }`,
+                    { cause },
+                );
+            }
+        },
+
         onAccountChange(callback: (account: Account | null) => void): () => void {
             accountChangeSubscribers.add(callback);
             return () => accountChangeSubscribers.delete(callback);
@@ -308,4 +346,24 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
             );
         },
     };
+}
+
+async function getPrimaryUsername(signerManager: SignerManager): Promise<string> {
+    const result = await signerManager.getUserId();
+    if (!result.ok) {
+        throw new Error(result.error.message);
+    }
+    const username = result.value.primaryUsername.trim();
+    if (!username) {
+        throw new Error("Host identity did not provide a primary DotNS username");
+    }
+    return username;
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+        if (a[i] !== b[i]) return false;
+    }
+    return true;
 }

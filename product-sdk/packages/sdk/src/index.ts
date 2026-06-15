@@ -36,6 +36,8 @@ export type {
     ChainApi,
     CloudStorageApi,
     Account,
+    DotNsIdentitySignature,
+    SignMessageWithDotNsIdentityArgs,
     ChainClient,
     ChainDefinition,
     TypedApi,

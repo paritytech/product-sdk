@@ -338,6 +338,26 @@ export class SignerManager {
     // ── Host-only: Product Account API ─────────────────────────────
 
     /**
+     * Fetch the connected user's host identity.
+     *
+     * This uses the Host API identity permission path and is only available
+     * when connected through the host provider. The primary username can be
+     * used by higher-level helpers that need to bind an action to the user's
+     * DotNS / people username.
+     */
+    async getUserId(): Promise<Result<{ primaryUsername: string }, SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(
+                new HostUnavailableError("User identity requires a host provider connection"),
+            );
+        }
+        return host.getUserId();
+    }
+
+    /**
      * Get an app-scoped product account from the host.
      *
      * Product accounts are derived by the host wallet for each app, identified

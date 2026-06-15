@@ -21,6 +21,9 @@ catalogs:
     '@playwright/test':
       specifier: ^1.60.0
       version: 1.60.0
+    '@polkadot-api/substrate-bindings':
+      specifier: ^0.12.0
+      version: 0.12.0
     '@polkadot-api/substrate-client':
       specifier: ^0.7.0
       version: 0.7.0
@@ -633,6 +636,9 @@ importers:
       '@parity/product-sdk-crypto':
         specifier: workspace:*
         version: link:../crypto
+      '@parity/product-sdk-descriptors':
+        specifier: workspace:*
+        version: link:../descriptors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -651,6 +657,9 @@ importers:
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
+      '@polkadot-api/substrate-bindings':
+        specifier: 'catalog:'
+        version: 0.12.0
       polkadot-api:
         specifier: 'catalog:'
         version: 2.1.5(esbuild@0.27.7)(rxjs@7.8.2)

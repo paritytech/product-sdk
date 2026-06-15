@@ -6,7 +6,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useProductSDK } from "./context.js";
-import type { Account } from "../core/types.js";
+import type {
+    Account,
+    DotNsIdentitySignature,
+    SignMessageWithDotNsIdentityArgs,
+} from "../core/types.js";
 
 /** Wallet hook state */
 export interface UseWalletState {
@@ -32,6 +36,10 @@ export interface UseWalletActions {
     selectAccount: (address: string) => void;
     /** Sign a message */
     signMessage: (message: string | Uint8Array) => Promise<Uint8Array>;
+    /** Sign a message with the account that owns a DotNS / People username identity. */
+    signMessageWithDotNsIdentity: (
+        args: SignMessageWithDotNsIdentityArgs,
+    ) => Promise<DotNsIdentitySignature>;
 }
 
 /** Return type of useWallet */
@@ -122,6 +130,13 @@ export function useWallet(): UseWalletReturn {
         [app],
     );
 
+    const signMessageWithDotNsIdentity = useCallback(
+        async (args: SignMessageWithDotNsIdentityArgs) => {
+            return app.wallet.signMessageWithDotNsIdentity(args);
+        },
+        [app],
+    );
+
     // Subscribe to account changes
     useEffect(() => {
         const unsubscribe = app.wallet.onAccountChange((account) => {
@@ -136,5 +151,6 @@ export function useWallet(): UseWalletReturn {
         disconnect,
         selectAccount,
         signMessage,
+        signMessageWithDotNsIdentity,
     };
 }

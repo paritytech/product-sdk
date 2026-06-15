@@ -46,6 +46,16 @@ export interface WalletApi {
     selectAccount(address: string): void;
     /** Sign an arbitrary message */
     signMessage(message: string | Uint8Array): Promise<Uint8Array>;
+    /**
+     * Sign a message with the account that owns a People / People Lite DotNS identity.
+     *
+     * Pass `username` to choose a specific identity. When omitted, the SDK first
+     * asks the host for the user's primary DotNS name and signs with the account
+     * that owns that username on the People chain.
+     */
+    signMessageWithDotNsIdentity(
+        args: SignMessageWithDotNsIdentityArgs,
+    ): Promise<DotNsIdentitySignature>;
     /** Subscribe to account changes */
     onAccountChange(callback: (account: Account | null) => void): () => void;
     /** Get product-scoped account (container mode only) */
@@ -160,6 +170,29 @@ export interface Account {
     name?: string;
     /** Source of the account (host, dev signer, etc.) */
     source: string;
+}
+
+/** Arguments for signing with a DotNS / People username identity. */
+export interface SignMessageWithDotNsIdentityArgs {
+    /**
+     * People / People Lite username to resolve before signing.
+     *
+     * If omitted, the SDK fetches the primary DotNS name associated with the
+     * connected user from the host identity API.
+     */
+    username?: string;
+    /** Message to sign. Strings are UTF-8 encoded before signing. */
+    message: string | Uint8Array;
+}
+
+/** Signature produced for a DotNS / People username identity. */
+export interface DotNsIdentitySignature {
+    /** Username used for the lookup. */
+    username: string;
+    /** Raw `AccountId32` owner resolved from `Resources.UsernameOwnerOf`. */
+    accountId: `0x${string}`;
+    /** Signature bytes returned by the host wallet. */
+    signature: Uint8Array;
 }
 
 // Re-export ChainDefinition from polkadot-api for convenience
