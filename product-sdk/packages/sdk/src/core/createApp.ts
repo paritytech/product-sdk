@@ -30,6 +30,7 @@ import {
     isConnected,
     destroyAll,
 } from "@parity/product-sdk-chain-client";
+import { getAccountsProvider } from "@parity/product-sdk-host";
 import {
     accountIdHexToBytes,
     type PeopleUsernameQueryApi,
@@ -287,7 +288,8 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
                 typeof args.message === "string"
                     ? new TextEncoder().encode(args.message)
                     : args.message;
-            const username = args.username ?? (await getPrimaryUsername(signerManager));
+            const accountsProvider = await getHostAccountsProvider();
+            const username = args.username ?? (await getPrimaryUsername(accountsProvider));
 
             // Reuse an already-connected People chain when the caller has
             // wired one up via `app.chain.connect({ ..., <name>: peopleChain })`.
@@ -315,20 +317,16 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
             }
 
             const owner = accountIdHexToBytes(accountId);
-            const account = signerManager
-                .getState()
-                .accounts.find((candidate) => bytesEqual(candidate.publicKey, owner));
-            if (!account) {
-                throw new Error(
-                    `DotNS username "${username}" resolves to ${accountId}, but no connected wallet account matches that AccountId.`,
-                );
-            }
+            const signer = accountsProvider.getLegacyAccountSigner({
+                publicKey: owner,
+                name: username,
+            });
 
             try {
                 return {
                     username,
                     accountId,
-                    signature: await account.getSigner().signBytes(message),
+                    signature: await signer.signBytes(message),
                 };
             } catch (cause) {
                 throw new Error(
@@ -373,22 +371,26 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
     };
 }
 
-async function getPrimaryUsername(signerManager: SignerManager): Promise<string> {
-    const result = await signerManager.getUserId();
-    // Re-throw the typed SignerError (e.g. HostUnavailableError) so callers can
-    // `instanceof`-branch on the failure mode instead of getting a generic Error.
-    if (!result.ok) throw result.error;
-    const username = result.value.primaryUsername.trim();
+type HostAccountsProvider = NonNullable<Awaited<ReturnType<typeof getAccountsProvider>>>;
+
+async function getHostAccountsProvider(): Promise<HostAccountsProvider> {
+    const provider = await getAccountsProvider();
+    if (!provider) {
+        throw new Error("Host accounts provider is not available");
+    }
+    return provider;
+}
+
+async function getPrimaryUsername(accountsProvider: HostAccountsProvider): Promise<string> {
+    const result = await accountsProvider.getUserId().match(
+        (value) => value,
+        (err) => {
+            throw err;
+        },
+    );
+    const username = result.primaryUsername.trim();
     if (!username) {
         throw new Error("Host identity did not provide a primary DotNS username");
     }
     return username;
-}
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i += 1) {
-        if (a[i] !== b[i]) return false;
-    }
-    return true;
 }
