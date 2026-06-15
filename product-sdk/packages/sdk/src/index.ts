@@ -38,6 +38,7 @@ export type {
     Account,
     DotNsIdentitySignature,
     SignMessageWithDotNsIdentityArgs,
+    VerifyDotNsIdentitySignatureArgs,
     ChainClient,
     ChainDefinition,
     TypedApi,

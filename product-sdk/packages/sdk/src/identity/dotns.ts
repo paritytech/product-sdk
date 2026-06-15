@@ -8,6 +8,11 @@
 
 import { accountIdBytes } from "@parity/product-sdk-address";
 import { createChainClient } from "@parity/product-sdk-chain-client";
+import {
+    createContractRuntimeFromClient,
+    verifySr25519Signature,
+    type ContractDryRunAt,
+} from "@parity/product-sdk-contracts";
 import { bytesToHex, hexToBytes } from "@parity/product-sdk-crypto";
 import { createLogger } from "@parity/product-sdk-logger";
 import type {
@@ -47,6 +52,29 @@ export type PeopleUsernameChain = ChainDefinition & {
 };
 
 type GetPeopleUsernameOwner = (username: Uint8Array) => Promise<SS58String | undefined>;
+
+/** Arguments for verifying a DotNS / People username identity signature. */
+export interface VerifyDotNsIdentitySignatureArgs {
+    /** PAPI descriptor for the People / Individuality chain containing `Resources.UsernameOwnerOf`. */
+    peopleChain: PeopleUsernameChain;
+    /** PAPI descriptor for the pallet-revive chain exposing the system precompile. */
+    reviveChain: ChainDefinition;
+    /** People / People Lite username to resolve before verifying. */
+    username: string;
+    /** Message that was signed. Strings are UTF-8 encoded before verification. */
+    message: string | Uint8Array;
+    /** Signature bytes returned by the host wallet. */
+    signature: Uint8Array;
+    /**
+     * Optional expected owner AccountId32. When supplied, verification returns
+     * false if the username no longer resolves to this account.
+     */
+    accountId?: `0x${string}`;
+    /** Optional dry-run origin. Defaults to the contracts query fallback origin. */
+    origin?: SS58String;
+    /** Optional block target for the precompile dry-run. */
+    at?: ContractDryRunAt;
+}
 
 /**
  * Check if a string is a valid DotNS name
@@ -152,6 +180,39 @@ export async function resolvePeopleUsernameOwner<TPeopleChain extends PeopleUser
     if (!owner) return null;
 
     return accountIdBytesToHex(accountIdBytes(owner));
+}
+
+/**
+ * Verify that a signature was produced by the current owner of a DotNS /
+ * People username.
+ *
+ * The username owner is resolved from `Resources.UsernameOwnerOf` on the
+ * provided People / Individuality chain. The sr25519 signature check itself is
+ * delegated to pallet-revive's `sr25519Verify` system precompile on the
+ * provided Revive-capable chain.
+ */
+export async function verifyDotNsIdentitySignature(
+    args: VerifyDotNsIdentitySignatureArgs,
+): Promise<boolean> {
+    const resolvedAccountId = await resolvePeopleUsernameOwner(args.username, args.peopleChain);
+    if (!resolvedAccountId) return false;
+
+    if (
+        args.accountId !== undefined &&
+        assertHex(args.accountId).toLowerCase() !== resolvedAccountId.toLowerCase()
+    ) {
+        return false;
+    }
+
+    const client = await createChainClient({ chains: { revive: args.reviveChain } });
+    const runtime = createContractRuntimeFromClient(client.raw.revive, args.reviveChain);
+    return verifySr25519Signature(runtime, {
+        signature: args.signature,
+        message: args.message,
+        publicKey: accountIdHexToBytes(resolvedAccountId),
+        origin: args.origin,
+        at: args.at,
+    });
 }
 
 function assertHex(value: string): `0x${string}` {

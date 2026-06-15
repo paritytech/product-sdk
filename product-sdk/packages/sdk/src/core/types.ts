@@ -7,7 +7,7 @@
 import type { LogLevel } from "@parity/product-sdk-logger";
 import type { CloudStorageEnvironment } from "@parity/product-sdk-cloud-storage";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
-import type { PeopleUsernameChain } from "../identity/dotns.js";
+import type { PeopleUsernameChain, VerifyDotNsIdentitySignatureArgs } from "../identity/dotns.js";
 import type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";
 
 export type { LogLevel };
@@ -58,6 +58,11 @@ export interface WalletApi {
     signMessageWithDotNsIdentity(
         args: SignMessageWithDotNsIdentityArgs,
     ): Promise<DotNsIdentitySignature>;
+    /**
+     * Verify a DotNS / People username identity signature through the
+     * pallet-revive sr25519 system precompile.
+     */
+    verifyDotNsIdentitySignature(args: VerifyDotNsIdentitySignatureArgs): Promise<boolean>;
     /** Subscribe to account changes */
     onAccountChange(callback: (account: Account | null) => void): () => void;
     /** Get product-scoped account (container mode only) */
@@ -198,6 +203,8 @@ export interface DotNsIdentitySignature {
     /** Signature bytes returned by the host wallet. */
     signature: Uint8Array;
 }
+
+export type { VerifyDotNsIdentitySignatureArgs };
 
 // Re-export ChainDefinition from polkadot-api for convenience
 export type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";

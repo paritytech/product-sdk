@@ -30,7 +30,11 @@ import {
     isConnected,
     destroyAll,
 } from "@parity/product-sdk-chain-client";
-import { accountIdHexToBytes, resolvePeopleUsernameOwner } from "../identity/dotns.js";
+import {
+    accountIdHexToBytes,
+    resolvePeopleUsernameOwner,
+    verifyDotNsIdentitySignature,
+} from "../identity/dotns.js";
 
 const log = createLogger("app");
 
@@ -314,6 +318,8 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
                 );
             }
         },
+
+        verifyDotNsIdentitySignature,
 
         onAccountChange(callback: (account: Account | null) => void): () => void {
             accountChangeSubscribers.add(callback);

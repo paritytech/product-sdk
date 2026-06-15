@@ -10,6 +10,7 @@ import type {
     Account,
     DotNsIdentitySignature,
     SignMessageWithDotNsIdentityArgs,
+    VerifyDotNsIdentitySignatureArgs,
 } from "../core/types.js";
 
 /** Wallet hook state */
@@ -40,6 +41,8 @@ export interface UseWalletActions {
     signMessageWithDotNsIdentity: (
         args: SignMessageWithDotNsIdentityArgs,
     ) => Promise<DotNsIdentitySignature>;
+    /** Verify a DotNS / People username identity signature. */
+    verifyDotNsIdentitySignature: (args: VerifyDotNsIdentitySignatureArgs) => Promise<boolean>;
 }
 
 /** Return type of useWallet */
@@ -137,6 +140,13 @@ export function useWallet(): UseWalletReturn {
         [app],
     );
 
+    const verifyDotNsIdentitySignature = useCallback(
+        async (args: VerifyDotNsIdentitySignatureArgs) => {
+            return app.wallet.verifyDotNsIdentitySignature(args);
+        },
+        [app],
+    );
+
     // Subscribe to account changes
     useEffect(() => {
         const unsubscribe = app.wallet.onAccountChange((account) => {
@@ -152,5 +162,6 @@ export function useWallet(): UseWalletReturn {
         selectAccount,
         signMessage,
         signMessageWithDotNsIdentity,
+        verifyDotNsIdentitySignature,
     };
 }

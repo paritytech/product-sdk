@@ -16,8 +16,9 @@ export {
     isDotNsAvailable,
     accountIdHexToBytes,
     resolvePeopleUsernameOwner,
+    verifyDotNsIdentitySignature,
 } from "./dotns.js";
-export type { PeopleUsernameChain } from "./dotns.js";
+export type { PeopleUsernameChain, VerifyDotNsIdentitySignatureArgs } from "./dotns.js";
 
 // Context alias utilities
 export {

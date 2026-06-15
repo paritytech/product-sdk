@@ -22,6 +22,11 @@ export {
     createContractRuntimeFromClient,
     ensureContractAccountMapped,
 } from "./runtime.js";
+export {
+    SYSTEM_PRECOMPILE_ADDRESS,
+    verifySr25519Signature,
+} from "./precompiles.js";
+export type { VerifySr25519SignatureArgs } from "./precompiles.js";
 export type {
     ContractRuntime,
     ContractRuntimeOptions,
