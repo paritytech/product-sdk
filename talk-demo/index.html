@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Product SDK — live demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Theme tokens from the Polkadot design system (Dark Elevated).
+         Single-mode app, so dark + dark-elevated values live directly on :root.
+         Never hardcode colors — reference these semantic vars. */
+      :root {
+        /* ── primitive neutral scale ── */
+        --color-neutral-white: #ffffff;
+        --color-neutral-50: #fafafa;
+        --color-neutral-100: #f5f5f5;
+        --color-neutral-150: #ebebeb;
+        --color-neutral-200: #e5e5e5;
+        --color-neutral-400: #a3a3a3;
+        --color-neutral-500: #737373;
+        --color-neutral-600: #525252;
+        --color-neutral-700: #404040;
+        --color-neutral-800: #262626;
+        --color-neutral-850: #1f1f1f;
+        --color-neutral-900: #171717;
+        --color-neutral-950: #0a0a0a;
+
+        /* ── fg ── */
+        --fg-primary: var(--color-neutral-100);
+        --fg-primary-inverted: var(--color-neutral-950);
+        --fg-secondary: var(--color-neutral-400);
+        --fg-tertiary: var(--color-neutral-600);
+        --fg-success: #22c55e;
+        --fg-error: #ef4444;
+
+        /* ── bg (dark + dark-elevated overrides) ── */
+        --bg-surface-main: var(--color-neutral-950);
+        --bg-surface-container: #141414; /* dark-elevated: surfaces separate by brightness */
+        --bg-surface-nested: var(--color-neutral-850);
+        --bg-action-primary: var(--color-neutral-150);
+        --bg-action-primary-hover: var(--color-neutral-200);
+        --bg-action-secondary: #3d3d3d; /* dark-elevated */
+        --bg-action-secondary-hover: var(--color-neutral-500);
+
+        /* ── border / focus / shadow / radius ── */
+        --border-default: var(--color-neutral-850); /* dark-elevated */
+        --border-divider: var(--color-neutral-800);
+        --focus-ring: #ffffff;
+        --shadow-1: 0 4px 24px -4px rgba(0, 0, 0, 0.24);
+        --radius-container: 16px;
+        --radius-nested: 12px;
+        --radius-small: 8px;
+        --radius-full: 9999px;
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      /* Keyboard focus — single global rule (system convention). */
+      *:focus-visible {
+        outline: 2px solid var(--focus-ring);
+        outline-offset: 2px;
+        box-shadow: none;
+      }
+
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        background: var(--bg-surface-main);
+        color: var(--fg-primary);
+        padding: 2.5rem 2rem;
+        max-width: 1200px;
+        margin: 0 auto;
+        font-size: 18px;
+      }
+
+      /* Beats on the left, log pinned on the right so it stays in view. */
+      .layout {
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        gap: 1.5rem;
+        align-items: start;
+      }
+      .logwrap { position: sticky; top: 2.5rem; }
+      @media (max-width: 900px) {
+        .layout { grid-template-columns: 1fr; }
+        .logwrap { position: static; }
+      }
+
+      h1 {
+        font-family: "DM Serif Display", Georgia, serif;
+        font-weight: 400;
+        font-size: 2.4rem;
+        line-height: 1.25;
+        color: var(--fg-primary);
+      }
+      .sub { color: var(--fg-secondary); margin: 0.25rem 0 2.5rem; }
+
+      /* Containers separate from the page through brightness, not borders. */
+      .beat {
+        background: var(--bg-surface-container);
+        border-radius: var(--radius-container);
+        padding: 1.3rem 1.5rem;
+        margin-bottom: 1rem;
+        box-shadow: var(--shadow-1);
+      }
+      .beat h2 {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--fg-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        line-height: 1.25;
+        margin-bottom: 0.9rem;
+      }
+
+      .row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+
+      input {
+        background: var(--bg-surface-nested);
+        border: 1px solid var(--border-default);
+        color: var(--fg-primary);
+        padding: 0.6rem 0.8rem;
+        border-radius: var(--radius-nested);
+        font: inherit;
+        font-size: 1rem;
+        flex: 1;
+        min-width: 160px;
+        cursor: text;
+      }
+      input::placeholder { color: var(--fg-tertiary); }
+
+      button {
+        font: inherit;
+        font-size: 1rem;
+        font-weight: 500;
+        border: none;
+        padding: 0.65rem 1.3rem;
+        border-radius: var(--radius-small);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background-color 0.15s ease;
+        /* Primary: high-contrast neutral, not an accent color. */
+        background: var(--bg-action-primary);
+        color: var(--fg-primary-inverted);
+      }
+      button:hover { background: var(--bg-action-primary-hover); }
+
+      button.secondary {
+        background: var(--bg-action-secondary);
+        color: var(--fg-primary);
+      }
+      button.secondary:hover { background: var(--bg-action-secondary-hover); }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      button:disabled:hover { background: var(--bg-action-primary); }
+      button.secondary:disabled:hover { background: var(--bg-action-secondary); }
+
+      .out {
+        margin-top: 0.7rem;
+        font-family: ui-monospace, "SF Mono", monospace;
+        font-size: 0.95rem;
+        color: var(--fg-primary);
+        word-break: break-all;
+      }
+      .out.err { color: var(--fg-error); }
+
+      #log {
+        background: var(--bg-surface-nested);
+        border-radius: var(--radius-container);
+        padding: 1rem 1.2rem;
+        font-family: ui-monospace, "SF Mono", monospace;
+        font-size: 0.95rem;
+        color: var(--fg-primary);
+        white-space: pre-wrap;
+        max-height: calc(100vh - 5rem);
+        overflow-y: auto;
+        line-height: 1.7;
+      }
+      #log .log-ts { color: var(--fg-tertiary); }
+    </style>
+  </head>
+  <body>
+    <h1>Product SDK Demo</h1>
+    <div class="sub">A tiny product running inside the Polkadot host.</div>
+
+    <div class="layout">
+      <main class="beats">
+    <section class="beat">
+      <h2>1 · Ask permission</h2>
+      <div class="row">
+        <button id="btn-permission">Request access</button>
+      </div>
+      <div id="out-permission" class="out"></div>
+    </section>
+
+    <section class="beat">
+      <h2>2 · Connect to a chain</h2>
+      <div class="row">
+        <button id="btn-connect">Connect</button>
+      </div>
+      <div id="out-connect" class="out"></div>
+    </section>
+
+    <section class="beat">
+      <h2>3 · Get my account</h2>
+      <div class="row">
+        <button id="btn-account">My account</button>
+      </div>
+      <div id="out-account" class="out"></div>
+    </section>
+
+    <section class="beat">
+      <h2>4 · Store something</h2>
+      <div class="row">
+        <input id="in-storage" placeholder="hello Berlin" />
+        <button id="btn-save-local">Save (local)</button>
+        <button id="btn-load-local" class="secondary">Load (local)</button>
+      </div>
+      <div class="row" style="margin-top: 0.6rem;">
+        <input id="in-cid" placeholder="CID appears here after cloud save" />
+        <button id="btn-save-cloud">Save (cloud)</button>
+        <button id="btn-load-cloud" class="secondary">Load (cloud)</button>
+      </div>
+      <div id="out-storage" class="out"></div>
+    </section>
+
+    <section class="beat">
+      <h2>5 · Sign a transaction</h2>
+      <div class="row">
+        <input id="in-tx" placeholder="gm from Web3Summit" />
+        <button id="btn-sign">Send → approve on phone</button>
+      </div>
+      <div id="out-tx" class="out"></div>
+    </section>
+      </main>
+
+      <aside class="logwrap">
+        <div id="log"></div>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

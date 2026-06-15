@@ -1,0 +1,25 @@
+{
+  "name": "product-sdk-talk-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny live-demo product for the Web3Summit talk — one button per product-sdk component.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@parity/product-sdk": "^0.12.0",
+    "@parity/product-sdk-descriptors": "^0.6.1",
+    "@parity/product-sdk-host": "^0.9.0",
+    "@parity/product-sdk-tx": "^0.2.11",
+    "@novasamatech/host-api": "^0.8.7-2",
+    "@novasamatech/host-api-wrapper": "^0.8.7-2",
+    "polkadot-api": "^2.1.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^6.3.0"
+  }
+}
