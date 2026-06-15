@@ -315,21 +315,32 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
             }
 
             const owner = accountIdHexToBytes(accountId);
-            const account = signerManager
+
+            // Prefer an account that's already connected (no extra host prompt).
+            // Otherwise sign with the owner as an explicitly-named legacy signer.
+            //
+            // The owning account is frequently NOT enumerable: Proof-of-Personhood
+            // / product-account hosts expose only a per-dapp derived account via
+            // the connected-accounts list, never the user's identity account that
+            // actually owns the DotNS / People username. Such hosts can still sign
+            // with that account when it's named explicitly (typically behind a
+            // user-approval prompt), so we route through the legacy-signer path
+            // instead of failing. This is what makes DotNS identity signing work
+            // on those hosts at all.
+            const connected = signerManager
                 .getState()
                 .accounts.find((candidate) => bytesEqual(candidate.publicKey, owner));
-            if (!account) {
-                throw new Error(
-                    `DotNS username "${username}" resolves to ${accountId}, but no connected wallet account matches that AccountId.`,
-                );
-            }
 
             try {
-                return {
-                    username,
-                    accountId,
-                    signature: await account.getSigner().signBytes(message),
-                };
+                let signature: Uint8Array;
+                if (connected) {
+                    signature = await connected.getSigner().signBytes(message);
+                } else {
+                    const result = await signerManager.signRawWithLegacyAccount(owner, message);
+                    if (!result.ok) throw new Error(result.error.message);
+                    signature = result.value;
+                }
+                return { username, accountId, signature };
             } catch (cause) {
                 throw new Error(
                     `Failed to sign with DotNS username "${username}": ${

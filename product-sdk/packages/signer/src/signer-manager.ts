@@ -436,6 +436,33 @@ export class SignerManager {
     }
 
     /**
+     * Sign a raw message with a specific account named by its public key, via
+     * the host's legacy-account signing path. Only available when connected via
+     * the host provider — returns HOST_UNAVAILABLE otherwise.
+     *
+     * Unlike the connect-time account list, the named account does NOT need to
+     * be enumerable via `getLegacyAccounts()`. This is the building block for
+     * signing with a DotNS / People identity account that the host exposes for
+     * signing but not for enumeration.
+     */
+    async signRawWithLegacyAccount(
+        publicKey: Uint8Array,
+        data: Uint8Array,
+    ): Promise<Result<Uint8Array, SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(
+                new HostUnavailableError(
+                    "Signing with a legacy account requires a host provider connection",
+                ),
+            );
+        }
+        return host.signRawWithLegacyAccount(publicKey, data);
+    }
+
+    /**
      * Destroy the manager and release all resources.
      *
      * **Terminal** — clears all subscribers, cancels in-flight work, and

@@ -498,6 +498,43 @@ export class HostProvider implements SignerProvider {
         }
     }
 
+    /**
+     * Sign a raw message with a specific account identified by its public key,
+     * via the host's legacy-account signing path.
+     *
+     * Unlike `connect()`, this does NOT require the account to be returned by
+     * `getLegacyAccounts()` — it signs through `host_sign_raw_with_legacy_account`
+     * using the SS58 address derived from `publicKey`, which the host resolves
+     * itself. Hosts that withhold the user's identity account from *enumeration*
+     * (e.g. Proof-of-Personhood / product-account hosts that only expose a
+     * per-dapp derived account) may still honour an explicitly-named signer,
+     * typically behind a user-approval prompt.
+     *
+     * This is what makes DotNS-identity signing work on such hosts: the owning
+     * account resolved from the name is never enumerable, but it can still be
+     * named explicitly here. See {@link SignerManager.signRawWithLegacyAccount}.
+     *
+     * Requires a prior successful `connect()` call.
+     */
+    async signRawWithLegacyAccount(
+        publicKey: Uint8Array,
+        data: Uint8Array,
+    ): Promise<Result<Uint8Array, SignerError>> {
+        if (!this.accountsProvider) {
+            return err(new HostUnavailableError("Host provider is not connected"));
+        }
+
+        try {
+            const signature = await this.legacySignerFor(publicKey).signBytes(data);
+            return ok(signature);
+        } catch (cause) {
+            log.error("failed to sign with legacy account", { cause });
+            return err(
+                new HostRejectedError(`Host rejected legacy-account signing: ${formatError(cause)}`),
+            );
+        }
+    }
+
     // ── Private ──────────────────────────────────────────────────────
 
     private async tryConnect(): Promise<Result<SignerAccount[], SignerError>> {
@@ -709,6 +746,25 @@ export class HostProvider implements SignerProvider {
         return ok({ ...account, name: account.name ?? primaryUsername });
     }
 
+    /**
+     * Build a `PolkadotSigner` for the account with the given public key via the
+     * host's legacy-account signing path. The host resolves the SS58 address
+     * from `publicKey`; `dotNsIdentifier` / `derivationIndex` are unused for
+     * legacy accounts (the host-api shape just reuses the product-account
+     * struct). Shared by `mapAccounts` (enumerated accounts) and
+     * `signRawWithLegacyAccount` (an explicitly-named, non-enumerated account).
+     */
+    private legacySignerFor(publicKey: Uint8Array): import("polkadot-api").PolkadotSigner {
+        if (!this.accountsProvider) {
+            throw new Error("Host provider is disconnected");
+        }
+        return this.accountsProvider.getLegacyAccountSigner({
+            dotNsIdentifier: "",
+            derivationIndex: 0,
+            publicKey,
+        });
+    }
+
     private mapAccounts(rawAccounts: ReadonlyArray<RawAccount>): SignerAccount[] {
         return rawAccounts.map((raw) => {
             const address = ss58Encode(raw.publicKey, this.ss58Prefix);
@@ -719,16 +775,7 @@ export class HostProvider implements SignerProvider {
                 publicKey: raw.publicKey,
                 name: raw.name ?? null,
                 source: "host" as const,
-                getSigner: () => {
-                    if (!this.accountsProvider) {
-                        throw new Error("Host provider is disconnected");
-                    }
-                    return this.accountsProvider.getLegacyAccountSigner({
-                        dotNsIdentifier: "",
-                        derivationIndex: 0,
-                        publicKey: raw.publicKey,
-                    });
-                },
+                getSigner: () => this.legacySignerFor(raw.publicKey),
             };
         });
     }
