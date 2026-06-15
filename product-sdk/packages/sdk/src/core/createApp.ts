@@ -30,7 +30,11 @@ import {
     isConnected,
     destroyAll,
 } from "@parity/product-sdk-chain-client";
-import { accountIdHexToBytes, resolvePeopleUsernameOwner } from "../identity/dotns.js";
+import {
+    accountIdHexToBytes,
+    type PeopleUsernameQueryApi,
+    resolvePeopleUsernameOwner,
+} from "../identity/dotns.js";
 
 const log = createLogger("app");
 
@@ -284,7 +288,28 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
                     ? new TextEncoder().encode(args.message)
                     : args.message;
             const username = args.username ?? (await getPrimaryUsername(signerManager));
-            const accountId = await resolvePeopleUsernameOwner(username, args.peopleChain);
+
+            // Reuse an already-connected People chain when the caller has
+            // wired one up via `app.chain.connect({ ..., <name>: peopleChain })`.
+            // Fall back to opening a transient connection so first-time users
+            // don't have to think about chain lifecycles. The chain-client
+            // module caches by genesis fingerprint, so subsequent
+            // signMessageWithDotNsIdentity calls share whichever connection
+            // got established first.
+            const peopleClient = isConnected(args.peopleChain)
+                ? getClient(args.peopleChain)
+                : await createChainClient({ chains: { people: args.peopleChain } }).then(
+                      (c) => c.raw.people,
+                  );
+            // PAPI's `TypedApi.query.X.Y.getValue` is variadic
+            // (`...args: [...WithCallOptions<Args>]`) so it's not assignable
+            // to our deliberately-narrow `(key) => Promise<...>` shape. The
+            // resolver only ever passes the storage key; the cast adapts the
+            // wider PAPI surface to the minimum we depend on.
+            const peopleApi = peopleClient.getTypedApi(
+                args.peopleChain,
+            ) as unknown as PeopleUsernameQueryApi;
+            const accountId = await resolvePeopleUsernameOwner(username, peopleApi);
             if (!accountId) {
                 throw new Error(`No account owns DotNS username "${username}"`);
             }
@@ -350,9 +375,9 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
 
 async function getPrimaryUsername(signerManager: SignerManager): Promise<string> {
     const result = await signerManager.getUserId();
-    if (!result.ok) {
-        throw new Error(result.error.message);
-    }
+    // Re-throw the typed SignerError (e.g. HostUnavailableError) so callers can
+    // `instanceof`-branch on the failure mode instead of getting a generic Error.
+    if (!result.ok) throw result.error;
     const username = result.value.primaryUsername.trim();
     if (!username) {
         throw new Error("Host identity did not provide a primary DotNS username");

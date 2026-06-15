@@ -176,13 +176,30 @@ export interface Account {
 
 /** Arguments for signing with a DotNS / People username identity. */
 export interface SignMessageWithDotNsIdentityArgs {
-    /** PAPI descriptor for the People / Individuality chain containing `Resources.UsernameOwnerOf`. */
+    /**
+     * PAPI descriptor for the People / Individuality chain that exposes
+     * `Resources.UsernameOwnerOf`.
+     *
+     * The SDK reuses an already-connected client when one matches this
+     * descriptor's genesis. For long-running apps, call
+     * `app.chain.connect({ ..., <name>: peopleChain })` once at startup so
+     * every subsequent `signMessageWithDotNsIdentity` call reuses the same
+     * chainHead subscription. When the chain isn't already connected, the
+     * SDK opens a transient connection for the lookup; that connection then
+     * lives in the chain-client cache for the rest of the process.
+     */
     peopleChain: PeopleUsernameChain;
     /**
      * People / People Lite username to resolve before signing.
      *
      * If omitted, the SDK fetches the primary DotNS name associated with the
-     * connected user from the host identity API.
+     * connected user from the host identity API. Note: that fetch triggers a
+     * host identity-permission prompt, so callers who want to avoid the
+     * dialog on a likely-miss should resolve the username themselves first.
+     *
+     * The string is UTF-8 encoded and used as the storage key on
+     * `Resources.UsernameOwnerOf` exactly as supplied — no `.dot` suffix
+     * handling is applied.
      */
     username?: string;
     /** Message to sign. Strings are UTF-8 encoded before signing. */

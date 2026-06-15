@@ -7,7 +7,6 @@
  */
 
 import { accountIdBytes } from "@parity/product-sdk-address";
-import { createChainClient } from "@parity/product-sdk-chain-client";
 import { bytesToHex, hexToBytes } from "@parity/product-sdk-crypto";
 import { createLogger } from "@parity/product-sdk-logger";
 import type {
@@ -40,13 +39,36 @@ type PeopleUsernamePallets = PalletsTypedef<
     AnyDescriptorEntry<RuntimeDescriptor<any, any>>
 >;
 
+/**
+ * Descriptor narrowed to "any chain that exposes `Resources.UsernameOwnerOf`".
+ *
+ * Used as the input to `signMessageWithDotNsIdentity` so the SDK doesn't pin
+ * a specific People-chain genesis — anything with the right storage shape
+ * (paseo-individuality today, future People Lite, etc.) is accepted.
+ */
 export type PeopleUsernameChain = ChainDefinition & {
     descriptors: Promise<unknown> & {
         pallets: PeopleUsernamePallets;
     };
 };
 
-type GetPeopleUsernameOwner = (username: Uint8Array) => Promise<SS58String | undefined>;
+/**
+ * Minimal typed-api shape required to resolve a username on a People chain.
+ *
+ * This is a narrow structural type — anything with the right
+ * `query.Resources.UsernameOwnerOf.getValue` shape works, including a real
+ * `TypedApi<PeopleUsernameChain>` slice of a `ChainClient` or a hand-rolled
+ * test double.
+ */
+export type PeopleUsernameQueryApi = {
+    query: {
+        Resources: {
+            UsernameOwnerOf: {
+                getValue: (key: Uint8Array) => Promise<SS58String | undefined>;
+            };
+        };
+    };
+};
 
 /**
  * Check if a string is a valid DotNS name
@@ -77,18 +99,15 @@ export function normalizeDotNsName(name: string): string {
 }
 
 /**
- * Resolve a DotNS name to an address
+ * Resolve a DotNS name to an address.
+ *
+ * @deprecated Not implemented — throws at runtime. Use
+ *   `wallet.signMessageWithDotNsIdentity({ peopleChain, username })` (which
+ *   internally calls {@link resolvePeopleUsernameOwner}) for the supported
+ *   People-chain username flow.
  *
  * @param name - DotNS name (e.g., "alice.dot")
  * @returns Resolved record or null if not found
- *
- * @example
- * ```ts
- * const record = await resolveDotNs('alice.dot');
- * if (record) {
- *   console.log('Address:', record.address);
- * }
- * ```
  */
 export async function resolveDotNs(name: string): Promise<DotNsRecord | null> {
     const normalized = normalizeDotNsName(name);
@@ -108,7 +127,11 @@ export async function resolveDotNs(name: string): Promise<DotNsRecord | null> {
 }
 
 /**
- * Reverse resolve an address to a DotNS name
+ * Reverse resolve an address to a DotNS name.
+ *
+ * @deprecated Not implemented — throws at runtime. Reverse lookup will land
+ *   alongside future identity work; for now resolve forward via
+ *   `wallet.signMessageWithDotNsIdentity`.
  *
  * @param address - SS58 address
  * @returns Primary name or null if none set
@@ -124,7 +147,9 @@ export async function reverseDotNs(address: string): Promise<string | null> {
 }
 
 /**
- * Check if a DotNS name is available for registration
+ * Check if a DotNS name is available for registration.
+ *
+ * @deprecated Not implemented — depends on {@link resolveDotNs} which throws.
  *
  * @param name - Name to check
  * @returns True if available
@@ -137,18 +162,24 @@ export async function isDotNsAvailable(name: string): Promise<boolean> {
 /**
  * Resolve a People / People Lite username to its owning `AccountId32`.
  *
- * This queries `Resources.UsernameOwnerOf` using the caller-provided People /
- * Individuality chain descriptor. The returned value is the raw 32-byte account
- * id as a `0x`-prefixed hex string.
+ * Queries `Resources.UsernameOwnerOf` on the caller-supplied typed-api fragment.
+ * The returned value is the raw 32-byte account id as a `0x`-prefixed hex
+ * string, or `null` when no owner is registered for that username.
+ *
+ * The `username` is UTF-8 encoded as-is — no normalization is applied. Pass
+ * the exact byte string the chain stores (typically with the `.dot` suffix).
+ *
+ * @internal Exposed for unit testing. Consumers should use
+ *   `wallet.signMessageWithDotNsIdentity` instead, which orchestrates the
+ *   chain-connection lifecycle.
  */
-export async function resolvePeopleUsernameOwner<TPeopleChain extends PeopleUsernameChain>(
+export async function resolvePeopleUsernameOwner(
     username: string,
-    peopleChain: TPeopleChain,
+    peopleApi: PeopleUsernameQueryApi,
 ): Promise<`0x${string}` | null> {
-    const client = await createChainClient({ chains: { people: peopleChain } });
-    const getOwner = client.people.query.Resources.UsernameOwnerOf
-        .getValue as unknown as GetPeopleUsernameOwner;
-    const owner = await getOwner(new TextEncoder().encode(username));
+    const owner = await peopleApi.query.Resources.UsernameOwnerOf.getValue(
+        new TextEncoder().encode(username),
+    );
     if (!owner) return null;
 
     return accountIdBytesToHex(accountIdBytes(owner));
