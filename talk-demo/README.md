@@ -6,10 +6,10 @@ those snippet files are exactly the code shown on the slides.
 
 | Beat | Button | Snippet | SDK call |
 |------|--------|---------|----------|
-| 1 | Request access | [`permission.ts`](./src/snippets/permission.ts) | `requestPermission` |
-| 2 | Connect | [`connect.ts`](./src/snippets/connect.ts) | `createChainClient` |
-| 3 | My account | [`account.ts`](./src/snippets/account.ts) | `SignerManager.connect` |
-| 4 | Save / Load | [`storage.ts`](./src/snippets/storage.ts) | `createLocalKvStore` · `CloudStorageClient` |
+| 1 | Connect | [`connect.ts`](./src/snippets/connect.ts) | `app.chain.connect` |
+| 2 | My account | [`account.ts`](./src/snippets/account.ts) | `app.wallet.connect` |
+| 3 | Request access | [`permission.ts`](./src/snippets/permission.ts) | `requestPermission` (tag from dropdown) |
+| 4 | Save / Load | [`storage.ts`](./src/snippets/storage.ts) | `app.localStorage` · `app.cloudStorage` |
 | 5 | Send → phone | [`transaction.ts`](./src/snippets/transaction.ts) | `submitAndWatch` |
 
 ## Run it
@@ -30,7 +30,7 @@ a Polkadot host**:
 
 ## Before the talk — verify
 
-- **`talk-demo.dot` in [`transaction.ts`](./src/snippets/transaction.ts)** is a
+- **`demo-app.dot` in [`transaction.ts`](./src/snippets/transaction.ts)** is a
   placeholder DotNS name. Set it to the name your host build maps to a funded
   product account, or signing will fail.
 - **Phone pairing** for beat 5: the only step with an off-device dependency.

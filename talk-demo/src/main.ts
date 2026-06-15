@@ -1,11 +1,16 @@
 // Wires each button to its snippet. The snippets (src/snippets/*) are the
 // code shown on the slides; this file is just glue.
-import { getEl, setResult, log } from "./ui";
-import { askToSubmit } from "./snippets/permission";
+import { getEl, setResult, log, toHex } from "./ui";
+import {
+  askPermission,
+  REMOTE_PERMISSIONS,
+  DEVICE_PERMISSIONS,
+  type PermissionTag,
+} from "./snippets/permission";
 import { watchBlocks } from "./snippets/connect";
 import { getAccount } from "./snippets/account";
 import { saveLocal, loadLocal, saveCloud, loadCloud } from "./snippets/storage";
-import { sendRemark } from "./snippets/transaction";
+import { signMessage } from "./snippets/transaction";
 
 function wire(id: string, handler: () => Promise<void>): void {
   getEl<HTMLButtonElement>(id).addEventListener("click", async () => {
@@ -18,22 +23,56 @@ function wire(id: string, handler: () => Promise<void>): void {
   });
 }
 
-// 1 — Ask permission
+// 3 — Ask permission (both families, grouped in the dropdown)
+const permSelect = getEl<HTMLSelectElement>("permission-select");
+function addPermissionGroup(label: string, tags: readonly string[]): void {
+  const group = document.createElement("optgroup");
+  group.label = label;
+  for (const tag of tags) {
+    const opt = document.createElement("option");
+    opt.value = tag;
+    opt.textContent = tag;
+    group.append(opt);
+  }
+  permSelect.append(group);
+}
+addPermissionGroup("Chain / Network", REMOTE_PERMISSIONS);
+addPermissionGroup("Device", DEVICE_PERMISSIONS);
+
 wire("btn-permission", async () => {
-  log("requesting ChainSubmit permission…");
-  const granted = await askToSubmit();
-  setResult("out-permission", granted ? "granted ✓" : "denied", !granted);
-  log(`permission: ${granted ? "granted" : "denied"}`);
+  const tag = getEl<HTMLSelectElement>("permission-select").value as PermissionTag;
+  log(`requesting ${tag} permission…`);
+  const granted = await askPermission(tag);
+  setResult("out-permission", granted ? `${tag}: granted ✓` : `${tag}: denied`, !granted);
+  log(`permission ${tag}: ${granted ? "granted" : "denied"}`);
 });
 
-// 2 — Connect to a chain (live block subscription)
+// 2 — Connect to a chain (toggle: Connect ↔ Stop)
 let blockSub: { unsubscribe: () => void } | undefined;
+const $btnConnect = getEl<HTMLButtonElement>("btn-connect");
 wire("btn-connect", async () => {
-  blockSub?.unsubscribe();
-  log("connecting to Asset Hub — watching blocks…");
-  blockSub = await watchBlocks((block) => {
-    setResult("out-connect", `Asset Hub block #${block}  ● live`);
-  });
+  if (blockSub) {
+    blockSub.unsubscribe();
+    blockSub = undefined;
+    $btnConnect.textContent = "Connect";
+    log("stopped watching blocks");
+    return;
+  }
+  log("connecting to Asset Hub…");
+  blockSub = await watchBlocks(
+    ({ number, hash }) => {
+      setResult("out-connect", `block #${number}  ●  ${hash.slice(0, 14)}…`);
+      log(`block #${number}`);
+    },
+    (err) => {
+      setResult("out-connect", `error: ${err.message}`, true);
+      log(`✗ connect: ${err.message}`);
+      blockSub = undefined;
+      $btnConnect.textContent = "Connect";
+    },
+  );
+  $btnConnect.textContent = "Stop";
+  log("connected — waiting for first block…");
 });
 
 // 3 — Get my account
@@ -74,20 +113,14 @@ wire("btn-load-cloud", async () => {
   log(`cloud fetched → "${text}"`);
 });
 
-// 5 — Sign a transaction (prompts the phone)
+// 5 — Sign a message (prompts the phone)
 wire("btn-sign", async () => {
   const text = getEl<HTMLInputElement>("in-tx").value || "gm from Web3Summit";
-  log("submitting remark — approve on your phone…");
-  const result = await sendRemark(text, (status) => {
-    setResult("out-tx", `status: ${status}`);
-    log(`tx status: ${status}`);
-  });
-  if (result.ok) {
-    setResult("out-tx", `landed in block #${result.block.number} ✓`);
-    log(`tx finalized in block #${result.block.number}`);
-  } else {
-    setResult("out-tx", `failed: ${JSON.stringify(result.dispatchError)}`, true);
-  }
+  log("signing — approve on your phone…");
+  const signature = await signMessage(text);
+  const hex = toHex(signature);
+  setResult("out-tx", `signed ✓ ${hex.slice(0, 26)}…`);
+  log(`signature: ${hex.slice(0, 26)}…`);
 });
 
 log("talk-demo ready — running inside the host");

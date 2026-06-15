@@ -119,7 +119,8 @@
 
       .row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
 
-      input {
+      input,
+      select {
         background: var(--bg-surface-nested);
         border: 1px solid var(--border-default);
         color: var(--fg-primary);
@@ -131,6 +132,7 @@
         min-width: 160px;
         cursor: text;
       }
+      select { cursor: pointer; }
       input::placeholder { color: var(--fg-tertiary); }
 
       button {
@@ -193,15 +195,7 @@
     <div class="layout">
       <main class="beats">
     <section class="beat">
-      <h2>1 · Ask permission</h2>
-      <div class="row">
-        <button id="btn-permission">Request access</button>
-      </div>
-      <div id="out-permission" class="out"></div>
-    </section>
-
-    <section class="beat">
-      <h2>2 · Connect to a chain</h2>
+      <h2>1 · Connect to a chain</h2>
       <div class="row">
         <button id="btn-connect">Connect</button>
       </div>
@@ -209,11 +203,20 @@
     </section>
 
     <section class="beat">
-      <h2>3 · Get my account</h2>
+      <h2>2 · Get my account</h2>
       <div class="row">
         <button id="btn-account">My account</button>
       </div>
       <div id="out-account" class="out"></div>
+    </section>
+
+    <section class="beat">
+      <h2>3 · Ask permission</h2>
+      <div class="row">
+        <select id="permission-select"></select>
+        <button id="btn-permission">Request access</button>
+      </div>
+      <div id="out-permission" class="out"></div>
     </section>
 
     <section class="beat">
@@ -232,10 +235,10 @@
     </section>
 
     <section class="beat">
-      <h2>5 · Sign a transaction</h2>
+      <h2>5 · Sign a message</h2>
       <div class="row">
         <input id="in-tx" placeholder="gm from Web3Summit" />
-        <button id="btn-sign">Send → approve on phone</button>
+        <button id="btn-sign">Sign → approve on phone</button>
       </div>
       <div id="out-tx" class="out"></div>
     </section>

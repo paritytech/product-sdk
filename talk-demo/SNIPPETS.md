@@ -1,74 +1,86 @@
 # Slide snippets
 
-The code to put on each slide. Each maps 1:1 to a file in `src/snippets/` and to a
-button in the running demo. Keep these in sync with the source.
+The code to put on each slide. Each beat is self-contained — the ones that use the
+SDK open with `createApp` so the example reads on its own.
 
-Everything runs off one shared app — the SDK's unified entry point:
+> Note: the running demo (`src/`) shares **one** `createApp` instance across all
+> beats (see `src/sdk.ts`) — one host session, one connection set. The snippets
+> below inline `createApp` purely so each slide stands alone.
+
+---
+
+## Beat 1 · Connect to a chain
+
+```ts
+import { createApp } from "@parity/product-sdk";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+
+const app = await createApp({ name: "demo-app" });
+
+const { assetHub } = await app.chain.connect({ assetHub: paseo_asset_hub });
+
+// Watch blocks live — each emits the number and the block hash.
+assetHub.query.System.Number.watchValue({ at: "best" })
+  .subscribe(({ block, value }) => console.log(`#${value}  ${block.hash}`));
+```
+
+## Beat 2 · Get my account
 
 ```ts
 import { createApp } from "@parity/product-sdk";
 
-const app = await createApp({ name: "talk-demo" });
-```
+const app = await createApp({ name: "demo-app" });
 
----
-
-## Beat 1 · Ask permission
-
-> Not on the `app` surface — permissions come from the host package.
-
-```ts
-import { requestPermission } from "@parity/product-sdk-host";
-
-// The product can't grant this itself — the host asks the user.
-const granted = await requestPermission({ tag: "ChainSubmit", value: undefined });
-```
-
-## Beat 2 · Connect to a chain
-
-```ts
-import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
-
-const { assetHub } = await app.chain.connect({ assetHub: paseo_asset_hub });
-
-// Watch blocks live — updates on every new block.
-assetHub.query.System.Number.watchValue({ at: "best" })
-  .subscribe(({ value }) => console.log(`block #${value}`));
-```
-
-## Beat 3 · Get my account
-
-```ts
 const { accounts } = await app.wallet.connect(); // keys never leave the host
 app.wallet.selectAccount(accounts[0].address);   // { address, name, source }
+```
+
+## Beat 3 · Ask permission
+
+> Not on the `app` surface — permissions come from the host package, in two families.
+> Chain/network: `ChainSubmit`, `StatementSubmit`, `PreimageSubmit`, `WebRtc`, `Remote`.
+> Device: `Notifications`, `Camera`, `Microphone`, `Bluetooth`, `NFC`, `Location`, `Clipboard`, `OpenUrl`, `Biometrics`.
+
+```ts
+import { requestDevicePermission } from "@parity/product-sdk-host";
+
+// Device — camera, microphone, location, … (a separate host call)
+await requestDevicePermission("Camera");
 ```
 
 ## Beat 4 · Store something
 
 ```ts
+import { createApp } from "@parity/product-sdk";
+
+const app = await createApp({ name: "demo-app" });
+
 // LOCAL — on-device, instant
 await app.localStorage.set("greeting", "hello Berlin");
 const value = await app.localStorage.get("greeting");
 
-// CLOUD — same idea, persisted on-chain (Bulletin)
+// CLOUD — same idea, persisted on-chain (Bulletin).
+// Ask the host for a storage allowance first — it sponsors the fee.
+import { requestResourceAllocation } from "@parity/product-sdk-host";
+await requestResourceAllocation([{ tag: "BulletinAllowance", value: undefined }]);
+
 const cid = await app.cloudStorage.upload("hello Berlin");
 const back = await app.cloudStorage.fetch(cid);
 ```
 
-## Beat 5 · Sign a transaction
+## Beat 5 · Sign a message
 
-> The App wallet doesn't submit product-account transactions, so this beat uses
-> `SignerManager` directly. The App still provides the chain client.
+> `signRaw` under the hood — signs bytes with the host-held key, no chain
+> submission, so no funded product account is needed.
 
 ```ts
-import { SignerManager } from "@parity/product-sdk";
-import { submitAndWatch } from "@parity/product-sdk-tx";
-import { Binary } from "polkadot-api";
+import { createApp } from "@parity/product-sdk";
 
-const account = await signer.getProductAccount("talk-demo.dot", 0);
-const { assetHub } = await app.chain.connect({ assetHub: paseo_asset_hub });
-const tx = assetHub.tx.System.remark({ remark: Binary.fromText(text) });
+const app = await createApp({ name: "demo-app" });
+
+const { accounts } = await app.wallet.connect();
+app.wallet.selectAccount(accounts[0].address);
 
 // The host prompts the user on their phone.
-const result = await submitAndWatch(tx, account.value.getSigner(), { onStatus });
+const signature = await app.wallet.signMessage("gm from Web3Summit");
 ```

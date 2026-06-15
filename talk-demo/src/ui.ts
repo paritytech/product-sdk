@@ -10,6 +10,9 @@ export function setResult(id: string, text: string, isError = false): void {
   el.classList.toggle("err", isError);
 }
 
+export const toHex = (bytes: Uint8Array): string =>
+  `0x${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+
 export function log(line: string): void {
   const box = getEl("log");
   const row = document.createElement("div");
