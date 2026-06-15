@@ -49,10 +49,30 @@ export async function verifySr25519Signature(
     runtime: ContractRuntime,
     args: VerifySr25519SignatureArgs,
 ): Promise<boolean> {
-    const signature = normalizeSignature(args.signature);
+    if (args.signature.length !== 64) {
+        throw new Error(`Expected 64-byte sr25519 signature, got ${args.signature.length} bytes`);
+    }
+    const signature = Array.from(args.signature, (byte) => {
+        if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+            throw new Error(`Expected sr25519 signature bytes in range 0..255, got ${byte}`);
+        }
+        return byte;
+    });
+
     const message =
         typeof args.message === "string" ? new TextEncoder().encode(args.message) : args.message;
-    const publicKey = normalizeBytes32(args.publicKey, "publicKey");
+    let publicKey: HexString;
+    if (args.publicKey instanceof Uint8Array) {
+        if (args.publicKey.length !== 32) {
+            throw new Error(`Expected 32-byte publicKey, got ${args.publicKey.length} bytes`);
+        }
+        publicKey = bytesToHex(args.publicKey);
+    } else {
+        if (!/^0x[0-9a-fA-F]{64}$/.test(args.publicKey)) {
+            throw new Error("Expected 32-byte publicKey as 0x-prefixed hex");
+        }
+        publicKey = args.publicKey.toLowerCase() as HexString;
+    }
 
     const system = createContract(runtime, SYSTEM_PRECOMPILE_ADDRESS, SYSTEM_PRECOMPILE_ABI);
     const result = await system.sr25519Verify.query(signature, bytesToHex(message), publicKey, {
@@ -62,41 +82,17 @@ export async function verifySr25519Signature(
 
     if (!result.success) {
         throw new ContractError(
-            `sr25519Verify precompile call failed: ${stringifyUnknown(result.value)}`,
+            `sr25519Verify precompile call failed: ${
+                typeof result.value === "string"
+                    ? result.value
+                    : JSON.stringify(result.value, (_, v) =>
+                          typeof v === "bigint" ? v.toString() : v,
+                      )
+            }`,
         );
     }
 
     return Boolean(result.value);
-}
-
-function normalizeSignature(signature: Uint8Array | readonly number[]): number[] {
-    if (signature.length !== 64) {
-        throw new Error(`Expected 64-byte sr25519 signature, got ${signature.length} bytes`);
-    }
-    return Array.from(signature, (byte) => {
-        if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
-            throw new Error(`Expected sr25519 signature bytes in range 0..255, got ${byte}`);
-        }
-        return byte;
-    });
-}
-
-function normalizeBytes32(value: Uint8Array | HexString, name: string): HexString {
-    if (value instanceof Uint8Array) {
-        if (value.length !== 32) {
-            throw new Error(`Expected 32-byte ${name}, got ${value.length} bytes`);
-        }
-        return bytesToHex(value);
-    }
-    if (!/^0x[0-9a-fA-F]{64}$/.test(value)) {
-        throw new Error(`Expected 32-byte ${name} as 0x-prefixed hex`);
-    }
-    return value.toLowerCase() as HexString;
-}
-
-function stringifyUnknown(value: unknown): string {
-    if (typeof value === "string") return value;
-    return JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v));
 }
 
 if (import.meta.vitest) {
