@@ -10,13 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@parity/product-sdk": "^0.12.0",
+    "@parity/product-sdk": "^0.14.0",
     "@parity/product-sdk-descriptors": "^0.6.1",
-    "@parity/product-sdk-host": "^0.9.0",
-    "@parity/product-sdk-tx": "^0.2.11",
-    "@novasamatech/host-api": "^0.8.7-2",
-    "@novasamatech/host-api-wrapper": "^0.8.7-2",
-    "polkadot-api": "^2.1.5"
+    "@parity/product-sdk-host": "^0.10.1",
+    "@parity/product-sdk-tx": "^0.2.13",
+    "@novasamatech/host-api": "^0.8.9",
+    "@novasamatech/host-api-wrapper": "^0.8.9",
+    "polkadot-api": "^2.1.6"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

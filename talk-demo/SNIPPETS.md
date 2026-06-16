@@ -24,15 +24,23 @@ assetHub.query.System.Number.watchValue({ at: "best" })
   .subscribe(({ block, value }) => console.log(`#${value}  ${block.hash}`));
 ```
 
-## Beat 2 · Get my account
+## Beat 2 · Account & signing
+
+> Connect once, then the selected account signs. `signMessage` is `signRaw` under
+> the hood — signs bytes with the host-held key, no chain submission, so no funded
+> product account is needed.
 
 ```ts
 import { createApp } from "@parity/product-sdk";
 
 const app = await createApp({ name: "demo-app" });
 
-const { accounts } = await app.wallet.connect(); // keys never leave the host
-app.wallet.selectAccount(accounts[0].address);   // { address, name, source }
+// Connect once — keys never leave the host.
+const { accounts } = await app.wallet.connect();
+app.wallet.selectAccount(accounts[0].address); // { address, name, source }
+
+// The same account signs — the host prompts the user on their phone.
+const signature = await app.wallet.signMessage("gm from Web3Summit");
 ```
 
 ## Beat 3 · Ask permission
@@ -59,28 +67,8 @@ const app = await createApp({ name: "demo-app" });
 await app.localStorage.set("greeting", "hello Berlin");
 const value = await app.localStorage.get("greeting");
 
-// CLOUD — same idea, persisted on-chain (Bulletin).
-// Ask the host for a storage allowance first — it sponsors the fee.
-import { requestResourceAllocation } from "@parity/product-sdk-host";
-await requestResourceAllocation([{ tag: "BulletinAllowance", value: undefined }]);
+// CLOUD — same idea, persisted on-chain (Bulletin)
 
 const cid = await app.cloudStorage.upload("hello Berlin");
 const back = await app.cloudStorage.fetch(cid);
-```
-
-## Beat 5 · Sign a message
-
-> `signRaw` under the hood — signs bytes with the host-held key, no chain
-> submission, so no funded product account is needed.
-
-```ts
-import { createApp } from "@parity/product-sdk";
-
-const app = await createApp({ name: "demo-app" });
-
-const { accounts } = await app.wallet.connect();
-app.wallet.selectAccount(accounts[0].address);
-
-// The host prompts the user on their phone.
-const signature = await app.wallet.signMessage("gm from Web3Summit");
 ```
