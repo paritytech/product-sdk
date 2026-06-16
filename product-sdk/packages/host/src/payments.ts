@@ -14,7 +14,7 @@
 
 import type {
     Balance,
-    CoinPaymentPurseId,
+    PaymentPurseId,
     HexString,
     HostPaymentBalanceSubscribeItem,
     HostPaymentStatusSubscribeItem,
@@ -42,13 +42,13 @@ export type TopUpSource = PaymentTopUpSource;
 export interface PaymentManager {
     subscribeBalance(
         callback: (balance: PaymentBalance) => void,
-        purse?: CoinPaymentPurseId,
+        purse?: PaymentPurseId,
     ): HostSubscription;
-    topUp(amount: Balance, source: TopUpSource, into?: CoinPaymentPurseId): Promise<void>;
+    topUp(amount: Balance, source: TopUpSource, into?: PaymentPurseId): Promise<void>;
     requestPayment(
         amount: Balance,
         destination: HexString,
-        from?: CoinPaymentPurseId,
+        from?: PaymentPurseId,
     ): Promise<{ id: string }>;
     subscribePaymentStatus(
         paymentId: string,

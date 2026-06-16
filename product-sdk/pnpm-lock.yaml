@@ -9,6 +9,9 @@ catalogs:
     '@parity/host-api-test-sdk':
       specifier: ^0.9.0
       version: 0.9.0
+    '@parity/truapi':
+      specifier: ^0.3.0
+      version: 0.3.0
     '@playwright/test':
       specifier: ^1.60.0
       version: 1.60.0
@@ -42,8 +45,6 @@ catalogs:
 
 overrides:
   '@polkadot-api/json-rpc-provider': ^0.2.0
-
-pnpmfileChecksum: sha256-o/8a/tYvC191TyhXvJJy6EDXiN4v5G+vdeP5j+7AoLo=
 
 importers:
 
@@ -477,8 +478,8 @@ importers:
         specifier: workspace:*
         version: link:../logger
       '@parity/truapi':
-        specifier: link:/Users/vale/Development/truapi/js/packages/truapi
-        version: link:../../../../truapi/js/packages/truapi
+        specifier: 'catalog:'
+        version: 0.3.0
       '@polkadot-api/json-rpc-provider':
         specifier: ^0.2.0
         version: 0.2.0
@@ -1389,6 +1390,9 @@ packages:
     peerDependenciesMeta:
       '@playwright/test':
         optional: true
+
+  '@parity/truapi@0.3.0':
+    resolution: {integrity: sha512-MoydL2OBznWyYcL7yqs0dVWTw7fPB/FxdYOCISRlxhDy+PBZ6CuTcdoQ4FAZaxbK+FAZuZJw0K4yM8BNjQ3wag==}
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -3540,6 +3544,11 @@ snapshots:
       '@novasamatech/host-api': 0.8.5
     optionalDependencies:
       '@playwright/test': 1.60.0
+
+  '@parity/truapi@0.3.0':
+    dependencies:
+      neverthrow: 8.2.0
+      scale-ts: 1.6.1
 
   '@playwright/test@1.60.0':
     dependencies:
