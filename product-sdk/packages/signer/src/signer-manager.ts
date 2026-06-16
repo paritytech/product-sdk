@@ -524,6 +524,7 @@ export class SignerManager {
                     ss58Prefix: this.ss58Prefix,
                     maxRetries: this.maxRetries,
                     retryDelay: 500,
+                    dappName: this.dappName,
                 });
             case "dev":
                 return new DevProvider({

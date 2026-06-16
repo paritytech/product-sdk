@@ -3,12 +3,7 @@
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import {
-    HostRejectedError,
-    HostUnavailableError,
-    NoAccountsError,
-    type SignerError,
-} from "../errors.js";
+import { HostRejectedError, HostUnavailableError, type SignerError } from "../errors.js";
 import { withRetry } from "../retry.js";
 import type { ConnectionStatus, ProviderType, Result, SignerAccount } from "../types.js";
 import { err, ok } from "../types.js";
@@ -24,6 +19,22 @@ export interface HostProviderOptions {
     maxRetries?: number;
     /** Initial retry delay in ms. Default: 500 */
     retryDelay?: number;
+    /**
+     * Dapp identifier the SDK falls back to when {@link productAccount} is
+     * not set, so `connect()` can still surface a usable account on hosts
+     * that don't enumerate legacy accounts.
+     *
+     * The value is treated as a dotNS identifier (`.dot` is appended if
+     * missing) and routed through `getProductAccount(dappName, 0)`. If the
+     * host rejects the derivation (e.g. the identifier isn't registered),
+     * `connect()` resolves with an empty accounts list rather than
+     * throwing — consumers can still drive the explicit signing paths
+     * (`signMessageWithDotNsIdentity`, `getLegacyAccountSigner`).
+     *
+     * Wired through from `SignerManager` automatically; only set directly
+     * when instantiating `HostProvider` outside the manager.
+     */
+    dappName?: string;
     /**
      * Custom SDK loader. Defaults to `import("@novasamatech/host-api-wrapper")`.
      * Override this for testing or custom SDK setups.
@@ -147,7 +158,6 @@ const PRODUCT_SIGNER_TYPE = "createTransaction" as const;
 
 /** @internal */
 export interface AccountsProvider {
-    getLegacyAccounts: () => NeverthrowResultAsync<RawAccount[], unknown>;
     getLegacyAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
     getProductAccount: (
         dotNsIdentifier: string,
@@ -237,6 +247,7 @@ export class HostProvider implements SignerProvider {
     private readonly loadHostApiEnum: () => Promise<HostApiEnumHelper>;
     private readonly requestChainSubmitPermission: boolean;
     private readonly productAccount: HostProviderOptions["productAccount"];
+    private readonly dappName: string | undefined;
 
     private accountsProvider: AccountsProvider | null = null;
     private statusCleanup: (() => void) | null = null;
@@ -255,6 +266,7 @@ export class HostProvider implements SignerProvider {
             options?.requestTransactionSubmitPermission ??
             true;
         this.productAccount = options?.productAccount;
+        this.dappName = options?.dappName;
     }
 
     async connect(signal?: AbortSignal): Promise<Result<SignerAccount[], SignerError>> {
@@ -552,11 +564,23 @@ export class HostProvider implements SignerProvider {
 
         // Step 4: Fetch accounts.
         //
-        // When `productAccount` is configured, skip the legacy fetch entirely
-        // and return a single product account. Product-account-only apps
-        // (no wallet picker) often run against hosts that have no legacy
-        // accounts to surface — calling `getLegacyAccounts()` there returns
-        // an empty list and the connect would fail with `NoAccountsError`.
+        // Both branches end in `fetchProductSignerAccount`. The difference
+        // is only where the dotNS identifier comes from:
+        //  - explicit `productAccount` option (caller-supplied), OR
+        //  - implicit derivation from `dappName` (the SDK-managed default
+        //    for hosts that don't enumerate accounts, e.g. Polkadot Desktop).
+        //
+        // On hosts that don't enumerate accounts (PoP / product-account
+        // hosts), `getLegacyAccounts()` returns `[]` by design — the host
+        // exposes only per-dapp product accounts and never the user's
+        // identity account. The implicit derivation path matches that
+        // contract: derive the per-dapp account using the consumer's
+        // `dappName` as the identifier, surface it on `connect()`. When
+        // the host rejects the derivation (typically because the dapp's
+        // dotNS identifier isn't registered for this user), we resolve
+        // with an empty accounts list rather than throwing so consumers
+        // can still drive the explicit-name signing paths
+        // (`signMessageWithDotNsIdentity`, `getLegacyAccountSigner`).
         let signerAccounts: SignerAccount[];
         if (this.productAccount) {
             const accountResult = await this.fetchProductSignerAccount(
@@ -567,48 +591,44 @@ export class HostProvider implements SignerProvider {
             );
             if (!accountResult.ok) return accountResult;
             signerAccounts = [accountResult.value];
-        } else {
-            let rawAccounts: RawAccount[];
-            try {
-                rawAccounts = (await provider.getLegacyAccounts().match(
-                    (accounts) => accounts,
-                    (error) => {
-                        throw new Error(`Host rejected account request: ${formatError(error)}`);
+        } else if (this.dappName) {
+            // `.dot` is appended if missing so `"my-app"` and `"my-app.dot"`
+            // resolve to the same identifier on the host side.
+            const dotNsIdentifier = this.dappName.endsWith(".dot")
+                ? this.dappName
+                : `${this.dappName}.dot`;
+            const accountResult = await this.fetchProductSignerAccount(
+                provider,
+                dotNsIdentifier,
+                0,
+                true,
+            );
+            if (!accountResult.ok) {
+                // Soft-degrade: host couldn't derive a product account for
+                // this dappName (most commonly because the identifier isn't
+                // registered for this user). Returning [] lets `connect()`
+                // resolve successfully — consumers handle the empty list
+                // and drive explicit signing paths.
+                log.warn(
+                    "host could not derive a product account for dappName; resolving with empty accounts",
+                    {
+                        dotNsIdentifier,
+                        error: accountResult.error.message,
                     },
-                )) as RawAccount[];
-            } catch (cause) {
-                // Safety net: upstream `host-api/transport.js` throws
-                // `Error('Environment is not correct')` synchronously inside
-                // `getLegacyAccounts()` when the env check fails. The Step 2
-                // pre-check catches this normally, but we also re-classify
-                // here for older wrappers that don't expose `sandboxTransport`
-                // and for races where the env flips after the pre-check.
-                // Without this, the user sees a misleading "Host rejected
-                // account request:" prefix for an error nothing rejected.
-                if (cause instanceof Error && /environment is not correct/i.test(cause.message)) {
-                    log.warn("not inside a host container (detected at getLegacyAccounts)");
-                    return err(
-                        new HostUnavailableError(
-                            "Host API is not available: not running inside a Polkadot host container. " +
-                                "Open this app inside Polkadot Desktop or the Polkadot Mobile WebView, " +
-                                "or pick a non-host signer provider (e.g. dev accounts).",
-                        ),
-                    );
-                }
-                log.error("failed to get accounts from host", { cause });
-                return err(
-                    new HostRejectedError(
-                        cause instanceof Error ? cause.message : "Failed to get accounts from host",
-                    ),
                 );
+                signerAccounts = [];
+            } else {
+                signerAccounts = [accountResult.value];
             }
-
-            if (rawAccounts.length === 0) {
-                log.warn("host returned no accounts");
-                return err(new NoAccountsError("host"));
-            }
-
-            signerAccounts = this.mapAccounts(rawAccounts);
+        } else {
+            // No `productAccount`, no `dappName` — caller asked the SDK to
+            // pick accounts with no hints. We can't, so resolve with an
+            // empty list. Consumers driving explicit-name signing still
+            // work; consumers expecting enumeration get a clear `[]`.
+            log.warn(
+                "no productAccount or dappName configured; resolving connect() with empty accounts",
+            );
+            signerAccounts = [];
         }
 
         // Step 5: Request ChainSubmit permission up-front.
@@ -707,30 +727,6 @@ export class HostProvider implements SignerProvider {
         if (!accountResult.ok) return accountResult;
         const account = accountResult.value;
         return ok({ ...account, name: account.name ?? primaryUsername });
-    }
-
-    private mapAccounts(rawAccounts: ReadonlyArray<RawAccount>): SignerAccount[] {
-        return rawAccounts.map((raw) => {
-            const address = ss58Encode(raw.publicKey, this.ss58Prefix);
-            const h160Address = deriveH160(raw.publicKey);
-            return {
-                address,
-                h160Address,
-                publicKey: raw.publicKey,
-                name: raw.name ?? null,
-                source: "host" as const,
-                getSigner: () => {
-                    if (!this.accountsProvider) {
-                        throw new Error("Host provider is disconnected");
-                    }
-                    return this.accountsProvider.getLegacyAccountSigner({
-                        dotNsIdentifier: "",
-                        derivationIndex: 0,
-                        publicKey: raw.publicKey,
-                    });
-                },
-            };
-        });
     }
 }
 
@@ -948,92 +944,73 @@ if (import.meta.vitest) {
             expect(mockProvider.getLegacyAccounts).not.toHaveBeenCalled();
         });
 
-        test("safety net: re-classifies upstream 'Environment is not correct' as HOST_UNAVAILABLE", async () => {
-            // For older wrappers (or test mocks) that don't supply
-            // `sandboxTransport`, the Step 2 pre-check is skipped and the
-            // upstream throw surfaces at `getLegacyAccounts()`. The catch
-            // in Step 4 must re-classify it rather than wrapping with the
-            // misleading "Host rejected account request:" prefix.
+        test("connect with dappName fallback derives a product account", async () => {
+            // Without an explicit `productAccount`, the SDK derives the
+            // dotNS identifier from `dappName` (with `.dot` appended if
+            // missing). This is the path hosts that don't enumerate
+            // accounts (PoP / Polkadot Desktop) take by default.
+            const productPubkey = new Uint8Array(32).fill(0x42);
             const mockProvider = createMockProvider({
-                shouldReject: true,
-                error: "Environment is not correct",
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+                primaryUsername: "alice",
             });
             const provider = new HostProvider({
                 maxRetries: 1,
-                // sandboxTransport intentionally omitted — exercises the
-                // safety-net path, not the pre-check path.
+                dappName: "my-cli",
                 loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
-            });
-            const result = await provider.connect();
-
-            expect(result.ok).toBe(false);
-            if (!result.ok) {
-                expect(result.error).toBeInstanceOf(HostUnavailableError);
-                // Must NOT contain the misleading "Host rejected account request:" prefix.
-                expect(result.error.message).not.toMatch(/Host rejected/i);
-                expect(result.error.message).toMatch(
-                    /not running inside a Polkadot host container/i,
-                );
-            }
-        });
-
-        test("connect proceeds when sandboxTransport reports a correct environment", async () => {
-            // Mirror of the existing happy path, but with an explicit
-            // `isCorrectEnvironment: true` to prove the pre-check doesn't
-            // false-fail when the env IS correct.
-            const rawAccounts: RawAccountTest[] = [
-                { publicKey: new Uint8Array(32).fill(0x42), name: "Alice" },
-            ];
-            const mockProvider = createMockProvider({ accounts: rawAccounts });
-            const provider = new HostProvider({
-                maxRetries: 1,
-                loadSdk: () =>
-                    Promise.resolve(createMockSdk(mockProvider, { isCorrectEnvironment: true })),
             });
             const result = await provider.connect();
 
             expect(result.ok).toBe(true);
             if (result.ok) {
                 expect(result.value).toHaveLength(1);
-                expect(result.value[0].address).toMatch(/^5/);
+                expect(result.value[0].publicKey).toEqual(productPubkey);
+                expect(result.value[0].source).toBe("host");
             }
-            expect(mockProvider.getLegacyAccounts).toHaveBeenCalled();
+            // `.dot` appended automatically.
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("my-cli.dot", 0);
         });
 
-        test("returns HOST_REJECTED when getLegacyAccounts fails", async () => {
+        test("connect with dappName already ending in .dot doesn't double-append", async () => {
+            const productPubkey = new Uint8Array(32).fill(0x77);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                dappName: "my-cli.dot",
+                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("my-cli.dot", 0);
+        });
+
+        test("connect with dappName fallback resolves to [] when host rejects derivation", async () => {
+            // Soft-degrade: when the host can't derive a product account
+            // for the dappName (commonly because the dotNS identifier isn't
+            // registered for this user), connect() returns ok([]) rather
+            // than throwing. Consumers handle the empty list and drive
+            // explicit signing paths.
             const mockProvider = createMockProvider({ shouldReject: true, error: "Rejected" });
             const provider = new HostProvider({
                 maxRetries: 1,
+                dappName: "not-registered",
                 loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
             });
             const result = await provider.connect();
 
-            expect(result.ok).toBe(false);
-            if (!result.ok) {
-                expect(result.error).toBeInstanceOf(HostRejectedError);
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toEqual([]);
             }
         });
 
-        test("returns NO_ACCOUNTS when host returns empty list", async () => {
-            const mockProvider = createMockProvider({ accounts: [] });
-            const provider = new HostProvider({
-                maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
-            });
-            const result = await provider.connect();
-
-            expect(result.ok).toBe(false);
-            if (!result.ok) {
-                expect(result.error).toBeInstanceOf(NoAccountsError);
-            }
-        });
-
-        test("maps accounts correctly on success", async () => {
-            const rawAccounts: RawAccountTest[] = [
-                { publicKey: new Uint8Array(32).fill(0xaa), name: "Alice" },
-                { publicKey: new Uint8Array(32).fill(0xbb), name: undefined },
-            ];
-            const mockProvider = createMockProvider({ accounts: rawAccounts });
+        test("connect resolves to [] when neither productAccount nor dappName is set", async () => {
+            // Caller asked us to pick accounts with no hints. We can't, so
+            // resolve with an empty list rather than throwing.
+            const mockProvider = createMockProvider({});
             const provider = new HostProvider({
                 maxRetries: 1,
                 loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
@@ -1042,11 +1019,7 @@ if (import.meta.vitest) {
 
             expect(result.ok).toBe(true);
             if (result.ok) {
-                expect(result.value).toHaveLength(2);
-                expect(result.value[0].name).toBe("Alice");
-                expect(result.value[0].source).toBe("host");
-                expect(result.value[0].publicKey).toEqual(rawAccounts[0].publicKey);
-                expect(result.value[1].name).toBeNull();
+                expect(result.value).toEqual([]);
             }
         });
 
