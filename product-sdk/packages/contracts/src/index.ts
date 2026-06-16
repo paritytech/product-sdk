@@ -22,6 +22,10 @@ export {
     createContractRuntimeFromClient,
     ensureContractAccountMapped,
 } from "./runtime.js";
+// pallet-revive's keyless account, used as the read-only query origin when no
+// wallet is connected. Exported so other products can reuse the same origin
+// instead of re-deriving it.
+export { QUERY_FALLBACK_ORIGIN } from "./wrap.js";
 export type {
     ContractRuntime,
     ContractRuntimeOptions,
