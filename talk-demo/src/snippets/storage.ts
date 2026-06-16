@@ -3,6 +3,7 @@ import { app } from "../sdk";
 // On-device key/value storage. Instant — no chain, no fees.
 export const saveLocal = (key: string, value: string) => app.localStorage.set(key, value);
 export const loadLocal = (key: string) => app.localStorage.get(key);
+export const clearLocal = (key: string) => app.localStorage.remove(key);
 
 // CLOUD (on-chain, via Bulletin) is the same shape — see SNIPPETS.md beat 4:
 //   const cid = await app.cloudStorage.upload(text);

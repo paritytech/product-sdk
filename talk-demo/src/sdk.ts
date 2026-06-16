@@ -6,4 +6,4 @@ import { createApp } from "@parity/product-sdk";
 // cloudStorage:false for now — the published paseo-bulletin descriptor's genesis
 // (0x8cfe6717…) is stale vs. what the paseoli host serves, so the eager Bulletin
 // connection errors at startup. Re-enable once descriptors match the host.
-export const app = await createApp({ name: "demo-app", cloudStorage: false });
+export const app = await createApp({ name: "localhost:4337", cloudStorage: false });

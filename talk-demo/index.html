@@ -119,6 +119,13 @@
 
       .row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
 
+      .hint {
+        color: var(--fg-secondary);
+        font-size: 0.82rem;
+        line-height: 1.4;
+        margin-top: 0.6rem;
+      }
+
       input,
       select {
         background: var(--bg-surface-nested);
@@ -207,6 +214,7 @@
       <div class="row">
         <button id="btn-account">My account</button>
       </div>
+      <div class="hint">An app-scoped account the host derives for this dapp, not your main wallet address.</div>
       <div id="out-account" class="out"></div>
     </section>
 
@@ -225,6 +233,7 @@
         <input id="in-storage" placeholder="hello Berlin" />
         <button id="btn-save-local">Save</button>
         <button id="btn-load-local" class="secondary">Load</button>
+        <button id="btn-clear-local" class="secondary">Clear</button>
       </div>
       <div id="out-storage" class="out"></div>
     </section>

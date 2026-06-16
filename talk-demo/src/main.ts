@@ -9,7 +9,7 @@ import {
 } from "./snippets/permission";
 import { watchBlocks } from "./snippets/connect";
 import { getAccount } from "./snippets/account";
-import { saveLocal, loadLocal } from "./snippets/storage";
+import { saveLocal, loadLocal, clearLocal } from "./snippets/storage";
 import { signMessage } from "./snippets/transaction";
 
 function wire(id: string, handler: () => Promise<void>): void {
@@ -77,23 +77,28 @@ wire("btn-connect", async () => {
 
 // 3 — Get my account
 wire("btn-account", async () => {
-  log("asking the host for the account…");
+  log("asking the host for this dapp's account…");
   const account = await getAccount();
-  setResult("out-account", `${account.name ?? "account"}: ${account.address}`);
-  log(`account: ${account.address}`);
+  setResult("out-account", `${account.name ?? "app account"}: ${account.address}`);
+  log(`app account: ${account.address}`);
 });
 
 // 4 — Store something (local)
 wire("btn-save-local", async () => {
   const value = getEl<HTMLInputElement>("in-storage").value || "hello Berlin";
-  await saveLocal("greeting", value);
+  await saveLocal("key", value);
   setResult("out-storage", `saved: "${value}"`);
-  log(`set greeting="${value}"`);
+  log(`set key="${value}"`);
 });
 wire("btn-load-local", async () => {
-  const value = await loadLocal("greeting");
+  const value = await loadLocal("key");
   setResult("out-storage", `loaded: ${value ?? "null"}`);
-  log(`get greeting → ${value ?? "null"}`);
+  log(`get key → ${value ?? "null"}`);
+});
+wire("btn-clear-local", async () => {
+  await clearLocal("key");
+  setResult("out-storage", "cleared");
+  log("key cleared");
 });
 
 // 5 — Sign a message (prompts the phone)

@@ -10,10 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@parity/product-sdk": "^0.14.0",
+    "@parity/product-sdk": "^0.14.1",
     "@parity/product-sdk-descriptors": "^0.6.1",
-    "@parity/product-sdk-host": "^0.10.1",
-    "@parity/product-sdk-tx": "^0.2.13",
+    "@parity/product-sdk-host": "^0.10.2",
+    "@parity/product-sdk-tx": "^0.2.14",
     "@novasamatech/host-api": "^0.8.9",
     "@novasamatech/host-api-wrapper": "^0.8.9",
     "polkadot-api": "^2.1.6"
