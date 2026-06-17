@@ -20,7 +20,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@changesets/cli": "^2.28.1",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.1",
     "tsup": "catalog:",
     "typescript": "^5.7.0"
   },
