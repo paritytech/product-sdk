@@ -11,12 +11,20 @@ catalog:
   "@polkadot-api/substrate-bindings": ^0.20.3
   "@polkadot-api/substrate-client": ^0.7.0
   "@polkadot-labs/hdkd-helpers": ^0.0.30
-  polkadot-api: ^2.1.5
+  polkadot-api: ^2.1.6
   tsup: ^8.5.1
   typescript: ^5.9.3
   viem: ^2.52.0
   vite: ^6.3.0
   vitest: ^3.1.4
 
+overrides:
+  "@polkadot-api/json-rpc-provider": "^0.2.0"
+
 onlyBuiltDependencies:
   - "@biomejs/biome"
+  - "esbuild"
+
+allowBuilds:
+  "@biomejs/biome": true
+  esbuild: true

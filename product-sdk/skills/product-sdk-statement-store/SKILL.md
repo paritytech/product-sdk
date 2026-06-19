@@ -42,7 +42,6 @@ import { StatementStoreClient } from "@parity/product-sdk-statement-store";
 
 const client = new StatementStoreClient({
   appName: "my-app",
-  endpoint: "wss://paseo-bulletin-next-rpc.polkadot.io",
 });
 
 await client.connect({
@@ -67,9 +66,8 @@ client.destroy();
 ```ts
 const client = new StatementStoreClient({
   appName: "my-app",               // required: hashed as topic1
-  endpoint: "wss://...",           // optional: fallback WebSocket URL
-  pollIntervalMs: 10_000,          // optional: polling interval
-  defaultTtlSeconds: 30,           // optional: statement TTL
+  defaultTtlSeconds: 30,           // optional: statement TTL (default 30)
+  // transport: customTransport,   // optional: BYOD transport for tests
 });
 ```
 

@@ -1,5 +1,7 @@
 # Product SDK
 
+> The following is a prototype, reference implementation, and proof-of-concept. This open source code is provided for research, experimentation, and developer education only. This code has not been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete features. Use at your own risk.
+
 Monorepo for the `@parity/product-sdk` family of packages and tooling.
 
 ## Documentation
@@ -67,3 +69,8 @@ Or open a new Claude Code session and ask "build me a Polkadot app" — the `pro
 | `migrating-to-product-sdk` | Porting an existing codebase from legacy stacks |
 
 Skills live under [`product-sdk/skills/`](./product-sdk/skills/) and are auto-discovered by Claude Code at install time.
+
+## License
+
+[Apache-2.0](./LICENSE)
+

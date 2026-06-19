@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-host",
-    "version": "0.7.0",
+    "version": "0.11.0",
     "description": "Host container detection and storage access for Polkadot Desktop and Mobile environments",
     "type": "module",
     "sideEffects": false,
@@ -28,6 +28,7 @@
         "polkadot-api": "catalog:"
     },
     "devDependencies": {
+        "tsup": "catalog:",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0"
     },

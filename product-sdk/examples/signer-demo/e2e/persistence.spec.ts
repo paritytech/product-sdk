@@ -17,25 +17,20 @@ test.describe("@parity/product-sdk-signer — persistence", () => {
     }) => {
         const frame = await waitForAppReady(testHost);
 
-        // Default selection is the first account (Bob). Pick the second row
-        // (Charlie) explicitly so we can distinguish persistence from the
-        // "just pick the first account" fallback after hydration.
+        // The host connect path surfaces a single derived product account,
+        // which is auto-selected on connect. (We can no longer distinguish
+        // persistence from the "pick first" fallback by selecting a second
+        // account — enumeration is gone — but the storage round-trip below
+        // still proves the selection is persisted and re-hydrated on reload.)
         const rows = frame.locator('[data-testid="accounts-list"] .account-row');
-        await expect(rows).toHaveCount(2);
+        await expect(rows).toHaveCount(1);
 
-        // Capture Bob's address (default selection) before clicking anything.
-        const bobAddr = await frame
-            .locator('[data-testid="selected-address"]')
-            .textContent();
-        expect(bobAddr).toBeTruthy();
-
-        // Click Charlie's row. Wait for the selection to actually flip.
-        await rows.nth(1).click();
+        // Capture the selected (product) account, then re-select it so the
+        // persistence write fires deterministically.
         const selectedLoc = frame.locator('[data-testid="selected-address"]');
-        await expect(selectedLoc).not.toHaveText(bobAddr!);
+        await rows.nth(0).click();
         const beforeReload = await selectedLoc.textContent();
         expect(beforeReload).toBeTruthy();
-        expect(beforeReload).not.toBe(bobAddr);
 
         // Wait for SignerManager.persistAccount to flush through the
         // postMessage round-trip into host localStorage. Without this we

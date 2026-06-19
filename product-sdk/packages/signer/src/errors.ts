@@ -10,7 +10,18 @@ export class SignerError extends Error {
     }
 }
 
-/** The Host API is not available (product-sdk not installed or not inside a container). */
+/**
+ * The Host API is not available.
+ *
+ * Common causes:
+ * - The app is loaded outside a Polkadot host container (a regular browser tab
+ *   under `npm run dev`, no iframe, no WebView). This is the dominant case
+ *   during local development.
+ * - The optional `@novasamatech/host-api(-wrapper)` peer is not installed.
+ *
+ * Branch with `instanceof HostUnavailableError` to surface a "open this app
+ * in a Polkadot host, or pick a dev provider" message to the user.
+ */
 export class HostUnavailableError extends SignerError {
     constructor(message = "Host API is not available") {
         super(message);

@@ -1,5 +1,206 @@
 # @parity/product-sdk-terminal
 
+## 0.5.4
+
+### Patch Changes
+
+- 8dd1232: chore(deps): bump polkadot-api to 2.1.6
+
+  Updates the `polkadot-api` catalog entry `^2.1.5` → `^2.1.6` (2.1.6 carries the
+  double-notification fix). Every published package resolves `polkadot-api`
+  through `catalog:`, so each one's published `dependencies` range moves to
+  `^2.1.6`. There is no source change in any package — these are patch bumps to
+  ship the new floor via the published `catalog:` resolution.
+
+  Releases the catalog bump from #223, which was merged to `main` without a
+  changeset.
+
+## 0.5.3
+
+### Patch Changes
+
+- c39332e: chore(deps): bump @novasamatech/\* host SDKs to 0.8.9
+
+  Update the upstream host-API SDKs to the 0.8.9 release:
+
+  - catalog: `@novasamatech/host-api` and `@novasamatech/host-api-wrapper` `^0.8.8` → `^0.8.9`
+  - terminal: `@novasamatech/host-papp`, `@novasamatech/statement-store`, `@novasamatech/storage-adapter`, and `@novasamatech/substrate-slot-sr25519-wasm` `^0.8.8` → `^0.8.9`
+
+  `@novasamatech/sdk-statement` is unaffected (separate package, latest is 0.6.0).
+
+## 0.5.2
+
+### Patch Changes
+
+- 9ce5ab2: **Sign messages with the account that owns a People / People Lite DotNS username, plus a catalog bump to `@novasamatech/host-api` 0.8.8.**
+
+  ### `@parity/product-sdk` — `wallet.signMessageWithDotNsIdentity`
+
+  - `wallet.signMessageWithDotNsIdentity({ peopleChain, username?, message })` — resolves `Resources.UsernameOwnerOf` on the supplied People / Individuality chain descriptor, then signs the message with that account through the host's legacy-account signing path. Returns `{ username, accountId, signature }`.
+  - A matching `useWallet` action surfaces the same call from React.
+  - Falls back to the host's primary DotNS username when none is supplied (via the host's `accounts.getUserId()` — triggers a host identity-permission prompt).
+
+  **Implementation note (worth knowing for consumers).** The owning account is named explicitly via the host's `getLegacyAccountSigner({ publicKey })` rather than matched against an enumerated wallet list. On Proof-of-Personhood / product-account hosts (e.g. Polkadot Desktop), the connected-accounts list returned by `getLegacyAccounts()` is intentionally empty — the host exposes only per-dapp product accounts via enumeration and never surfaces the user's identity account. Such hosts still sign with that account when it's _named explicitly_ (typically behind a user-approval prompt), and that's the path this flow uses.
+
+  **Chain-connection lifecycle is automatic.** The SDK reuses an existing chain client when `app.chain.connect({ ..., <name>: peopleChain })` was called upfront (matched by genesis), and falls back to opening a transient connection otherwise. For long-running apps, call `app.chain.connect` once at startup to avoid the cold-path cost.
+
+  ### `@parity/product-sdk-signer` — `SignerManager.getUserId()`
+
+  `SignerManager.getUserId()` wraps the existing `HostProvider.getUserId()` for callers that want to fetch the host primary username without going through a product-account-derivation flow. Returns `HostUnavailableError` when not connected via host, `DestroyedError` after `destroy()`.
+
+  ### Catalog bump — `@novasamatech/host-api` family `^0.8.7` → `^0.8.8`
+
+  `@novasamatech/host-api`, `@novasamatech/host-api-wrapper`, `@novasamatech/host-papp`, `@novasamatech/statement-store`, `@novasamatech/storage-adapter`, and `@novasamatech/substrate-slot-sr25519-wasm` move from `^0.8.7` to `^0.8.8`. The headline from upstream is the **legacy sign-request protocol** (PR #218): new `signRawLegacy` / `createTransactionLegacy` UserSession methods plus the matching SCALE codecs (`SignRawLegacyRequest`/`Response`, `CreateTransactionLegacyRequest`, `LegacyTransaction`). This is the protocol scaffolding the new `signMessageWithDotNsIdentity` flow relies on for signing with a wallet's identity account.
+
+  No session/secrets codec changes — `terminal`'s `testing.ts` codec mirror round-trips cleanly against 0.8.8; both interop suites pass.
+
+  ### Example
+
+  ```ts
+  import { createApp } from "@parity/product-sdk";
+  import { paseo_individuality } from "@parity/product-sdk-descriptors/paseo-individuality";
+
+  const app = await createApp({ name: "my-app" });
+
+  // Recommended: connect the People chain upfront to share one chainHead
+  // subscription across every subsequent identity sign.
+  await app.chain.connect({ people: paseo_individuality });
+
+  // No prior `app.wallet.connect()` required — the signing flow names the
+  // identity account directly and the host prompts the user to approve.
+  //
+  // Omit `username` to sign with the host's primary username (the one shown
+  // for the currently-logged-in user), or pass it explicitly to sign with a
+  // specific People-chain identity the user owns.
+  const { username, accountId, signature } =
+    await app.wallet.signMessageWithDotNsIdentity({
+      peopleChain: paseo_individuality,
+      message: "verifying ownership",
+    });
+  ```
+
+## 0.5.1
+
+### Patch Changes
+
+- acb2228: **Bump `@novasamatech/host-api` family from `^0.8.7-2` to `^0.8.7` (stable).**
+
+  Stable `0.8.7` is now published across the family (`host-api`, `host-api-wrapper`, `host-papp`, `statement-store`, `storage-adapter`, `substrate-slot-sr25519-wasm`). This bump removes the prerelease specifier from the published artifact — consumers see a cleaner semver range and get the same upstream code we've been testing against.
+
+  ### Delta vs `0.8.7-2`
+
+  - **`MAX_SSO_REQUEST_SIZE` raised** in `host-papp`: 256 KiB → 500 KiB. Larger Mobile-SSO statements now flow without splitting.
+  - **`ExpiryTooLowError` / `AccountFullError` constructors** in `statement-store` accept `bigint` instead of `number`. Internal — our code doesn't construct these directly.
+  - **New additive exports** in `statement-store`: `PRIORITY_EPOCH_OFFSET`, `createExpiryAllocator`, `ExpiryAllocator`, `submitWithRetry`, `isPriorityTooLow`, `SubmitRetryOptions`, `signAndSubmitStatement`, `submitStatementOnce`, `SubmitStatementParams`. Not consumed by product-sdk; opt-in for downstream callers.
+  - **No session/secrets codec changes.** The `testing.ts` codec mirror in `@parity/product-sdk-terminal` continues to round-trip through the real `SsoSessionManager` and `UserSecretRepository` against 0.8.7 — both interop tests pass.
+
+  No public API change on the product-sdk side; no migration needed.
+
+## 0.5.0
+
+### Minor Changes
+
+- 2124e02: **Bump `@novasamatech/host-api` family from `^0.8.6` to `^0.8.7-2`.** Picks up the upstream `deviceEncPubKey` addition on the V2 session schema (PR #212), the statement-store allowance-slot-prover fix (PR #214 — `createSr25519Prover` → `createSlotAccountProver`), and the `ExpiryTooLow` retry fix in `submitWithRetry`.
+
+  One consumer-visible behavioral change worth flagging up front:
+
+  > **CLI consumers using `@parity/product-sdk-terminal`** — host-papp `0.8.7-1` renamed the on-disk session storage key (`SsoSessionsV2` → `SsoSessionsV3`) and added a required `deviceEncPubKey: Bytes(65)` field on the persisted session. Sessions persisted from a previous CLI run will be invisible after upgrading; users will need to re-pair their phone the first time they launch the upgraded CLI. The `UserSecretsV2_<sessionId>.json` file format is unchanged.
+
+  ### What's new
+
+  **Upstream catalog bump.** `@novasamatech/host-api`, `@novasamatech/host-api-wrapper`, `@novasamatech/host-papp`, `@novasamatech/statement-store`, `@novasamatech/storage-adapter`, and `@novasamatech/substrate-slot-sr25519-wasm` move from `^0.8.6` to `^0.8.7-2`. Headlines from upstream (between `release: 0.8.6 (#208)` and `chore(release): publish 0.8.7-2`):
+
+  - **`deviceEncPubKey` on the V2 session schema** (upstream PR #212). The persisted session codec gains a required `deviceEncPubKey: Bytes(65)` — the paired phone's long-lived ECDH key, lifted from `HandshakeResponseV2.deviceEncPubKey`, used by the host's device-sync channel. The storage key was renamed `SsoSessionsV2 → SsoSessionsV3` in the same release; the old graceful-degrade for V2 blobs is gone.
+  - **Statement-store allowance-slot-prover fix** (upstream PR #214). `AllowanceService.getStatementStoreProver` now uses `createSlotAccountProver` instead of `createSr25519Prover` — fixes a signature-scheme mismatch when proving slot-account-derived secrets. No public API change on our side (our `getStatementStoreProver` wrapper passes through unchanged), but the proofs the returned prover emits are now of the correct scheme.
+  - **`ExpiryTooLow` retry handling in `submitWithRetry`** (upstream `73cb870`). Internal to host-papp/statement-store retry logic; no consumer-side change.
+
+  ### `@parity/product-sdk-terminal`
+
+  Internal codec mirror used by `createTestSession` updated to match host-papp 0.8.7-2's reshaped session schema:
+
+  - Appended `deviceEncPubKey: Bytes(65)` to the mirrored codec; the synthesized field reuses the remote peer's P-256 encryption pubkey (same value already used for `identityChatPublicKey` and `ssoEncPubKey`).
+  - Storage-key rename: `SsoSessionsV2.json` → `SsoSessionsV3.json`. The in-source unit tests and TSDoc references all updated.
+
+  No public-API change; `createTestSession`'s signature is unchanged. The interop test continues to round-trip the synthesized session through the real `SsoSessionManager` and `UserSecretRepository` to catch upstream drift early — both interop suites pass against host-papp 0.8.7-2.
+
+  ### `@parity/product-sdk-host`, `@parity/product-sdk-signer`, `@parity/product-sdk-statement-store`
+
+  Patch-bumped to signal "tested against host-api(-wrapper) 0.8.7-2" via the published peer-dep / catalog resolution. No source change; runtime behavior is unchanged.
+
+  ### Migration
+
+  **`@parity/product-sdk-terminal` — existing sessions need to be re-paired.** No source change required, but any sessions persisted to disk by a previous CLI run will be invisible after upgrading. host-papp 0.8.7-2 reads from `<storageDir>/<appId>_SsoSessionsV3.json`; the previous `SsoSessionsV2.json` path is no longer consulted, and the old graceful-degrade for stale blobs is gone.
+
+  What this means in practice:
+
+  - A user upgrading the CLI will see the same UX they'd see on a fresh install — `waitForSessions` returns no sessions until they complete a QR pairing.
+  - The old `SsoSessionsV2.json` file is not deleted, just ignored. Optional cleanup: surface a one-liner to the user ("we updated the session format, please re-pair") and `fs.unlink` the legacy path.
+  - The `UserSecretsV2_<sessionId>.json` file format is unchanged; legacy secrets files become orphaned (the new session has a different `sessionId`) but don't cause errors.
+  - Synthesized test sessions emitted by `createTestSession` automatically write to the new path — no test code change needed unless your tests asserted on the old filenames.
+
+## 0.4.0
+
+### Minor Changes
+
+- a2fd276: **Expose host-papp's allowance service through `@parity/product-sdk-terminal` with CLI-friendly defaults — including cache-only probes that never trigger a wallet prompt.**
+
+  Four new helpers:
+
+  - `getBulletinSigner(adapter, productId, sessionId?): Promise<PolkadotSigner>` — prompt-allowed fetch (cache hit, or wallet round-trip on miss).
+  - `getStatementStoreProver(adapter, productId, sessionId?): Promise<StatementProver>` — same for the statement-store path.
+  - `hasBulletinAllowance(adapter, productId, sessionId?): Promise<boolean>` — **cache-only probe**, never prompts the wallet. Resolves `true` when an allowance slot for `(sessionId, productId, bulletin)` is already cached on disk; `false` when it isn't. Use for login health checks, readiness probes, or any path that must not surface a phone dialog.
+  - `hasStatementStoreAllowance(adapter, productId, sessionId?): Promise<boolean>` — same for statement-store.
+
+  All four share the same defaulting + error idiom:
+
+  - `sessionId` defaults to the only paired session. When zero or more than one sessions are paired and no id is supplied, all four throw `AllowanceError` with `reason: 'NoSession'`.
+  - The fetching helpers (`getBulletinSigner` / `getStatementStoreProver`) unwrap host-papp's neverthrow `ResultAsync` to a `Promise<T>` that throws `AllowanceError` on failure — matching the throwy/async idiom of `createSessionSigner` and `requestResourceAllocation`.
+  - The cache-only helpers (`has*Allowance`) read host-papp's encrypted on-disk allowance file directly via a vendored mirror of host-papp's `AllowanceRepository` codec. The mirror will be retired once host-papp exposes a cache-only probe on its public surface; the public surface here won't change.
+
+  `AllowanceError` (and the `AllowanceErrorReason` / `AllowanceService` types) are now re-exported from `@parity/product-sdk-terminal`, so consumers don't need a direct `@novasamatech/host-papp` import.
+
+  ```ts
+  import {
+    createTerminalAdapter,
+    getBulletinSigner,
+    hasBulletinAllowance,
+    AllowanceError,
+  } from "@parity/product-sdk-terminal";
+
+  const adapter = createTerminalAdapter({ appId: "my-cli" });
+  // ... QR pair, await waitForSessions(adapter) ...
+
+  if (await hasBulletinAllowance(adapter, "my-cli.dot")) {
+    // happy path — no wallet prompt risk
+    const signer = await getBulletinSigner(adapter, "my-cli.dot");
+    await bulletinClient.tx.TransactionStorage.store({ data }).signAndSubmit(
+      signer
+    );
+  } else {
+    console.log("Approve the allowance request on your phone…");
+    const signer = await getBulletinSigner(adapter, "my-cli.dot");
+    // …
+  }
+  ```
+
+  The existing `@parity/product-sdk-terminal/host` subpath (`ensureSlotAccountSigner`, `requestResourceAllocation`, `createSlotAccountSigner`, `getCachedAllocation`) is unchanged. Use the `./host` subpath when you need explicit multi-session handling, batched allocation requests, or cache inspection.
+
+## 0.3.2
+
+### Patch Changes
+
+- d4bc935: Bump `@novasamatech/host-api`, `@novasamatech/host-api-wrapper`, `@novasamatech/host-papp`, `@novasamatech/statement-store`, and `@novasamatech/storage-adapter` from `^0.8.5` to `^0.8.6`.
+
+  0.8.6 lands RFC-0007 (PR #205 upstream — derive product entropy from `rootEntropySource`) and a `polkadot-api` bump to `2.1.6` (double-notification fix). The RFC-0007 work changes the on-disk session and secrets schemas:
+
+  - **Session** (`SsoSessions` → `SsoSessionsV2`): dropped the `Option` wrapper on `identityAccountId`, `identityChatPublicKey`, and `ssoEncPubKey` (all now required); appended `rootEntropySource: Bytes(32)` for the host's `host_derive_entropy` handler.
+  - **Secrets** (`UserSecrets` → `UserSecretsV2`): dropped `entropy` (now lives on the session as `rootEntropySource`); added the V2 `identityChatPrivateKey: Bytes(32)`.
+  - **Graceful-degrade removed.** Old-shape blobs no longer fall back to empty — they now throw at decode. A CLI on 0.8.5 disk state will need to re-pair after the consumer upgrades.
+
+  `host-api` and `host-api-wrapper` had no source changes in 0.8.6 (lockstep version tag only) — `host`, `signer`, and `statement-store` are patch-bumped to signal "tested against 0.8.6" via published peer-dep / catalog resolution; their runtime behavior is unchanged.
+
+  In `@parity/product-sdk-terminal`, the internal codec mirror for `createTestSession` was updated to match the 0.8.6 session and secrets shapes — including the storage-key rename to `*V2` — so synthesized test sessions round-trip cleanly through the real 0.8.6 `SsoSessionManager` / `UserSecretRepository`. No public-API change in any of the four packages.
+
 ## 0.3.1
 
 ### Patch Changes

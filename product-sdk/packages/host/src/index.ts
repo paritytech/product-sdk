@@ -98,3 +98,26 @@ export type {
 // Payments (RFC-0006)
 export { getPaymentManager } from "./payments.js";
 export type { PaymentManager, PaymentBalance, PaymentStatus, TopUpSource } from "./payments.js";
+
+// Notifications
+export { getNotificationManager } from "./notifications.js";
+export type {
+    NotificationManager,
+    NotificationId,
+    PushNotificationInput,
+    PushNotificationError,
+} from "./notifications.js";
+
+// Deep-link navigation
+export { navigateTo } from "./navigation.js";
+
+// Feature / chain support probes
+export { featureSupported, isChainSupported } from "./features.js";
+export type { Feature } from "./features.js";
+
+// Chain spec lookups
+export { getChainSpec } from "./chain-spec.js";
+export type { ChainSpec, ChainProperties } from "./chain-spec.js";
+
+// Transaction broadcast lifecycle
+export { broadcastTransaction, stopTransaction } from "./chain-transaction.js";

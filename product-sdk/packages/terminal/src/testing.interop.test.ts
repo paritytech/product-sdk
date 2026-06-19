@@ -115,7 +115,7 @@ describe("createTestSession interop with host-papp", () => {
         expect(result.isOk()).toBe(true);
         const secrets = result._unsafeUnwrap();
         expect(secrets).not.toBeNull();
-        expect(secrets!.entropy).toBeInstanceOf(Uint8Array);
+        expect(secrets!.identityChatPrivateKey).toBeInstanceOf(Uint8Array);
         expect(secrets!.ssSecret).toBeInstanceOf(Uint8Array);
         expect(secrets!.encrSecret).toBeInstanceOf(Uint8Array);
 

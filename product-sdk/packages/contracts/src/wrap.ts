@@ -61,9 +61,14 @@ function extractOverrides<T>(
 }
 
 /**
- * pallet-revive's own account, used as fallback origin for read-only queries
- * when no wallet is connected. The runtime API requires an origin, so we pass
- * this account when there is no connected one.
+ * pallet-revive's own account, used as the fallback origin for read-only
+ * queries when no wallet is connected. The runtime API requires an origin, so
+ * we pass this account when there is no connected one.
+ *
+ * Exported so other products can reuse the exact same read origin instead of
+ * re-deriving it: pass it as an explicit `defaultOrigin` / `registryOrigin`,
+ * or compare against it. Its SS58 (substrate generic, prefix 42) value is
+ * `5EYCAe5ijiYfhaAUBd6H9WGRTsvwFFc7GnhQkiHvBYxdvpbV`.
  *
  * This mirrors `Pallet::<T>::account_id()` in pallet-revive, which is
  * `PalletId(*b"py/reviv").into_account_truncating()`. The 32-byte AccountId is
@@ -72,7 +77,7 @@ function extractOverrides<T>(
  */
 const REVIVE_PALLET_ACCOUNT = new Uint8Array(32);
 REVIVE_PALLET_ACCOUNT.set(new TextEncoder().encode("modlpy/reviv"));
-const QUERY_FALLBACK_ORIGIN = ss58Address(REVIVE_PALLET_ACCOUNT) as SS58String;
+export const QUERY_FALLBACK_ORIGIN = ss58Address(REVIVE_PALLET_ACCOUNT) as SS58String;
 
 function resolveOrigin(
     defaults: ContractDefaults,
@@ -685,6 +690,14 @@ if (import.meta.vitest) {
 
         test("returns undefined when nothing available", () => {
             expect(resolveOrigin({})).toBeUndefined();
+        });
+
+        test("query fallback derives pallet-revive's keyless account", () => {
+            // Frozen public value: other products import QUERY_FALLBACK_ORIGIN
+            // to reuse this exact read origin. A regression here breaks them.
+            expect(QUERY_FALLBACK_ORIGIN).toBe("5EYCAe5ijiYfhaAUBd6H9WGRTsvwFFc7GnhQkiHvBYxdvpbV");
+            const defaults: ContractDefaults = {};
+            expect(resolveOrigin(defaults, undefined, true)).toBe(QUERY_FALLBACK_ORIGIN);
         });
     });
 

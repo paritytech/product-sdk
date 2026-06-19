@@ -1,5 +1,46 @@
 # @parity/product-sdk-descriptors
 
+## 0.6.2
+
+### Patch Changes
+
+- 8dd1232: chore(deps): bump polkadot-api to 2.1.6
+
+  Updates the `polkadot-api` catalog entry `^2.1.5` → `^2.1.6` (2.1.6 carries the
+  double-notification fix). Every published package resolves `polkadot-api`
+  through `catalog:`, so each one's published `dependencies` range moves to
+  `^2.1.6`. There is no source change in any package — these are patch bumps to
+  ship the new floor via the published `catalog:` resolution.
+
+  Releases the catalog bump from #223, which was merged to `main` without a
+  changeset.
+
+## 0.6.1
+
+### Patch Changes
+
+- 2124e02: **Regenerate paseo-asset-hub, summit-asset-hub, and summit-individuality descriptors against current runtimes.**
+
+  The auto-drift workflow flagged all three as stale against their live `codeHash`. Regenerated `.papi/metadata/*.scale` blobs and rebuilt bindings against the live runtimes — no public API or decode-shape change reached consumer packages (workspace build + full test suite clean against the regenerated bindings).
+
+## 0.6.0
+
+### Minor Changes
+
+- a2fd276: **Add the Summit Network (Web3 Summit) as a new environment.**
+
+  Adds `summit-asset-hub`, `summit-bulletin`, and `summit-individuality`
+  (the People chain) descriptors, and wires `summit` through the host
+  Bulletin RPC list, the cloud-storage network preset, and
+  `getChainAPI("summit")`. Purely additive — no existing environment,
+  descriptor, or endpoint changes.
+
+### Patch Changes
+
+- a2fd276: **Regenerate paseo-asset-hub and paseo-individuality descriptors against current runtimes.**
+
+  The auto-drift workflow flagged both chains as stale against their live `codeHash`. Regenerated `.papi/metadata/*.scale` blobs and rebuilt bindings against the live runtimes — no public API or decode-shape change reached consumer packages (workspace build + full test suite clean against the regenerated bindings).
+
 ## 0.5.2
 
 ### Patch Changes

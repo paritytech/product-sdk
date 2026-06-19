@@ -1,5 +1,65 @@
 # @parity/product-sdk-tx
 
+## 0.2.16
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.12
+
+## 0.2.15
+
+### Patch Changes
+
+- 8dd1232: chore(deps): bump polkadot-api to 2.1.6
+
+  Updates the `polkadot-api` catalog entry `^2.1.5` → `^2.1.6` (2.1.6 carries the
+  double-notification fix). Every published package resolves `polkadot-api`
+  through `catalog:`, so each one's published `dependencies` range moves to
+  `^2.1.6`. There is no source change in any package — these are patch bumps to
+  ship the new floor via the published `catalog:` resolution.
+
+  Releases the catalog bump from #223, which was merged to `main` without a
+  changeset.
+
+- Updated dependencies [8dd1232]
+  - @parity/product-sdk-keys@0.3.11
+
+## 0.2.14
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.10
+
+## 0.2.13
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.9
+
+## 0.2.12
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.8
+
+## 0.2.11
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.7
+
+## 0.2.10
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.6
+
+## 0.2.9
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.5
+
 ## 0.2.8
 
 ### Patch Changes

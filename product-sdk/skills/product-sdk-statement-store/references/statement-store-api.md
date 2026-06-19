@@ -101,10 +101,7 @@ type ConnectionCredentials =
 ```ts
 interface StatementStoreConfig {
   appName: string;
-  endpoint?: string;
-  pollIntervalMs?: number;
   defaultTtlSeconds?: number;
-  enablePolling?: boolean;
   transport?: StatementTransport;
 }
 ```

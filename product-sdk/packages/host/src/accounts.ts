@@ -120,8 +120,12 @@ export interface AccountsProvider {
         account: ProductAccount,
         signerType?: "signPayload" | "createTransaction",
     ): PolkadotSigner;
-    /** Build a `PolkadotSigner` for one of the user's existing wallet accounts. */
-    getLegacyAccountSigner(account: { publicKey: Uint8Array }): PolkadotSigner;
+    /**
+     * Build a `PolkadotSigner` for one of the user's existing wallet accounts.
+     * `name` is accepted for callsite ergonomics but unused — the signer is
+     * derived from `publicKey` alone.
+     */
+    getLegacyAccountSigner(account: { publicKey: Uint8Array; name?: string }): PolkadotSigner;
     subscribeAccountConnectionStatus(
         callback: (status: HostAccountConnectionStatusSubscribeItem) => void,
     ): HostSubscription;

@@ -1,0 +1,12 @@
+{
+    "version": 0,
+    "descriptorPath": "generated",
+    "entries": {
+        "summit_asset_hub": {
+            "wsUrl": "wss://summit-asset-hub-rpc.polkadot.io",
+            "metadata": "../../.papi/metadata/summit_asset_hub.scale",
+            "genesis": "0xf388dc6d6cdf6fb77eac3c4a91f31bc0c8642b142f1a757512ab7849f9f70660",
+            "codeHash": "0x9ccee8fcad38a5068147eba6f7f62d66d244c883092a9fcb1378e6d0f8258609"
+        }
+    }
+}

@@ -338,6 +338,26 @@ export class SignerManager {
     // ── Host-only: Product Account API ─────────────────────────────
 
     /**
+     * Fetch the connected user's host identity.
+     *
+     * This uses the Host API identity permission path and is only available
+     * when connected through the host provider. The primary username can be
+     * used by higher-level helpers that need to bind an action to the user's
+     * DotNS / people username.
+     */
+    async getUserId(): Promise<Result<{ primaryUsername: string }, SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(
+                new HostUnavailableError("User identity requires a host provider connection"),
+            );
+        }
+        return host.getUserId();
+    }
+
+    /**
      * Get an app-scoped product account from the host.
      *
      * Product accounts are derived by the host wallet for each app, identified
@@ -504,6 +524,7 @@ export class SignerManager {
                     ss58Prefix: this.ss58Prefix,
                     maxRetries: this.maxRetries,
                     retryDelay: 500,
+                    dappName: this.dappName,
                 });
             case "dev":
                 return new DevProvider({
@@ -886,6 +907,72 @@ if (import.meta.vitest) {
             expect(signals).toHaveLength(2);
             expect(signals[0].aborted).toBe(true);
             expect(signals[1].aborted).toBe(false);
+            manager.destroy();
+        });
+    });
+
+    describe("SignerManager.getUserId", () => {
+        test("returns HostUnavailableError when not connected via host (dev provider)", async () => {
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+            });
+            await manager.connect("dev");
+            await flush();
+
+            // Dev provider is active, not host — getUserId() should refuse
+            // rather than attempt a host RPC.
+            const result = await manager.getUserId();
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostUnavailableError);
+                expect(result.error.message).toMatch(/host provider/i);
+            }
+            manager.destroy();
+        });
+
+        test("returns DestroyedError after destroy()", async () => {
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+            });
+            await manager.connect("dev");
+            await flush();
+            manager.destroy();
+
+            const result = await manager.getUserId();
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(DestroyedError);
+            }
+        });
+
+        test("delegates to HostProvider.getUserId when connected via host", async () => {
+            // Build a host-shaped fake provider that satisfies the SignerManager's
+            // `activeProvider === "host"` check and exposes a getUserId that
+            // resolves to a known username.
+            const fakeHostProvider = {
+                type: "host" as const,
+                connect: vi.fn().mockResolvedValue(ok([mockAccount()])),
+                disconnect: vi.fn(),
+                onStatusChange: vi.fn().mockReturnValue(() => {}),
+                onAccountsChange: vi.fn().mockReturnValue(() => {}),
+                getUserId: vi.fn().mockResolvedValue(ok({ primaryUsername: "alice.dot" })),
+            };
+
+            const manager = new SignerManager({
+                createProvider: (type) =>
+                    type === "host"
+                        ? (fakeHostProvider as unknown as SignerProvider)
+                        : mockProvider(),
+            });
+            await manager.connect("host");
+            await flush();
+
+            const result = await manager.getUserId();
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value.primaryUsername).toBe("alice.dot");
+            }
+            expect(fakeHostProvider.getUserId).toHaveBeenCalledTimes(1);
             manager.destroy();
         });
     });

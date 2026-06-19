@@ -7,6 +7,7 @@
 import type { LogLevel } from "@parity/product-sdk-logger";
 import type { CloudStorageEnvironment } from "@parity/product-sdk-cloud-storage";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
+import type { PeopleUsernameChain } from "../identity/dotns.js";
 import type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";
 
 export type { LogLevel };
@@ -46,6 +47,17 @@ export interface WalletApi {
     selectAccount(address: string): void;
     /** Sign an arbitrary message */
     signMessage(message: string | Uint8Array): Promise<Uint8Array>;
+    /**
+     * Sign a message with the account that owns a People / People Lite DotNS identity.
+     *
+     * Pass the People / Individuality chain descriptor used for username lookup.
+     * Pass `username` to choose a specific identity. When omitted, the SDK first
+     * asks the host for the user's primary DotNS name and signs with the account
+     * that owns that username.
+     */
+    signMessageWithDotNsIdentity(
+        args: SignMessageWithDotNsIdentityArgs,
+    ): Promise<DotNsIdentitySignature>;
     /** Subscribe to account changes */
     onAccountChange(callback: (account: Account | null) => void): () => void;
     /** Get product-scoped account (container mode only) */
@@ -160,6 +172,50 @@ export interface Account {
     name?: string;
     /** Source of the account (host, dev signer, etc.) */
     source: string;
+}
+
+/** Arguments for signing with a DotNS / People username identity. */
+export interface SignMessageWithDotNsIdentityArgs {
+    /**
+     * PAPI descriptor for the People / Individuality chain that exposes
+     * `Resources.UsernameOwnerOf`.
+     *
+     * The SDK reuses an already-connected client when one matches this
+     * descriptor's genesis. For long-running apps, call
+     * `app.chain.connect({ ..., <name>: peopleChain })` once at startup so
+     * every subsequent `signMessageWithDotNsIdentity` call reuses the same
+     * chainHead subscription. When the chain isn't already connected, the
+     * SDK opens a transient connection for the lookup; that connection then
+     * lives in the chain-client cache for the rest of the process.
+     */
+    peopleChain: PeopleUsernameChain;
+    /**
+     * People / People Lite username to resolve before signing.
+     *
+     * If omitted, the SDK fetches the primary DotNS name associated with the
+     * connected user from the host identity API. Note: that fetch triggers a
+     * host identity-permission prompt, so callers who want to avoid the
+     * dialog on a likely-miss should resolve the username themselves first.
+     *
+     * The string is UTF-8 encoded and used as the storage key on
+     * `Resources.UsernameOwnerOf` exactly as supplied — no `.dot` suffix
+     * handling is applied. On paseo-individuality today usernames are
+     * stored as bare strings (e.g. `alice`, not `alice.dot`); pass the
+     * exact value the chain has registered.
+     */
+    username?: string;
+    /** Message to sign. Strings are UTF-8 encoded before signing. */
+    message: string | Uint8Array;
+}
+
+/** Signature produced for a DotNS / People username identity. */
+export interface DotNsIdentitySignature {
+    /** Username used for the lookup. */
+    username: string;
+    /** Raw `AccountId32` owner resolved from `Resources.UsernameOwnerOf`. */
+    accountId: `0x${string}`;
+    /** Signature bytes returned by the host wallet. */
+    signature: Uint8Array;
 }
 
 // Re-export ChainDefinition from polkadot-api for convenience

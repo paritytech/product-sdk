@@ -1,5 +1,109 @@
 # @parity/product-sdk-contracts
 
+## 0.8.2
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.8.3
+- @parity/product-sdk-keys@0.3.12
+- @parity/product-sdk-tx@0.2.16
+
+## 0.8.1
+
+### Patch Changes
+
+- 8dd1232: chore(deps): bump polkadot-api to 2.1.6
+
+  Updates the `polkadot-api` catalog entry `^2.1.5` → `^2.1.6` (2.1.6 carries the
+  double-notification fix). Every published package resolves `polkadot-api`
+  through `catalog:`, so each one's published `dependencies` range moves to
+  `^2.1.6`. There is no source change in any package — these are patch bumps to
+  ship the new floor via the published `catalog:` resolution.
+
+  Releases the catalog bump from #223, which was merged to `main` without a
+  changeset.
+
+- Updated dependencies [8dd1232]
+  - @parity/product-sdk-keys@0.3.11
+  - @parity/product-sdk-signer@0.8.2
+  - @parity/product-sdk-tx@0.2.15
+
+## 0.8.0
+
+### Minor Changes
+
+- 0ce53f6: **Export `QUERY_FALLBACK_ORIGIN` — pallet-revive's keyless account used as the read-only query origin.**
+
+  Other products (e.g. the playground CLI) pass an explicit `defaultOrigin` /
+  `registryOrigin` for read-only registry dry-runs and were re-deriving
+  pallet-revive's account (`PalletId(*b"py/reviv").into_account_truncating()` =
+  `5EYCAe5ijiYfhaAUBd6H9WGRTsvwFFc7GnhQkiHvBYxdvpbV`) by mirroring the byte
+  derivation. The SDK already computes this internally as its read-only fallback
+  origin; it is now exported so consumers can import it instead of duplicating
+  the derivation:
+
+  ```ts
+  import { QUERY_FALLBACK_ORIGIN } from "@parity/product-sdk-contracts";
+  ```
+
+  No behaviour change — only a new export.
+
+## 0.7.7
+
+### Patch Changes
+
+- Updated dependencies [c39332e]
+- Updated dependencies [c39332e]
+  - @parity/product-sdk-signer@0.8.1
+  - @parity/product-sdk-keys@0.3.10
+  - @parity/product-sdk-tx@0.2.14
+
+## 0.7.6
+
+### Patch Changes
+
+- Updated dependencies [9ce5ab2]
+  - @parity/product-sdk-signer@0.8.0
+  - @parity/product-sdk-keys@0.3.9
+  - @parity/product-sdk-tx@0.2.13
+
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-signer@0.7.0
+  - @parity/product-sdk-keys@0.3.8
+  - @parity/product-sdk-tx@0.2.12
+
+## 0.7.4
+
+### Patch Changes
+
+- Updated dependencies [2124e02]
+  - @parity/product-sdk-signer@0.6.4
+  - @parity/product-sdk-keys@0.3.7
+  - @parity/product-sdk-tx@0.2.11
+
+## 0.7.3
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.6.3
+- @parity/product-sdk-keys@0.3.6
+- @parity/product-sdk-tx@0.2.10
+
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [d4bc935]
+  - @parity/product-sdk-signer@0.6.2
+  - @parity/product-sdk-keys@0.3.5
+  - @parity/product-sdk-tx@0.2.9
+
 ## 0.7.1
 
 ### Patch Changes
