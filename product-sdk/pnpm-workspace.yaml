@@ -2,10 +2,9 @@ packages:
   - "packages/*"
   - "examples/*"
   - "scripts/bench-consumer"
-
 catalog:
-  "@novasamatech/host-api": ^0.8.9
-  "@novasamatech/host-api-wrapper": ^0.8.9
+  "@novasamatech/host-api": ^0.8.10
+  "@novasamatech/host-api-wrapper": ^0.8.10
   "@novasamatech/sdk-statement": ^0.6.0
   "@parity/host-api-test-sdk": ^0.9.0
   "@playwright/test": ^1.60.0
@@ -18,14 +17,11 @@ catalog:
   viem: ^2.52.0
   vite: ^6.3.0
   vitest: ^3.1.4
-
 overrides:
   "@polkadot-api/json-rpc-provider": "^0.2.0"
-
 onlyBuiltDependencies:
   - "@biomejs/biome"
   - "esbuild"
-
 allowBuilds:
   "@biomejs/biome": true
   esbuild: true
