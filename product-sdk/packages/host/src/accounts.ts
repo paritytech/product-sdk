@@ -30,11 +30,15 @@ import type {
     HexString,
     HostAccountConnectionStatusSubscribeItem,
     HostAccountCreateProofError,
+    HostAccountGetAliasResponse as WireAlias,
     HostAccountGetError,
     HostGetUserIdError,
     HostRequestLoginError,
     HostRequestLoginResponse,
     HostSignPayloadData,
+    LegacyAccount as WireLegacyAccount,
+    ProductAccount as WireProductAccount,
+    ProductAccountId,
     RingLocation,
     TrUApiClient,
 } from "@parity/truapi";
@@ -46,43 +50,49 @@ import type { HostSubscription } from "./types.js";
 /** Ring location for Ring VRF proofs (`{ genesisHash, ringRootHash, hints? }`). Re-exported from `@parity/truapi`. */
 export type { RingLocation } from "@parity/truapi";
 
+// The account/alias shapes come from `@parity/truapi`'s generated specs; we
+// derive the SDK-facing views from them so the field inventory tracks the
+// protocol automatically, and override only the byte fields the adapter
+// decodes (the wire types carry `0x`-prefixed `HexString`s, whereas these
+// surface decoded `Uint8Array`s). Same pattern as `@parity/product-sdk-statement-store`.
+
 /**
  * One of the user's existing wallet accounts, surfaced through the host and
  * identified by its public key and an optional name. Contrast with
  * {@link ProductAccount}, which is also user-controlled but derived by the
  * host for a specific app rather than picked from the user's existing keys.
+ *
+ * Derived from `@parity/truapi`'s `LegacyAccount`, with `publicKey` decoded to bytes.
  */
-export interface HostAccount {
+export type HostAccount = Omit<WireLegacyAccount, "publicKey"> & {
+    /** Raw public key bytes. */
     publicKey: Uint8Array;
-    name?: string;
-}
+};
 
 /**
  * A product account — an app-scoped derived account managed by the host wallet.
  *
  * The host derives a unique keypair for each app (identified by `dotNsIdentifier`)
  * so apps get their own account that the user controls but is scoped to the app.
+ *
+ * Combines `@parity/truapi`'s `ProductAccountId` (the `{ dotNsIdentifier,
+ * derivationIndex }` lookup key) with the `ProductAccount` payload, with
+ * `publicKey` decoded to bytes.
  */
-export interface ProductAccount {
-    /** App identifier (e.g., "mark3t.dot"). */
-    dotNsIdentifier: string;
-    /** Derivation index within the app scope. Default: 0 */
-    derivationIndex: number;
-    /** Raw public key (32 bytes). */
-    publicKey: Uint8Array;
-}
+export type ProductAccount = ProductAccountId &
+    Omit<WireProductAccount, "publicKey"> & {
+        /** Raw public key bytes. */
+        publicKey: Uint8Array;
+    };
 
 /**
  * A contextual alias obtained from Ring VRF.
  *
  * Proves account membership in a ring without revealing which account.
+ *
+ * Derived from `@parity/truapi`'s alias response, with both fields decoded to bytes.
  */
-export interface ContextualAlias {
-    /** Ring context (32 bytes). */
-    context: Uint8Array;
-    /** The Ring VRF alias bytes. */
-    alias: Uint8Array;
-}
+export type ContextualAlias = { [K in keyof WireAlias]: Uint8Array };
 
 /**
  * Accounts provider handle, backed by `truApi.account.*` / `truApi.signing.*`.
