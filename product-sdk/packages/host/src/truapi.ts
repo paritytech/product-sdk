@@ -18,6 +18,7 @@ import { scale } from "@parity/truapi";
 import type {
     AllocatableResource as TruAllocatableResource,
     AllocationOutcome as TruAllocationOutcome,
+    GenericError,
     HexString,
     RemotePermission as TruRemotePermission,
     TrUApiClient,
@@ -30,15 +31,40 @@ import type { HostSubscription, Statement, StatementProof } from "./types.js";
 const log = createLogger("host");
 
 /**
+ * The error shapes `@parity/truapi` surfaces on the `Err` channel of a host
+ * call, once unwrapped from the versioned wire envelope. Every host error union
+ * is built from these:
+ *
+ * - the catch-all {@link GenericError} (`{ reason }`),
+ * - a unit tagged variant (`{ tag }`), or
+ * - a tagged variant carrying a reason (`{ tag, value: { reason } }`).
+ *
+ * `GenericError` is imported from `@parity/truapi`; the `{ tag }` members are a
+ * deliberate widening of truapi's per-domain named variants (the formatter is
+ * tag-agnostic). truapi has no umbrella error union to import today — once it
+ * exports a canonical `HostError` / tagged-error union from codegen, replace
+ * these local members with that import so the type is protocol-sourced rather
+ * than hand-widened.
+ */
+export type HostError =
+    | GenericError
+    | { tag: string; value?: undefined }
+    | { tag: string; value: { reason: string } };
+
+/** Narrow an unknown `Err`-channel value to a {@link HostError}. */
+function isHostError(error: unknown): error is HostError {
+    if (error == null || typeof error !== "object") return false;
+    const obj = error as Record<string, unknown>;
+    return typeof obj.reason === "string" || typeof obj.tag === "string";
+}
+
+/**
  * Extract a human-readable message from a host-side error.
  *
- * TruAPI errors arrive already unwrapped from their versioned wire envelope, in
- * one of a few shapes: the catch-all `GenericError` (`{ reason }`), a tagged
- * variant carrying a reason (`{ tag, value: { reason } }`), or a unit tagged
- * variant (`{ tag }`). For resilience it also still unwraps the legacy novasama
- * envelope (`{ tag: "v1", value: { name, message } }`), since this is a public
- * helper and the surfaces still on the novasama wrapper (PAPI provider, accounts)
- * may surface that shape.
+ * Renders the {@link HostError} shapes `@parity/truapi` surfaces. Accepts
+ * `unknown` because it is also the catch-all formatter for the wrappers'
+ * `throw new Error(...)` messages, so it falls back to `Error`/string/JSON
+ * rendering for anything that isn't a recognized host error.
  *
  * Exported for the higher-level wrappers (`requestPermission`,
  * `deriveEntropy`, etc.) that build their `throw new Error(...)` messages.
@@ -47,31 +73,22 @@ export function formatHostError(error: unknown): string {
     if (error instanceof Error) return error.message;
     if (typeof error === "string") return error;
 
-    if (error != null && typeof error === "object") {
-        const obj = error as Record<string, unknown>;
-
-        // TruAPI GenericError: { reason }
-        if (typeof obj.reason === "string") return obj.reason;
-
-        // Tagged error variant: { tag, value? }
-        if (typeof obj.tag === "string") {
-            const value = obj.value;
-            if (value != null && typeof value === "object") {
-                const inner = value as Record<string, unknown>;
-                // TruAPI tagged error carrying a reason: { tag, value: { reason } }
-                if (typeof inner.reason === "string") return `${obj.tag}: ${inner.reason}`;
-                // Legacy novasama envelope: { tag: "v1", value: { name, message } }
-                if (typeof inner.message === "string") {
-                    return typeof inner.name === "string"
-                        ? `${inner.name}: ${inner.message}`
-                        : inner.message;
-                }
+    if (isHostError(error)) {
+        if ("tag" in error) {
+            // Tagged variant carrying a reason: { tag, value: { reason } }
+            if (error.value != null && typeof error.value.reason === "string") {
+                return `${error.tag}: ${error.value.reason}`;
             }
             // Unit tagged variant, e.g. { tag: "Full" } / { tag: "PermissionDenied" }
-            return obj.tag;
+            return error.tag;
         }
+        // GenericError: { reason }
+        return error.reason;
+    }
 
-        if (typeof obj.message === "string") return obj.message;
+    if (error != null && typeof error === "object" && "message" in error) {
+        const message = (error as { message: unknown }).message;
+        if (typeof message === "string") return message;
     }
 
     try {
@@ -376,22 +393,19 @@ if (import.meta.vitest) {
         expect(await createHostPreimageManager()).toBeNull();
     });
 
-    test("formatHostError renders TruAPI and legacy error shapes", () => {
-        // TruAPI GenericError
+    test("formatHostError renders the TruAPI error shapes", () => {
+        // GenericError: { reason }
         expect(formatHostError({ reason: "boom" })).toBe("boom");
-        // TruAPI tagged error carrying a reason
+        // Tagged variant carrying a reason: { tag, value: { reason } }
         expect(formatHostError({ tag: "Unknown", value: { reason: "boom" } })).toBe(
             "Unknown: boom",
         );
-        // TruAPI unit tagged variant
+        // Unit tagged variant: { tag }
         expect(formatHostError({ tag: "Full" })).toBe("Full");
-        // Plain Error / string
+        // Catch-all fallbacks for non-host-error input
         expect(formatHostError(new Error("plain"))).toBe("plain");
         expect(formatHostError("string err")).toBe("string err");
-        // Legacy novasama envelope still handled
-        expect(
-            formatHostError({ tag: "v1", value: { name: "GenericError", message: "boom" } }),
-        ).toBe("GenericError: boom");
+        expect(formatHostError({ message: "loose" })).toBe("loose");
     });
 
     test("enum / hex helpers", () => {

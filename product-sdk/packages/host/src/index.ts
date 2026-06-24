@@ -53,6 +53,7 @@ export {
 export type {
     TruApi,
     HexString,
+    HostError,
     PreimageManager,
     ResultAsync,
     AllocatableResource,
