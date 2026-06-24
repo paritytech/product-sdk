@@ -26,25 +26,20 @@ import { getClient, subscribeWithInterrupt } from "./transport.js";
 import { unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
-/** Available balance for the user's payment account (`{ available }`). Re-exported from `@parity/truapi`. */
-export type PaymentBalance = HostPaymentBalanceSubscribeItem;
-
-/** Status of an in-flight payment request (`{ tag: "Processing" | "Completed" | "Failed" }`). Re-exported from `@parity/truapi`. */
-export type PaymentStatus = HostPaymentStatusSubscribeItem;
-
-/** Source for {@link PaymentManager.topUp} (`ProductAccount` / `PrivateKey` / `Coins`, hex keys). Re-exported from `@parity/truapi`. */
-export type TopUpSource = PaymentTopUpSource;
-
 /**
  * Payment manager handle. Exposes balance subscription, top-up, payment
  * requests, and payment-status subscription.
+ *
+ * The balance / status / top-up-source shapes are `@parity/truapi`'s
+ * `HostPaymentBalanceSubscribeItem`, `HostPaymentStatusSubscribeItem`, and
+ * `PaymentTopUpSource` — used directly rather than re-aliased.
  */
 export interface PaymentManager {
     subscribeBalance(
-        callback: (balance: PaymentBalance) => void,
+        callback: (balance: HostPaymentBalanceSubscribeItem) => void,
         purse?: PaymentPurseId,
     ): HostSubscription;
-    topUp(amount: Balance, source: TopUpSource, into?: PaymentPurseId): Promise<void>;
+    topUp(amount: Balance, source: PaymentTopUpSource, into?: PaymentPurseId): Promise<void>;
     requestPayment(
         amount: Balance,
         destination: HexString,
@@ -52,7 +47,7 @@ export interface PaymentManager {
     ): Promise<{ id: string }>;
     subscribePaymentStatus(
         paymentId: string,
-        callback: (status: PaymentStatus) => void,
+        callback: (status: HostPaymentStatusSubscribeItem) => void,
     ): HostSubscription;
 }
 

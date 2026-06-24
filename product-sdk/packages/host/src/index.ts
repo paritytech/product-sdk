@@ -97,7 +97,12 @@ export type {
 
 // Payments (RFC-0006)
 export { getPaymentManager } from "./payments.js";
-export type { PaymentManager, PaymentBalance, PaymentStatus, TopUpSource } from "./payments.js";
+export type { PaymentManager } from "./payments.js";
+export type {
+    HostPaymentBalanceSubscribeItem,
+    HostPaymentStatusSubscribeItem,
+    PaymentTopUpSource,
+} from "@parity/truapi";
 
 // Notifications
 export { getNotificationManager } from "./notifications.js";
