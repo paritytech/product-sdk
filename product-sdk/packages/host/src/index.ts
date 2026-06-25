@@ -51,11 +51,8 @@ export type {
     PreimageManager,
     ResultAsync,
     AllocatableResource,
-    AllocatableResourceTag,
     AllocationOutcome,
-    AllocationOutcomeTag,
     RemotePermission,
-    RemotePermissionTag,
 } from "./truapi.js";
 
 // Accounts — host wallet accounts, product accounts, Ring VRF, and signers.

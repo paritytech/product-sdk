@@ -14,11 +14,11 @@
 
 import { scale } from "@parity/truapi";
 import type {
-    AllocatableResource as TruAllocatableResource,
-    AllocationOutcome as TruAllocationOutcome,
+    AllocatableResource,
+    AllocationOutcome,
     GenericError,
     HexString,
-    RemotePermission as TruRemotePermission,
+    RemotePermission,
     TrUApiClient,
 } from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
@@ -216,33 +216,13 @@ export async function createHostPreimageManager(): Promise<PreimageManager | nul
 // Resource allocation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Resource types requestable via {@link requestResourceAllocation}.
- * Re-exported from `@parity/truapi` so variant renames surface as compile
- * errors, not runtime failures.
- */
-export type AllocatableResource = TruAllocatableResource;
-
-/** Tag-only view of {@link AllocatableResource} for places that just need the variant name. */
-export type AllocatableResourceTag = AllocatableResource["tag"];
-
-/**
- * Per-resource outcome from {@link requestResourceAllocation}: a string union
- * `"Allocated" | "Rejected" | "NotAvailable"` (RFC-10).
- */
-export type AllocationOutcome = TruAllocationOutcome;
-
-/** Alias of {@link AllocationOutcome}; the outcome value *is* its tag (a string union). */
-export type AllocationOutcomeTag = AllocationOutcome;
-
-/**
- * Remote permission the dapp can ask the host to grant via
- * {@link requestPermission}. Re-exported from `@parity/truapi`.
- */
-export type RemotePermission = TruRemotePermission;
-
-/** Tag-only view of {@link RemotePermission}. */
-export type RemotePermissionTag = RemotePermission["tag"];
+// Resource-allocation / permission types, re-exported verbatim from
+// `@parity/truapi` (imported above for the local signatures):
+// - `AllocatableResource` — resource types requestable via `requestResourceAllocation`.
+// - `AllocationOutcome` — per-resource outcome, the string union
+//   `"Allocated" | "Rejected" | "NotAvailable"` (RFC-10).
+// - `RemotePermission` — permission the dapp asks the host to grant via `requestPermission`.
+export type { AllocatableResource, AllocationOutcome, RemotePermission };
 
 /**
  * Request the host to pre-allocate one or more resource allowances.
