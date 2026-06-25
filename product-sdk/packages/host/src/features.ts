@@ -21,8 +21,10 @@ const log = createLogger("host:features");
  * A feature the host can be probed for via {@link featureSupported}.
  *
  * The only variant today is `Chain`, carrying the chain's `0x`-prefixed genesis
- * hash. Modeled with the hash inline (the truapi wire type nests it as
- * `{ genesisHash }`); new variants surface here as a widening of the union.
+ * hash. This is a flattened form of truapi's `HostFeatureSupportedRequest`,
+ * which nests the hash as `{ tag: "Chain"; value: { genesisHash } }` — we
+ * inline `value` as the `HexString` for ergonomics and re-nest it at the call
+ * site. New variants surface here as a widening of the union.
  */
 export type Feature = { tag: "Chain"; value: HexString };
 
