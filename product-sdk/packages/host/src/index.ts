@@ -40,13 +40,7 @@ export {
     requestResourceAllocation,
     createProofAuthorized,
     formatHostError,
-    // Enum / Result / hex helpers
-    enumValue,
-    isEnumVariant,
-    assertEnumVariant,
-    unwrapResultOrThrow,
-    resultOk,
-    resultErr,
+    // Hex helpers
     toHex,
     fromHex,
 } from "./truapi.js";

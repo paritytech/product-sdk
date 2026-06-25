@@ -195,8 +195,6 @@ if you still pass it, and submitted statements look the same on the wire.
 across the surface are `{ tag }` (with a `value` only when the variant carries data),
 so for example `AllocationOutcome` is the string union
 `"Allocated" | "Rejected" | "NotAvailable"` and you check `outcome === "Allocated"`
-rather than `outcome.tag === "Allocated"`.
-
-The `enumValue` / `isEnumVariant` / `assertEnumVariant` helpers are still exported
-from `@parity/product-sdk-host` for the occasional hand-built payload, but you won't
-need them for normal calls anymore.
+rather than `outcome.tag === "Allocated"`. truapi's generated client wraps the
+versioned wire envelope internally, so you no longer build `{ tag: "v1", … }`
+payloads by hand.

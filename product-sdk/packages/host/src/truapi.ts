@@ -12,8 +12,6 @@
  * @module
  */
 
-import { ok as resultOk, err as resultErr, type Result } from "neverthrow";
-
 import { scale } from "@parity/truapi";
 import type {
     AllocatableResource as TruAllocatableResource,
@@ -114,58 +112,8 @@ export function unwrapHostResult<T, E>(result: ResultAsync<T, E>, label: string)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Enum / Result / hex helpers
-//
-// `@parity/truapi`'s generated client wraps the versioned wire envelope
-// internally, so most callers no longer build these by hand. They are kept as
-// part of the public surface (and used by the surfaces still on novasama) as
-// thin, dependency-light shims.
+// Hex helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Construct a tagged enum variant, e.g. `enumValue("ChainSubmit")` or
- * `enumValue("v1", payload)`. Matches the `{ tag, value }` shape used across
- * the host protocol.
- */
-export function enumValue<Tag extends string>(tag: Tag): { tag: Tag; value?: undefined };
-export function enumValue<Tag extends string, Value>(
-    tag: Tag,
-    value: Value,
-): { tag: Tag; value: Value };
-export function enumValue<Tag extends string, Value>(
-    tag: Tag,
-    value?: Value,
-): { tag: Tag; value?: Value } {
-    return { tag, value };
-}
-
-/** Check whether a value is a specific tagged enum variant. */
-export function isEnumVariant<Tag extends string>(
-    value: unknown,
-    tag: Tag,
-): value is { tag: Tag; value?: unknown } {
-    return value != null && typeof value === "object" && (value as { tag?: unknown }).tag === tag;
-}
-
-/** Assert that a value is a specific tagged enum variant, throwing if not. */
-export function assertEnumVariant<Tag extends string>(
-    value: unknown,
-    tag: Tag,
-): asserts value is { tag: Tag; value?: unknown } {
-    if (!isEnumVariant(value, tag)) {
-        throw new Error(`Expected enum variant "${tag}", got ${formatHostError(value)}`);
-    }
-}
-
-/** Create an Ok result (re-exported from `neverthrow`). */
-export { resultOk, resultErr };
-
-/** Unwrap a neverthrow `Result`, throwing the error channel on `Err`. */
-export function unwrapResultOrThrow<T, E>(result: Result<T, E>): T {
-    if (result.isOk()) return result.value;
-    const error = result.error;
-    throw error instanceof Error ? error : new Error(formatHostError(error));
-}
 
 /** Convert bytes to a `0x`-prefixed lower-case hex string. */
 export function toHex(bytes: Uint8Array): HexString {
@@ -408,11 +356,7 @@ if (import.meta.vitest) {
         expect(formatHostError({ message: "loose" })).toBe("loose");
     });
 
-    test("enum / hex helpers", () => {
-        expect(enumValue("v1", 42)).toEqual({ tag: "v1", value: 42 });
-        expect(enumValue("ChainSubmit")).toEqual({ tag: "ChainSubmit", value: undefined });
-        expect(isEnumVariant({ tag: "Foo" }, "Foo")).toBe(true);
-        expect(isEnumVariant({ tag: "Foo" }, "Bar")).toBe(false);
+    test("hex helpers", () => {
         expect(toHex(new Uint8Array([0xde, 0xad]))).toBe("0xdead");
         expect(Array.from(fromHex("0xdead"))).toEqual([0xde, 0xad]);
     });
