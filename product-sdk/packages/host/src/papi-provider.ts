@@ -48,10 +48,13 @@ import type {
     StorageQueryType,
     TrUApiClient,
 } from "@parity/truapi";
+import { createLogger } from "@parity/product-sdk-logger";
 
 import { subscribeWithInterrupt } from "./transport.js";
 import { formatHostError } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
+
+const log = createLogger("host:papi");
 
 /** JSON-RPC internal-error code used for every host-side failure (matches the upstream). */
 const JSON_RPC_INTERNAL_ERROR = -32603;
@@ -225,12 +228,11 @@ export function createHostPapiProvider(
                 case "chainHead_v1_follow": {
                     const [withRuntime] = params as [boolean];
                     const syntheticSubId = getNextSubId();
-                    // Hold the handle in a ref so the Stop branch can release the
-                    // host subscription BEFORE forwarding the event: the consumer's
-                    // substrate-client refollows synchronously inside the handler,
-                    // and the transport dedupes by (method, payload-hash) — unless
-                    // this dead subscription is gone first, the refollow shares it
-                    // and never reaches the host, so events stop flowing.
+                    // The Stop branch unsubscribes its own host subscription, but the
+                    // handle is this call's return value — the ref breaks that
+                    // chicken-and-egg. (Releasing before forwarding the Stop is just
+                    // cleanup; the consumer's synchronous refollow gets a fresh wire
+                    // subscription either way.)
                     const ref: { handle?: HostSubscription } = {};
                     ref.handle = subscribeWithInterrupt(
                         chain.followHeadSubscribe({ request: { genesisHash, withRuntime } }),
@@ -422,7 +424,20 @@ export function createHostPapiProvider(
 
         return {
             send(message) {
-                handleMessage(message);
+                // A synchronous throw inside a handler (e.g. a malformed positional
+                // param) must not leave the JSON-RPC request unsettled — the caller
+                // would hang. Surface it as an error response for the request id.
+                try {
+                    handleMessage(message);
+                } catch (error) {
+                    // Handlers must settle the request themselves; reaching here means a
+                    // synchronous throw before any response was sent. (A handler that
+                    // sends then throws would double-respond — none do today.)
+                    log.warn("send: handler threw before settling the request", {
+                        error: formatHostError(error),
+                    });
+                    sendJsonRpcError(message.id, JSON_RPC_INTERNAL_ERROR, formatHostError(error));
+                }
             },
             disconnect() {
                 for (const handle of activeFollows.values()) {
