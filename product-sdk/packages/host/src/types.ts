@@ -10,6 +10,7 @@
 
 import type {
     ProductAccountId,
+    RemoteStatementStoreSubscribeItem,
     SignedStatement,
     Statement,
     StatementProof,
@@ -65,14 +66,12 @@ export type StatementTopicFilter = { matchAll: Topic[] } | { matchAny: Topic[] }
 /**
  * A page of signed statements delivered by {@link HostStatementStore.subscribe}.
  *
- * Pages arrive sequentially. `isComplete` is `false` while the host streams the
- * historical backfill and `true` once it's done (and on every subsequent
- * live-update page). `statements` is `SignedStatement[]`.
+ * truapi's `RemoteStatementStoreSubscribeItem`, re-exported under a friendlier
+ * name. Pages arrive sequentially; `isComplete` is `false` while the host
+ * streams the historical backfill and `true` once it's done (and on every
+ * subsequent live-update page).
  */
-export interface StatementsPage {
-    statements: SignedStatement[];
-    isComplete: boolean;
-}
+export type StatementsPage = RemoteStatementStoreSubscribeItem;
 
 /**
  * Subscription handle returned by the host. Exposes `unsubscribe()` plus an
