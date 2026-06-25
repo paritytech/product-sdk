@@ -9,12 +9,19 @@
  */
 
 import type {
-    ProductAccountId as TruProductAccountId,
-    SignedStatement as TruSignedStatement,
-    Statement as TruStatement,
-    StatementProof as TruStatementProof,
-    Topic as TruTopic,
+    ProductAccountId,
+    SignedStatement,
+    Statement,
+    StatementProof,
+    Topic,
 } from "@parity/truapi";
+
+// Statement-store types, re-exported verbatim from `@parity/truapi` (imported
+// above for the local signatures): `Statement` / `SignedStatement` /
+// `StatementProof` / `Topic` / `ProductAccountId`. Their fields are
+// `0x`-prefixed `HexString`s and their enums are `{ tag }` unions; the proof
+// variants cover `Sr25519` / `Ed25519` / `Ecdsa` / `OnChain`.
+export type { ProductAccountId, SignedStatement, Statement, StatementProof, Topic };
 
 /**
  * Persistent storage exposed by the host container, including string, JSON
@@ -46,31 +53,12 @@ export interface HostLocalStorage {
 }
 
 /**
- * Cryptographic proof attached to a statement before submission. Variants cover
- * the supported signature schemes — `Sr25519`, `Ed25519`, `Ecdsa`, and `OnChain`
- * (chain-attestation-based proofs). Re-exported from `@parity/truapi`; signature
- * and key fields are `0x`-prefixed hex strings.
- */
-export type StatementProof = TruStatementProof;
-
-/** A single 32-byte topic value (`0x`-prefixed hex) used inside a {@link StatementTopicFilter}. Re-exported from `@parity/truapi`. */
-export type Topic = TruTopic;
-
-/**
- * Identifies a product account by its dotNS domain identifier and key
- * derivation index. Re-exported from `@parity/truapi`.
- */
-export type ProductAccountId = TruProductAccountId;
-
-/** Unsigned statement payload (hex-string fields, `{ tag }` proof). Re-exported from `@parity/truapi`. */
-export type Statement = TruStatement;
-
-/** Statement bundled with its required {@link StatementProof}. Re-exported from `@parity/truapi`. */
-export type SignedStatement = TruSignedStatement;
-
-/**
  * Topic-based subscription filter. The host delivers statements that match
  * either *all* of the listed topics (`matchAll`) or *any* of them (`matchAny`).
+ *
+ * This is a field-discriminated form of truapi's `RemoteStatementStoreSubscribeRequest`,
+ * which is a tagged union (`{ tag: "MatchAll"; value: Topic[] } | { tag: "MatchAny"; value: Topic[] }`).
+ * The transport maps between the two.
  */
 export type StatementTopicFilter = { matchAll: Topic[] } | { matchAny: Topic[] };
 
