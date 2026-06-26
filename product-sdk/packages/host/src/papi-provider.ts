@@ -305,7 +305,12 @@ export function createHostPapiProvider(
                             followSubscriptionId,
                             hash,
                             items: queryItems,
-                            childTrie,
+                            // PAPI passes `null` for an absent child trie, but the
+                            // truapi codec encodes the optional `childTrie` field as
+                            // `Option<Hex>` — it treats `undefined` as None yet runs
+                            // the inner Hex codec on `null`, which throws
+                            // (`null.startsWith`). Coerce `null` → `undefined`.
+                            childTrie: childTrie ?? undefined,
                         })
                         .match(
                             (response) =>
