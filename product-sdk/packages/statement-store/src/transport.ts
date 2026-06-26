@@ -46,6 +46,18 @@ class HostTransport implements StatementTransport {
                 onStatements(page.statements.map(hostSignedStatementToSdk));
             });
 
+            // Host-side teardown (transport close → `error`, host interrupt →
+            // `complete`) is delivered only through `onInterrupt`; surface it so the
+            // consumer learns the stream ended instead of silently waiting forever.
+            sub.onInterrupt((reason) => {
+                const msg =
+                    reason instanceof Error
+                        ? reason.message
+                        : "Host ended the statement subscription";
+                log.warn("Host subscription interrupted", { error: msg });
+                onError(new StatementSubscriptionError(msg));
+            });
+
             log.info("Host subscription active");
 
             return {

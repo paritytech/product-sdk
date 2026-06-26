@@ -270,6 +270,9 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     // otherwise the latest supported version. unifyMetadata
                     // normalizes v14/v15 so `.extrinsic.version` is an array.
                     const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
+                    if (versions.length === 0) {
+                        throw new Error("No extrinsic version found in metadata");
+                    }
                     const latestVersion = versions.reduce((acc, v) => Math.max(acc, v), 0);
                     const txExtVersion = latestVersion === 4 ? 0 : latestVersion;
 
