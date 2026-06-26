@@ -302,10 +302,7 @@ export interface ResultAsync<T, E> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 if (import.meta.vitest) {
-    const { test, expect, afterEach } = import.meta.vitest;
-    const { disposeClient } = await import("./transport.js");
-
-    afterEach(() => disposeClient());
+    const { test, expect } = import.meta.vitest;
 
     test("getTruApi returns null outside a container", async () => {
         const api = await getTruApi();

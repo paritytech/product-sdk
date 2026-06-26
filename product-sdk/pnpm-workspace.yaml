@@ -5,7 +5,7 @@ packages:
 
 catalog:
   "@parity/host-api-test-sdk": ^0.9.0
-  "@parity/truapi": ^0.3.1
+  "@parity/truapi": ^0.3.2
   "@playwright/test": ^1.60.0
   "@polkadot-api/json-rpc-provider": ^0.2.0
   "@polkadot-api/substrate-bindings": ^0.20.3

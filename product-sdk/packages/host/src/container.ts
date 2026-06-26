@@ -225,9 +225,7 @@ export async function getStatementStore(): Promise<HostStatementStore | null> {
 if (import.meta.vitest) {
     const { test, expect, vi, afterEach } = import.meta.vitest;
 
-    afterEach(async () => {
-        const { disposeClient } = await import("./transport.js");
-        disposeClient();
+    afterEach(() => {
         vi.unstubAllGlobals();
     });
 
