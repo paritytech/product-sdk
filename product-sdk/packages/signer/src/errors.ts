@@ -17,7 +17,8 @@ export class SignerError extends Error {
  * - The app is loaded outside a Polkadot host container (a regular browser tab
  *   under `npm run dev`, no iframe, no WebView). This is the dominant case
  *   during local development.
- * - The optional `@novasamatech/host-api(-wrapper)` peer is not installed.
+ * - The host environment is detected but the TruAPI transport can't be reached
+ *   (no injected message port / unresolvable host origin).
  *
  * Branch with `instanceof HostUnavailableError` to surface a "open this app
  * in a Polkadot host, or pick a dev provider" message to the user.
