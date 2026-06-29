@@ -138,6 +138,10 @@ export interface AccountsProvider {
  * Derive the host's extrinsic-extension version from SCALE-encoded metadata:
  * v4 → 0, otherwise the latest supported version. `unifyMetadata` normalizes
  * v14/v15 so `.extrinsic.version` is an array.
+ *
+ * Indirected through {@link deps} so the SCALE decode (which needs a real
+ * metadata blob) can be stubbed in unit tests while the rest of the `signTx`
+ * flow — genesis extraction, extension mapping, the host call — is exercised.
  */
 function deriveTxExtVersion(metadata: Uint8Array): number {
     const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
@@ -147,6 +151,9 @@ function deriveTxExtVersion(metadata: Uint8Array): number {
     const latestVersion = versions.reduce((acc, v) => Math.max(acc, v), 0);
     return latestVersion === 4 ? 0 : latestVersion;
 }
+
+/** Internal seam so `import.meta.vitest` can stub the metadata decode. @internal */
+const deps = { deriveTxExtVersion };
 
 /**
  * Map a PAPI `signTx` call's signed extensions onto the host's
@@ -233,7 +240,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                             genesisHash: toHex(checkGenesis.additionalSigned),
                             callData: toHex(callData),
                             extensions: toHostExtensions(signedExtensions),
-                            txExtVersion: deriveTxExtVersion(metadata),
+                            txExtVersion: deps.deriveTxExtVersion(metadata),
                         }),
                         "createTransaction failed",
                     );
@@ -272,7 +279,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                             genesisHash: toHex(checkGenesis.additionalSigned),
                             callData: toHex(callData),
                             extensions: toHostExtensions(signedExtensions),
-                            txExtVersion: deriveTxExtVersion(metadata),
+                            txExtVersion: deps.deriveTxExtVersion(metadata),
                         }),
                         "createTransactionWithLegacyAccount failed",
                     );
@@ -440,5 +447,98 @@ if (import.meta.vitest) {
         await expect(signer.signTx(new Uint8Array([1]), {}, new Uint8Array(), 0)).rejects.toThrow(
             "Can't find genesis hash on transaction",
         );
+    });
+
+    // Signed extensions PAPI hands to `signTx`. `CheckGenesis.additionalSigned`
+    // carries the genesis hash the signer pulls out; the rest are mapped to the
+    // host's `{ id, extra, additionalSigned }` wire shape.
+    const sampleExtensions = {
+        CheckGenesis: {
+            identifier: "CheckGenesis",
+            value: new Uint8Array([]),
+            additionalSigned: new Uint8Array([0x01, 0x02]),
+        },
+        CheckNonce: {
+            identifier: "CheckNonce",
+            value: new Uint8Array([0x05]),
+            additionalSigned: new Uint8Array([]),
+        },
+    };
+    const expectedHostExtensions = [
+        {
+            id: "CheckGenesis",
+            extra: toHex(new Uint8Array([])),
+            additionalSigned: toHex(new Uint8Array([0x01, 0x02])),
+        },
+        {
+            id: "CheckNonce",
+            extra: toHex(new Uint8Array([0x05])),
+            additionalSigned: toHex(new Uint8Array([])),
+        },
+    ];
+
+    test("the product signer's signTx builds createTransaction from genesis + extensions", async () => {
+        // Stub the metadata decode (needs a real SCALE blob) so the rest of the
+        // signTx flow — genesis extraction, extension mapping, the host call,
+        // response decode — is exercised against a fixed txExtVersion.
+        vi.spyOn(deps, "deriveTxExtVersion").mockReturnValue(0);
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const signer = provider.getProductAccountSigner({
+            dotNsIdentifier: "app.dot",
+            derivationIndex: 0,
+            publicKey: new Uint8Array(32).fill(0xaa),
+        });
+
+        const signed = await signer.signTx(
+            new Uint8Array([0xca, 0x11]),
+            sampleExtensions,
+            new Uint8Array([0x6d]),
+            0,
+        );
+
+        expect(calls.at(-1)).toEqual([
+            "createTransaction",
+            {
+                signer: { dotNsIdentifier: "app.dot", derivationIndex: 0 },
+                genesisHash: toHex(new Uint8Array([0x01, 0x02])),
+                callData: toHex(new Uint8Array([0xca, 0x11])),
+                extensions: expectedHostExtensions,
+                txExtVersion: 0,
+            },
+        ]);
+        expect(signed).toEqual(fromHex("0xdead"));
+        vi.restoreAllMocks();
+    });
+
+    test("the legacy signer's signTx builds createTransactionWithLegacyAccount (signer = hex pubkey)", async () => {
+        vi.spyOn(deps, "deriveTxExtVersion").mockReturnValue(0);
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const publicKey = new Uint8Array(32).fill(0xbb);
+        const signer = provider.getLegacyAccountSigner({ publicKey });
+
+        const signed = await signer.signTx(
+            new Uint8Array([0xca, 0x11]),
+            sampleExtensions,
+            new Uint8Array([0x6d]),
+            0,
+        );
+
+        expect(calls.at(-1)).toEqual([
+            "createTransactionWithLegacyAccount",
+            {
+                // createTransactionWithLegacyAccount identifies the signer by raw hex pubkey.
+                signer: toHex(publicKey),
+                genesisHash: toHex(new Uint8Array([0x01, 0x02])),
+                callData: toHex(new Uint8Array([0xca, 0x11])),
+                extensions: expectedHostExtensions,
+                txExtVersion: 0,
+            },
+        ]);
+        expect(signed).toEqual(fromHex("0xfeed"));
+        vi.restoreAllMocks();
     });
 }
