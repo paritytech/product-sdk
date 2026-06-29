@@ -22,15 +22,14 @@
  *   4. ContractManager.fromClient(cdm, chain.raw.assetHub) wraps the contract.
  *   5. contract.getReportCount.query(shopKey) → dry-run via RPC — no signing.
  *   6. contract.storeDailyReport.tx(shopKey, date, cid, count) uses
- *      productAccount.getSigner() — which routes through
- *      `getProductAccountSigner(..., "createTransaction")` and preserves
- *      arbitrary signed extensions (e.g. AsPgas on Paseo Next).
+ *      productAccount.getSigner() — which routes through the host's
+ *      `createTransaction` path and preserves arbitrary signed extensions
+ *      (e.g. AsPgas on Paseo Next).
  *
- * Why not the legacy-account path: `manager.connect()` + `selectAccount`
- * + `manager.getSigner()` builds the signer via `getLegacyAccountSigner`,
- * which has no signerType switch upstream and always routes through PJS.
- * PJS throws on unknown signed extensions like AsPgas. Product-account
- * signing avoids that path entirely.
+ * This demo signs with an app-scoped product account. The legacy-account
+ * path (`manager.connect()` + `selectAccount` + `manager.getSigner()`)
+ * works too — both go through the host's create-transaction path and
+ * preserve unknown signed extensions.
  */
 
 import type { SignerAccount } from "@parity/product-sdk-signer";
@@ -235,11 +234,10 @@ $btnStoreReport.addEventListener("click", async () => {
 async function init() {
     log("Booting contracts-demo…");
 
-    // Step 1: establish the host session. We don't use the returned legacy
-    // accounts — they sign via the PJS bridge, which throws on unknown
-    // signed extensions (e.g. AsPgas on Paseo Next). The product-account
-    // request below uses `getProductAccountSigner` with `"createTransaction"`
-    // and avoids that path.
+    // Step 1: establish the host session. This demo signs with an app-scoped
+    // product account via `getProductAccountSigner` (the host's
+    // create-transaction path, which preserves unknown signed extensions like
+    // AsPgas on Paseo Next).
     log("Connecting signer…");
     const connectRes = await manager.connect();
     if (!connectRes.ok) {

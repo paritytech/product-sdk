@@ -72,7 +72,7 @@ export interface HostProviderOptions {
      * `dotNsIdentifier`, skipping the legacy fetch entirely. For apps
      * that sign exclusively with a per-dapp derived account.
      *
-     * Signing is pinned to `createTransaction` (see PR #96).
+     * Signing goes through the host's `createTransaction` path (see PR #96).
      */
     productAccount?: {
         /** App identifier (e.g., `"playground.dot"`). */
@@ -146,18 +146,6 @@ interface NeverthrowResultAsync<T, E> {
     match: <A, B = A>(ok: (t: T) => A, err: (e: E) => B) => Promise<A | B>;
 }
 
-/**
- * Pin product-account signing to the host's `createTransaction` path.
- *
- * The `createTransaction` path forwards opaque signed-extension bytes to the
- * host for metadata-driven decoding, so unknown extensions (e.g. `AsPgas` on
- * Paseo Next) survive end-to-end. The alternate `"signPayload"` path wraps via
- * PJS and throws `"PJS does not support this signed-extension: AsPgas"` on
- * those chains. Pinning it here keeps the routing legible at the call site;
- * the legacy-account signer doesn't expose this switch.
- */
-const PRODUCT_SIGNER_TYPE = "createTransaction" as const;
-
 /** @internal */
 export interface AccountsProvider {
     getLegacyAccounts: () => NeverthrowResultAsync<RawAccount[], unknown>;
@@ -168,10 +156,7 @@ export interface AccountsProvider {
         dotNsIdentifier: string,
         derivationIndex?: number,
     ) => NeverthrowResultAsync<RawAccount, unknown>;
-    getProductAccountSigner: (
-        account: ProductAccount,
-        signerType?: "signPayload" | "createTransaction",
-    ) => import("polkadot-api").PolkadotSigner;
+    getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
     getProductAccountAlias: (
         dotNsIdentifier: string,
         derivationIndex?: number,
@@ -344,10 +329,7 @@ export class HostProvider implements SignerProvider {
                     if (!this.accountsProvider) {
                         throw new Error("Host provider is disconnected");
                     }
-                    return this.accountsProvider.getProductAccountSigner(
-                        productAccount,
-                        PRODUCT_SIGNER_TYPE,
-                    );
+                    return this.accountsProvider.getProductAccountSigner(productAccount);
                 },
             });
         } catch (cause) {
@@ -366,17 +348,15 @@ export class HostProvider implements SignerProvider {
      * Convenience method for when you already have the product account details.
      * Requires a prior successful `connect()` call.
      *
-     * Routing is pinned to `signerType: "createTransaction"` via
-     * {@link PRODUCT_SIGNER_TYPE} so unknown signed extensions (e.g. `AsPgas`
-     * on Paseo Next) are forwarded to the host as opaque bytes for
-     * metadata-driven decoding, rather than going through the PJS bridge
-     * that throws on unknown extensions.
+     * Signing routes through the host's `createTransaction` path, so unknown
+     * signed extensions (e.g. `AsPgas` on Paseo Next) are forwarded to the host
+     * as opaque bytes for metadata-driven decoding.
      */
     getProductAccountSigner(account: ProductAccount): import("polkadot-api").PolkadotSigner {
         if (!this.accountsProvider) {
             throw new Error("Host provider is not connected");
         }
-        return this.accountsProvider.getProductAccountSigner(account, PRODUCT_SIGNER_TYPE);
+        return this.accountsProvider.getProductAccountSigner(account);
     }
 
     /**
@@ -970,11 +950,11 @@ if (import.meta.vitest) {
             }
         });
 
-        test("getProductAccountSigner pins signerType to 'createTransaction'", async () => {
-            // Regression guard: the alternate "signPayload" route goes through
-            // PJS and throws on unknown signed extensions (e.g. AsPgas on
-            // Paseo Next). If a future refactor drops the explicit pin, this
-            // would silently regress.
+        test("getProductAccountSigner delegates to the host accounts provider", async () => {
+            // The host accounts provider's getProductAccountSigner has a single
+            // signing path (the host's `createTransaction`, which forwards opaque
+            // signed extensions like AsPgas on Paseo Next). There is no PJS
+            // fallback to select, so it's called with just the account.
             const rawAccounts: RawAccountTest[] = [
                 { publicKey: new Uint8Array(32).fill(0xaa), name: "Alice" },
             ];
@@ -994,7 +974,6 @@ if (import.meta.vitest) {
             });
             expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
                 expect.anything(),
-                "createTransaction",
             );
 
             // Path 2: getSigner() returned from HostProvider.getProductAccount(...)
@@ -1004,7 +983,6 @@ if (import.meta.vitest) {
                 productAccountResult.value.getSigner();
                 expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
                     expect.anything(),
-                    "createTransaction",
                 );
             }
         });
@@ -1054,7 +1032,6 @@ if (import.meta.vitest) {
                         dotNsIdentifier: "myapp.dot",
                         derivationIndex: 0,
                     }),
-                    "createTransaction",
                 );
             }
             expect(mockProvider.getProductAccount).toHaveBeenCalledWith("myapp.dot", 0);
