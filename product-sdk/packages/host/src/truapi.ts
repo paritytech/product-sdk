@@ -23,15 +23,17 @@ import type {
 } from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
 
+import { type HostError, HostCallFailedError, HostUnavailableError } from "./errors.js";
+import { type Result, err, ok } from "./result.js";
 import { getClient, subscribeWithInterrupt } from "./transport.js";
 import type { HostSubscription, Statement, StatementProof } from "./types.js";
 
 const log = createLogger("host");
 
 /**
- * The error shapes `@parity/truapi` surfaces on the `Err` channel of a host
- * call, once unwrapped from the versioned wire envelope. Every host error union
- * is built from these:
+ * The structured error payload `@parity/truapi` surfaces on the `Err` channel of
+ * a host call, once unwrapped from the versioned wire envelope. Every host error
+ * union is built from these:
  *
  * - the catch-all {@link GenericError} (`{ reason }`),
  * - a unit tagged variant (`{ tag }`), or
@@ -40,17 +42,21 @@ const log = createLogger("host");
  * `GenericError` is imported from `@parity/truapi`; the `{ tag }` members are a
  * deliberate widening of truapi's per-domain named variants (the formatter is
  * tag-agnostic). truapi has no umbrella error union to import today — once it
- * exports a canonical `HostError` / tagged-error union from codegen, replace
- * these local members with that import so the type is protocol-sourced rather
- * than hand-widened.
+ * exports a canonical tagged-error union from codegen, replace these local
+ * members with that import so the type is protocol-sourced rather than
+ * hand-widened.
+ *
+ * This is the *payload* the host public API carries inside a
+ * {@link HostCallFailedError} on the `err` channel of its
+ * {@link Result} returns — not the error type consumers branch on.
  */
-export type HostError =
+export type HostErrorPayload =
     | GenericError
     | { tag: string; value?: undefined }
     | { tag: string; value: { reason: string } };
 
-/** Narrow an unknown `Err`-channel value to a {@link HostError}. */
-function isHostError(error: unknown): error is HostError {
+/** Narrow an unknown `Err`-channel value to a {@link HostErrorPayload}. */
+function isHostErrorPayload(error: unknown): error is HostErrorPayload {
     if (error == null || typeof error !== "object") return false;
     const obj = error as Record<string, unknown>;
     return typeof obj.reason === "string" || typeof obj.tag === "string";
@@ -59,19 +65,19 @@ function isHostError(error: unknown): error is HostError {
 /**
  * Extract a human-readable message from a host-side error.
  *
- * Renders the {@link HostError} shapes `@parity/truapi` surfaces. Accepts
- * `unknown` because it is also the catch-all formatter for the wrappers'
- * `throw new Error(...)` messages, so it falls back to `Error`/string/JSON
- * rendering for anything that isn't a recognized host error.
+ * Renders the {@link HostErrorPayload} shapes `@parity/truapi` surfaces. Accepts
+ * `unknown` because it is also the catch-all formatter for thrown adapter-method
+ * `Error` messages, so it falls back to `Error`/string/JSON rendering for
+ * anything that isn't a recognized host error payload.
  *
- * Exported for the higher-level wrappers (`requestPermission`,
- * `deriveEntropy`, etc.) that build their `throw new Error(...)` messages.
+ * Used by {@link HostCallFailedError} to render its message, and
+ * by the throwing adapter-method helper {@link unwrapHostResult}.
  */
 export function formatHostError(error: unknown): string {
     if (error instanceof Error) return error.message;
     if (typeof error === "string") return error;
 
-    if (isHostError(error)) {
+    if (isHostErrorPayload(error)) {
         if ("tag" in error) {
             // Tagged variant carrying a reason: { tag, value: { reason } }
             if (error.value != null && typeof error.value.reason === "string") {
@@ -98,9 +104,14 @@ export function formatHostError(error: unknown): string {
 
 /**
  * Await a host `ResultAsync`, returning its Ok value or throwing a diagnostic
- * `Error` built from the host's error payload (preserved as `cause`). Collapses
- * the repeated `.match(ok, err => throw)` dance the host wrappers would otherwise
- * each spell out.
+ * `Error` built from the host's error payload (preserved as `cause`).
+ *
+ * This is the *throwing* helper, retained for the methods of the adapter objects
+ * returned by the feature-detection getters (`PreimageManager.submit`,
+ * `HostLocalStorage.read`, `AccountsProvider` signing, …). Those objects often
+ * implement external interfaces (e.g. polkadot-api's `JsonRpcProvider`) whose
+ * method signatures can't carry a {@link Result}, so they keep the
+ * throw convention. The flat public operations use {@link mapHostResult} instead.
  */
 export function unwrapHostResult<T, E>(result: ResultAsync<T, E>, label: string): Promise<T> {
     return result.match(
@@ -108,6 +119,24 @@ export function unwrapHostResult<T, E>(result: ResultAsync<T, E>, label: string)
         (error: E) => {
             throw new Error(`${label}: ${formatHostError(error)}`, { cause: error });
         },
+    );
+}
+
+/**
+ * Await a host `ResultAsync` and fold it into a tagged {@link Result}: maps the
+ * Ok value through `map`, or wraps the host error payload in a
+ * {@link HostCallFailedError} on the `err` channel. This is the non-throwing
+ * boundary the flat public host operations (`requestPermission`, `deriveEntropy`,
+ * `requestResourceAllocation`, …) return through.
+ */
+export function mapHostResult<T, U>(
+    result: ResultAsync<T, HostErrorPayload>,
+    map: (value: T) => U,
+    label: string,
+): Promise<Result<U, HostError>> {
+    return result.match(
+        (value) => ok(map(value)),
+        (error) => err(new HostCallFailedError(label, error)),
     );
 }
 
@@ -231,31 +260,31 @@ export type { AllocatableResource, AllocationOutcome, RemotePermission };
  * granted allowance don't re-prompt.
  *
  * @param resources - Resources to request.
- * @returns Per-resource outcomes in the same order as `resources`.
- * @throws If the host is unavailable or the request fails.
+ * @returns `ok` with per-resource outcomes in the same order as `resources`, or
+ *   `err(HostUnavailableError | HostCallFailedError)`.
  *
  * @example
  * ```ts
- * const outcomes = await requestResourceAllocation([
+ * const r = await requestResourceAllocation([
  *   { tag: "BulletinAllowance", value: undefined },
  * ]);
- * if (outcomes[0] === "Allocated") { ... }
+ * if (r.ok && r.value[0] === "Allocated") { ... }
  * ```
  */
 export async function requestResourceAllocation(
     resources: AllocatableResource[],
-): Promise<AllocationOutcome[]> {
+): Promise<Result<AllocationOutcome[], HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
-        throw new Error("requestResourceAllocation: TruAPI unavailable");
+        return err(new HostUnavailableError("requestResourceAllocation: TruAPI unavailable"));
     }
     log.debug("requestResourceAllocation", { resources: resources.map((r) => r.tag) });
 
-    const response = await unwrapHostResult(
+    return mapHostResult(
         truApi.resourceAllocation.request({ resources }),
+        (response) => response.outcomes,
         "requestResourceAllocation failed",
     );
-    return response.outcomes;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -271,21 +300,23 @@ export async function requestResourceAllocation(
  * attach it to the Statement, and submit the result.
  *
  * @param statement - The Statement to be signed.
- * @returns The proof to attach before submitting.
- * @throws If the host is unavailable or the host-side signing fails.
+ * @returns `ok` with the proof to attach before submitting, or
+ *   `err(HostUnavailableError | HostCallFailedError)`.
  */
-export async function createProofAuthorized(statement: Statement): Promise<StatementProof> {
+export async function createProofAuthorized(
+    statement: Statement,
+): Promise<Result<StatementProof, HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
-        throw new Error("createProofAuthorized: TruAPI unavailable");
+        return err(new HostUnavailableError("createProofAuthorized: TruAPI unavailable"));
     }
     log.debug("createProofAuthorized", { topics: statement.topics.length });
 
-    const response = await unwrapHostResult(
+    return mapHostResult(
         truApi.statementStore.createProofAuthorized(statement),
+        (response) => response.proof,
         "createProofAuthorized failed",
     );
-    return response.proof;
 }
 
 /**
@@ -338,12 +369,16 @@ if (import.meta.vitest) {
         expect(Array.from(fromHex("0xdead"))).toEqual([0xde, 0xad]);
     });
 
-    test("requestResourceAllocation throws when TruAPI is unavailable", async () => {
+    test("requestResourceAllocation returns err when TruAPI is unavailable", async () => {
         const api = await getTruApi();
         if (api === null) {
-            await expect(
-                requestResourceAllocation([{ tag: "BulletinAllowance", value: undefined }]),
-            ).rejects.toThrow(/TruAPI unavailable/);
+            const result = await requestResourceAllocation([
+                { tag: "BulletinAllowance", value: undefined },
+            ]);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostUnavailableError);
+            }
         } else {
             expect(typeof requestResourceAllocation).toBe("function");
         }

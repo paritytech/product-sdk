@@ -6,7 +6,7 @@
  * `truApi.chain.broadcastTransaction` / `truApi.chain.stopTransaction` are
  * reachable via {@link getTruApi}, but consumers have to unwrap the neverthrow
  * `ResultAsync` themselves. {@link broadcastTransaction} and
- * {@link stopTransaction} collapse that to throw-on-error Promises, mirroring
+ * {@link stopTransaction} collapse that to `Result`-returning Promises, mirroring
  * the JSON-RPC `transaction_v1_broadcast` / `transaction_v1_stop` pair they
  * wrap.
  *
@@ -15,7 +15,9 @@
 
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { formatHostError, getTruApi, type HexString } from "./truapi.js";
+import { type HostError, HostUnavailableError } from "./errors.js";
+import { type Result, err } from "./result.js";
+import { getTruApi, type HexString, mapHostResult } from "./truapi.js";
 
 const log = createLogger("host:chain-transaction");
 
@@ -28,37 +30,33 @@ const log = createLogger("host:chain-transaction");
  *
  * @param genesisHash - The `0x`-prefixed genesis hash of the target chain.
  * @param transaction - The `0x`-prefixed SCALE-encoded signed transaction.
- * @returns The operation id to pass to {@link stopTransaction}, or `null` if
- *   the host accepted the broadcast without issuing one.
- * @throws If the host is unavailable or the broadcast fails (`GenericError`).
+ * @returns `ok` with the operation id to pass to {@link stopTransaction} (or
+ *   `null` if the host accepted the broadcast without issuing one), or
+ *   `err(HostUnavailableError | HostCallFailedError)`.
  *
  * @example
  * ```ts
  * import { broadcastTransaction, stopTransaction } from "@parity/product-sdk-host";
  *
- * const operationId = await broadcastTransaction(genesisHash, signedTx);
+ * const r = await broadcastTransaction(genesisHash, signedTx);
  * // later, to stop re-broadcasting:
- * if (operationId) await stopTransaction(genesisHash, operationId);
+ * if (r.ok && r.value) await stopTransaction(genesisHash, r.value);
  * ```
  */
 export async function broadcastTransaction(
     genesisHash: HexString,
     transaction: HexString,
-): Promise<string | null> {
+): Promise<Result<string | null, HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
-        throw new Error("broadcastTransaction: TruAPI unavailable");
+        return err(new HostUnavailableError("broadcastTransaction: TruAPI unavailable"));
     }
     log.debug("broadcastTransaction", { genesisHash });
 
-    // `.match()` because the host returns a neverthrow ResultAsync, not a Promise.
-    return await truApi.chain.broadcastTransaction({ genesisHash, transaction }).match(
+    return mapHostResult(
+        truApi.chain.broadcastTransaction({ genesisHash, transaction }),
         (response) => response.operationId ?? null,
-        (err: unknown) => {
-            throw new Error(`broadcastTransaction failed: ${formatHostError(err)}`, {
-                cause: err,
-            });
-        },
+        "broadcastTransaction failed",
     );
 }
 
@@ -70,26 +68,27 @@ export async function broadcastTransaction(
  * @param genesisHash - The `0x`-prefixed genesis hash of the target chain.
  * @param operationId - The operation id returned by
  *   {@link broadcastTransaction}.
- * @throws If the host is unavailable or the stop fails (`GenericError`).
+ * @returns `ok` on success, or `err(HostUnavailableError | HostCallFailedError)`.
  *
  * @example
  * ```ts
  * await stopTransaction(genesisHash, operationId);
  * ```
  */
-export async function stopTransaction(genesisHash: HexString, operationId: string): Promise<void> {
+export async function stopTransaction(
+    genesisHash: HexString,
+    operationId: string,
+): Promise<Result<void, HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
-        throw new Error("stopTransaction: TruAPI unavailable");
+        return err(new HostUnavailableError("stopTransaction: TruAPI unavailable"));
     }
     log.debug("stopTransaction", { genesisHash, operationId });
 
-    // `.match()` because the host returns a neverthrow ResultAsync, not a Promise.
-    await truApi.chain.stopTransaction({ genesisHash, operationId }).match(
+    return mapHostResult(
+        truApi.chain.stopTransaction({ genesisHash, operationId }),
         () => undefined,
-        (err: unknown) => {
-            throw new Error(`stopTransaction failed: ${formatHostError(err)}`, { cause: err });
-        },
+        "stopTransaction failed",
     );
 }
 
@@ -133,15 +132,17 @@ if (import.meta.vitest) {
     });
 
     describe("broadcastTransaction", () => {
-        test("throws when TruAPI is unavailable", async () => {
+        test("returns err(HostUnavailableError) when TruAPI is unavailable", async () => {
             await withMockedTruApi(null, async (mod) => {
-                await expect(mod.broadcastTransaction("0x00", "0x01")).rejects.toThrow(
-                    /TruAPI unavailable/,
-                );
+                const result = await mod.broadcastTransaction("0x00", "0x01");
+                expect(result.ok).toBe(false);
+                if (!result.ok) {
+                    expect(result.error.name).toBe("HostUnavailableError");
+                }
             });
         });
 
-        test("unwraps the operation id", async () => {
+        test("returns ok with the operation id", async () => {
             await withMockedTruApi(
                 {
                     chain: {
@@ -149,12 +150,15 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    expect(await mod.broadcastTransaction("0x00", "0x01")).toBe("op-1");
+                    expect(await mod.broadcastTransaction("0x00", "0x01")).toEqual({
+                        ok: true,
+                        value: "op-1",
+                    });
                 },
             );
         });
 
-        test("passes through a missing operation id as null", async () => {
+        test("passes through a missing operation id as ok(null)", async () => {
             await withMockedTruApi(
                 {
                     chain: {
@@ -162,12 +166,15 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    expect(await mod.broadcastTransaction("0x00", "0x01")).toBeNull();
+                    expect(await mod.broadcastTransaction("0x00", "0x01")).toEqual({
+                        ok: true,
+                        value: null,
+                    });
                 },
             );
         });
 
-        test("wraps host errors with a diagnostic message", async () => {
+        test("wraps host errors in err(HostCallFailedError) with a diagnostic message", async () => {
             await withMockedTruApi(
                 {
                     chain: {
@@ -175,24 +182,29 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    await expect(mod.broadcastTransaction("0x00", "0x01")).rejects.toThrow(
-                        /broadcastTransaction failed: boom/,
-                    );
+                    const result = await mod.broadcastTransaction("0x00", "0x01");
+                    expect(result.ok).toBe(false);
+                    if (!result.ok) {
+                        expect(result.error.name).toBe("HostCallFailedError");
+                        expect(result.error.message).toMatch(/broadcastTransaction failed: boom/);
+                    }
                 },
             );
         });
     });
 
     describe("stopTransaction", () => {
-        test("throws when TruAPI is unavailable", async () => {
+        test("returns err(HostUnavailableError) when TruAPI is unavailable", async () => {
             await withMockedTruApi(null, async (mod) => {
-                await expect(mod.stopTransaction("0x00", "op-1")).rejects.toThrow(
-                    /TruAPI unavailable/,
-                );
+                const result = await mod.stopTransaction("0x00", "op-1");
+                expect(result.ok).toBe(false);
+                if (!result.ok) {
+                    expect(result.error.name).toBe("HostUnavailableError");
+                }
             });
         });
 
-        test("resolves on success", async () => {
+        test("returns ok on success", async () => {
             await withMockedTruApi(
                 {
                     chain: {
@@ -200,12 +212,15 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    await expect(mod.stopTransaction("0x00", "op-1")).resolves.toBeUndefined();
+                    expect(await mod.stopTransaction("0x00", "op-1")).toEqual({
+                        ok: true,
+                        value: undefined,
+                    });
                 },
             );
         });
 
-        test("wraps host errors with a diagnostic message", async () => {
+        test("wraps host errors in err(HostCallFailedError) with a diagnostic message", async () => {
             await withMockedTruApi(
                 {
                     chain: {
@@ -213,9 +228,12 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    await expect(mod.stopTransaction("0x00", "op-1")).rejects.toThrow(
-                        /stopTransaction failed: boom/,
-                    );
+                    const result = await mod.stopTransaction("0x00", "op-1");
+                    expect(result.ok).toBe(false);
+                    if (!result.ok) {
+                        expect(result.error.name).toBe("HostCallFailedError");
+                        expect(result.error.message).toMatch(/stopTransaction failed: boom/);
+                    }
                 },
             );
         });

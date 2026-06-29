@@ -47,13 +47,18 @@ export {
 export type {
     TruApi,
     HexString,
-    HostError,
+    HostErrorPayload,
     PreimageManager,
     ResultAsync,
     AllocatableResource,
     AllocationOutcome,
     RemotePermission,
 } from "./truapi.js";
+
+// Result type + typed host errors (the throw→Result boundary)
+export { ok, err } from "./result.js";
+export type { Result } from "./result.js";
+export { HostError, HostUnavailableError, HostCallFailedError, isHostError } from "./errors.js";
 
 // Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
 export { getAccountsProvider } from "./accounts.js";

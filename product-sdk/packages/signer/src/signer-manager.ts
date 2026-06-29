@@ -671,7 +671,14 @@ export class SignerManager {
 
         const ctx: ConnectContext = {
             signal: controller.signal,
-            requestResourceAllocation,
+            // Bridge host's `Result`-returning `requestResourceAllocation` back to
+            // the `ConnectContext` contract (`Promise<AllocationOutcome[]>`, throws
+            // on failure) by unwrapping the typed error on the `err` channel.
+            requestResourceAllocation: async (resources) => {
+                const result = await requestResourceAllocation(resources);
+                if (!result.ok) throw result.error;
+                return result.value;
+            },
         };
 
         // Defer so connect()/attemptReconnect() return before the callback fires —

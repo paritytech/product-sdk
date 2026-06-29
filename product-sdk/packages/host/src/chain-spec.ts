@@ -15,7 +15,9 @@
 
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { formatHostError, getTruApi, type HexString } from "./truapi.js";
+import type { HostError } from "./errors.js";
+import { type Result, ok } from "./result.js";
+import { getTruApi, type HexString, mapHostResult } from "./truapi.js";
 
 const log = createLogger("host:chain-spec");
 
@@ -67,66 +69,73 @@ export interface ChainSpec {
  * result is the value the host echoes back from `getSpecGenesisHash` for the
  * looked-up chain — pass the chain's known genesis hash as the lookup key.
  *
+ * `null` (outside a container) is preserved as an `ok` value — it is an
+ * expected state, not a failure — so callers branch on `r.ok && r.value`. A
+ * real host-call failure surfaces on the `err` channel.
+ *
  * @param genesisHash - The `0x`-prefixed genesis hash identifying the chain.
- * @returns The combined {@link ChainSpec}, or `null` if the host is
- *   unavailable (running outside a container).
- * @throws If any of the underlying host calls fail (`GenericError`).
+ * @returns `ok(spec)` with the combined {@link ChainSpec}, `ok(null)` if the
+ *   host is unavailable (running outside a container), or
+ *   `err(HostCallFailedError)` if any underlying host call fails.
  *
  * @example
  * ```ts
  * import { getChainSpec } from "@parity/product-sdk-host";
  *
- * const spec = await getChainSpec(genesisHash);
- * if (spec) {
- *   console.log(spec.name, spec.properties?.tokenSymbol);
+ * const r = await getChainSpec(genesisHash);
+ * if (r.ok && r.value) {
+ *   console.log(r.value.name, r.value.properties?.tokenSymbol);
  * }
  * ```
  */
-export async function getChainSpec(genesisHash: HexString): Promise<ChainSpec | null> {
+export async function getChainSpec(
+    genesisHash: HexString,
+): Promise<Result<ChainSpec | null, HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
         log.debug("getChainSpec: TruAPI unavailable");
-        return null;
+        return ok(null);
     }
     log.debug("getChainSpec", { genesisHash });
 
-    // `.match()` because the host returns neverthrow ResultAsync values, not Promises.
-    const [resolvedGenesisHash, name, propertiesRaw] = await Promise.all([
-        truApi.chain.getSpecGenesisHash({ genesisHash }).match(
+    const [genesisHashResult, nameResult, propertiesResult] = await Promise.all([
+        mapHostResult(
+            truApi.chain.getSpecGenesisHash({ genesisHash }),
             (response) => response.genesisHash,
-            (err: unknown) => {
-                throw new Error(`getChainSpec (genesisHash) failed: ${formatHostError(err)}`, {
-                    cause: err,
-                });
-            },
+            "getChainSpec (genesisHash) failed",
         ),
-        truApi.chain.getSpecChainName({ genesisHash }).match(
+        mapHostResult(
+            truApi.chain.getSpecChainName({ genesisHash }),
             (response) => response.chainName,
-            (err: unknown) => {
-                throw new Error(`getChainSpec (chainName) failed: ${formatHostError(err)}`, {
-                    cause: err,
-                });
-            },
+            "getChainSpec (chainName) failed",
         ),
-        truApi.chain.getSpecProperties({ genesisHash }).match(
+        mapHostResult(
+            truApi.chain.getSpecProperties({ genesisHash }),
             (response) => response.properties,
-            (err: unknown) => {
-                throw new Error(`getChainSpec (properties) failed: ${formatHostError(err)}`, {
-                    cause: err,
-                });
-            },
+            "getChainSpec (properties) failed",
         ),
     ]);
 
+    // Short-circuit on the first failing call.
+    if (!genesisHashResult.ok) return genesisHashResult;
+    if (!nameResult.ok) return nameResult;
+    if (!propertiesResult.ok) return propertiesResult;
+
+    const propertiesRaw = propertiesResult.value;
     let properties: ChainProperties | null;
     try {
         properties = JSON.parse(propertiesRaw) as ChainProperties;
-    } catch (err) {
-        log.debug("getChainSpec: properties JSON parse failed", err);
+    } catch (parseError) {
+        log.debug("getChainSpec: properties JSON parse failed", parseError);
         properties = null;
     }
 
-    return { genesisHash: resolvedGenesisHash, name, properties, propertiesRaw };
+    return ok({
+        genesisHash: genesisHashResult.value,
+        name: nameResult.value,
+        properties,
+        propertiesRaw,
+    });
 }
 
 if (import.meta.vitest) {
@@ -160,14 +169,14 @@ if (import.meta.vitest) {
     }
 
     /** A resolved ResultAsync stub yielding the given response object. */
-    const ok = (response: unknown) => ({
+    const okAsync = (response: unknown) => ({
         match: async (onOk: (v: unknown) => unknown) => onOk(response),
     });
 
     describe("getChainSpec", () => {
-        test("returns null when TruAPI is unavailable", async () => {
+        test("returns ok(null) when TruAPI is unavailable", async () => {
             await withMockedTruApi(null, async (mod) => {
-                expect(await mod.getChainSpec("0x00")).toBeNull();
+                expect(await mod.getChainSpec("0x00")).toEqual({ ok: true, value: null });
             });
         });
 
@@ -175,10 +184,14 @@ if (import.meta.vitest) {
             await withMockedTruApi(
                 {
                     chain: {
-                        getSpecGenesisHash: vi.fn().mockReturnValue(ok({ genesisHash: "0xabcd" })),
-                        getSpecChainName: vi.fn().mockReturnValue(ok({ chainName: "Polkadot" })),
+                        getSpecGenesisHash: vi
+                            .fn()
+                            .mockReturnValue(okAsync({ genesisHash: "0xabcd" })),
+                        getSpecChainName: vi
+                            .fn()
+                            .mockReturnValue(okAsync({ chainName: "Polkadot" })),
                         getSpecProperties: vi.fn().mockReturnValue(
-                            ok({
+                            okAsync({
                                 properties:
                                     '{"ss58Format":0,"tokenDecimals":10,"tokenSymbol":"DOT"}',
                             }),
@@ -186,12 +199,16 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    const spec = await mod.getChainSpec("0xabcd");
-                    expect(spec).toEqual({
-                        genesisHash: "0xabcd",
-                        name: "Polkadot",
-                        properties: { ss58Format: 0, tokenDecimals: 10, tokenSymbol: "DOT" },
-                        propertiesRaw: '{"ss58Format":0,"tokenDecimals":10,"tokenSymbol":"DOT"}',
+                    const result = await mod.getChainSpec("0xabcd");
+                    expect(result).toEqual({
+                        ok: true,
+                        value: {
+                            genesisHash: "0xabcd",
+                            name: "Polkadot",
+                            properties: { ss58Format: 0, tokenDecimals: 10, tokenSymbol: "DOT" },
+                            propertiesRaw:
+                                '{"ss58Format":0,"tokenDecimals":10,"tokenSymbol":"DOT"}',
+                        },
                     });
                 },
             );
@@ -201,20 +218,29 @@ if (import.meta.vitest) {
             await withMockedTruApi(
                 {
                     chain: {
-                        getSpecGenesisHash: vi.fn().mockReturnValue(ok({ genesisHash: "0xabcd" })),
-                        getSpecChainName: vi.fn().mockReturnValue(ok({ chainName: "Polkadot" })),
-                        getSpecProperties: vi.fn().mockReturnValue(ok({ properties: "not json" })),
+                        getSpecGenesisHash: vi
+                            .fn()
+                            .mockReturnValue(okAsync({ genesisHash: "0xabcd" })),
+                        getSpecChainName: vi
+                            .fn()
+                            .mockReturnValue(okAsync({ chainName: "Polkadot" })),
+                        getSpecProperties: vi
+                            .fn()
+                            .mockReturnValue(okAsync({ properties: "not json" })),
                     },
                 },
                 async (mod) => {
-                    const spec = await mod.getChainSpec("0xabcd");
-                    expect(spec?.properties).toBeNull();
-                    expect(spec?.propertiesRaw).toBe("not json");
+                    const result = await mod.getChainSpec("0xabcd");
+                    expect(result.ok).toBe(true);
+                    if (result.ok) {
+                        expect(result.value?.properties).toBeNull();
+                        expect(result.value?.propertiesRaw).toBe("not json");
+                    }
                 },
             );
         });
 
-        test("wraps host errors with a diagnostic message", async () => {
+        test("returns err(HostCallFailedError) when a host call fails", async () => {
             await withMockedTruApi(
                 {
                     chain: {
@@ -224,14 +250,21 @@ if (import.meta.vitest) {
                                 onErr: (e: unknown) => unknown,
                             ) => onErr({ reason: "boom" }),
                         }),
-                        getSpecChainName: vi.fn().mockReturnValue(ok({ chainName: "Polkadot" })),
-                        getSpecProperties: vi.fn().mockReturnValue(ok({ properties: "{}" })),
+                        getSpecChainName: vi
+                            .fn()
+                            .mockReturnValue(okAsync({ chainName: "Polkadot" })),
+                        getSpecProperties: vi.fn().mockReturnValue(okAsync({ properties: "{}" })),
                     },
                 },
                 async (mod) => {
-                    await expect(mod.getChainSpec("0xabcd")).rejects.toThrow(
-                        /getChainSpec \(genesisHash\) failed: boom/,
-                    );
+                    const result = await mod.getChainSpec("0xabcd");
+                    expect(result.ok).toBe(false);
+                    if (!result.ok) {
+                        expect(result.error.name).toBe("HostCallFailedError");
+                        expect(result.error.message).toMatch(
+                            /getChainSpec \(genesisHash\) failed: boom/,
+                        );
+                    }
                 },
             );
         });

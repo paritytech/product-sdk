@@ -7,7 +7,8 @@
  * return a neverthrow `ResultAsync` of a `{ granted }` response.
  * {@link requestPermission} and {@link requestDevicePermission} collapse that
  * to one-liners that match the shape of {@link requestResourceAllocation}
- * (throws on error, returns the unwrapped boolean on success).
+ * (a `Result` with the boolean outcome on success, a typed {@link HostError} on
+ * the `err` channel).
  *
  * @module
  */
@@ -15,7 +16,9 @@
 import type { HostDevicePermissionRequest } from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { getTruApi, type RemotePermission, unwrapHostResult } from "./truapi.js";
+import { type HostError, HostUnavailableError } from "./errors.js";
+import { type Result, err } from "./result.js";
+import { getTruApi, mapHostResult, type RemotePermission } from "./truapi.js";
 
 const log = createLogger("host:permissions");
 
@@ -39,29 +42,31 @@ export type RemotePermissionItem = RemotePermission;
  * boolean granted/denied outcome.
  *
  * @param permission - The remote permission to request.
- * @returns `true` if the host granted the permission, `false` if denied.
- * @throws If the host is unavailable or the request fails.
+ * @returns `ok(true)` if the host granted the permission, `ok(false)` if denied,
+ *   or `err(HostUnavailableError | HostCallFailedError)`.
  *
  * @example
  * ```ts
- * const granted = await requestPermission({ tag: "ChainSubmit", value: undefined });
- * if (!granted) {
+ * const r = await requestPermission({ tag: "ChainSubmit", value: undefined });
+ * if (!r.ok || !r.value) {
  *   tellUserToReconnect();
  * }
  * ```
  */
-export async function requestPermission(permission: RemotePermission): Promise<boolean> {
+export async function requestPermission(
+    permission: RemotePermission,
+): Promise<Result<boolean, HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
-        throw new Error("requestPermission: TruAPI unavailable");
+        return err(new HostUnavailableError("requestPermission: TruAPI unavailable"));
     }
     log.debug("requestPermission", { tag: permission.tag });
 
-    const response = await unwrapHostResult(
+    return mapHostResult(
         truApi.permissions.requestRemotePermission({ permission }),
+        (response) => response.granted,
         "requestPermission failed",
     );
-    return response.granted;
 }
 
 /**
@@ -72,29 +77,31 @@ export async function requestPermission(permission: RemotePermission): Promise<b
  * boolean granted/denied outcome.
  *
  * @param permission - The device permission to request.
- * @returns `true` if the host granted the permission, `false` if denied.
- * @throws If the host is unavailable or the request fails.
+ * @returns `ok(true)` if the host granted the permission, `ok(false)` if denied,
+ *   or `err(HostUnavailableError | HostCallFailedError)`.
  *
  * @example
  * ```ts
- * const granted = await requestDevicePermission("Camera");
- * if (!granted) {
+ * const r = await requestDevicePermission("Camera");
+ * if (!r.ok || !r.value) {
  *   showCameraDeniedMessage();
  * }
  * ```
  */
-export async function requestDevicePermission(permission: DevicePermissionKind): Promise<boolean> {
+export async function requestDevicePermission(
+    permission: DevicePermissionKind,
+): Promise<Result<boolean, HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
-        throw new Error("requestDevicePermission: TruAPI unavailable");
+        return err(new HostUnavailableError("requestDevicePermission: TruAPI unavailable"));
     }
     log.debug("requestDevicePermission", { permission });
 
-    const response = await unwrapHostResult(
+    return mapHostResult(
         truApi.permissions.requestDevicePermission(permission),
+        (response) => response.granted,
         "requestDevicePermission failed",
     );
-    return response.granted;
 }
 
 if (import.meta.vitest) {
@@ -128,15 +135,20 @@ if (import.meta.vitest) {
     }
 
     describe("requestPermission", () => {
-        test("throws when TruAPI is unavailable", async () => {
+        test("returns err(HostUnavailableError) when TruAPI is unavailable", async () => {
             await withMockedTruApi(null, async (mod) => {
-                await expect(
-                    mod.requestPermission({ tag: "ChainSubmit", value: undefined }),
-                ).rejects.toThrow(/TruAPI unavailable/);
+                const result = await mod.requestPermission({
+                    tag: "ChainSubmit",
+                    value: undefined,
+                });
+                expect(result.ok).toBe(false);
+                if (!result.ok) {
+                    expect(result.error.name).toBe("HostUnavailableError");
+                }
             });
         });
 
-        test("returns the granted flag", async () => {
+        test("returns ok with the granted flag", async () => {
             await withMockedTruApi(
                 {
                     permissions: {
@@ -144,16 +156,16 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    const granted = await mod.requestPermission({
+                    const result = await mod.requestPermission({
                         tag: "ChainSubmit",
                         value: undefined,
                     });
-                    expect(granted).toBe(true);
+                    expect(result).toEqual({ ok: true, value: true });
                 },
             );
         });
 
-        test("wraps host errors with a diagnostic message", async () => {
+        test("wraps host errors in err(HostCallFailedError) with a diagnostic message", async () => {
             await withMockedTruApi(
                 {
                     permissions: {
@@ -161,24 +173,32 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    await expect(
-                        mod.requestPermission({ tag: "ChainSubmit", value: undefined }),
-                    ).rejects.toThrow(/requestPermission failed: boom/);
+                    const result = await mod.requestPermission({
+                        tag: "ChainSubmit",
+                        value: undefined,
+                    });
+                    expect(result.ok).toBe(false);
+                    if (!result.ok) {
+                        expect(result.error.name).toBe("HostCallFailedError");
+                        expect(result.error.message).toMatch(/requestPermission failed: boom/);
+                    }
                 },
             );
         });
     });
 
     describe("requestDevicePermission", () => {
-        test("throws when TruAPI is unavailable", async () => {
+        test("returns err(HostUnavailableError) when TruAPI is unavailable", async () => {
             await withMockedTruApi(null, async (mod) => {
-                await expect(mod.requestDevicePermission("Camera")).rejects.toThrow(
-                    /TruAPI unavailable/,
-                );
+                const result = await mod.requestDevicePermission("Camera");
+                expect(result.ok).toBe(false);
+                if (!result.ok) {
+                    expect(result.error.name).toBe("HostUnavailableError");
+                }
             });
         });
 
-        test("returns the granted flag", async () => {
+        test("returns ok with the granted flag", async () => {
             await withMockedTruApi(
                 {
                     permissions: {
@@ -186,12 +206,15 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    expect(await mod.requestDevicePermission("Camera")).toBe(true);
+                    expect(await mod.requestDevicePermission("Camera")).toEqual({
+                        ok: true,
+                        value: true,
+                    });
                 },
             );
         });
 
-        test("wraps host errors with a diagnostic message", async () => {
+        test("wraps host errors in err(HostCallFailedError) with a diagnostic message", async () => {
             await withMockedTruApi(
                 {
                     permissions: {
@@ -199,9 +222,14 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    await expect(mod.requestDevicePermission("Camera")).rejects.toThrow(
-                        /requestDevicePermission failed: boom/,
-                    );
+                    const result = await mod.requestDevicePermission("Camera");
+                    expect(result.ok).toBe(false);
+                    if (!result.ok) {
+                        expect(result.error.name).toBe("HostCallFailedError");
+                        expect(result.error.message).toMatch(
+                            /requestDevicePermission failed: boom/,
+                        );
+                    }
                 },
             );
         });

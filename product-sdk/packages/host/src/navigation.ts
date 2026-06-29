@@ -5,7 +5,7 @@
  *
  * `truApi.system.navigateTo` returns a neverthrow `ResultAsync`; consumers
  * still have to unwrap it themselves. {@link navigateTo} collapses that to a
- * throw-on-error Promise that matches the shape of {@link requestPermission}
+ * `Result`-returning Promise that matches the shape of {@link requestPermission}
  * and {@link deriveEntropy}.
  *
  * @module
@@ -13,7 +13,9 @@
 
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { formatHostError, getTruApi } from "./truapi.js";
+import { type HostError, HostUnavailableError } from "./errors.js";
+import { type Result, err } from "./result.js";
+import { getTruApi, mapHostResult } from "./truapi.js";
 
 const log = createLogger("host:navigation");
 
@@ -26,31 +28,26 @@ const log = createLogger("host:navigation");
  * `https://` URL opens externally.
  *
  * @param url - The URL to navigate to.
- * @throws If the host is unavailable, denies the navigation
- *   (`NavigateToErr::PermissionDenied`), or fails for any other reason
- *   (`NavigateToErr::Unknown`).
+ * @returns `ok` on success, or `err`: {@link HostUnavailableError} if the host
+ *   is unavailable, or {@link HostCallFailedError} if it denies the navigation
+ *   (`NavigateToErr::PermissionDenied`) or fails otherwise (`NavigateToErr::Unknown`).
  *
  * @example
  * ```ts
  * import { navigateTo } from "@parity/product-sdk-host";
  *
- * await navigateTo("https://search.dot");
+ * const r = await navigateTo("https://search.dot");
+ * if (!r.ok) handle(r.error);
  * ```
  */
-export async function navigateTo(url: string): Promise<void> {
+export async function navigateTo(url: string): Promise<Result<void, HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
-        throw new Error("navigateTo: TruAPI unavailable");
+        return err(new HostUnavailableError("navigateTo: TruAPI unavailable"));
     }
     log.debug("navigateTo", { url });
 
-    // `.match()` because the host returns a neverthrow ResultAsync, not a Promise.
-    await truApi.system.navigateTo({ url }).match(
-        () => undefined,
-        (err: unknown) => {
-            throw new Error(`navigateTo failed: ${formatHostError(err)}`, { cause: err });
-        },
-    );
+    return mapHostResult(truApi.system.navigateTo({ url }), () => undefined, "navigateTo failed");
 }
 
 if (import.meta.vitest) {
@@ -78,15 +75,17 @@ if (import.meta.vitest) {
     }
 
     describe("navigateTo", () => {
-        test("throws when TruAPI is unavailable", async () => {
+        test("returns err(HostUnavailableError) when TruAPI is unavailable", async () => {
             await withMockedTruApi(null, async (mod) => {
-                await expect(mod.navigateTo("https://search.dot")).rejects.toThrow(
-                    /TruAPI unavailable/,
-                );
+                const result = await mod.navigateTo("https://search.dot");
+                expect(result.ok).toBe(false);
+                if (!result.ok) {
+                    expect(result.error.name).toBe("HostUnavailableError");
+                }
             });
         });
 
-        test("resolves on success", async () => {
+        test("returns ok on success", async () => {
             await withMockedTruApi(
                 {
                     system: {
@@ -96,12 +95,15 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    await expect(mod.navigateTo("https://search.dot")).resolves.toBeUndefined();
+                    expect(await mod.navigateTo("https://search.dot")).toEqual({
+                        ok: true,
+                        value: undefined,
+                    });
                 },
             );
         });
 
-        test("wraps host errors with a diagnostic message", async () => {
+        test("wraps host errors in err(HostCallFailedError) with a diagnostic message", async () => {
             await withMockedTruApi(
                 {
                     system: {
@@ -114,9 +116,12 @@ if (import.meta.vitest) {
                     },
                 },
                 async (mod) => {
-                    await expect(mod.navigateTo("https://search.dot")).rejects.toThrow(
-                        /navigateTo failed: PermissionDenied/,
-                    );
+                    const result = await mod.navigateTo("https://search.dot");
+                    expect(result.ok).toBe(false);
+                    if (!result.ok) {
+                        expect(result.error.name).toBe("HostCallFailedError");
+                        expect(result.error.message).toMatch(/navigateTo failed: PermissionDenied/);
+                    }
                 },
             );
         });

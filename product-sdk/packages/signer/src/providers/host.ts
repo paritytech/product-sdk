@@ -196,6 +196,18 @@ async function defaultLoadAccountsProvider(): Promise<AccountsProvider | null> {
 }
 
 /**
+ * Default `requestChainSubmitPermissionFn`: bridge host's `Result`-returning
+ * {@link requestPermission} back to the option's `Promise<boolean>` contract by
+ * throwing the typed {@link HostError} on the `err` channel. The throw is caught
+ * (and warned, not fatal) at the connect-time call site.
+ */
+async function defaultRequestChainSubmitPermission(permission: RemotePermission): Promise<boolean> {
+    const result = await requestPermission(permission);
+    if (!result.ok) throw result.error;
+    return result.value;
+}
+
+/**
  * Provider for the Host API (Polkadot Desktop / Android).
  *
  * Backed by `@parity/product-sdk-host`'s `getAccountsProvider`, which talks to
@@ -231,7 +243,7 @@ export class HostProvider implements SignerProvider {
         this.retryDelay = options?.retryDelay ?? 500;
         this.loadAccountsProvider = options?.loadAccountsProvider ?? defaultLoadAccountsProvider;
         this.requestChainSubmitPermissionFn =
-            options?.requestChainSubmitPermissionFn ?? requestPermission;
+            options?.requestChainSubmitPermissionFn ?? defaultRequestChainSubmitPermission;
         // New name takes precedence; fall back to the deprecated alias.
         this.requestChainSubmitPermission =
             options?.requestChainSubmitPermission ??
