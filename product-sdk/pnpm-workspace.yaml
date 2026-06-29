@@ -20,6 +20,10 @@ catalog:
 
 overrides:
   "@polkadot-api/json-rpc-provider": "^0.2.0"
+  # Force the patched `ws` (GHSA: memory-exhaustion DoS from tiny fragments;
+  # affects >=8.0.0 <8.21.0). Pulled transitively by smoldot (`^8.8.1`, satisfied)
+  # and viem (pinned `8.20.1`, overridden). All major-8, so a patched minor.
+  "ws": "^8.21.0"
 
 onlyBuiltDependencies:
   - "@biomejs/biome"
