@@ -6,8 +6,10 @@
  * This module centralizes access to the in-house `@parity/truapi` client,
  * allowing other `@parity/product-sdk-*` packages to import from here rather
  * than depending directly on the protocol package. The client is built and
- * cached by {@link module:transport}; this module layers the throw-on-error
- * convenience wrappers on top.
+ * cached by {@link module:transport}; this module adds the accessor plus the
+ * two helpers the convenience wrappers fold truapi's `ResultAsync` through —
+ * {@link mapHostResult} (returns a `Result`, used by the public operations) and
+ * {@link unwrapHostResult} (throws, used by the adapter-object methods).
  *
  * @module
  */

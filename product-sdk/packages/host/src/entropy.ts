@@ -6,8 +6,7 @@
  * `truApi.entropy.derive` takes a hex `context` and returns a hex `entropy`
  * payload wrapped in a neverthrow `ResultAsync`. `deriveEntropy` keeps the
  * ergonomic `Uint8Array → Result<Uint8Array, HostError>` signature: it
- * hex-encodes the context on the way in and decodes the entropy on the way out —
- * the shape of {@link requestPermission} and {@link requestResourceAllocation}.
+ * hex-encodes the context on the way in and decodes the entropy on the way out.
  *
  * @module
  */

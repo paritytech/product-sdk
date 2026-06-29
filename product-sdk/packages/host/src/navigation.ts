@@ -5,8 +5,7 @@
  *
  * `truApi.system.navigateTo` returns a neverthrow `ResultAsync`; consumers
  * still have to unwrap it themselves. {@link navigateTo} collapses that to a
- * `Result`-returning Promise that matches the shape of {@link requestPermission}
- * and {@link deriveEntropy}.
+ * `Result<void, HostError>`-returning Promise.
  *
  * @module
  */

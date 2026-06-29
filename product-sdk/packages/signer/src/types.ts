@@ -119,10 +119,11 @@ export interface SignerManagerOptions {
      * plus an `AbortSignal` that fires if the user disconnects or
      * destroys the manager mid-flight.
      *
-     * `requestResourceAllocation` throws on failure (matches the
-     * `@parity/product-sdk-host` export of the same name); errors thrown
-     * from `onConnect` are logged but do not affect the connected state —
-     * the next reconnect retries.
+     * `requestResourceAllocation` throws on failure (it adapts the
+     * `Result`-returning `@parity/product-sdk-host` export of the same name,
+     * re-throwing the typed error on the `err` channel); errors thrown from
+     * `onConnect` are logged but do not affect the connected state — the next
+     * reconnect retries.
      *
      * @example
      * ```ts
@@ -133,7 +134,7 @@ export interface SignerManagerOptions {
      *         { tag: "AutoSigning", value: undefined },
      *       ]);
      *       if (signal.aborted) return;
-     *       if (outcomes.some((o) => o.tag !== "Allocated")) {
+     *       if (outcomes.some((o) => o !== "Allocated")) {
      *         logWarning("partial permissions", outcomes);
      *       }
      *     } catch (cause) {
@@ -155,9 +156,10 @@ export interface ConnectContext {
      */
     signal: AbortSignal;
     /**
-     * Request a batch of host resource allocations. Bound shorthand for
-     * `requestResourceAllocation` from `@parity/product-sdk-host` —
-     * throws on failure, returns the unwrapped outcomes on success.
+     * Request a batch of host resource allocations. Adapts
+     * `requestResourceAllocation` from `@parity/product-sdk-host` (which returns
+     * a `Result`) to this throwing contract — returns the unwrapped outcomes on
+     * success, throws the typed host error on failure.
      */
     requestResourceAllocation: (resources: AllocatableResource[]) => Promise<AllocationOutcome[]>;
 }

@@ -897,6 +897,28 @@ if (import.meta.vitest) {
             manager.destroy();
         });
 
+        test("ctx.requestResourceAllocation unwraps host errors by throwing", async () => {
+            // The ctx helper adapts host's `Result`-returning
+            // `requestResourceAllocation` to the throwing `ConnectContext`
+            // contract. Outside a container the host call returns `err`, so the
+            // adapter must throw (not return a `Result` object).
+            let captured: ConnectContext | undefined;
+            const onConnect = vi.fn().mockImplementation((_account, ctx: ConnectContext) => {
+                captured = ctx;
+            });
+            const manager = new SignerManager({
+                createProvider: () => mockProvider(),
+                onConnect,
+            });
+            await manager.connect("dev");
+            await flush();
+            expect(captured).toBeDefined();
+            await expect(
+                captured?.requestResourceAllocation([{ tag: "AutoSigning", value: undefined }]),
+            ).rejects.toThrow();
+            manager.destroy();
+        });
+
         test("re-connecting cancels in-flight onConnect from the prior session", async () => {
             const signals: AbortSignal[] = [];
             const onConnect = vi.fn().mockImplementation((_, ctx) => {

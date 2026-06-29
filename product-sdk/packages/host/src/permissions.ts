@@ -6,9 +6,8 @@
  * `truApi.permissions.requestRemotePermission` / `requestDevicePermission`
  * return a neverthrow `ResultAsync` of a `{ granted }` response.
  * {@link requestPermission} and {@link requestDevicePermission} collapse that
- * to one-liners that match the shape of {@link requestResourceAllocation}
- * (a `Result` with the boolean outcome on success, a typed {@link HostError} on
- * the `err` channel).
+ * to one-liners returning a `Result<boolean, HostError>` — the granted flag on
+ * success, a typed {@link HostError} on the `err` channel.
  *
  * @module
  */
@@ -30,8 +29,8 @@ const log = createLogger("host:permissions");
 export type DevicePermissionKind = HostDevicePermissionRequest;
 
 /**
- * Alias of {@link RemotePermission} matching the upstream
- * `host-api-wrapper` name. Use either freely.
+ * Legacy alias of {@link RemotePermission}, kept for back-compat with code that
+ * used the older name. Use either freely.
  */
 export type RemotePermissionItem = RemotePermission;
 
