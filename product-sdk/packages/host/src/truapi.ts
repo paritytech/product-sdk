@@ -18,91 +18,24 @@ import { scale } from "@parity/truapi";
 import type {
     AllocatableResource,
     AllocationOutcome,
-    GenericError,
     HexString,
     RemotePermission,
     TrUApiClient,
 } from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { type HostError, HostCallFailedError, HostUnavailableError } from "./errors.js";
+import {
+    type HostError,
+    type HostErrorPayload,
+    HostCallFailedError,
+    HostUnavailableError,
+    formatHostError,
+} from "./errors.js";
 import { type Result, err, ok } from "./result.js";
 import { getClient, subscribeWithInterrupt } from "./transport.js";
 import type { HostSubscription, Statement, StatementProof } from "./types.js";
 
 const log = createLogger("host");
-
-/**
- * The structured error payload `@parity/truapi` surfaces on the `Err` channel of
- * a host call, once unwrapped from the versioned wire envelope. Every host error
- * union is built from these:
- *
- * - the catch-all {@link GenericError} (`{ reason }`),
- * - a unit tagged variant (`{ tag }`), or
- * - a tagged variant carrying a reason (`{ tag, value: { reason } }`).
- *
- * `GenericError` is imported from `@parity/truapi`; the `{ tag }` members are a
- * deliberate widening of truapi's per-domain named variants (the formatter is
- * tag-agnostic). truapi has no umbrella error union to import today — once it
- * exports a canonical tagged-error union from codegen, replace these local
- * members with that import so the type is protocol-sourced rather than
- * hand-widened.
- *
- * This is the *payload* the host public API carries inside a
- * {@link HostCallFailedError} on the `err` channel of its
- * {@link Result} returns — not the error type consumers branch on.
- */
-export type HostErrorPayload =
-    | GenericError
-    | { tag: string; value?: undefined }
-    | { tag: string; value: { reason: string } };
-
-/** Narrow an unknown `Err`-channel value to a {@link HostErrorPayload}. */
-function isHostErrorPayload(error: unknown): error is HostErrorPayload {
-    if (error == null || typeof error !== "object") return false;
-    const obj = error as Record<string, unknown>;
-    return typeof obj.reason === "string" || typeof obj.tag === "string";
-}
-
-/**
- * Extract a human-readable message from a host-side error.
- *
- * Renders the {@link HostErrorPayload} shapes `@parity/truapi` surfaces. Accepts
- * `unknown` because it is also the catch-all formatter for thrown adapter-method
- * `Error` messages, so it falls back to `Error`/string/JSON rendering for
- * anything that isn't a recognized host error payload.
- *
- * Used by {@link HostCallFailedError} to render its message, and
- * by the throwing adapter-method helper {@link unwrapHostResult}.
- */
-export function formatHostError(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    if (typeof error === "string") return error;
-
-    if (isHostErrorPayload(error)) {
-        if ("tag" in error) {
-            // Tagged variant carrying a reason: { tag, value: { reason } }
-            if (error.value != null && typeof error.value.reason === "string") {
-                return `${error.tag}: ${error.value.reason}`;
-            }
-            // Unit tagged variant, e.g. { tag: "Full" } / { tag: "PermissionDenied" }
-            return error.tag;
-        }
-        // GenericError: { reason }
-        return error.reason;
-    }
-
-    if (error != null && typeof error === "object" && "message" in error) {
-        const message = (error as { message: unknown }).message;
-        if (typeof message === "string") return message;
-    }
-
-    try {
-        return JSON.stringify(error);
-    } catch {
-        return String(error);
-    }
-}
 
 /**
  * Await a host `ResultAsync`, returning its Ok value or throwing a diagnostic
@@ -349,21 +282,6 @@ if (import.meta.vitest) {
 
     test("createHostPreimageManager returns null outside container", async () => {
         expect(await createHostPreimageManager()).toBeNull();
-    });
-
-    test("formatHostError renders the TruAPI error shapes", () => {
-        // GenericError: { reason }
-        expect(formatHostError({ reason: "boom" })).toBe("boom");
-        // Tagged variant carrying a reason: { tag, value: { reason } }
-        expect(formatHostError({ tag: "Unknown", value: { reason: "boom" } })).toBe(
-            "Unknown: boom",
-        );
-        // Unit tagged variant: { tag }
-        expect(formatHostError({ tag: "Full" })).toBe("Full");
-        // Catch-all fallbacks for non-host-error input
-        expect(formatHostError(new Error("plain"))).toBe("plain");
-        expect(formatHostError("string err")).toBe("string err");
-        expect(formatHostError({ message: "loose" })).toBe("loose");
     });
 
     test("hex helpers", () => {

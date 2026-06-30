@@ -3,9 +3,10 @@
 import type { JsonRpcProvider } from "polkadot-api";
 import type { HexString, TrUApiClient } from "@parity/truapi";
 
+import { formatHostError } from "./errors.js";
 import { createHostPapiProvider } from "./papi-provider.js";
 import { getClient, isCorrectEnvironment, subscribeWithInterrupt } from "./transport.js";
-import { formatHostError, fromHex, toHex, unwrapHostResult } from "./truapi.js";
+import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostLocalStorage, HostStatementStore } from "./types.js";
 
 const textEncoder = new TextEncoder();

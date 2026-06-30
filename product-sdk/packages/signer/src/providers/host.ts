@@ -184,7 +184,7 @@ async function defaultLoadAccountsProvider(): Promise<AccountsProvider | null> {
 /**
  * Default `requestChainSubmitPermissionFn`: bridge host's `Result`-returning
  * {@link requestPermission} back to the option's `Promise<boolean>` contract by
- * throwing the typed {@link HostError} on the `err` channel. The throw is caught
+ * throwing the typed `HostError` on the `err` channel. The throw is caught
  * (and warned, not fatal) at the connect-time call site.
  */
 async function defaultRequestChainSubmitPermission(permission: RemotePermission): Promise<boolean> {

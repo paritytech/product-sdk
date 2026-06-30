@@ -50,8 +50,8 @@ import type {
 } from "@parity/truapi";
 import { createLogger } from "@parity/product-sdk-logger";
 
+import { formatHostError } from "./errors.js";
 import { subscribeWithInterrupt } from "./transport.js";
-import { formatHostError } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
 const log = createLogger("host:papi");

@@ -27,8 +27,8 @@ const log = createLogger("host:chain-spec");
  *
  * The host returns this as a JSON string (mirroring the substrate
  * `chainSpec_v1_properties` JSON-RPC, whose payload is an open-ended object).
- * {@link getChainSpec} parses it into {@link properties} and also surfaces the
- * untouched JSON as {@link propertiesRaw}. The well-known substrate fields are
+ * {@link getChainSpec} parses it into {@link ChainSpec.properties} and also
+ * surfaces the untouched JSON as {@link ChainSpec.propertiesRaw}. The well-known substrate fields are
  * typed for convenience; the index signature keeps any chain-specific extras
  * reachable without `any` at the call site.
  */
