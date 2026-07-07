@@ -2,12 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 import { CidCodec, parseCid, UnixFsDagBuilder } from "@parity/bulletin-sdk";
 import { createLogger } from "@parity/product-sdk-logger";
+import { type Result, err, ok } from "@parity/product-sdk-result";
 
+import { ProductCloudStorageError } from "./errors.js";
 import type { QueryStrategy } from "./resolve-query.js";
 import { resolveQueryStrategy } from "./resolve-query.js";
 import type { QueryOptions } from "./types.js";
 
 const log = createLogger("bulletin");
+
+/** Normalize any thrown error into a `ProductCloudStorageError` for the `err` channel. */
+function toCloudStorageError(error: unknown): ProductCloudStorageError {
+    if (error instanceof ProductCloudStorageError) return error;
+    const message = error instanceof Error ? error.message : String(error);
+    return new ProductCloudStorageError(message, { cause: error });
+}
 
 /**
  * Fetch raw bytes for a CID via the host's preimage lookup.
@@ -29,9 +38,14 @@ const log = createLogger("bulletin");
  *
  * @param cid     - CIDv1 string to fetch.
  * @param options - Query options (`lookupTimeoutMs` for host).
- * @throws {CloudStorageHostUnavailableError} If running outside a container.
+ * @returns A {@link Result}: `ok(Uint8Array)`, or `err(ProductCloudStorageError)` (e.g.
+ *   `CloudStorageHostUnavailableError` when running outside a container, or a lookup
+ *   timeout / interrupt).
  */
-export async function queryBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
+export async function queryBytes(
+    cid: string,
+    options?: QueryOptions,
+): Promise<Result<Uint8Array, ProductCloudStorageError>> {
     const strategy = await resolveQueryStrategy();
     return executeQuery(strategy, cid, options);
 }
@@ -40,10 +54,21 @@ export async function queryBytes(cid: string, options?: QueryOptions): Promise<U
  * Fetch and parse JSON for a CID via the host's preimage lookup.
  *
  * Convenience wrapper over {@link queryBytes}.
+ *
+ * @returns A {@link Result}: `ok(T)`, or `err(ProductCloudStorageError)` on a fetch
+ *   failure or a JSON parse failure.
  */
-export async function queryJson<T>(cid: string, options?: QueryOptions): Promise<T> {
+export async function queryJson<T>(
+    cid: string,
+    options?: QueryOptions,
+): Promise<Result<T, ProductCloudStorageError>> {
     const bytes = await queryBytes(cid, options);
-    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+    if (!bytes.ok) return bytes;
+    try {
+        return ok(JSON.parse(new TextDecoder().decode(bytes.value)) as T);
+    } catch (cause) {
+        return err(new ProductCloudStorageError(`Failed to parse JSON for CID ${cid}`, { cause }));
+    }
 }
 
 /**
@@ -66,43 +91,54 @@ export async function executeQuery(
     strategy: QueryStrategy,
     cid: string,
     options?: QueryOptions,
-): Promise<Uint8Array> {
-    log.info("query: host preimage lookup", { cid });
-    const bytes = await strategy.lookup(cid, options?.lookupTimeoutMs);
+): Promise<Result<Uint8Array, ProductCloudStorageError>> {
+    try {
+        log.info("query: host preimage lookup", { cid });
+        const bytes = await strategy.lookup(cid, options?.lookupTimeoutMs);
 
-    // Skip reassembly when the caller explicitly asks for raw bytes, or
-    // when the CID's codec says this is a single-block payload (raw,
-    // 0x55) — most uploads land here, so the parseCid + Promise.all
-    // overhead is worth gating on codec rather than always paying it.
-    if (options?.noReassemble) return bytes;
-    const parsed = parseCid(cid);
-    if (parsed.code !== CidCodec.DagPb) return bytes;
+        // Skip reassembly when the caller explicitly asks for raw bytes, or
+        // when the CID's codec says this is a single-block payload (raw,
+        // 0x55) — most uploads land here, so the parseCid + Promise.all
+        // overhead is worth gating on codec rather than always paying it.
+        if (options?.noReassemble) return ok(bytes);
+        const parsed = parseCid(cid);
+        if (parsed.code !== CidCodec.DagPb) return ok(bytes);
 
-    log.info("query: reassembling DAG-PB manifest", { cid });
-    const builder = new UnixFsDagBuilder();
-    const { chunkCids } = await builder.parse(bytes);
+        log.info("query: reassembling DAG-PB manifest", { cid });
+        const builder = new UnixFsDagBuilder();
+        const { chunkCids } = await builder.parse(bytes);
 
-    // Fetch chunks in parallel — the host's preimageManager caches and
-    // dedupes lookups, and order is preserved by Promise.all's input
-    // ordering, which matches the DAG-PB Links order from parse().
-    const chunks = await Promise.all(
-        chunkCids.map((c) => strategy.lookup(c.toString(), options?.lookupTimeoutMs)),
-    );
+        // Fetch chunks in parallel — the host's preimageManager caches and
+        // dedupes lookups, and order is preserved by Promise.all's input
+        // ordering, which matches the DAG-PB Links order from parse().
+        const chunks = await Promise.all(
+            chunkCids.map((c) => strategy.lookup(c.toString(), options?.lookupTimeoutMs)),
+        );
 
-    let total = 0;
-    for (const chunk of chunks) total += chunk.length;
-    const out = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-        out.set(chunk, offset);
-        offset += chunk.length;
+        let total = 0;
+        for (const chunk of chunks) total += chunk.length;
+        const out = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+            out.set(chunk, offset);
+            offset += chunk.length;
+        }
+        return ok(out);
+    } catch (cause) {
+        return err(toCloudStorageError(cause));
     }
-    return out;
 }
 
 if (import.meta.vitest) {
     const { beforeAll, describe, test, expect, vi } = import.meta.vitest;
     const { calculateCid } = await import("@parity/bulletin-sdk");
+
+    /** Assert a Result is `ok` and return its value (test-only). */
+    function unwrap<T>(r: Result<T, unknown>): T {
+        expect(r.ok).toBe(true);
+        if (!r.ok) throw new Error("expected ok result");
+        return r.value;
+    }
 
     describe("executeQuery", () => {
         const testData = new Uint8Array([1, 2, 3]);
@@ -114,7 +150,7 @@ if (import.meta.vitest) {
             // without triggering reassembly.
             const rawCid = (await calculateCid(testData)).toString();
             const result = await executeQuery(strategy, rawCid);
-            expect(result).toBe(testData);
+            expect(unwrap(result)).toBe(testData);
             expect(lookup).toHaveBeenCalledWith(rawCid, undefined);
         });
 
@@ -131,7 +167,7 @@ if (import.meta.vitest) {
             const strategy: QueryStrategy = { kind: "host-lookup", lookup };
             const rawCid = (await calculateCid(testData)).toString();
             const result = await executeQuery(strategy, rawCid);
-            expect(result).toBe(testData);
+            expect(unwrap(result)).toBe(testData);
             // Single lookup, no recursion.
             expect(lookup).toHaveBeenCalledTimes(1);
         });
@@ -144,7 +180,7 @@ if (import.meta.vitest) {
             const lookup = vi.fn().mockResolvedValue(fakeManifestBytes);
             const strategy: QueryStrategy = { kind: "host-lookup", lookup };
             const result = await executeQuery(strategy, dagPbCid, { noReassemble: true });
-            expect(result).toBe(fakeManifestBytes);
+            expect(unwrap(result)).toBe(fakeManifestBytes);
             expect(lookup).toHaveBeenCalledTimes(1);
         });
 
@@ -180,7 +216,7 @@ if (import.meta.vitest) {
                 });
                 const strategy: QueryStrategy = { kind: "host-lookup", lookup };
                 const result = await executeQuery(strategy, manifestCid);
-                expect(result).toEqual(new Uint8Array([0xaa, 0xaa, 0xaa, 0xbb, 0xbb]));
+                expect(unwrap(result)).toEqual(new Uint8Array([0xaa, 0xaa, 0xaa, 0xbb, 0xbb]));
                 // 1 manifest + 2 chunks = 3 lookups.
                 expect(lookup).toHaveBeenCalledTimes(3);
             });
@@ -207,11 +243,11 @@ if (import.meta.vitest) {
                     throw new Error("boom");
                 });
                 const strategy: QueryStrategy = { kind: "host-lookup", lookup };
-                const result = await executeQuery(strategy, manifestCid);
+                const bytes = unwrap(await executeQuery(strategy, manifestCid));
                 // Order matters: chunkA bytes must come before chunkB bytes
                 // even though both are fetched in parallel.
-                expect(Array.from(result.slice(0, 3))).toEqual([0xaa, 0xaa, 0xaa]);
-                expect(Array.from(result.slice(3))).toEqual([0xbb, 0xbb]);
+                expect(Array.from(bytes.slice(0, 3))).toEqual([0xaa, 0xaa, 0xaa]);
+                expect(Array.from(bytes.slice(3))).toEqual([0xbb, 0xbb]);
             });
         });
     });

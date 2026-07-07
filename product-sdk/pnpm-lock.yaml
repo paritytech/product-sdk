@@ -387,6 +387,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-result':
+        specifier: workspace:*
+        version: link:../result
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx

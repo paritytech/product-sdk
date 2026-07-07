@@ -185,7 +185,15 @@ export async function createApp(config: AppConfig): Promise<App> {
                   }
                   return result.cid.toString();
               },
-              fetch: (cid) => cloudStorageClient.fetchBytes(cid),
+              fetch: async (cid) => {
+                  // The app-level CloudStorageApi facade keeps its throwing
+                  // `Promise<Uint8Array>` contract; the umbrella surface is
+                  // converted to Result holistically in the initiative's final
+                  // (umbrella) phase.
+                  const result = await cloudStorageClient.fetchBytes(cid);
+                  if (!result.ok) throw result.error;
+                  return result.value;
+              },
               computeCid: async (data) => {
                   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
                   const cid = await calculateCid(bytes);

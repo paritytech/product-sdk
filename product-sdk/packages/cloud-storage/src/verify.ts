@@ -16,10 +16,11 @@
  * `verifyStored(api, cid, { block: blockNumber })` confirms the metadata
  * landed where expected.
  */
+import { type Result, err, ok } from "@parity/product-sdk-result";
 import { CID } from "multiformats/cid";
 
 import { HashAlgorithm } from "./cid.js";
-import { CloudStorageCidError } from "./errors.js";
+import { CloudStorageCidError, ProductCloudStorageError } from "./errors.js";
 import type { CloudStorageApi } from "./types.js";
 
 /**
@@ -92,49 +93,58 @@ export async function verifyStored(
     api: CloudStorageApi,
     cid: string,
     options: VerifyStoredOptions,
-): Promise<ChainStoredEntry | null> {
-    const parsed = parseCidForVerify(cid);
+): Promise<Result<ChainStoredEntry | null, ProductCloudStorageError>> {
+    try {
+        const parsed = parseCidForVerify(cid);
 
-    const queryFn = (api as unknown as TransactionsQueryApi).query?.TransactionStorage?.Transactions
-        ?.getValue;
-    if (!queryFn) {
-        throw new Error(
-            "CloudStorage API does not expose query.TransactionStorage.Transactions — " +
-                "the typed API may be incomplete or the runtime version doesn't match the descriptor.",
-        );
-    }
-
-    const entries = await queryFn(options.block);
-    if (!entries || entries.length === 0) return null;
-
-    // When an explicit index is provided, check that slot directly — no
-    // reason to walk the full array just to skip everything else.
-    if (options.index !== undefined) {
-        const entry = entries[options.index];
-        if (entry && matchesEntry(entry, parsed)) {
-            return {
-                block: options.block,
-                index: options.index,
-                size: entry.size,
-                blockChunks: entry.block_chunks,
-            };
+        const queryFn = (api as unknown as TransactionsQueryApi).query?.TransactionStorage
+            ?.Transactions?.getValue;
+        if (!queryFn) {
+            return err(
+                new ProductCloudStorageError(
+                    "CloudStorage API does not expose query.TransactionStorage.Transactions — " +
+                        "the typed API may be incomplete or the runtime version doesn't match the descriptor.",
+                ),
+            );
         }
-        return null;
-    }
 
-    for (let i = 0; i < entries.length; i++) {
-        const entry = entries[i]!;
-        if (matchesEntry(entry, parsed)) {
-            return {
-                block: options.block,
-                index: i,
-                size: entry.size,
-                blockChunks: entry.block_chunks,
-            };
+        const entries = await queryFn(options.block);
+        if (!entries || entries.length === 0) return ok(null);
+
+        // When an explicit index is provided, check that slot directly — no
+        // reason to walk the full array just to skip everything else.
+        if (options.index !== undefined) {
+            const entry = entries[options.index];
+            if (entry && matchesEntry(entry, parsed)) {
+                return ok({
+                    block: options.block,
+                    index: options.index,
+                    size: entry.size,
+                    blockChunks: entry.block_chunks,
+                });
+            }
+            return ok(null);
         }
-    }
 
-    return null;
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i]!;
+            if (matchesEntry(entry, parsed)) {
+                return ok({
+                    block: options.block,
+                    index: i,
+                    size: entry.size,
+                    blockChunks: entry.block_chunks,
+                });
+            }
+        }
+
+        return ok(null);
+    } catch (cause) {
+        // parseCidForVerify throws CloudStorageCidError on a malformed CID.
+        if (cause instanceof ProductCloudStorageError) return err(cause);
+        const message = cause instanceof Error ? cause.message : String(cause);
+        return err(new ProductCloudStorageError(message, { cause }));
+    }
 }
 
 interface ParsedCid {
@@ -215,6 +225,13 @@ function matchesEntry(entry: ChainEntry, target: ParsedCid): boolean {
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
+    /** Assert a Result is `ok` and return its value (test-only). */
+    function unwrap<T>(r: Result<T, unknown>): T {
+        expect(r.ok).toBe(true);
+        if (!r.ok) throw new Error("expected ok result");
+        return r.value;
+    }
+
     function makeMockApi(getValue: (block: number) => Promise<ChainEntry[] | undefined>) {
         return {
             query: {
@@ -254,7 +271,7 @@ if (import.meta.vitest) {
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(digest)]));
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(result).toEqual({ block: 100, index: 0, size: 100, blockChunks: 1 });
+            expect(unwrap(result)).toEqual({ block: 100, index: 0, size: 100, blockChunks: 1 });
         });
 
         test("returns null when block has no entries", async () => {
@@ -263,7 +280,7 @@ if (import.meta.vitest) {
             const api = makeMockApi(vi.fn().mockResolvedValue(undefined));
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(result).toBeNull();
+            expect(unwrap(result)).toBeNull();
         });
 
         test("returns null when block has entries but none match", async () => {
@@ -273,7 +290,7 @@ if (import.meta.vitest) {
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(otherDigest)]));
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(result).toBeNull();
+            expect(unwrap(result)).toBeNull();
         });
 
         test("returns null when hashing algorithm differs", async () => {
@@ -283,7 +300,7 @@ if (import.meta.vitest) {
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(digest, "Sha2_256")]));
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(result).toBeNull();
+            expect(unwrap(result)).toBeNull();
         });
 
         test("finds match at correct index when multiple entries exist", async () => {
@@ -301,7 +318,7 @@ if (import.meta.vitest) {
             );
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(result?.index).toBe(2);
+            expect(unwrap(result)?.index).toBe(2);
         });
 
         test("respects explicit index option", async () => {
@@ -320,7 +337,7 @@ if (import.meta.vitest) {
             );
 
             const result = await verifyStored(api, cid, { block: 100, index: 0 });
-            expect(result).toBeNull();
+            expect(unwrap(result)).toBeNull();
         });
 
         test("returns the entry when explicit index matches", async () => {
@@ -338,23 +355,23 @@ if (import.meta.vitest) {
             );
 
             const result = await verifyStored(api, cid, { block: 100, index: 2 });
-            expect(result?.index).toBe(2);
+            expect(unwrap(result)?.index).toBe(2);
         });
 
-        test("throws CloudStorageCidError on invalid CID", async () => {
+        test("returns err(CloudStorageCidError) on invalid CID", async () => {
             const api = makeMockApi(vi.fn());
-            await expect(verifyStored(api, "not-a-cid", { block: 1 })).rejects.toThrow(
-                CloudStorageCidError,
-            );
+            const result = await verifyStored(api, "not-a-cid", { block: 1 });
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(CloudStorageCidError);
         });
 
-        test("throws when api lacks the expected query path", async () => {
+        test("returns err when api lacks the expected query path", async () => {
             const api = {} as CloudStorageApi;
             const digest = new Uint8Array(32).fill(0xab);
             const cid = await makeCidWithDigest(digest);
-            await expect(verifyStored(api, cid, { block: 1 })).rejects.toThrow(
-                /does not expose query/,
-            );
+            const result = await verifyStored(api, cid, { block: 1 });
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error.message).toMatch(/does not expose query/);
         });
 
         test("handles content_hash as a Binary-like wrapper", async () => {
@@ -371,7 +388,7 @@ if (import.meta.vitest) {
             };
             const api = makeMockApi(vi.fn().mockResolvedValue([entry]));
             const result = await verifyStored(api, cid, { block: 1 });
-            expect(result).toEqual({ block: 1, index: 0, size: 50, blockChunks: 1 });
+            expect(unwrap(result)).toEqual({ block: 1, index: 0, size: 50, blockChunks: 1 });
         });
 
         test("passes the block number to the storage call", async () => {
