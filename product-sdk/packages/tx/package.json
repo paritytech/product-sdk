@@ -22,6 +22,7 @@
     "dependencies": {
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-result": "workspace:*",
         "@polkadot-labs/hdkd-helpers": "catalog:",
         "polkadot-api": "catalog:"
     },

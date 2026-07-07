@@ -1,9 +1,10 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { PolkadotSigner } from "polkadot-api";
 import { createLogger } from "@parity/product-sdk-logger";
+import { type Result, err } from "@parity/product-sdk-result";
+import type { PolkadotSigner } from "polkadot-api";
 
-import { TxBatchError } from "./errors.js";
+import { TxBatchError, type TxError } from "./errors.js";
 import { submitAndWatch } from "./submit.js";
 import type {
     BatchApi,
@@ -71,13 +72,11 @@ async function resolveDecodedCall(call: BatchableCall): Promise<unknown> {
  * @param signer - The signer to use. Can come from the Host API
  *   (`getProductAccountSigner`) or {@link createDevSigner}.
  * @param options - Optional {@link BatchSubmitOptions} (extends `SubmitOptions` with `mode`).
- * @returns The transaction result from the batch submission.
- *
- * @throws {TxBatchError} If `calls` is empty.
- * @throws {TxBatchError} If an AsyncTransaction resolves without a `.decodedCall` property.
- * @throws {TxTimeoutError} If the batch transaction does not reach the target state within `timeoutMs`.
- * @throws {TxDispatchError} If the on-chain dispatch fails.
- * @throws {TxSigningRejectedError} If the user rejects signing in their wallet.
+ * @returns A {@link Result}: `ok(TxResult)` from the batch submission, or `err(TxError)` on
+ *   failure. The `err` channel carries a typed `TxError` — a `TxBatchError` (empty `calls`, an
+ *   invalid call, or an AsyncTransaction that resolves without `.decodedCall`), or any error
+ *   surfaced by the underlying {@link submitAndWatch} (`TxTimeoutError`, `TxDispatchError`,
+ *   `TxSigningRejectedError`).
  *
  * @example
  * ```ts
@@ -89,6 +88,7 @@ async function resolveDecodedCall(call: BatchableCall): Promise<unknown> {
  * const result = await batchSubmitAndWatch([tx1, tx2], api, signer, {
  *   onStatus: (status) => console.log(status),
  * });
+ * if (!result.ok) handle(result.error);
  * ```
  */
 export async function batchSubmitAndWatch(
@@ -96,15 +96,28 @@ export async function batchSubmitAndWatch(
     api: BatchApi,
     signer: PolkadotSigner,
     options?: BatchSubmitOptions,
-): Promise<TxResult> {
+): Promise<Result<TxResult, TxError>> {
     if (calls.length === 0) {
-        throw new TxBatchError("Cannot batch zero calls");
+        return err(new TxBatchError("Cannot batch zero calls"));
     }
 
     const mode = options?.mode ?? "batch_all";
 
     log.info("Resolving batch calls", { count: calls.length, mode });
-    const decodedCalls = await Promise.all(calls.map(resolveDecodedCall));
+
+    let decodedCalls: unknown[];
+    try {
+        decodedCalls = await Promise.all(calls.map(resolveDecodedCall));
+    } catch (cause) {
+        // resolveDecodedCall throws TxBatchError on invalid/empty-shaped calls.
+        return err(
+            cause instanceof TxBatchError
+                ? cause
+                : new TxBatchError(cause instanceof Error ? cause.message : String(cause), {
+                      cause,
+                  }),
+        );
+    }
 
     log.info("Constructing batch transaction", { mode, callCount: decodedCalls.length });
     const batchTx = api.tx.Utility[mode]({ calls: decodedCalls });
@@ -258,15 +271,17 @@ if (import.meta.vitest) {
             ]);
         });
 
-        test("throws TxBatchError for empty calls array", async () => {
+        test("returns err(TxBatchError) for empty calls array", async () => {
             const { api } = createMockBatchApi(successEmit);
-            await expect(batchSubmitAndWatch([], api, mockSigner)).rejects.toThrow(TxBatchError);
-            await expect(batchSubmitAndWatch([], api, mockSigner)).rejects.toThrow(
-                "Cannot batch zero calls",
-            );
+            const result = await batchSubmitAndWatch([], api, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxBatchError);
+                expect(result.error.message).toContain("Cannot batch zero calls");
+            }
         });
 
-        test("throws TxBatchError when AsyncTransaction resolves without decodedCall", async () => {
+        test("returns err(TxBatchError) when AsyncTransaction resolves without decodedCall", async () => {
             const { api } = createMockBatchApi(successEmit);
             const badAsync = {
                 waited: Promise.resolve({ noDecodedCall: true }),
@@ -275,29 +290,41 @@ if (import.meta.vitest) {
                 },
             };
 
-            await expect(
-                batchSubmitAndWatch([badAsync as unknown as BatchableCall], api, mockSigner),
-            ).rejects.toThrow(TxBatchError);
+            const result = await batchSubmitAndWatch(
+                [badAsync as unknown as BatchableCall],
+                api,
+                mockSigner,
+            );
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxBatchError);
         });
 
-        test("throws TxBatchError for null call", async () => {
+        test("returns err(TxBatchError) for null call", async () => {
             const { api } = createMockBatchApi(successEmit);
-            await expect(
-                batchSubmitAndWatch([null as unknown as BatchableCall], api, mockSigner),
-            ).rejects.toThrow(TxBatchError);
-            await expect(
-                batchSubmitAndWatch([null as unknown as BatchableCall], api, mockSigner),
-            ).rejects.toThrow("Invalid batch call");
+            const result = await batchSubmitAndWatch(
+                [null as unknown as BatchableCall],
+                api,
+                mockSigner,
+            );
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxBatchError);
+                expect(result.error.message).toContain("Invalid batch call");
+            }
         });
 
-        test("throws TxBatchError for primitive call", async () => {
+        test("returns err(TxBatchError) for primitive call", async () => {
             const { api } = createMockBatchApi(successEmit);
-            await expect(
-                batchSubmitAndWatch([42 as unknown as BatchableCall], api, mockSigner),
-            ).rejects.toThrow(TxBatchError);
-            await expect(
-                batchSubmitAndWatch(["oops" as unknown as BatchableCall], api, mockSigner),
-            ).rejects.toThrow("Invalid batch call");
+            const result = await batchSubmitAndWatch(
+                [42 as unknown as BatchableCall],
+                api,
+                mockSigner,
+            );
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxBatchError);
+                expect(result.error.message).toContain("Invalid batch call");
+            }
         });
 
         test("treats { decodedCall: undefined } as raw pass-through object", async () => {
@@ -369,9 +396,9 @@ if (import.meta.vitest) {
                 });
             });
 
-            await expect(
-                batchSubmitAndWatch([{ decodedCall: "call1" }], api, mockSigner),
-            ).rejects.toThrow(TxDispatchError);
+            const result = await batchSubmitAndWatch([{ decodedCall: "call1" }], api, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxDispatchError);
         });
 
         test("propagates TxSigningRejectedError", async () => {
@@ -379,9 +406,9 @@ if (import.meta.vitest) {
                 h.error(new Error("User rejected the request"));
             });
 
-            await expect(
-                batchSubmitAndWatch([{ decodedCall: "call1" }], api, mockSigner),
-            ).rejects.toThrow(TxSigningRejectedError);
+            const result = await batchSubmitAndWatch([{ decodedCall: "call1" }], api, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxSigningRejectedError);
         });
 
         test("resolves all calls in parallel", async () => {

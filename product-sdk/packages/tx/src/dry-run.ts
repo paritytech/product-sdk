@@ -1,5 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import { type Result, err, ok } from "@parity/product-sdk-result";
+
 import { TxDryRunError, formatDryRunError } from "./errors.js";
 import type { SubmittableTransaction, Weight } from "./types.js";
 
@@ -17,46 +19,41 @@ import type { SubmittableTransaction, Weight } from "./types.js";
  * - Any object with `{ success: boolean; value?: { send?(): ... } }`
  *
  * @param result - The dry-run result from a contract query or write simulation.
- * @returns The submittable transaction, ready to pass to {@link submitAndWatch}.
- * @throws {TxDryRunError} If the dry run failed or the result has no `send()`.
+ * @returns A {@link Result}: `ok(SubmittableTransaction)` ready to pass to {@link submitAndWatch},
+ *   or `err(TxDryRunError)` if the dry run failed, returned no value, or has no `send()`.
  *
  * @example
  * ```ts
  * import { extractTransaction, submitAndWatch, createDevSigner } from "@parity/product-sdk-tx";
  *
  * const dryRun = await contract.query("createItem", { origin, data: { name, price } });
- * const tx = extractTransaction(dryRun);
- * const result = await submitAndWatch(tx, createDevSigner("Alice"));
- * ```
- *
- * @example Composing with retry logic:
- * ```ts
- * const tx = extractTransaction(await contract.query("transfer", { origin, data }));
- * const result = await withRetry(() => submitAndWatch(tx, signer));
+ * const extracted = extractTransaction(dryRun);
+ * if (!extracted.ok) return handle(extracted.error);
+ * const result = await submitAndWatch(extracted.value, createDevSigner("Alice"));
  * ```
  */
 export function extractTransaction(result: {
     success: boolean;
     value?: unknown;
     error?: unknown;
-}): SubmittableTransaction {
+}): Result<SubmittableTransaction, TxDryRunError> {
     if (!result.success) {
         const formatted = formatDryRunError(result);
         const revertReason = extractRevertReason(result.value);
-        throw new TxDryRunError(result, formatted, revertReason);
+        return err(new TxDryRunError(result, formatted, revertReason));
     }
 
     const value = result.value;
     if (value == null || typeof value !== "object") {
-        throw new TxDryRunError(result, "dry run returned no value");
+        return err(new TxDryRunError(result, "dry run returned no value"));
     }
 
     const v = value as Record<string, unknown>;
     if (typeof v.send !== "function") {
-        throw new TxDryRunError(result, "not a write query (no send())");
+        return err(new TxDryRunError(result, "not a write query (no send())"));
     }
 
-    return v.send() as SubmittableTransaction;
+    return ok(v.send() as SubmittableTransaction);
 }
 
 /**
@@ -123,7 +120,14 @@ if (import.meta.vitest) {
     const { describe, test, expect } = import.meta.vitest;
 
     describe("extractTransaction", () => {
-        test("returns tx from successful dry-run with send()", () => {
+        /** Assert the result is `err` and return the narrowed `TxDryRunError`. */
+        function expectErr(r: Result<SubmittableTransaction, TxDryRunError>): TxDryRunError {
+            expect(r.ok).toBe(false);
+            if (r.ok) throw new Error("expected err");
+            return r.error;
+        }
+
+        test("returns ok(tx) from successful dry-run with send()", () => {
             const mockTx = {
                 signSubmitAndWatch: () => ({ subscribe: () => ({ unsubscribe: () => {} }) }),
             };
@@ -131,28 +135,25 @@ if (import.meta.vitest) {
                 success: true,
                 value: { response: "ok", send: () => mockTx },
             };
-            expect(extractTransaction(result)).toBe(mockTx);
+            const extracted = extractTransaction(result);
+            expect(extracted.ok).toBe(true);
+            if (extracted.ok) expect(extracted.value).toBe(mockTx);
         });
 
-        test("throws TxDryRunError on failed dry-run", () => {
+        test("returns err(TxDryRunError) on failed dry-run", () => {
             const result = {
                 success: false,
                 value: { revertReason: "InsufficientBalance" },
             };
-            try {
-                extractTransaction(result);
-                expect.unreachable("should have thrown");
-            } catch (e) {
-                expect(e).toBeInstanceOf(TxDryRunError);
-                const err = e as TxDryRunError;
-                expect(err.revertReason).toBe("InsufficientBalance");
-                expect(err.formatted).toBe("InsufficientBalance");
-                expect(err.message).toContain("InsufficientBalance");
-                expect(err.raw).toBe(result);
-            }
+            const error = expectErr(extractTransaction(result));
+            expect(error).toBeInstanceOf(TxDryRunError);
+            expect(error.revertReason).toBe("InsufficientBalance");
+            expect(error.formatted).toBe("InsufficientBalance");
+            expect(error.message).toContain("InsufficientBalance");
+            expect(error.raw).toBe(result);
         });
 
-        test("throws TxDryRunError with Module error formatting", () => {
+        test("err with Module error formatting", () => {
             const result = {
                 success: false,
                 value: {
@@ -160,67 +161,49 @@ if (import.meta.vitest) {
                     value: { type: "Revive", value: { type: "StorageDepositNotEnoughFunds" } },
                 },
             };
-            try {
-                extractTransaction(result);
-                expect.unreachable("should have thrown");
-            } catch (e) {
-                const err = e as TxDryRunError;
-                expect(err.formatted).toBe("Revive.StorageDepositNotEnoughFunds");
-                expect(err.revertReason).toBeUndefined();
-            }
+            const error = expectErr(extractTransaction(result));
+            expect(error.formatted).toBe("Revive.StorageDepositNotEnoughFunds");
+            expect(error.revertReason).toBeUndefined();
         });
 
-        test("throws TxDryRunError with error field", () => {
+        test("err with error field", () => {
             const result = {
                 success: false,
                 value: {},
                 error: { type: "ContractTrapped" },
             };
-            try {
-                extractTransaction(result);
-                expect.unreachable("should have thrown");
-            } catch (e) {
-                const err = e as TxDryRunError;
-                expect(err.formatted).toBe("ContractTrapped");
-            }
+            const error = expectErr(extractTransaction(result));
+            expect(error.formatted).toBe("ContractTrapped");
         });
 
-        test("throws when value is missing", () => {
+        test("err when value is missing", () => {
             const result = { success: true };
-            expect(() => extractTransaction(result)).toThrow(TxDryRunError);
+            const error = expectErr(extractTransaction(result));
+            expect(error).toBeInstanceOf(TxDryRunError);
         });
 
-        test("throws when send is not a function", () => {
+        test("err when send is not a function", () => {
             const result = { success: true, value: { response: "ok" } };
-            expect(() => extractTransaction(result)).toThrow("not a write query");
+            const error = expectErr(extractTransaction(result));
+            expect(error.message).toContain("not a write query");
         });
 
-        test("throws with revertReason from nested raw (patched SDK)", () => {
+        test("err with revertReason from nested raw (patched SDK)", () => {
             const result = {
                 success: false,
                 value: { raw: { revertReason: "Unauthorized" } },
             };
-            try {
-                extractTransaction(result);
-                expect.unreachable("should have thrown");
-            } catch (e) {
-                const err = e as TxDryRunError;
-                expect(err.revertReason).toBe("Unauthorized");
-            }
+            const error = expectErr(extractTransaction(result));
+            expect(error.revertReason).toBe("Unauthorized");
         });
 
-        test("throws with ReviveApi Message error", () => {
+        test("err with ReviveApi Message error", () => {
             const result = {
                 success: false,
                 value: { type: "Message", value: "Insufficient balance for gas * price + value" },
             };
-            try {
-                extractTransaction(result);
-                expect.unreachable("should have thrown");
-            } catch (e) {
-                const err = e as TxDryRunError;
-                expect(err.formatted).toBe("Insufficient balance for gas * price + value");
-            }
+            const error = expectErr(extractTransaction(result));
+            expect(error.formatted).toBe("Insufficient balance for gas * price + value");
         });
     });
 

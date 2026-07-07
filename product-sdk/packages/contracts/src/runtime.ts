@@ -1,9 +1,10 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { HexString, PolkadotClient, PolkadotSigner, SS58String } from "polkadot-api";
-import type { SubmittableTransaction, Weight, TxResult } from "@parity/product-sdk-tx";
-import { ensureAccountMapped } from "@parity/product-sdk-tx";
 import { ss58ToH160 } from "@parity/product-sdk-address";
+import type { Result } from "@parity/product-sdk-result";
+import type { SubmittableTransaction, TxError, TxResult, Weight } from "@parity/product-sdk-tx";
+import { ensureAccountMapped } from "@parity/product-sdk-tx";
+import type { HexString, PolkadotClient, PolkadotSigner, SS58String } from "polkadot-api";
 
 /**
  * Result of a `Revive.call` extrinsic — present on the typed API as
@@ -249,7 +250,8 @@ export function createContractRuntimeFromClient<TDescriptor>(
  * @param address - The SS58 address of the account to map.
  * @param signer - A signer matching `address`.
  * @param options - Optional timeout / status callback (forwarded to the underlying tx).
- * @returns The `TxResult` from the mapping extrinsic, or `null` if already mapped.
+ * @returns A `Result`: `ok(TxResult)` from the mapping extrinsic, `ok(null)` if already mapped,
+ *   or `err(TxError)` on failure. Delegates to `@parity/product-sdk-tx`'s `ensureAccountMapped`.
  *
  * @example
  * ```ts
@@ -265,7 +267,7 @@ export async function ensureContractAccountMapped(
     address: SS58String,
     signer: PolkadotSigner,
     options?: { timeoutMs?: number; onStatus?: (s: string) => void },
-): Promise<TxResult | null> {
+): Promise<Result<TxResult | null, TxError>> {
     const checker = {
         addressIsMapped: async (addr: string): Promise<boolean> => {
             const h160 = ss58ToH160(addr) as HexString;
@@ -329,11 +331,12 @@ if (import.meta.vitest) {
             return { runtime, getValue, mapAccount };
         }
 
-        test("returns null without submitting when storage already has the mapping", async () => {
+        test("returns ok(null) without submitting when storage already has the mapping", async () => {
             const { runtime, getValue, mapAccount } = makeRuntime({ mapped: true });
             const result = await ensureContractAccountMapped(runtime, aliceSs58, fakeSigner);
 
-            expect(result).toBeNull();
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toBeNull();
             // The H160 derivation hands a `0x…` hex string to the storage
             // query — not the SS58 address. If the wiring ever forwards the
             // SS58 by accident, this assertion catches it.

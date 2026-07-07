@@ -225,13 +225,17 @@ export async function authorizeAccount(
         timeoutMs,
         onStatus,
     });
+    // `submitAndWatch` now returns a Result; preserve this function's throwing
+    // contract by surfacing the tx error until cloud-storage converts to Result
+    // in its own phase.
+    if (!result.ok) throw result.error;
 
     log.info("authorizeAccount: included in block", {
         who,
-        blockHash: result.block.hash,
+        blockHash: result.value.block.hash,
     });
 
-    return { blockHash: result.block.hash };
+    return { blockHash: result.value.block.hash };
 }
 
 if (import.meta.vitest) {

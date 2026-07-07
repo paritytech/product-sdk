@@ -415,6 +415,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-result':
+        specifier: workspace:*
+        version: link:../result
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
@@ -767,6 +770,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-result':
+        specifier: workspace:*
+        version: link:../result
       '@polkadot-labs/hdkd-helpers':
         specifier: 'catalog:'
         version: 0.0.30

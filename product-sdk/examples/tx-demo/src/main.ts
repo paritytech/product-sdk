@@ -128,9 +128,12 @@ $btnSubmitRemark.addEventListener("click", async () => {
             onStatus: makeStatusLogger("remark"),
         });
         if (result.ok) {
-            log(`remark landed in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`, "ok");
+            log(
+                `remark landed in block #${result.value.block.number} (${result.value.txHash.slice(0, 18)}…)`,
+                "ok",
+            );
         } else {
-            log(`remark failed: ${JSON.stringify(result.dispatchError)}`, "err");
+            log(`remark failed: ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`remark failed: ${(err as Error).message}`, "err");
@@ -161,9 +164,12 @@ $btnSubmitBatch.addEventListener("click", async () => {
             onStatus: makeStatusLogger("batch"),
         });
         if (result.ok) {
-            log(`batch landed in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`, "ok");
+            log(
+                `batch landed in block #${result.value.block.number} (${result.value.txHash.slice(0, 18)}…)`,
+                "ok",
+            );
         } else {
-            log(`batch failed: ${JSON.stringify(result.dispatchError)}`, "err");
+            log(`batch failed: ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`batch failed: ${(err as Error).message}`, "err");
@@ -196,11 +202,11 @@ $btnSubmitRemarkFinalized.addEventListener("click", async () => {
         });
         if (result.ok) {
             log(
-                `remark-finalized finalized in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`,
+                `remark-finalized finalized in block #${result.value.block.number} (${result.value.txHash.slice(0, 18)}…)`,
                 "finalized",
             );
         } else {
-            log(`remark-finalized failed: ${JSON.stringify(result.dispatchError)}`, "err");
+            log(`remark-finalized failed: ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`remark-finalized failed: ${(err as Error).message}`, "err");
@@ -234,12 +240,12 @@ $btnSubmitBadTx.addEventListener("click", async () => {
             onStatus: makeStatusLogger("bad-tx"),
         });
         if (result.ok) {
-            log(`bad-tx unexpectedly succeeded in block #${result.block.number}`, "err");
+            log(`bad-tx unexpectedly succeeded in block #${result.value.block.number}`, "err");
         } else {
-            log(`bad-tx dispatch error: ${JSON.stringify(result.dispatchError)}`, "err");
+            // TxDispatchError now arrives on the err channel — this is the expected path.
+            log(`bad-tx dispatch error: ${result.error.name}: ${result.error.message}`, "err");
         }
     } catch (err) {
-        // TxDispatchError rejects the promise — this is the expected path.
         const e = err as Error;
         log(`bad-tx rejected: ${e.name}: ${e.message}`, "err");
     } finally {

@@ -299,10 +299,14 @@ async function init() {
             productAccount.address,
             signer,
         );
+        if (!mapped.ok) {
+            log(`ensureContractAccountMapped failed: ${mapped.error.message}`, "err");
+            return;
+        }
         log(
-            mapped === null
+            mapped.value === null
                 ? "Account already mapped (no signature needed)"
-                : `Account mapped in block #${mapped.block.number}`,
+                : `Account mapped in block #${mapped.value.block.number}`,
             "ok",
         );
     } catch (err) {
