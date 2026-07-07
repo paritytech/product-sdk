@@ -24,6 +24,7 @@
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-result": "workspace:*",
         "polkadot-api": "catalog:"
     },
     "devDependencies": {

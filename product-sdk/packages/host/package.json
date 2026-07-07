@@ -21,6 +21,7 @@
     },
     "dependencies": {
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-result": "workspace:*",
         "@parity/truapi": "catalog:",
         "@polkadot-api/json-rpc-provider": "catalog:",
         "@polkadot-api/substrate-bindings": "catalog:",

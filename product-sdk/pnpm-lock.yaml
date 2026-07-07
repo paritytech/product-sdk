@@ -478,6 +478,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-result':
+        specifier: workspace:*
+        version: link:../result
       '@parity/truapi':
         specifier: 'catalog:'
         version: 0.3.2
@@ -566,6 +569,15 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@22.19.17)
 
+  packages/result:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/sdk:
     dependencies:
       '@parity/product-sdk-address':
@@ -635,6 +647,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-result':
+        specifier: workspace:*
+        version: link:../result
       polkadot-api:
         specifier: 'catalog:'
         version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)

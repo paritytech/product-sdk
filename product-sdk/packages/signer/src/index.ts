@@ -29,6 +29,7 @@ export type {
     SignerState,
 } from "./types.js";
 export { err, ok } from "./types.js";
+export { type SdkError, isSdkError } from "@parity/product-sdk-result";
 
 // Errors
 export {
