@@ -1,9 +1,17 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { SdkError } from "@parity/product-sdk-result";
 import type { HexString } from "polkadot-api";
 
-/** Base class for all contract errors. Use `instanceof ContractError` to catch any contract-related error. */
-export class ContractError extends Error {
+/**
+ * Base class for all contract errors. Use `instanceof ContractError` to catch any
+ * contract-related error. Implements the cross-package {@link SdkError} marker so
+ * `isSdkError(e)` also recognizes it.
+ */
+export class ContractError extends Error implements SdkError {
+    readonly isSdkError = true as const;
+    readonly source = "contracts";
+
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = "ContractError";

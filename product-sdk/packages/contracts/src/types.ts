@@ -1,8 +1,17 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
-import type { BatchableCall, SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
+import type { Result } from "@parity/product-sdk-result";
 import type { SignerManager } from "@parity/product-sdk-signer";
+import type {
+    BatchableCall,
+    SubmitOptions,
+    TxError,
+    TxResult,
+    Weight,
+} from "@parity/product-sdk-tx";
+import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
+
+import type { ContractError } from "./errors.js";
 import type { ContractDryRunAt } from "./runtime.js";
 
 // Re-export from the tx package — single source of truth.
@@ -213,9 +222,15 @@ export type Contract<C extends ContractDef> = {
          * Resolves at best-block by default (configurable via `waitFor`).
          *
          * Signer is resolved from: explicit `{ signer }` option → signerManager →
-         * defaultSigner. Throws {@link ContractSignerMissingError} if none available.
+         * defaultSigner.
+         *
+         * @returns A {@link Result}: `ok(TxResult)` once included/finalized, or `err`
+         *   carrying a `ContractError` (no signer available, pre-submit dry-run failed,
+         *   or the call reverted) or a `TxError` (submission/dispatch failure).
          */
-        tx: (...args: [...C["methods"][K]["args"], opts?: TxOptions]) => Promise<TxResult>;
+        tx: (
+            ...args: [...C["methods"][K]["args"], opts?: TxOptions]
+        ) => Promise<Result<TxResult, ContractError | TxError>>;
         /**
          * Prepare the method as a {@link BatchableCall} — returns the same
          * submittable that `.tx()` would build, but without signing or
@@ -234,14 +249,17 @@ export type Contract<C extends ContractDef> = {
          * omitted, `.prepare()` runs a `ReviveApi.call` dry-run (same as
          * `.tx()`) against the fallback origin to fill the missing
          * field(s) — pass both to skip the dry-run entirely. A failing
-         * dry-run throws {@link ContractDryRunFailedError} before the
+         * dry-run yields `err({@link ContractDryRunFailedError})` before the
          * call is constructed.
          *
          * `.prepare()` does not require a signer; the batch's signer
          * replaces the dispatched origin at submission.
+         *
+         * @returns A {@link Result}: `ok(BatchableCall)`, or `err(ContractError)` if the
+         *   pre-build dry-run fails or the call reverts.
          */
         prepare: (
             ...args: [...C["methods"][K]["args"], opts?: PrepareOptions]
-        ) => Promise<BatchableCall>;
+        ) => Promise<Result<BatchableCall, ContractError>>;
     };
 };

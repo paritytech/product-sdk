@@ -1,8 +1,14 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import { type Result, err, ok } from "@parity/product-sdk-result";
 import type { HexString, PolkadotClient, SS58String } from "polkadot-api";
+
+import {
+    ContractError,
+    ContractLiveAddressResolutionError,
+    ContractNotFoundError,
+} from "./errors.js";
 import { wrapContract } from "./wrap.js";
-import { ContractLiveAddressResolutionError, ContractNotFoundError } from "./errors.js";
 import type { ContractRuntime, ContractRuntimeOptions } from "./runtime.js";
 import { createContractRuntimeFromClient } from "./runtime.js";
 import type {
@@ -141,45 +147,56 @@ async function queryLiveAddress(
  * Return a cloned manifest whose installed contract addresses have been
  * replaced by live addresses from the CDM registry.
  *
- * This is intentionally strict: if a requested library cannot be resolved
- * from the registry, the promise rejects. Use `new ContractManager(...)` or
+ * This is intentionally strict: if a requested library cannot be resolved from
+ * the registry, the result is `err`. Use `new ContractManager(...)` or
  * `ContractManager.fromClient(...)` directly for snapshot-only behavior.
+ *
+ * @returns A {@link Result}: `ok(CdmJson)` with live addresses patched in, or
+ *   `err(ContractError)` — a `ContractLiveAddressResolutionError` (missing
+ *   contracts, no registry, or a lookup that failed / returned nothing) or a
+ *   `ContractNotFoundError` (a requested library isn't installed).
  */
 export async function withLiveContractAddresses(
     cdmJson: CdmJson,
     runtime: ContractRuntime,
     options?: LiveContractResolutionOptions,
-): Promise<CdmJson> {
-    const contracts = cdmJson.contracts;
-    if (!contracts || Object.keys(contracts).length === 0) {
-        throw new ContractLiveAddressResolutionError(
-            "No installed contracts found in cdm.json for live address resolution.",
-        );
-    }
-
-    const libraries = options?.libraries ?? Object.keys(contracts);
-    for (const library of libraries) {
-        if (!(library in contracts)) {
-            throw new ContractNotFoundError(library);
+): Promise<Result<CdmJson, ContractError>> {
+    try {
+        const contracts = cdmJson.contracts;
+        if (!contracts || Object.keys(contracts).length === 0) {
+            throw new ContractLiveAddressResolutionError(
+                "No installed contracts found in cdm.json for live address resolution.",
+            );
         }
-    }
 
-    const registryAddress = resolveRegistryAddress(cdmJson, options?.registryAddress);
-    const registry = createContract(runtime, registryAddress, CDM_REGISTRY_ABI, {
-        defaultOrigin: options?.registryOrigin,
-    });
-    const liveAddresses = await Promise.all(
-        libraries.map(async (library): Promise<readonly [string, HexString]> => {
-            const version = resolveLiveVersionSpec(cdmJson, library, contracts[library]);
-            return [library, await queryLiveAddress(registry, library, version)];
-        }),
-    );
+        const libraries = options?.libraries ?? Object.keys(contracts);
+        for (const library of libraries) {
+            if (!(library in contracts)) {
+                throw new ContractNotFoundError(library);
+            }
+        }
 
-    const resolved = cloneCdmJson(cdmJson);
-    for (const [library, address] of liveAddresses) {
-        patchContractAddress(resolved, library, address);
+        const registryAddress = resolveRegistryAddress(cdmJson, options?.registryAddress);
+        const registry = createContract(runtime, registryAddress, CDM_REGISTRY_ABI, {
+            defaultOrigin: options?.registryOrigin,
+        });
+        const liveAddresses = await Promise.all(
+            libraries.map(async (library): Promise<readonly [string, HexString]> => {
+                const version = resolveLiveVersionSpec(cdmJson, library, contracts[library]);
+                return [library, await queryLiveAddress(registry, library, version)];
+            }),
+        );
+
+        const resolved = cloneCdmJson(cdmJson);
+        for (const [library, address] of liveAddresses) {
+            patchContractAddress(resolved, library, address);
+        }
+        return ok(resolved);
+    } catch (cause) {
+        // Internal helpers throw ContractError subclasses; surface them on the err channel.
+        if (cause instanceof ContractError) return err(cause);
+        throw cause;
     }
-    return resolved;
 }
 
 /**
@@ -267,12 +284,13 @@ export class ContractManager {
         cdmJson: CdmJson,
         runtime: ContractRuntime,
         options?: ContractManagerOptions & LiveContractResolutionOptions,
-    ): Promise<ContractManager> {
+    ): Promise<Result<ContractManager, ContractError>> {
         const resolved = await withLiveContractAddresses(cdmJson, runtime, {
             ...options,
             registryOrigin: options?.registryOrigin ?? (options?.defaultOrigin as SS58String),
         });
-        return new ContractManager(resolved, runtime, options);
+        if (!resolved.ok) return resolved;
+        return ok(new ContractManager(resolved.value, runtime, options));
     }
 
     /**
@@ -284,7 +302,7 @@ export class ContractManager {
         client: PolkadotClient,
         descriptor: TDescriptor,
         options?: ContractManagerOptions & ContractRuntimeOptions & LiveContractResolutionOptions,
-    ): Promise<ContractManager> {
+    ): Promise<Result<ContractManager, ContractError>> {
         const runtime = createContractRuntimeFromClient(client, descriptor, options);
         return ContractManager.fromLive(cdmJson, runtime, options);
     }
@@ -564,7 +582,11 @@ if (import.meta.vitest) {
                 registryOrigin: "5LiveOrigin" as SS58String,
             });
 
-            expect(resolved.contracts?.["@w3s/playground-registry"].address).toBe(liveAddress);
+            expect(resolved.ok).toBe(true);
+            if (!resolved.ok) throw resolved.error;
+            expect(resolved.value.contracts?.["@w3s/playground-registry"].address).toBe(
+                liveAddress,
+            );
             expect(calls[0]).toMatchObject({
                 functionName: "getAddress",
                 args: ["@w3s/playground-registry"],
@@ -590,7 +612,11 @@ if (import.meta.vitest) {
 
             const resolved = await withLiveContractAddresses(pinnedCdm, runtime);
 
-            expect(resolved.contracts?.["@w3s/playground-registry"].address).toBe(versionedAddress);
+            expect(resolved.ok).toBe(true);
+            if (!resolved.ok) throw resolved.error;
+            expect(resolved.value.contracts?.["@w3s/playground-registry"].address).toBe(
+                versionedAddress,
+            );
             expect(calls[0]).toMatchObject({
                 functionName: "getAddressAtVersion",
                 args: ["@w3s/playground-registry", 6],
@@ -610,7 +636,11 @@ if (import.meta.vitest) {
 
             const resolved = await withLiveContractAddresses(missingDependencyCdm, runtime);
 
-            expect(resolved.contracts?.["@w3s/playground-registry"].address).toBe(versionedAddress);
+            expect(resolved.ok).toBe(true);
+            if (!resolved.ok) throw resolved.error;
+            expect(resolved.value.contracts?.["@w3s/playground-registry"].address).toBe(
+                versionedAddress,
+            );
             expect(calls[0]).toMatchObject({
                 functionName: "getAddressAtVersion",
                 args: ["@w3s/playground-registry", 6],
@@ -623,9 +653,12 @@ if (import.meta.vitest) {
                 value: "0x0000000000000000000000000000000000000000",
             });
 
-            await expect(withLiveContractAddresses(flattenedCdm, runtime)).rejects.toThrow(
-                /not registered/,
-            );
+            const resolved = await withLiveContractAddresses(flattenedCdm, runtime);
+            expect(resolved.ok).toBe(false);
+            if (!resolved.ok) {
+                expect(resolved.error).toBeInstanceOf(ContractLiveAddressResolutionError);
+                expect(resolved.error.message).toMatch(/not registered/);
+            }
         });
 
         test("constructs from a real-world cdm.json without errors", () => {
