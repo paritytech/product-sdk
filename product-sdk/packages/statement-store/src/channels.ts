@@ -1,8 +1,10 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
+import type { Result } from "@parity/product-sdk-result";
 
 import type { StatementStoreClient } from "./client.js";
+import type { StatementStoreError } from "./errors.js";
 import { createChannel, topicToHex } from "./topics.js";
 import type { PublishOptions, ReceivedStatement, Unsubscribable } from "./types.js";
 
@@ -85,9 +87,10 @@ export class ChannelStore<T extends { timestamp?: number }> {
      *
      * @param channelName - The channel name (e.g., "presence/peer-abc").
      * @param value - The value to write.
-     * @returns `true` if the statement was accepted by the network.
+     * @returns A {@link Result}: `ok(undefined)` if the statement was accepted by the
+     *   network, or `err(StatementStoreError)` (propagated from {@link StatementStoreClient.publish}).
      */
-    async write(channelName: string, value: T): Promise<boolean> {
+    async write(channelName: string, value: T): Promise<Result<void, StatementStoreError>> {
         const timestamped = value.timestamp != null ? value : { ...value, timestamp: Date.now() };
 
         const options: PublishOptions = {
@@ -95,16 +98,16 @@ export class ChannelStore<T extends { timestamp?: number }> {
             topic2: this.topic2,
         };
 
-        const success = await this.client.publish(timestamped, options);
+        const result = await this.client.publish(timestamped, options);
 
-        if (success) {
+        if (result.ok) {
             // Store by hash key so local writes and network echoes use the same key
             const hashKey = topicToHex(createChannel(channelName));
             this.nameToHash.set(channelName, hashKey);
             this.updateChannel(hashKey, timestamped);
         }
 
-        return success;
+        return result;
     }
 
     /**
@@ -226,6 +229,8 @@ export class ChannelStore<T extends { timestamp?: number }> {
 if (import.meta.vitest) {
     const { describe, test, expect, vi, beforeEach } = import.meta.vitest;
     const { configure } = await import("@parity/product-sdk-logger");
+    const { ok, err } = await import("@parity/product-sdk-result");
+    const { StatementSubmitError } = await import("./errors.js");
 
     beforeEach(() => {
         configure({ handler: () => {} });
@@ -252,7 +257,7 @@ if (import.meta.vitest) {
                     };
                 },
             ),
-            publish: vi.fn(async () => true),
+            publish: vi.fn(async (): Promise<Result<void, StatementStoreError>> => ok(undefined)),
             // Helper to simulate incoming statement
             _simulateStatement(stmt: ReceivedStatement<unknown>) {
                 for (const cb of subscribeCallbacks) {
@@ -292,15 +297,15 @@ if (import.meta.vitest) {
             expect(published.timestamp).toBeGreaterThanOrEqual(before);
         });
 
-        test("write returns false on publish failure", async () => {
+        test("write returns err on publish failure", async () => {
             const mockClient = createMockClient();
-            mockClient.publish = vi.fn(async () => false);
+            mockClient.publish = vi.fn(async () => err(new StatementSubmitError("rejected")));
             const store = new ChannelStore<TestValue>(
                 mockClient as unknown as StatementStoreClient,
             );
 
             const result = await store.write("ch", { type: "test", timestamp: 1 });
-            expect(result).toBe(false);
+            expect(result.ok).toBe(false);
             expect(store.read("ch")).toBeUndefined(); // Not stored on failure
         });
 

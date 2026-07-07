@@ -84,13 +84,11 @@ $btnPublish.addEventListener("click", async () => {
     log(`Publishing: "${text}"…`);
 
     try {
-        const ok = await client.publish(
-            { type: "test", text, timestamp: Date.now() },
-        );
-        if (ok) {
+        const result = await client.publish({ type: "test", text, timestamp: Date.now() });
+        if (result.ok) {
             log(`Published: "${text}"`, "ok");
         } else {
-            log(`Publish rejected: "${text}"`, "err");
+            log(`Publish rejected: "${text}" — ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`Publish failed: ${(err as Error).message}`, "err");
@@ -105,14 +103,14 @@ $btnPublishTopic2.addEventListener("click", async () => {
     log(`Publishing with topic2: "${text}"…`);
 
     try {
-        const ok = await client.publish(
+        const result = await client.publish(
             { type: "test", text, timestamp: Date.now() },
             { topic2: "e2e-room" },
         );
-        if (ok) {
+        if (result.ok) {
             log(`Published (topic2): "${text}"`, "ok");
         } else {
-            log(`Publish (topic2) rejected: "${text}"`, "err");
+            log(`Publish (topic2) rejected: "${text}" — ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`Publish (topic2) failed: ${(err as Error).message}`, "err");
@@ -131,15 +129,15 @@ $btnChannelWrite.addEventListener("click", async () => {
     log(`Writing channel "test-channel": "${value}"…`);
 
     try {
-        const ok = await channels.write("test-channel", {
+        const result = await channels.write("test-channel", {
             type: "presence",
             value,
             timestamp: Date.now(),
         });
-        if (ok) {
+        if (result.ok) {
             log(`Channel write: "${value}"`, "ok");
         } else {
-            log(`Channel write rejected: "${value}"`, "err");
+            log(`Channel write rejected: "${value}" — ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`Channel write failed: ${(err as Error).message}`, "err");

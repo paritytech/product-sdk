@@ -1,10 +1,15 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
+import { type Result, err, ok } from "@parity/product-sdk-result";
 import { blake2b256 } from "@parity/product-sdk-utils";
 
 import { decodeData, encodeData, toHex } from "./data.js";
-import { StatementConnectionError } from "./errors.js";
+import {
+    StatementConnectionError,
+    StatementSubmitError,
+    type StatementStoreError,
+} from "./errors.js";
 import { createChannel, createTopic, serializeTopicFilter, topicToHex } from "./topics.js";
 import { createTransport } from "./transport.js";
 import type {
@@ -154,16 +159,27 @@ export class StatementStoreClient {
      * @typeParam T - The type of data being published.
      * @param data - The value to publish (must be JSON-serializable, max 512 bytes).
      * @param options - Optional channel, topic2, TTL, and decryption key overrides.
-     * @returns `true` if accepted, `false` if rejected or errored.
-     * @throws {StatementConnectionError} If not connected.
-     * @throws {StatementDataTooLargeError} If the encoded data exceeds 512 bytes.
+     * @returns A {@link Result}: `ok(undefined)` if the statement was accepted, or `err`
+     *   carrying a `StatementStoreError` — a `StatementConnectionError` (not connected), a
+     *   `StatementDataTooLargeError` (encoded data exceeds 512 bytes), or a
+     *   `StatementSubmitError` (the network rejected the submission).
      */
-    async publish<T>(data: T, options?: PublishOptions): Promise<boolean> {
+    async publish<T>(
+        data: T,
+        options?: PublishOptions,
+    ): Promise<Result<void, StatementStoreError>> {
         if (!this.transport || !this.credentials) {
-            throw new StatementConnectionError("Not connected. Call connect() first.");
+            return err(new StatementConnectionError("Not connected. Call connect() first."));
         }
 
-        const dataBytes = encodeData(data);
+        let dataBytes: Uint8Array;
+        try {
+            // encodeData throws StatementDataTooLargeError / StatementEncodingError.
+            dataBytes = encodeData(data);
+        } catch (error) {
+            return err(error as StatementStoreError);
+        }
+
         const ttl = options?.ttlSeconds ?? this.config.defaultTtlSeconds;
         const expirationTimestamp = Math.floor(Date.now() / 1000) + ttl;
         const sequenceNumber = (Date.now() + this.sequenceCounter++) % 0xffffffff;
@@ -189,12 +205,12 @@ export class StatementStoreClient {
         try {
             await this.transport.signAndSubmit(statement, this.credentials);
             log.debug("Published", { channel: options?.channel });
-            return true;
+            return ok(undefined);
         } catch (error) {
             log.error("Publish failed", {
                 error: error instanceof Error ? error.message : String(error),
             });
-            return false;
+            return err(new StatementSubmitError(error));
         }
     }
 
