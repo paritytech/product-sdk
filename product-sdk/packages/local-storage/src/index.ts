@@ -4,9 +4,8 @@
  * @parity/product-sdk-local-storage — One key-value API across the host container and the browser.
  *
  * `createLocalKvStore` returns a `LocalKvStore` that uses the host-provided
- * `HostLocalStorage` when running inside a Polkadot host container and falls back
- * to browser `localStorage` otherwise, so app code reads and writes the same way
- * on desktop, mobile, and web.
+ * `HostLocalStorage` when running inside a Polkadot host container and  (Browser / Desktop) 
+ * and throws if host storage is unavailable 
  *
  * @packageDocumentation
  */
