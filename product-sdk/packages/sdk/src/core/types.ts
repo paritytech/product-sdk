@@ -5,7 +5,11 @@
  */
 
 import type { LogLevel } from "@parity/product-sdk-logger";
-import type { CloudStorageEnvironment } from "@parity/product-sdk-cloud-storage";
+import type {
+    CloudStorageEnvironment,
+    ProductCloudStorageError,
+} from "@parity/product-sdk-cloud-storage";
+import type { Result } from "@parity/product-sdk-result";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
 import type { PeopleUsernameChain } from "../identity/dotns.js";
 import type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";
@@ -136,16 +140,23 @@ export interface CloudStorageApi {
     /**
      * Upload data to the Cloud.
      *
-     * Requires a wallet to be connected and an account selected. Throws
-     * "No signer available …" otherwise.
+     * Requires a wallet to be connected and an account selected.
+     *
+     * @returns A {@link Result}: `ok(cid)` on success, or `err(ProductCloudStorageError)`
+     *   if the upload fails (no signer, network rejection, or no CID returned).
      */
-    upload(data: string | Uint8Array): Promise<string>;
-    /** Fetch data by CID. */
-    fetch(cid: string): Promise<Uint8Array>;
+    upload(data: string | Uint8Array): Promise<Result<string, ProductCloudStorageError>>;
+    /**
+     * Fetch data by CID.
+     *
+     * @returns A {@link Result}: `ok(bytes)` on success, or `err(ProductCloudStorageError)`.
+     */
+    fetch(cid: string): Promise<Result<Uint8Array, ProductCloudStorageError>>;
     /**
      * Compute the CID for data without uploading.
      *
-     * Async because the underlying hash is computed via Web Crypto.
+     * Async because the underlying hash is computed via Web Crypto. Does not
+     * perform I/O, so it throws on invalid input rather than returning a Result.
      */
     computeCid(data: string | Uint8Array): Promise<string>;
 }
