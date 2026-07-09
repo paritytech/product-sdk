@@ -12,11 +12,57 @@
  */
 
 import type { ObservableLike, TrUApiClient } from "@parity/truapi";
-import { getClientSync, isCorrectEnvironment } from "@parity/truapi/sandbox";
+import {
+    getClientSync as sandboxGetClientSync,
+    isCorrectEnvironment as sandboxIsCorrectEnvironment,
+} from "@parity/truapi/sandbox";
 
 import type { HostSubscription } from "./types.js";
 
-export { getClientSync, isCorrectEnvironment };
+// Test-only override. When set — via `setTruApiClient`, exposed through
+// `@parity/product-sdk-host/testing` — every host accessor resolves this client
+// instead of the sandbox one. `null` in production, so the branches below are
+// no-ops there.
+let clientOverride: TrUApiClient | null = null;
+
+/**
+ * Test-only seam: force {@link getClient} / {@link getClientSync} to return
+ * `client`, and {@link isCorrectEnvironment} to report `true`. Pass `null` to
+ * restore normal detection. Exposed through `@parity/product-sdk-host/testing`,
+ * not the package's main entry.
+ *
+ * Calling this in a production build silently reroutes every host accessor to
+ * the injected client, so we warn — it almost always means a `/testing` import
+ * leaked into a production path.
+ */
+export function setTruApiClient(client: TrUApiClient | null): void {
+    if (
+        client !== null &&
+        typeof process !== "undefined" &&
+        process.env?.NODE_ENV === "production"
+    ) {
+        console.warn(
+            "[product-sdk] setTruApiClient() was called in a production build. This is a test-only seam from @parity/product-sdk-host/testing; a leaked import will silently reroute all host access to the injected client.",
+        );
+    }
+    clientOverride = client;
+}
+
+/**
+ * Synchronous TruAPI client accessor. Returns the injected test client when one
+ * is set, otherwise the sandbox client (`null` outside a host container).
+ */
+export function getClientSync(): TrUApiClient | null {
+    return clientOverride ?? sandboxGetClientSync();
+}
+
+/**
+ * Host-container detection. `true` when a test client is injected, otherwise the
+ * sandbox heuristic (iframe / webview marker / injected message port).
+ */
+export function isCorrectEnvironment(): boolean {
+    return clientOverride !== null || sandboxIsCorrectEnvironment();
+}
 
 /**
  * Get the TruAPI client. Returns `null` outside a host container. Async wrapper
@@ -56,7 +102,9 @@ export function subscribeWithInterrupt<Item, Reason = never>(
 }
 
 if (import.meta.vitest) {
-    const { test, expect } = import.meta.vitest;
+    const { test, expect, afterEach } = import.meta.vitest;
+
+    afterEach(() => setTruApiClient(null));
 
     // Environment detection and client building are covered by `@parity/truapi`'s
     // own sandbox tests; here we only assert the local glue degrades outside a
@@ -67,5 +115,37 @@ if (import.meta.vitest) {
 
     test("getClient resolves null outside a container", async () => {
         expect(await getClient()).toBeNull();
+    });
+
+    test("setTruApiClient overrides the client and container detection", async () => {
+        const fake = {} as TrUApiClient;
+        setTruApiClient(fake);
+        expect(getClientSync()).toBe(fake);
+        expect(await getClient()).toBe(fake);
+        expect(isCorrectEnvironment()).toBe(true);
+
+        setTruApiClient(null);
+        expect(getClientSync()).toBeNull();
+        expect(isCorrectEnvironment()).toBe(false);
+    });
+
+    test("setTruApiClient warns when injecting in a production build", () => {
+        const original = process.env.NODE_ENV;
+        const warnings: string[] = [];
+        const realWarn = console.warn;
+        console.warn = (...args: unknown[]) => void warnings.push(String(args[0]));
+        try {
+            process.env.NODE_ENV = "production";
+            setTruApiClient({} as TrUApiClient);
+            expect(warnings).toHaveLength(1);
+            expect(warnings[0]).toContain("production build");
+
+            // Clearing the override must not warn.
+            setTruApiClient(null);
+            expect(warnings).toHaveLength(1);
+        } finally {
+            console.warn = realWarn;
+            process.env.NODE_ENV = original;
+        }
     });
 }
