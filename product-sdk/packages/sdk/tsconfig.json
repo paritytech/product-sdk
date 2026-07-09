@@ -15,7 +15,8 @@
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
-        "jsx": "react-jsx"
+        "jsx": "react-jsx",
+        "types": ["node", "react", "vitest/globals", "vitest/importMeta"]
     },
     "include": ["src/**/*"],
     "exclude": ["node_modules", "dist", "**/*.test.ts"]

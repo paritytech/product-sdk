@@ -55,11 +55,16 @@
         "./wallet": {
             "import": "./dist/wallet/index.js",
             "types": "./dist/wallet/index.d.ts"
+        },
+        "./testing": {
+            "import": "./dist/testing/index.js",
+            "types": "./dist/testing/index.d.ts"
         }
     },
     "files": ["dist", "src"],
     "scripts": {
         "build": "NODE_OPTIONS=--max-old-space-size=8192 tsup",
+        "test": "vitest run",
         "clean": "rm -rf dist"
     },
     "dependencies": {
