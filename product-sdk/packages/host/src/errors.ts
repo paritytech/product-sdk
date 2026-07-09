@@ -17,7 +17,7 @@
  *
  * @module
  */
-import type { SdkError } from "@parity/product-sdk-result";
+import type { SdkError } from "@parity/result";
 import type { GenericError } from "@parity/truapi";
 
 /**

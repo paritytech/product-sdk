@@ -56,10 +56,10 @@ export interface SignerState {
 
 /**
  * Result type for operations that can fail expectedly — re-exported from the
- * shared `@parity/product-sdk-result` leaf so the whole SDK shares one
+ * shared `@parity/result` leaf so the whole SDK shares one
  * definition. This module stays as the signer-internal import path.
  */
-export { type Result, ok, err } from "@parity/product-sdk-result";
+export { type Result, ok, err } from "@parity/result";
 
 /** Factory function that creates a SignerProvider for a given type. */
 export type ProviderFactory = (type: ProviderType) => import("./providers/types.js").SignerProvider;
@@ -161,5 +161,5 @@ export interface ConnectContext {
 /** Callback signature for {@link SignerManagerOptions.onConnect}. */
 export type OnConnect = (account: SignerAccount, ctx: ConnectContext) => void | Promise<void>;
 
-// `Result` / `ok` / `err` are re-exported from `@parity/product-sdk-result`,
+// `Result` / `ok` / `err` are re-exported from `@parity/result`,
 // which owns their unit tests; nothing to test here.

@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err } from "@parity/product-sdk-result";
+import { type Result, err } from "@parity/result";
 import type { PolkadotSigner } from "polkadot-api";
 
 import { TxBatchError, type TxError } from "./errors.js";

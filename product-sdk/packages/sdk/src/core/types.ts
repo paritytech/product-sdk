@@ -9,7 +9,7 @@ import type {
     CloudStorageEnvironment,
     ProductCloudStorageError,
 } from "@parity/product-sdk-cloud-storage";
-import type { Result } from "@parity/product-sdk-result";
+import type { Result } from "@parity/result";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
 import type { PeopleUsernameChain } from "../identity/dotns.js";
 import type { ChainDefinition, TypedApi, PolkadotClient } from "polkadot-api";

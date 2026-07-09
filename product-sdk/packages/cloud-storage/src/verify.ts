@@ -16,7 +16,7 @@
  * `verifyStored(api, cid, { block: blockNumber })` confirms the metadata
  * landed where expected.
  */
-import { type Result, err, ok } from "@parity/product-sdk-result";
+import { type Result, err, ok } from "@parity/result";
 import { CID } from "multiformats/cid";
 
 import { HashAlgorithm } from "./cid.js";

@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok } from "@parity/product-sdk-result";
+import { type Result, err, ok } from "@parity/result";
 import { blake2b256 } from "@parity/product-sdk-utils";
 
 import { decodeData, encodeData, toHex } from "./data.js";

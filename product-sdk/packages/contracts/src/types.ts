@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { Result } from "@parity/product-sdk-result";
+import type { Result } from "@parity/result";
 import type { SignerManager } from "@parity/product-sdk-signer";
 import type {
     BatchableCall,

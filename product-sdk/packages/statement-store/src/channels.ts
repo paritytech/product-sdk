@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
-import type { Result } from "@parity/product-sdk-result";
+import type { Result } from "@parity/result";
 
 import type { StatementStoreClient } from "./client.js";
 import type { StatementStoreError } from "./errors.js";
@@ -229,7 +229,7 @@ export class ChannelStore<T extends { timestamp?: number }> {
 if (import.meta.vitest) {
     const { describe, test, expect, vi, beforeEach } = import.meta.vitest;
     const { configure } = await import("@parity/product-sdk-logger");
-    const { ok, err } = await import("@parity/product-sdk-result");
+    const { ok, err } = await import("@parity/result");
     const { StatementSubmitError } = await import("./errors.js");
 
     beforeEach(() => {

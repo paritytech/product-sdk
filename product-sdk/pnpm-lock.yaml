@@ -387,12 +387,12 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
-      '@parity/product-sdk-result':
-        specifier: workspace:*
-        version: link:../result
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       multiformats:
         specifier: ^13.3.0
         version: 13.4.2
@@ -418,15 +418,15 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
-      '@parity/product-sdk-result':
-        specifier: workspace:*
-        version: link:../result
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       '@polkadot-labs/hdkd-helpers':
         specifier: 'catalog:'
         version: 0.0.30
@@ -484,7 +484,7 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
-      '@parity/product-sdk-result':
+      '@parity/result':
         specifier: workspace:*
         version: link:../result
       '@parity/truapi':
@@ -613,15 +613,15 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
-      '@parity/product-sdk-result':
-        specifier: workspace:*
-        version: link:../result
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       polkadot-api:
         specifier: 'catalog:'
         version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
@@ -656,7 +656,7 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
-      '@parity/product-sdk-result':
+      '@parity/result':
         specifier: workspace:*
         version: link:../result
       polkadot-api:
@@ -681,12 +681,12 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
-      '@parity/product-sdk-result':
-        specifier: workspace:*
-        version: link:../result
       '@parity/product-sdk-utils':
         specifier: workspace:*
         version: link:../utils
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       '@polkadot-api/substrate-client':
         specifier: 'catalog:'
         version: 0.7.0
@@ -779,7 +779,7 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
-      '@parity/product-sdk-result':
+      '@parity/result':
         specifier: workspace:*
         version: link:../result
       '@polkadot-labs/hdkd-helpers':

@@ -11,7 +11,7 @@ import {
 } from "@parity/bulletin-sdk";
 import { createChainClient, getChainAPI } from "@parity/product-sdk-chain-client";
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok } from "@parity/product-sdk-result";
+import { type Result, err, ok } from "@parity/result";
 import type { PolkadotSigner } from "polkadot-api";
 
 import { checkAuthorization } from "./authorization.js";

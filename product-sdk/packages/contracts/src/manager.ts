@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import { type Result, err, ok } from "@parity/product-sdk-result";
+import { type Result, err, ok } from "@parity/result";
 import type { HexString, PolkadotClient, SS58String } from "polkadot-api";
 
 import {

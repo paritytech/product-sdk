@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { CidCodec, parseCid, UnixFsDagBuilder } from "@parity/bulletin-sdk";
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok } from "@parity/product-sdk-result";
+import { type Result, err, ok } from "@parity/result";
 
 import { ProductCloudStorageError } from "./errors.js";
 import type { QueryStrategy } from "./resolve-query.js";

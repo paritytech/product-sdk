@@ -1,5 +1,5 @@
 {
-    "name": "@parity/product-sdk-result",
+    "name": "@parity/result",
     "version": "0.1.0",
     "description": "Zero-dependency Result type and SdkError marker for the @parity/product-sdk family",
     "type": "module",

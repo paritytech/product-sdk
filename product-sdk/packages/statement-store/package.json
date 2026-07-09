@@ -25,7 +25,7 @@
         "@polkadot-api/substrate-client": "catalog:",
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
-        "@parity/product-sdk-result": "workspace:*",
+        "@parity/result": "workspace:*",
         "@parity/product-sdk-utils": "workspace:*",
         "polkadot-api": "catalog:"
     },

@@ -1,5 +1,5 @@
 ---
-"@parity/product-sdk-result": minor
+"@parity/result": minor
 "@parity/product-sdk-tx": minor
 "@parity/product-sdk-contracts": minor
 "@parity/product-sdk-cloud-storage": minor
@@ -14,7 +14,7 @@ Introduce an SDK-wide `Result` error model: fallible operations across the
 throwing, so consumers branch on `r.ok` and get typed errors on the `err`
 channel. See the `guides/migrating-to-result` migration guide.
 
-**New package — `@parity/product-sdk-result`:** a zero-dependency leaf exporting
+**New package — `@parity/result`:** a zero-dependency leaf exporting
 `Result<T, E>` (`{ ok: true; value } | { ok: false; error }`), `ok()` / `err()`,
 and a cross-package `SdkError` marker interface + `isSdkError(e)` guard. Every
 package's base error implements the marker (with a `source` string like `"tx"`),
@@ -31,7 +31,7 @@ classes. `@parity/product-sdk` re-exports `Result` / `ok` / `err` / `SdkError` /
 - `@parity/product-sdk` umbrella: `createApp().cloudStorage.upload` / `fetch` now return `Result` (`computeCid` unchanged — pure).
 
 `@parity/product-sdk-host` and `@parity/product-sdk-signer` (whose public
-operations already returned `Result`) migrate onto the shared `@parity/product-sdk-result`
+operations already returned `Result`) migrate onto the shared `@parity/result`
 package and adopt the `SdkError` marker; no further API change.
 
 **Unchanged everywhere:** pure/sync helpers and factories, build-time codegen,

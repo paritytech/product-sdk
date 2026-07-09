@@ -25,7 +25,7 @@ import {
     calculateCid,
     createLazySigner,
 } from "@parity/product-sdk-cloud-storage";
-import { err, ok } from "@parity/product-sdk-result";
+import { err, ok } from "@parity/result";
 import {
     createChainClient,
     getClient,
