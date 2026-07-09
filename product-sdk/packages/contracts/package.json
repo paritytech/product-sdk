@@ -17,6 +17,10 @@
         "./pvm": {
             "types": "./dist/pvm.d.ts",
             "import": "./dist/pvm.js"
+        },
+        "./testing": {
+            "types": "./dist/testing.d.ts",
+            "import": "./dist/testing.js"
         }
     },
     "files": ["dist"],
