@@ -16,7 +16,7 @@
  * `verifyStored(api, cid, { block: blockNumber })` confirms the metadata
  * landed where expected.
  */
-import { type Result, err, ok } from "@parity/result";
+import { type Result, err, ok, unwrapOk } from "@parity/result";
 import { CID } from "multiformats/cid";
 
 import { HashAlgorithm } from "./cid.js";
@@ -225,13 +225,6 @@ function matchesEntry(entry: ChainEntry, target: ParsedCid): boolean {
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    /** Assert a Result is `ok` and return its value (test-only). */
-    function unwrap<T>(r: Result<T, unknown>): T {
-        expect(r.ok).toBe(true);
-        if (!r.ok) throw new Error("expected ok result");
-        return r.value;
-    }
-
     function makeMockApi(getValue: (block: number) => Promise<ChainEntry[] | undefined>) {
         return {
             query: {
@@ -271,7 +264,7 @@ if (import.meta.vitest) {
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(digest)]));
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(unwrap(result)).toEqual({ block: 100, index: 0, size: 100, blockChunks: 1 });
+            expect(unwrapOk(result)).toEqual({ block: 100, index: 0, size: 100, blockChunks: 1 });
         });
 
         test("returns null when block has no entries", async () => {
@@ -280,7 +273,7 @@ if (import.meta.vitest) {
             const api = makeMockApi(vi.fn().mockResolvedValue(undefined));
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(unwrap(result)).toBeNull();
+            expect(unwrapOk(result)).toBeNull();
         });
 
         test("returns null when block has entries but none match", async () => {
@@ -290,7 +283,7 @@ if (import.meta.vitest) {
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(otherDigest)]));
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(unwrap(result)).toBeNull();
+            expect(unwrapOk(result)).toBeNull();
         });
 
         test("returns null when hashing algorithm differs", async () => {
@@ -300,7 +293,7 @@ if (import.meta.vitest) {
             const api = makeMockApi(vi.fn().mockResolvedValue([makeEntry(digest, "Sha2_256")]));
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(unwrap(result)).toBeNull();
+            expect(unwrapOk(result)).toBeNull();
         });
 
         test("finds match at correct index when multiple entries exist", async () => {
@@ -318,7 +311,7 @@ if (import.meta.vitest) {
             );
 
             const result = await verifyStored(api, cid, { block: 100 });
-            expect(unwrap(result)?.index).toBe(2);
+            expect(unwrapOk(result)?.index).toBe(2);
         });
 
         test("respects explicit index option", async () => {
@@ -337,7 +330,7 @@ if (import.meta.vitest) {
             );
 
             const result = await verifyStored(api, cid, { block: 100, index: 0 });
-            expect(unwrap(result)).toBeNull();
+            expect(unwrapOk(result)).toBeNull();
         });
 
         test("returns the entry when explicit index matches", async () => {
@@ -355,7 +348,7 @@ if (import.meta.vitest) {
             );
 
             const result = await verifyStored(api, cid, { block: 100, index: 2 });
-            expect(unwrap(result)?.index).toBe(2);
+            expect(unwrapOk(result)?.index).toBe(2);
         });
 
         test("returns err(CloudStorageCidError) on invalid CID", async () => {
@@ -388,7 +381,7 @@ if (import.meta.vitest) {
             };
             const api = makeMockApi(vi.fn().mockResolvedValue([entry]));
             const result = await verifyStored(api, cid, { block: 1 });
-            expect(unwrap(result)).toEqual({ block: 1, index: 0, size: 50, blockChunks: 1 });
+            expect(unwrapOk(result)).toEqual({ block: 1, index: 0, size: 50, blockChunks: 1 });
         });
 
         test("passes the block number to the storage call", async () => {

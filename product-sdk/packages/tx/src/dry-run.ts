@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import { type Result, err, ok } from "@parity/result";
+import { type Result, err, ok, unwrapErr } from "@parity/result";
 
 import { TxDryRunError, formatDryRunError } from "./errors.js";
 import type { SubmittableTransaction, Weight } from "./types.js";
@@ -120,13 +120,6 @@ if (import.meta.vitest) {
     const { describe, test, expect } = import.meta.vitest;
 
     describe("extractTransaction", () => {
-        /** Assert the result is `err` and return the narrowed `TxDryRunError`. */
-        function expectErr(r: Result<SubmittableTransaction, TxDryRunError>): TxDryRunError {
-            expect(r.ok).toBe(false);
-            if (r.ok) throw new Error("expected err");
-            return r.error;
-        }
-
         test("returns ok(tx) from successful dry-run with send()", () => {
             const mockTx = {
                 signSubmitAndWatch: () => ({ subscribe: () => ({ unsubscribe: () => {} }) }),
@@ -145,7 +138,7 @@ if (import.meta.vitest) {
                 success: false,
                 value: { revertReason: "InsufficientBalance" },
             };
-            const error = expectErr(extractTransaction(result));
+            const error = unwrapErr(extractTransaction(result));
             expect(error).toBeInstanceOf(TxDryRunError);
             expect(error.revertReason).toBe("InsufficientBalance");
             expect(error.formatted).toBe("InsufficientBalance");
@@ -161,7 +154,7 @@ if (import.meta.vitest) {
                     value: { type: "Revive", value: { type: "StorageDepositNotEnoughFunds" } },
                 },
             };
-            const error = expectErr(extractTransaction(result));
+            const error = unwrapErr(extractTransaction(result));
             expect(error.formatted).toBe("Revive.StorageDepositNotEnoughFunds");
             expect(error.revertReason).toBeUndefined();
         });
@@ -172,19 +165,19 @@ if (import.meta.vitest) {
                 value: {},
                 error: { type: "ContractTrapped" },
             };
-            const error = expectErr(extractTransaction(result));
+            const error = unwrapErr(extractTransaction(result));
             expect(error.formatted).toBe("ContractTrapped");
         });
 
         test("err when value is missing", () => {
             const result = { success: true };
-            const error = expectErr(extractTransaction(result));
+            const error = unwrapErr(extractTransaction(result));
             expect(error).toBeInstanceOf(TxDryRunError);
         });
 
         test("err when send is not a function", () => {
             const result = { success: true, value: { response: "ok" } };
-            const error = expectErr(extractTransaction(result));
+            const error = unwrapErr(extractTransaction(result));
             expect(error.message).toContain("not a write query");
         });
 
@@ -193,7 +186,7 @@ if (import.meta.vitest) {
                 success: false,
                 value: { raw: { revertReason: "Unauthorized" } },
             };
-            const error = expectErr(extractTransaction(result));
+            const error = unwrapErr(extractTransaction(result));
             expect(error.revertReason).toBe("Unauthorized");
         });
 
@@ -202,7 +195,7 @@ if (import.meta.vitest) {
                 success: false,
                 value: { type: "Message", value: "Insufficient balance for gas * price + value" },
             };
-            const error = expectErr(extractTransaction(result));
+            const error = unwrapErr(extractTransaction(result));
             expect(error.formatted).toBe("Insufficient balance for gas * price + value");
         });
     });

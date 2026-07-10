@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok } from "@parity/result";
+import { type Result, err, ok, unwrapErr, unwrapOk } from "@parity/result";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 import type {
     BatchableCall,
@@ -456,22 +456,6 @@ export function wrapContract(
 
 if (import.meta.vitest) {
     const { test, expect, describe } = import.meta.vitest;
-
-    /** Await a Result-returning call, assert it's `err`, and return the error. */
-    async function expectErr(promise: Promise<Result<unknown, unknown>>): Promise<unknown> {
-        const r = await promise;
-        expect(r.ok).toBe(false);
-        if (r.ok) throw new Error("expected err result");
-        return r.error;
-    }
-
-    /** Await a Result-returning call, assert it's `ok`, and return the value. */
-    async function expectOk<T>(promise: Promise<Result<T, unknown>>): Promise<T> {
-        const r = await promise;
-        expect(r.ok).toBe(true);
-        if (!r.ok) throw new Error("expected ok result");
-        return r.value;
-    }
 
     describe("buildMethodArgMap", () => {
         test("extracts function parameter names from ABI", () => {
@@ -1226,8 +1210,8 @@ if (import.meta.vitest) {
                 origin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
             });
 
-            const error = await expectErr(
-                (
+            const error = unwrapErr(
+                await (
                     wrapped as unknown as {
                         increment: { tx: () => Promise<Result<unknown, unknown>> };
                     }
@@ -1360,8 +1344,8 @@ if (import.meta.vitest) {
                 origin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
             });
 
-            const error = await expectErr(
-                (
+            const error = unwrapErr(
+                await (
                     wrapped as unknown as {
                         increment: { tx: (opts: unknown) => Promise<Result<unknown, unknown>> };
                     }
@@ -1444,8 +1428,8 @@ if (import.meta.vitest) {
             const wrapped = wrapContract(runtime, ADDRESS, abi, {});
 
             const overrideWeight = { ref_time: 99n, proof_size: 11n };
-            const prepared = (await expectOk(
-                (
+            const prepared = unwrapOk(
+                await (
                     wrapped as unknown as {
                         add: {
                             prepare: (
@@ -1459,7 +1443,7 @@ if (import.meta.vitest) {
                     storageDepositLimit: 42n,
                     value: 5n,
                 }),
-            )) as { decodedCall: unknown };
+            ) as { decodedCall: unknown };
 
             // SubmittableTransaction is a valid BatchableCall —
             // `batchSubmitAndWatch` reads `.decodedCall` off it.
@@ -1568,8 +1552,8 @@ if (import.meta.vitest) {
             // No signer / signerManager / defaultOrigin set.
             const wrapped = wrapContract(runtime, ADDRESS, abi, {});
 
-            const prepared = await expectOk(
-                (
+            const prepared = unwrapOk(
+                await (
                     wrapped as unknown as {
                         increment: { prepare: () => Promise<Result<unknown, unknown>> };
                     }
@@ -1607,8 +1591,8 @@ if (import.meta.vitest) {
             };
             const wrapped = wrapContract(runtime, ADDRESS, abi, {});
 
-            const error = await expectErr(
-                (
+            const error = unwrapErr(
+                await (
                     wrapped as unknown as {
                         increment: { prepare: () => Promise<Result<unknown, unknown>> };
                     }
@@ -1650,15 +1634,15 @@ if (import.meta.vitest) {
             };
             const wrapped = wrapContract(runtime, ADDRESS, abi, {});
 
-            const a = await expectOk(
-                (
+            const a = unwrapOk(
+                await (
                     wrapped as unknown as {
                         increment: { prepare: () => Promise<Result<BatchableCall, unknown>> };
                     }
                 ).increment.prepare(),
             );
-            const b = await expectOk(
-                (
+            const b = unwrapOk(
+                await (
                     wrapped as unknown as {
                         add: { prepare: (n: number) => Promise<Result<BatchableCall, unknown>> };
                     }
@@ -1887,8 +1871,8 @@ if (import.meta.vitest) {
                 origin: ORIGIN,
             });
 
-            const error = await expectErr(
-                (
+            const error = unwrapErr(
+                await (
                     wrapped as unknown as {
                         transfer: {
                             tx: (to: string, amount: bigint) => Promise<Result<unknown, unknown>>;
@@ -1907,8 +1891,8 @@ if (import.meta.vitest) {
         test("prepare() returns err(ContractRevertedError) before constructing the extrinsic", async () => {
             const wrapped = wrapContract(revertingRuntime(), ADDRESS, abi, {});
 
-            const error = await expectErr(
-                (
+            const error = unwrapErr(
+                await (
                     wrapped as unknown as {
                         transfer: {
                             prepare: (

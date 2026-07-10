@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok } from "@parity/result";
+import { type Result, err, ok, unwrapOk } from "@parity/result";
 import { submitAndWatch, type TxError, type TxStatus, type WaitFor } from "@parity/product-sdk-tx";
 import type { PolkadotSigner } from "polkadot-api";
 import { Enum } from "polkadot-api";
@@ -244,13 +244,6 @@ export async function authorizeAccount(
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    /** Assert a Result is `ok` and return its value (test-only). */
-    function unwrap<T>(r: Result<T, unknown>): T {
-        expect(r.ok).toBe(true);
-        if (!r.ok) throw new Error("expected ok result");
-        return r.value;
-    }
-
     function createMockApi(authResult: unknown) {
         return {
             query: {
@@ -266,7 +259,7 @@ if (import.meta.vitest) {
     describe("checkAuthorization", () => {
         test("returns not authorized when no authorization exists", async () => {
             const api = createMockApi(undefined);
-            const status = unwrap(await checkAuthorization(api, "5GrwvaEF..."));
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(false);
             expect(status.remainingTransactions).toBe(0);
@@ -285,7 +278,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 999,
             });
-            const status = unwrap(await checkAuthorization(api, "5GrwvaEF..."));
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(true);
             expect(status.remainingTransactions).toBe(10);
@@ -304,7 +297,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 999,
             });
-            const status = unwrap(await checkAuthorization(api, "5GrwvaEF..."));
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(true);
             expect(status.remainingTransactions).toBe(0);
@@ -321,7 +314,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 999,
             });
-            const status = unwrap(await checkAuthorization(api, "5GrwvaEF..."));
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(true);
             expect(status.remainingBytes).toBe(0n);
@@ -338,7 +331,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 999,
             });
-            const status = unwrap(await checkAuthorization(api, "5GrwvaEF..."));
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(true);
             expect(status.remainingTransactions).toBe(7); // 10 − 3
@@ -356,7 +349,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 12345,
             });
-            const status = unwrap(await checkAuthorization(api, "5GrwvaEF..."));
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.expiration).toBe(12345);
         });

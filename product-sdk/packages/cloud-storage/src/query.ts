@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { CidCodec, parseCid, UnixFsDagBuilder } from "@parity/bulletin-sdk";
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok } from "@parity/result";
+import { type Result, err, ok, unwrapOk } from "@parity/result";
 
 import { ProductCloudStorageError } from "./errors.js";
 import type { QueryStrategy } from "./resolve-query.js";
@@ -133,13 +133,6 @@ if (import.meta.vitest) {
     const { beforeAll, describe, test, expect, vi } = import.meta.vitest;
     const { calculateCid } = await import("@parity/bulletin-sdk");
 
-    /** Assert a Result is `ok` and return its value (test-only). */
-    function unwrap<T>(r: Result<T, unknown>): T {
-        expect(r.ok).toBe(true);
-        if (!r.ok) throw new Error("expected ok result");
-        return r.value;
-    }
-
     describe("executeQuery", () => {
         const testData = new Uint8Array([1, 2, 3]);
 
@@ -150,7 +143,7 @@ if (import.meta.vitest) {
             // without triggering reassembly.
             const rawCid = (await calculateCid(testData)).toString();
             const result = await executeQuery(strategy, rawCid);
-            expect(unwrap(result)).toBe(testData);
+            expect(unwrapOk(result)).toBe(testData);
             expect(lookup).toHaveBeenCalledWith(rawCid, undefined);
         });
 
@@ -167,7 +160,7 @@ if (import.meta.vitest) {
             const strategy: QueryStrategy = { kind: "host-lookup", lookup };
             const rawCid = (await calculateCid(testData)).toString();
             const result = await executeQuery(strategy, rawCid);
-            expect(unwrap(result)).toBe(testData);
+            expect(unwrapOk(result)).toBe(testData);
             // Single lookup, no recursion.
             expect(lookup).toHaveBeenCalledTimes(1);
         });
@@ -180,7 +173,7 @@ if (import.meta.vitest) {
             const lookup = vi.fn().mockResolvedValue(fakeManifestBytes);
             const strategy: QueryStrategy = { kind: "host-lookup", lookup };
             const result = await executeQuery(strategy, dagPbCid, { noReassemble: true });
-            expect(unwrap(result)).toBe(fakeManifestBytes);
+            expect(unwrapOk(result)).toBe(fakeManifestBytes);
             expect(lookup).toHaveBeenCalledTimes(1);
         });
 
@@ -216,7 +209,7 @@ if (import.meta.vitest) {
                 });
                 const strategy: QueryStrategy = { kind: "host-lookup", lookup };
                 const result = await executeQuery(strategy, manifestCid);
-                expect(unwrap(result)).toEqual(new Uint8Array([0xaa, 0xaa, 0xaa, 0xbb, 0xbb]));
+                expect(unwrapOk(result)).toEqual(new Uint8Array([0xaa, 0xaa, 0xaa, 0xbb, 0xbb]));
                 // 1 manifest + 2 chunks = 3 lookups.
                 expect(lookup).toHaveBeenCalledTimes(3);
             });
@@ -243,7 +236,7 @@ if (import.meta.vitest) {
                     throw new Error("boom");
                 });
                 const strategy: QueryStrategy = { kind: "host-lookup", lookup };
-                const bytes = unwrap(await executeQuery(strategy, manifestCid));
+                const bytes = unwrapOk(await executeQuery(strategy, manifestCid));
                 // Order matters: chunkA bytes must come before chunkB bytes
                 // even though both are fetched in parallel.
                 expect(Array.from(bytes.slice(0, 3))).toEqual([0xaa, 0xaa, 0xaa]);
