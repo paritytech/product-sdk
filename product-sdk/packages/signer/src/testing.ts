@@ -52,7 +52,7 @@ export interface FakeSignerProvider extends SignerProvider {
     emitAccounts(accounts: SignerAccount[]): void;
     /** Make the next `connect()` resolve to `err(error)`. */
     failConnect(error: SignerError): void;
-    /** Every method call against this provider, in order. */
+    /** Lifecycle calls (`connect` / `disconnect`) against this provider, in order. */
     readonly calls: ReadonlyArray<{ method: string }>;
     /** Reset accounts, pending error, subscribers, and the call log. */
     reset(): void;

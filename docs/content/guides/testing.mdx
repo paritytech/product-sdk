@@ -20,7 +20,9 @@ all.
 import { createFakeHostLocalStorage } from "@parity/product-sdk-local-storage/testing";
 ```
 
-Meta-package users can import everything from one place:
+Meta-package users can import the fakes of every package the umbrella wraps from
+one place (the statement-store fake is the exception — the umbrella doesn't wrap
+that package, so import it from `@parity/product-sdk-statement-store/testing`):
 
 ```ts
 import { createFakeApp, createFakeSignerProvider } from "@parity/product-sdk/testing";
@@ -98,9 +100,9 @@ test("delivers a published message to a subscriber", async () => {
 });
 ```
 
-`transport.inject(statement)` simulates a statement arriving from a peer. Every fake
-exposes an inspection surface like this (`.calls` or `.published`) plus a `.reset()`,
-so tests can assert what the app did, not only what it got back.
+`transport.inject(statement)` simulates a statement arriving from a peer. Each
+package fake exposes an inspection surface like this (`.calls` or `.published`) plus
+a `.reset()`, so tests can assert what the app did, not only what it got back.
 
 ## Contracts
 
@@ -184,8 +186,9 @@ test("host storage is reachable", async () => {
 });
 ```
 
-If you can't use `using`, call `host.dispose()` in an `afterEach`. Under Vitest the
-handle also self-registers `onTestFinished`, so cleanup still runs if you forget.
+If you can't use `using`, call `host.dispose()` in an `afterEach`. Under Vitest with
+`globals: true`, the handle also self-registers `onTestFinished`, so cleanup still
+runs if you forget.
 
 While a fake host is set, `isInsideContainer()` reports `true`, so code that branches
 on it takes the container path.
@@ -205,3 +208,7 @@ models: `getPreimageManager()` resolves, and `createFakeHost({ preimages })` see
 reads keyed by preimage key. For app-level tests, `createFakeApp().cloudStorage`
 round-trips upload and fetch in memory. Chain-level writes are testable with
 `MockBulletinClient` from `@parity/product-sdk-cloud-storage`.
+
+One caveat: the fakes derive preimage keys and CIDs deterministically, but they are
+not real hashes — they're shorter than what production produces. Round-trips work
+(submit → lookup, upload → fetch), but don't assert on key or CID format.

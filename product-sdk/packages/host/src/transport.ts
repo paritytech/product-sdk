@@ -25,6 +25,18 @@ import type { HostSubscription } from "./types.js";
 // no-ops there.
 let clientOverride: TrUApiClient | null = null;
 
+function isProductionBuild(): boolean {
+    try {
+        // Must stay a plain `process.env.NODE_ENV` member expression: bundlers
+        // (Vite, esbuild, webpack) substitute it textually, which is how this
+        // check works in browser builds where `process` doesn't exist.
+        return process.env.NODE_ENV === "production";
+    } catch {
+        // No `process` and no bundler define — can't tell, stay quiet.
+        return false;
+    }
+}
+
 /**
  * Test-only seam: force {@link getClient} / {@link getClientSync} to return
  * `client`, and {@link isCorrectEnvironment} to report `true`. Pass `null` to
@@ -36,11 +48,7 @@ let clientOverride: TrUApiClient | null = null;
  * leaked into a production path.
  */
 export function setTruApiClient(client: TrUApiClient | null): void {
-    if (
-        client !== null &&
-        typeof process !== "undefined" &&
-        process.env?.NODE_ENV === "production"
-    ) {
+    if (client !== null && isProductionBuild()) {
         console.warn(
             "[product-sdk] setTruApiClient() was called in a production build. This is a test-only seam from @parity/product-sdk-host/testing; a leaked import will silently reroute all host access to the injected client.",
         );
