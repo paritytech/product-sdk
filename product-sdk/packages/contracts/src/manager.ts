@@ -193,9 +193,18 @@ export async function withLiveContractAddresses(
         }
         return ok(resolved);
     } catch (cause) {
-        // Internal helpers throw ContractError subclasses; surface them on the err channel.
+        // Surface every failure on the err channel, as the signature promises.
+        // Internal helpers throw ContractError subclasses; a failed registry
+        // `.query()` can also throw a raw RPC/network error from the underlying
+        // dry-run — wrap those in the ContractError base so the contract holds.
         if (cause instanceof ContractError) return err(cause);
-        throw cause;
+        const message = cause instanceof Error ? cause.message : String(cause);
+        return err(
+            new ContractLiveAddressResolutionError(
+                `Live contract address resolution failed: ${message}`,
+                { cause },
+            ),
+        );
     }
 }
 
@@ -658,6 +667,27 @@ if (import.meta.vitest) {
             if (!resolved.ok) {
                 expect(resolved.error).toBeInstanceOf(ContractLiveAddressResolutionError);
                 expect(resolved.error.message).toMatch(/not registered/);
+            }
+        });
+
+        test("returns err (does not throw) when the registry query hits a raw RPC error", async () => {
+            // A failed registry `.query()` can throw a raw network/RPC error from
+            // the underlying dry-run — NOT a ContractError. The function must still
+            // honor its Result signature and surface it on the err channel.
+            const rpcError = new Error("WebSocket connection closed");
+            const runtime: ContractRuntime = {
+                ...fakeRuntime(),
+                dryRunCall: async () => {
+                    throw rpcError;
+                },
+            };
+
+            const resolved = await withLiveContractAddresses(flattenedCdm, runtime);
+            expect(resolved.ok).toBe(false);
+            if (!resolved.ok) {
+                expect(resolved.error).toBeInstanceOf(ContractLiveAddressResolutionError);
+                expect(resolved.error.message).toContain("WebSocket connection closed");
+                expect(resolved.error.cause).toBe(rpcError);
             }
         });
 
