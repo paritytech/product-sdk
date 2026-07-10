@@ -117,10 +117,23 @@ const result = await counter.getCount.query({
 
 ### tx() — State-Changing Transactions
 
+`.tx()` returns a `Promise<Result<TxResult, ContractError | TxError>>` where
+`Result<T, E>` is `{ ok: true; value: T } | { ok: false; error: E }`. It does
+**not** throw — pre-submit failures (`ContractSignerMissingError`,
+`ContractDryRunFailedError`, `ContractRevertedError`) and submit failures
+(`TxError`) all come back on the `result.error` channel. Always check
+`result.ok` before reading `result.value`.
+
 ```typescript
 const result = await counter.increment.tx();
-// Submits a transaction, waits for inclusion
-// result.blockHash contains the block hash
+// tx() returns a Result — it does NOT throw on failure.
+if (!result.ok) {
+    // result.error is a ContractError (pre-submit) or TxError (submit)
+    handle(result.error);
+} else {
+    // result.value is the TxResult: result.value.block.hash, result.value.txHash
+    console.log("Included in block:", result.value.block.hash);
+}
 ```
 
 With options:
@@ -137,11 +150,12 @@ const result = await counter.increment.tx({
 ```
 
 **Pre-flight revert detection.** Before submitting, `tx()` runs a dry-run. If
-the chain reports the REVERT flag is set, `tx()` throws `ContractRevertedError`
-and the extrinsic is NOT submitted (no gas paid). The error carries `methodName`,
-the raw `data`, and the same `reason` / `decoded` fields as the query payload.
-Passing both `gasLimit` AND `storageDepositLimit` in options skips the dry-run
-entirely — including this revert pre-check.
+the chain reports the REVERT flag is set, `tx()` returns `err(ContractRevertedError)`
+(on the `result.error` channel, NOT thrown) and the extrinsic is NOT submitted
+(no gas paid). The error carries `methodName`, the raw `data`, and the same
+`reason` / `decoded` fields as the query payload. Passing both `gasLimit` AND
+`storageDepositLimit` in options skips the dry-run entirely — including this
+revert pre-check.
 
 ## SignerManager Integration
 
@@ -280,13 +294,13 @@ The typed-API factory `createContractRuntime(typedApi, { at })` is also exported
 
 1. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create ContractRuntime yourself or use `ContractManager.fromClient()`.
 
-2. **Missing signerManager for tx()** — If no signer is available, `tx()` throws `ContractSignerMissingError`.
+2. **Missing signerManager for tx()** — If no signer is available, `tx()` returns `err(ContractSignerMissingError)` (on `result.error`, not thrown). Check `!result.ok` before reading `result.value`.
 
 3. **Wrong signer type** — Contract transactions need a `PolkadotSigner`. Don't confuse with `StatementSignerWithKey` (for statement-store).
 
 4. **Adding a spurious `await`** — `ContractManager.fromClient()` and `createContractFromClient()` are **synchronous**; don't `await` them. Only the live-resolution factories `ContractManager.fromLive()` / `fromLiveClient()` (and `withLiveContractAddresses()`) return Promises.
 
-5. **Assuming `tx()` only fails for signer/dispatch reasons** — `tx()` also throws `ContractRevertedError` when the dry-run shows the contract would revert. Catch it (or its base `ContractError`) if you're surfacing revert reasons to users.
+5. **Assuming `tx()` only fails for signer/dispatch reasons** — `tx()` also returns `err(ContractRevertedError)` when the dry-run shows the contract would revert. Branch on `!result.ok` and inspect `result.error` (`instanceof ContractRevertedError`, or its base `ContractError`) if you're surfacing revert reasons to users. `tx()` no longer throws these — they arrive on the `result.error` channel.
 
 6. **Assuming `query()` throws on revert** — It doesn't. Reverts come back as `{ success: false, value: { type: "ContractRevertedWithPayload", ... } }`. Always check `success` before reading `value` as the return type.
 

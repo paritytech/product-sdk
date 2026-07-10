@@ -92,7 +92,8 @@ async function main() {
         onStatus: (status) => console.log("Status:", status),
     });
 
-    console.log("Block hash:", result.blockHash);
+    if (!result.ok) throw result.error;
+    console.log("Block hash:", result.value.block.hash);
 
     client.destroy();
 }
@@ -167,7 +168,8 @@ async function main() {
         remark: "Hello from dApp!",
     });
 
-    await submitAndWatch(tx, signer, { waitFor: "best-block" });
+    const result = await submitAndWatch(tx, signer, { waitFor: "best-block" });
+    if (!result.ok) throw result.error;
 
     signerManager.destroy();
     client.destroy();
@@ -379,11 +381,12 @@ async function main() {
         console.log("Received:", statement.data.message);
     });
 
-    // Publish a message
-    await client.publish(
+    // Publish a message (returns a Result — branch on .ok)
+    const published = await client.publish(
         { type: "chat", message: "Hello, world!" },
         { channel: "general" }
     );
+    if (!published.ok) console.error("publish failed:", published.error.message);
 
     // Keep running for 30 seconds
     await new Promise((resolve) => setTimeout(resolve, 30_000));

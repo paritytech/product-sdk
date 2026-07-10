@@ -11,7 +11,7 @@ function submitAndWatch(
   tx: SubmittableTransaction,
   signer: PolkadotSigner,
   options?: SubmitOptions,
-): Promise<TxResult>
+): Promise<Result<TxResult, TxError>>
 ```
 
 **Parameters:**
@@ -19,10 +19,19 @@ function submitAndWatch(
 - `signer` - The `PolkadotSigner` to use.
 - `options` - Optional `SubmitOptions`.
 
-**Throws:**
+**Returns:** `ok(TxResult)` on success. On failure, `err(TxError)` where the error is one of:
 - `TxTimeoutError` - If the transaction does not reach the target state within `timeoutMs`.
 - `TxDispatchError` - If the on-chain dispatch fails.
 - `TxSigningRejectedError` - If the user rejects signing.
+
+```ts
+const result = await submitAndWatch(tx, signer);
+if (result.ok) {
+  console.log(result.value.block.hash, result.value.txHash);
+} else {
+  console.error(result.error);
+}
+```
 
 ---
 
@@ -36,7 +45,7 @@ function batchSubmitAndWatch(
   api: BatchApi,
   signer: PolkadotSigner,
   options?: BatchSubmitOptions,
-): Promise<TxResult>
+): Promise<Result<TxResult, TxError>>
 ```
 
 **Parameters:**
@@ -44,6 +53,8 @@ function batchSubmitAndWatch(
 - `api` - A typed API with `tx.Utility.batch_all/batch/force_batch`.
 - `signer` - The `PolkadotSigner` to use.
 - `options` - Optional `BatchSubmitOptions`.
+
+**Returns:** `ok(TxResult)` on success; `err(TxError)` on failure (e.g. `TxBatchError`, `TxDispatchError`, `TxTimeoutError`, `TxSigningRejectedError`).
 
 ---
 
@@ -71,10 +82,10 @@ function extractTransaction(result: {
   success: boolean;
   value?: unknown;
   error?: unknown;
-}): SubmittableTransaction
+}): Result<SubmittableTransaction, TxDryRunError>
 ```
 
-**Throws:** `TxDryRunError` if the dry run failed.
+Synchronous. **Returns:** `ok(SubmittableTransaction)` if the dry run succeeded; `err(TxDryRunError)` if it failed.
 
 ---
 
@@ -114,10 +125,12 @@ function ensureAccountMapped(
   checker: MappingChecker,
   api: ReviveApi,
   options?: EnsureAccountMappedOptions,
-): Promise<TxResult | null>
+): Promise<Result<TxResult | null, TxError>>
 ```
 
 Required before EVM contract interactions on Asset Hub. Idempotent.
+
+**Returns:** `ok(TxResult)` when a mapping transaction was submitted, `ok(null)` when the account was already mapped (no-op), or `err(TxError)` on failure.
 
 ---
 
@@ -171,6 +184,14 @@ class TxBatchError extends TxError
 ---
 
 ## Types
+
+### Result
+
+```ts
+type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
+```
+
+Discriminate on `.ok` before reading `.value` / `.error`.
 
 ### TxStatus
 

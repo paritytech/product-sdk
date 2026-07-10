@@ -43,30 +43,32 @@ const manager = ContractManager.fromClient(cdmJson, client.raw.assetHub, paseo_a
 
 #### fromLive / fromLiveClient
 
-**Async.** Resolve each installed contract's address from the live CDM registry before constructing the manager, instead of trusting the address baked into `cdm.json`. ABIs and versions still come from the installed snapshot — only addresses are refreshed. Strict: rejects with `ContractLiveAddressResolutionError` if an address can't be resolved (never falls back to the snapshot).
+**Async.** Resolve each installed contract's address from the live CDM registry before constructing the manager, instead of trusting the address baked into `cdm.json`. ABIs and versions still come from the installed snapshot — only addresses are refreshed. Strict: returns `err(ContractLiveAddressResolutionError)` if an address can't be resolved (never falls back to the snapshot).
 
 ```typescript
 static fromLive(
     cdmJson: CdmJson,
     runtime: ContractRuntime,
     options?: ContractManagerOptions & LiveContractResolutionOptions,
-): Promise<ContractManager>
+): Promise<Result<ContractManager, ContractError>>
 
 static fromLiveClient<TDescriptor>(
     cdmJson: CdmJson,
     client: PolkadotClient,
     descriptor: TDescriptor,
     options?: ContractManagerOptions & ContractRuntimeOptions & LiveContractResolutionOptions,
-): Promise<ContractManager>
+): Promise<Result<ContractManager, ContractError>>
 ```
 
 ```typescript
-const manager = await ContractManager.fromLiveClient(
+const result = await ContractManager.fromLiveClient(
     cdmJson,
     client.raw.assetHub,
     paseo_asset_hub,
     { signerManager }, // registryAddress defaults to cdmJson.registry
 );
+if (!result.ok) throw result.error; // ContractLiveAddressResolutionError
+const manager = result.value;
 ```
 
 ### Instance Methods
@@ -173,21 +175,22 @@ const counter = createContractFromClient(
 
 ## withLiveContractAddresses
 
-Standalone helper behind `ContractManager.fromLive`. Returns a **cloned** `cdm.json` whose installed contract addresses have been replaced with live addresses from the CDM registry. The input manifest is never mutated. Strict — rejects with `ContractLiveAddressResolutionError` if any requested address can't be resolved.
+Standalone helper behind `ContractManager.fromLive`. On success returns a **cloned** `cdm.json` whose installed contract addresses have been replaced with live addresses from the CDM registry. The input manifest is never mutated. Strict — returns `err(ContractLiveAddressResolutionError)` if any requested address can't be resolved.
 
 ```typescript
 function withLiveContractAddresses(
     cdmJson: CdmJson,
     runtime: ContractRuntime,
     options?: LiveContractResolutionOptions,
-): Promise<CdmJson>
+): Promise<Result<CdmJson, ContractError>>
 ```
 
 ```typescript
-const resolved = await withLiveContractAddresses(cdmJson, runtime, {
+const result = await withLiveContractAddresses(cdmJson, runtime, {
     libraries: ["@example/counter"], // optional subset; defaults to all
 });
-const manager = new ContractManager(resolved, runtime);
+if (!result.ok) throw result.error; // ContractLiveAddressResolutionError
+const manager = new ContractManager(result.value, runtime);
 ```
 
 ---
@@ -274,6 +277,15 @@ class ContractLiveAddressResolutionError extends ContractError {
 
 ## Types
 
+### Result
+
+Discriminated union returned by the async fallible APIs (`tx`, `prepare`,
+`ContractManager.fromLive` / `fromLiveClient`, `withLiveContractAddresses`).
+
+```typescript
+type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
+```
+
 ### Contract
 
 A contract handle with methods for each ABI function.
@@ -282,9 +294,26 @@ A contract handle with methods for each ABI function.
 type Contract<D extends ContractDef> = {
     [method: string]: {
         query(options?: QueryOptions): Promise<QueryResult>;
-        tx(options?: TxOptions): Promise<TxResult>;
+        tx(options?: TxOptions): Promise<Result<TxResult, ContractError | TxError>>;
     };
 };
+```
+
+`query()` still returns `Promise<QueryResult>` and never throws on revert — a
+reverted query comes back as `{ success: false }`. `tx()` returns a
+`Result`: it no longer throws `ContractSignerMissingError`,
+`ContractDryRunFailedError`, or `ContractRevertedError` — those come back as
+`err`. Unwrap with the `ok` discriminant:
+
+```typescript
+const result = await counter.increment.tx({ signer });
+if (!result.ok) {
+    // result.error is a ContractError | TxError
+    // (ContractSignerMissingError, ContractDryRunFailedError,
+    //  ContractRevertedError, ...)
+    throw result.error;
+}
+const { blockHash, events } = result.value;
 ```
 
 ### ContractDef
