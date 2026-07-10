@@ -6,5 +6,13 @@
  *
  * @packageDocumentation
  */
-export { type Result, ok, err, unwrapOk, unwrapErr } from "./result.js";
+export {
+    type Result,
+    type ErrorClass,
+    ok,
+    err,
+    unwrapOk,
+    unwrapErr,
+    normalizeError,
+} from "./result.js";
 export { type SdkError, isSdkError } from "./error.js";

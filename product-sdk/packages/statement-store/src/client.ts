@@ -1,15 +1,11 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok } from "@parity/result";
+import { type Result, err, normalizeError, ok } from "@parity/result";
 import { blake2b256 } from "@parity/product-sdk-utils";
 
 import { decodeData, encodeData, toHex } from "./data.js";
-import {
-    StatementConnectionError,
-    StatementSubmitError,
-    type StatementStoreError,
-} from "./errors.js";
+import { StatementConnectionError, StatementStoreError, StatementSubmitError } from "./errors.js";
 import { createChannel, createTopic, serializeTopicFilter, topicToHex } from "./topics.js";
 import { createTransport } from "./transport.js";
 import type {
@@ -174,10 +170,11 @@ export class StatementStoreClient {
 
         let dataBytes: Uint8Array;
         try {
-            // encodeData throws StatementDataTooLargeError / StatementEncodingError.
+            // encodeData throws StatementDataTooLargeError / StatementEncodingError;
+            // normalizeError passes those through and wraps anything unexpected.
             dataBytes = encodeData(data);
         } catch (error) {
-            return err(error as StatementStoreError);
+            return err(normalizeError(error, StatementStoreError));
         }
 
         const ttl = options?.ttlSeconds ?? this.config.defaultTtlSeconds;

@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok } from "@parity/result";
+import { type Result, err, normalizeError, ok } from "@parity/result";
 import type { PolkadotSigner } from "polkadot-api";
 
 import {
@@ -13,13 +13,6 @@ import {
     isSigningRejection,
 } from "./errors.js";
 import type { SubmitOptions, SubmittableTransaction, TxEvent, TxResult } from "./types.js";
-
-/** Normalize any thrown/emitted error into a `TxError` for the `err` channel. */
-function toTxError(error: unknown): TxError {
-    if (error instanceof TxError) return error;
-    const message = error instanceof Error ? error.message : String(error);
-    return new TxError(message, { cause: error });
-}
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_MORTALITY_PERIOD = 256;
@@ -103,7 +96,7 @@ export async function submitAndWatch(
             settled = true;
             teardown();
             onStatus?.("error");
-            resolve(err(toTxError(error)));
+            resolve(err(normalizeError(error, TxError)));
         }
 
         try {

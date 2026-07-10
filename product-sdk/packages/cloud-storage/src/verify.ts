@@ -16,7 +16,7 @@
  * `verifyStored(api, cid, { block: blockNumber })` confirms the metadata
  * landed where expected.
  */
-import { type Result, err, ok, unwrapOk } from "@parity/result";
+import { type Result, err, normalizeError, ok, unwrapOk } from "@parity/result";
 import { CID } from "multiformats/cid";
 
 import { HashAlgorithm } from "./cid.js";
@@ -140,10 +140,10 @@ export async function verifyStored(
 
         return ok(null);
     } catch (cause) {
-        // parseCidForVerify throws CloudStorageCidError on a malformed CID.
-        if (cause instanceof ProductCloudStorageError) return err(cause);
-        const message = cause instanceof Error ? cause.message : String(cause);
-        return err(new ProductCloudStorageError(message, { cause }));
+        // parseCidForVerify throws CloudStorageCidError on a malformed CID;
+        // normalizeError passes ProductCloudStorageError subclasses through and
+        // wraps anything unexpected.
+        return err(normalizeError(cause, ProductCloudStorageError));
     }
 }
 

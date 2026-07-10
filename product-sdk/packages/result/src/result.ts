@@ -52,6 +52,33 @@ export function unwrapErr<E>(result: Result<unknown, E>): E {
     return result.error;
 }
 
+/**
+ * Constructor of an `Error` subclass that accepts the standard
+ * `(message, options?)` shape — the uniform contract every `@parity/product-sdk-*`
+ * base error follows, so it can be used as the target for {@link normalizeError}.
+ */
+export type ErrorClass<E extends Error> = new (message: string, options?: { cause?: unknown }) => E;
+
+/**
+ * Coerce an unknown thrown value into a specific error class, for putting on the
+ * `err` channel of a {@link Result}.
+ *
+ * The single, shared error-normalization strategy for the SDK — use this instead
+ * of an unchecked `error as SomeError` cast (which lies to the type system when
+ * the thrown value isn't actually that class). If `cause` is already an instance
+ * of `ErrorCtor` it's returned unchanged; otherwise it's wrapped in a new
+ * `ErrorCtor` whose message is `cause`'s message (or its stringification) and
+ * whose `cause` is the original value.
+ *
+ * @example
+ * try { risky(); } catch (e) { return err(normalizeError(e, TxError)); }
+ */
+export function normalizeError<E extends Error>(cause: unknown, ErrorCtor: ErrorClass<E>): E {
+    if (cause instanceof ErrorCtor) return cause;
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return new ErrorCtor(message, { cause });
+}
+
 /** Best-effort one-line rendering of a Result channel for unwrap error messages. */
 function formatChannel(value: unknown): string {
     if (value instanceof Error) return value.message;
@@ -118,6 +145,41 @@ if (import.meta.vitest) {
 
         test("throws on an ok result", () => {
             expect(() => unwrapErr(ok(1))).toThrow(/expected err/);
+        });
+    });
+
+    describe("normalizeError", () => {
+        class MyError extends Error {
+            constructor(message: string, options?: { cause?: unknown }) {
+                super(message, options);
+                this.name = "MyError";
+            }
+        }
+
+        test("returns the value unchanged when already the target class", () => {
+            const original = new MyError("boom");
+            expect(normalizeError(original, MyError)).toBe(original);
+        });
+
+        test("wraps a foreign Error, preserving message and cause", () => {
+            const raw = new Error("network down");
+            const normalized = normalizeError(raw, MyError);
+            expect(normalized).toBeInstanceOf(MyError);
+            expect(normalized.message).toBe("network down");
+            expect(normalized.cause).toBe(raw);
+        });
+
+        test("wraps a non-Error thrown value by stringifying it", () => {
+            const normalized = normalizeError("just a string", MyError);
+            expect(normalized).toBeInstanceOf(MyError);
+            expect(normalized.message).toBe("just a string");
+            expect(normalized.cause).toBe("just a string");
+        });
+
+        test("a subclass instance passes through (it is an instanceof the base)", () => {
+            class MySubError extends MyError {}
+            const sub = new MySubError("sub");
+            expect(normalizeError(sub, MyError)).toBe(sub);
         });
     });
 }

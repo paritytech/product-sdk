@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { CidCodec, parseCid, UnixFsDagBuilder } from "@parity/bulletin-sdk";
 import { createLogger } from "@parity/product-sdk-logger";
-import { type Result, err, ok, unwrapOk } from "@parity/result";
+import { type Result, err, normalizeError, ok, unwrapOk } from "@parity/result";
 
 import { ProductCloudStorageError } from "./errors.js";
 import type { QueryStrategy } from "./resolve-query.js";
@@ -10,13 +10,6 @@ import { resolveQueryStrategy } from "./resolve-query.js";
 import type { QueryOptions } from "./types.js";
 
 const log = createLogger("bulletin");
-
-/** Normalize any thrown error into a `ProductCloudStorageError` for the `err` channel. */
-function toCloudStorageError(error: unknown): ProductCloudStorageError {
-    if (error instanceof ProductCloudStorageError) return error;
-    const message = error instanceof Error ? error.message : String(error);
-    return new ProductCloudStorageError(message, { cause: error });
-}
 
 /**
  * Fetch raw bytes for a CID via the host's preimage lookup.
@@ -125,7 +118,7 @@ export async function executeQuery(
         }
         return ok(out);
     } catch (cause) {
-        return err(toCloudStorageError(cause));
+        return err(normalizeError(cause, ProductCloudStorageError));
     }
 }
 
