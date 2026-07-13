@@ -9,9 +9,9 @@
  * instead of opaque thrown `Error`s. Layers compose with no adapter — a lower
  * package's `Result` flows straight into a higher one's pattern matching.
  *
- * This package is a zero-dependency leaf so it can be imported by every other
- * package (including those on the `signer → host` edge) without creating
- * dependency cycles.
+ * This package is a generic, zero-dependency leaf — it carries no product-sdk
+ * specifics, so it can be imported by every other package (including those on
+ * the `signer → host` edge) without cycles, and embedded anywhere.
  *
  * @module
  */
@@ -77,6 +77,20 @@ export function normalizeError<E extends Error>(cause: unknown, ErrorCtor: Error
     if (cause instanceof ErrorCtor) return cause;
     const message = cause instanceof Error ? cause.message : String(cause);
     return new ErrorCtor(message, { cause });
+}
+
+/**
+ * Type-narrowing guard for "is this value an instance of `ErrorCtor`?".
+ *
+ * A thin, typed wrapper over `instanceof` — useful for narrowing a {@link Result}'s
+ * `err` channel (`if (isErrorOf(r.error, SomeError))`) without a manual cast.
+ * Accepts any error class.
+ */
+export function isErrorOf<E extends Error>(
+    error: unknown,
+    ErrorCtor: abstract new (...args: never[]) => E,
+): error is E {
+    return error instanceof ErrorCtor;
 }
 
 /** Best-effort one-line rendering of a Result channel for unwrap error messages. */
@@ -180,6 +194,30 @@ if (import.meta.vitest) {
             class MySubError extends MyError {}
             const sub = new MySubError("sub");
             expect(normalizeError(sub, MyError)).toBe(sub);
+        });
+    });
+
+    describe("isErrorOf", () => {
+        class FooError extends Error {}
+        class BarError extends Error {}
+
+        test("recognizes an instance of the given class", () => {
+            expect(isErrorOf(new FooError("x"), FooError)).toBe(true);
+        });
+
+        test("rejects a different class or a plain Error", () => {
+            expect(isErrorOf(new BarError("x"), FooError)).toBe(false);
+            expect(isErrorOf(new Error("plain"), FooError)).toBe(false);
+        });
+
+        test("rejects non-error values", () => {
+            expect(isErrorOf("string", FooError)).toBe(false);
+            expect(isErrorOf(null, FooError)).toBe(false);
+        });
+
+        test("matches subclasses (instanceof semantics)", () => {
+            class SubFoo extends FooError {}
+            expect(isErrorOf(new SubFoo("s"), FooError)).toBe(true);
         });
     });
 }

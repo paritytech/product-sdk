@@ -16,7 +16,7 @@
  * Catch upstream errors with `instanceof BulletinError`. Catch our read-side
  * errors with `instanceof ProductCloudStorageError` (or the specific subclass).
  */
-import type { SdkError } from "@parity/result";
+import type { SdkError } from "@parity/product-sdk-errors";
 
 export { BulletinError, ErrorCode } from "@parity/bulletin-sdk";
 

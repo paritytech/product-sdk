@@ -381,6 +381,9 @@ importers:
       '@parity/product-sdk-descriptors':
         specifier: workspace:*
         version: link:../descriptors
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -412,6 +415,9 @@ importers:
       '@parity/product-sdk-address':
         specifier: workspace:*
         version: link:../address
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys
@@ -479,8 +485,20 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  packages/errors:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/host:
     dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
@@ -601,6 +619,9 @@ importers:
       '@parity/product-sdk-crypto':
         specifier: workspace:*
         version: link:../crypto
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -647,6 +668,9 @@ importers:
       '@parity/product-sdk-address':
         specifier: workspace:*
         version: link:../address
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -675,6 +699,9 @@ importers:
 
   packages/statement-store:
     dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -773,6 +800,9 @@ importers:
 
   packages/tx:
     dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys

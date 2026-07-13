@@ -1,17 +1,15 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * A cross-package marker for errors that originate in the `@parity/product-sdk`
- * family.
+ * @parity/product-sdk-errors — the cross-package `SdkError` marker for the
+ * `@parity/product-sdk` family.
  *
- * Each package keeps its own error hierarchy and base class (`HostError`,
- * `SignerError`, `ContractError`, …). This module does NOT unify them under one
- * class — it provides a structural {@link SdkError} marker that every base error
- * implements, so a consumer can identify any SDK-origin error with a single
- * {@link isSdkError} check, without importing per-package classes or coupling
- * hierarchies.
+ * This is intentionally separate from the generic `@parity/result` package:
+ * `@parity/result` is a domain-agnostic `Result` primitive (safe to embed
+ * anywhere, including upstream in `@parity/truapi`), whereas the `SdkError`
+ * marker below is specific to the `@parity/product-sdk` error taxonomy.
  *
- * @module
+ * @packageDocumentation
  */
 
 /**
@@ -29,7 +27,14 @@ export interface SdkError extends Error {
     readonly source: string;
 }
 
-/** Check whether a value is any {@link SdkError} (i.e. any `@parity/product-sdk` error). */
+/**
+ * Check whether a value is any {@link SdkError} — i.e. any error raised by an
+ * `@parity/product-sdk-*` package.
+ *
+ * Answers the cross-cutting "did the SDK raise this?" question in one call,
+ * without importing per-package error classes. For a *specific* class, use
+ * `isErrorOf(e, SomeError)` from `@parity/result` instead.
+ */
 export function isSdkError(error: unknown): error is SdkError {
     return error instanceof Error && (error as Partial<SdkError>).isSdkError === true;
 }

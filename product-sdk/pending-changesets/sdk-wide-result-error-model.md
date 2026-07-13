@@ -1,5 +1,6 @@
 ---
 "@parity/result": minor
+"@parity/product-sdk-errors": minor
 "@parity/product-sdk-tx": minor
 "@parity/product-sdk-contracts": minor
 "@parity/product-sdk-cloud-storage": minor
@@ -14,13 +15,21 @@ Introduce an SDK-wide `Result` error model: fallible operations across the
 throwing, so consumers branch on `r.ok` and get typed errors on the `err`
 channel. See the `guides/migrating-to-result` migration guide.
 
-**New package — `@parity/result`:** a zero-dependency leaf exporting
-`Result<T, E>` (`{ ok: true; value } | { ok: false; error }`), `ok()` / `err()`,
-and a cross-package `SdkError` marker interface + `isSdkError(e)` guard. Every
-package's base error implements the marker (with a `source` string like `"tx"`),
-so `isSdkError(e)` recognizes any SDK-origin error without importing per-package
-classes. `@parity/product-sdk` re-exports `Result` / `ok` / `err` / `SdkError` /
-`isSdkError`.
+**New package — `@parity/result`:** a generic, domain-agnostic, zero-dependency
+leaf exporting `Result<T, E>` (`{ ok: true; value } | { ok: false; error }`),
+`ok()` / `err()`, `normalizeError(cause, ErrorClass)` (coerce a caught value to a
+typed error — the single error-normalization strategy, replacing ad-hoc `as`
+casts), `isErrorOf(e, ErrorClass)` (generic `instanceof` guard), and
+`unwrapOk` / `unwrapErr` (framework-agnostic test/script assertions). It carries
+no product-sdk specifics, so it can be embedded anywhere.
+
+**New package — `@parity/product-sdk-errors`:** a zero-dependency leaf holding
+the product-sdk-specific cross-package `SdkError` marker interface +
+`isSdkError(e)` guard. Every package's base error implements the marker (with a
+`source` string like `"tx"`), so `isSdkError(e)` recognizes any SDK-origin error
+without importing per-package classes. `@parity/product-sdk` re-exports `Result` /
+`ok` / `err` / `isErrorOf` from `@parity/result` and `SdkError` / `isSdkError`
+from `@parity/product-sdk-errors`.
 
 **Breaking — these now return `Result` instead of throwing:**
 
@@ -32,7 +41,8 @@ classes. `@parity/product-sdk` re-exports `Result` / `ok` / `err` / `SdkError` /
 
 `@parity/product-sdk-host` and `@parity/product-sdk-signer` (whose public
 operations already returned `Result`) migrate onto the shared `@parity/result`
-package and adopt the `SdkError` marker; no further API change.
+package and adopt the `SdkError` marker from `@parity/product-sdk-errors`; no
+further API change.
 
 **Unchanged everywhere:** pure/sync helpers and factories, build-time codegen,
 lifecycle methods, and subscription APIs continue to throw or return their

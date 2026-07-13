@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { SdkError } from "@parity/result";
+import type { SdkError } from "@parity/product-sdk-errors";
 
 import type { ProviderType } from "./types.js";
 
