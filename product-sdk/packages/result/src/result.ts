@@ -1,17 +1,15 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * A lightweight tagged `Result` type shared across the `@parity/product-sdk`
- * family.
+ * A lightweight tagged `Result` type.
  *
- * SDK functions that can fail return `Result<T, E>` (or `Promise<Result<T, E>>`)
- * rather than throwing, so consumers get typed errors on the `err` channel
- * instead of opaque thrown `Error`s. Layers compose with no adapter — a lower
- * package's `Result` flows straight into a higher one's pattern matching.
+ * Functions that can fail return `Result<T, E>` (or `Promise<Result<T, E>>`)
+ * rather than throwing, so callers get typed errors on the `err` channel instead
+ * of opaque thrown `Error`s. Layers compose with no adapter — a lower layer's
+ * `Result` flows straight into a higher one's pattern matching.
  *
- * This package is a generic, zero-dependency leaf — it carries no product-sdk
- * specifics, so it can be imported by every other package (including those on
- * the `signer → host` edge) without cycles, and embedded anywhere.
+ * Zero dependencies and domain-agnostic, so it can be imported anywhere without
+ * cycles.
  *
  * @module
  */
@@ -54,8 +52,8 @@ export function unwrapErr<E>(result: Result<unknown, E>): E {
 
 /**
  * Constructor of an `Error` subclass that accepts the standard
- * `(message, options?)` shape — the uniform contract every `@parity/product-sdk-*`
- * base error follows, so it can be used as the target for {@link normalizeError}.
+ * `(message, options?)` shape — the contract an error class must satisfy to be
+ * used as the target for {@link normalizeError}.
  */
 export type ErrorClass<E extends Error> = new (message: string, options?: { cause?: unknown }) => E;
 
@@ -63,15 +61,14 @@ export type ErrorClass<E extends Error> = new (message: string, options?: { caus
  * Coerce an unknown thrown value into a specific error class, for putting on the
  * `err` channel of a {@link Result}.
  *
- * The single, shared error-normalization strategy for the SDK — use this instead
- * of an unchecked `error as SomeError` cast (which lies to the type system when
- * the thrown value isn't actually that class). If `cause` is already an instance
- * of `ErrorCtor` it's returned unchanged; otherwise it's wrapped in a new
- * `ErrorCtor` whose message is `cause`'s message (or its stringification) and
- * whose `cause` is the original value.
+ * Use this instead of an unchecked `error as SomeError` cast (which lies to the
+ * type system when the thrown value isn't actually that class). If `cause` is
+ * already an instance of `ErrorCtor` it's returned unchanged; otherwise it's
+ * wrapped in a new `ErrorCtor` whose message is `cause`'s message (or its
+ * stringification) and whose `cause` is the original value.
  *
  * @example
- * try { risky(); } catch (e) { return err(normalizeError(e, TxError)); }
+ * try { risky(); } catch (e) { return err(normalizeError(e, MyError)); }
  */
 export function normalizeError<E extends Error>(cause: unknown, ErrorCtor: ErrorClass<E>): E {
     if (cause instanceof ErrorCtor) return cause;

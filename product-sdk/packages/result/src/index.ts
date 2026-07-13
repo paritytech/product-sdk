@@ -3,9 +3,8 @@
 /**
  * @parity/result — a generic, zero-dependency tagged `Result` type and helpers.
  *
- * Domain-agnostic: it carries no product-sdk specifics, so it can be embedded
- * anywhere (including upstream in `@parity/truapi`). The product-sdk error
- * taxonomy (`SdkError`) lives in `@parity/product-sdk-errors`.
+ * Domain-agnostic: it carries no application-specific concepts, so it can be
+ * imported anywhere without cycles.
  *
  * @packageDocumentation
  */
