@@ -3,4 +3,5 @@
 export default {
   testing: "Testing your app",
   "migrating-to-truapi": "Migrating to @parity/truapi",
+  "migrating-to-result": "Migrating to the Result API",
 };

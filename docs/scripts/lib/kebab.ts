@@ -11,5 +11,8 @@ export function kebab(name: string): string {
 
 export function packageSlug(packageName: string): string {
   if (packageName === "@parity/product-sdk") return "sdk";
-  return packageName.replace(/^@parity\/product-sdk-/, "");
+  // Strip the `@parity/product-sdk-` prefix for SDK packages, or a bare
+  // `@parity/` scope for neutrally-named shared packages (e.g. `@parity/result`).
+  // The slug must be a plain path segment — a leftover `/` breaks Nextra's `_meta`.
+  return packageName.replace(/^@parity\/(product-sdk-)?/, "");
 }

@@ -145,6 +145,9 @@ const tx = client.assetHub.tx.Balances.transferKeepAlive({
 // Submit with @parity/product-sdk-tx
 import { submitAndWatch } from "@parity/product-sdk-tx";
 const result = await submitAndWatch(tx, signer, { waitFor: "finalized" });
+// Returns a Result — branch on .ok before reading the TxResult.
+if (!result.ok) throw result.error;
+const { block, txHash } = result.value;
 ```
 
 ### Constants

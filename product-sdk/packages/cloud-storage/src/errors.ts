@@ -16,14 +16,21 @@
  * Catch upstream errors with `instanceof BulletinError`. Catch our read-side
  * errors with `instanceof ProductCloudStorageError` (or the specific subclass).
  */
+import type { SdkError } from "@parity/product-sdk-errors";
+
 export { BulletinError, ErrorCode } from "@parity/bulletin-sdk";
 
 /**
  * Base class for read-side errors raised by `@parity/product-sdk-cloud-storage`.
  *
  * Distinct from upstream `BulletinError` which covers upload/store failures.
+ * Implements the cross-package {@link SdkError} marker so `isSdkError(e)` also
+ * recognizes it.
  */
-export class ProductCloudStorageError extends Error {
+export class ProductCloudStorageError extends Error implements SdkError {
+    readonly isSdkError = true as const;
+    readonly source = "cloud-storage";
+
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = "ProductCloudStorageError";

@@ -25,6 +25,8 @@
         "@parity/product-sdk-descriptors": "workspace:*",
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-errors": "workspace:*",
+        "@parity/result": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "multiformats": "^13.3.0",
         "polkadot-api": "catalog:"

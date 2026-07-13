@@ -17,6 +17,7 @@
  *
  * @module
  */
+import type { SdkError } from "@parity/product-sdk-errors";
 import type { GenericError } from "@parity/truapi";
 
 /**
@@ -93,9 +94,13 @@ export function formatHostError(error: unknown): string {
 
 /**
  * Base class for all host errors. Use `instanceof HostError` (or {@link isHostError})
- * to catch any host-related failure.
+ * to catch any host-related failure. Implements the cross-package
+ * {@link SdkError} marker so `isSdkError(e)` also recognizes it.
  */
-export class HostError extends Error {
+export class HostError extends Error implements SdkError {
+    readonly isSdkError = true as const;
+    readonly source = "host";
+
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = "HostError";

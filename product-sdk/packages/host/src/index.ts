@@ -56,6 +56,7 @@ export type {
 // Result type + typed host errors (the throw→Result boundary)
 export { ok, err } from "./result.js";
 export type { Result } from "./result.js";
+export { type SdkError, isSdkError } from "@parity/product-sdk-errors";
 export {
     HostError,
     HostUnavailableError,

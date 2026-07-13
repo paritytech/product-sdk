@@ -1,7 +1,7 @@
 {
-    "name": "@parity/product-sdk-tx",
-    "version": "0.2.17",
-    "description": "Transaction submission, lifecycle watching, and dev signers for Polkadot chains",
+    "name": "@parity/product-sdk-errors",
+    "version": "0.1.0",
+    "description": "The SdkError marker shared across the @parity/product-sdk family",
     "type": "module",
     "sideEffects": false,
     "main": "./dist/index.js",
@@ -18,14 +18,6 @@
         "build": "tsup",
         "test": "vitest",
         "clean": "rm -rf dist"
-    },
-    "dependencies": {
-        "@parity/product-sdk-keys": "workspace:*",
-        "@parity/product-sdk-logger": "workspace:*",
-        "@parity/product-sdk-errors": "workspace:*",
-        "@parity/result": "workspace:*",
-        "@polkadot-labs/hdkd-helpers": "catalog:",
-        "polkadot-api": "catalog:"
     },
     "devDependencies": {
         "typescript": "^5.7.0",

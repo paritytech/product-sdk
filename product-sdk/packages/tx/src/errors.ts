@@ -1,7 +1,16 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-/** Base class for all transaction errors. Use `instanceof TxError` to catch any tx-related error. */
-export class TxError extends Error {
+import type { SdkError } from "@parity/product-sdk-errors";
+
+/**
+ * Base class for all transaction errors. Use `instanceof TxError` to catch any
+ * tx-related error. Implements the cross-package {@link SdkError} marker so
+ * `isSdkError(e)` also recognizes it.
+ */
+export class TxError extends Error implements SdkError {
+    readonly isSdkError = true as const;
+    readonly source = "tx";
+
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = "TxError";
@@ -84,8 +93,8 @@ export function formatDispatchError(result: { ok: boolean; dispatchError?: unkno
 
 /** Error specific to batch transaction construction (e.g., empty calls array). */
 export class TxBatchError extends TxError {
-    constructor(message: string) {
-        super(message);
+    constructor(message: string, options?: ErrorOptions) {
+        super(message, options);
         this.name = "TxBatchError";
     }
 }

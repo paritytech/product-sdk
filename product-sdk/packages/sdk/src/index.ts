@@ -45,6 +45,14 @@ export type {
 } from "./core/types.js";
 export type { LogEntry, LogHandler, LoggerConfig, Logger } from "./core/logger.js";
 
+// The throw→Result model. Every fallible SDK operation returns `Result<T, E>`.
+// `Result`/`ok`/`err`/`isErrorOf` come from the generic `@parity/result`; the
+// cross-package `SdkError` marker (`isSdkError` recognizes any error raised by
+// an `@parity/product-sdk-*` package) lives in `@parity/product-sdk-errors`.
+export { ok, err, isErrorOf } from "@parity/result";
+export type { Result } from "@parity/result";
+export { type SdkError, isSdkError } from "@parity/product-sdk-errors";
+
 // Re-export common utilities from leaf packages
 export { isInsideContainer, isInsideContainerSync } from "@parity/product-sdk-host";
 export { createChainClient } from "@parity/product-sdk-chain-client";

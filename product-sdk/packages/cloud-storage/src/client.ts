@@ -11,9 +11,12 @@ import {
 } from "@parity/bulletin-sdk";
 import { createChainClient, getChainAPI } from "@parity/product-sdk-chain-client";
 import { createLogger } from "@parity/product-sdk-logger";
+import { type Result, err, ok } from "@parity/result";
 import type { PolkadotSigner } from "polkadot-api";
 
 import { checkAuthorization } from "./authorization.js";
+import { ProductCloudStorageError } from "./errors.js";
+import type { CloudStorageAuthorizationError } from "./errors.js";
 import type { CloudStorageNetworks, CloudStorageEnvironment } from "./networks.js";
 import { executeQuery } from "./query.js";
 import { resolveQueryStrategy, type QueryStrategy } from "./resolve-query.js";
@@ -218,19 +221,34 @@ export class CloudStorageClient {
      * Use {@link verifyStored} if you only need to confirm a CID was
      * recorded on-chain (no byte fetch).
      */
-    async fetchBytes(cid: string, options?: QueryOptions): Promise<Uint8Array> {
+    async fetchBytes(
+        cid: string,
+        options?: QueryOptions,
+    ): Promise<Result<Uint8Array, ProductCloudStorageError>> {
         const strategy = await this.resolveQuery();
         return executeQuery(strategy, cid, options);
     }
 
     /** Fetch and parse JSON for a CID. */
-    async fetchJson<T>(cid: string, options?: QueryOptions): Promise<T> {
+    async fetchJson<T>(
+        cid: string,
+        options?: QueryOptions,
+    ): Promise<Result<T, ProductCloudStorageError>> {
         const bytes = await this.fetchBytes(cid, options);
-        return JSON.parse(new TextDecoder().decode(bytes)) as T;
+        if (!bytes.ok) return bytes;
+        try {
+            return ok(JSON.parse(new TextDecoder().decode(bytes.value)) as T);
+        } catch (cause) {
+            return err(
+                new ProductCloudStorageError(`Failed to parse JSON for CID ${cid}`, { cause }),
+            );
+        }
     }
 
     /** Pre-flight: check whether `address` can store via Cloud Storage. */
-    async checkAuthorization(address: string): Promise<AuthorizationStatus> {
+    async checkAuthorization(
+        address: string,
+    ): Promise<Result<AuthorizationStatus, CloudStorageAuthorizationError>> {
         return checkAuthorization(this.api, address);
     }
 
@@ -244,7 +262,7 @@ export class CloudStorageClient {
     async verifyStored(
         cid: string,
         options: VerifyStoredOptions,
-    ): Promise<ChainStoredEntry | null> {
+    ): Promise<Result<ChainStoredEntry | null, ProductCloudStorageError>> {
         return verifyStored(this.api, cid, options);
     }
 

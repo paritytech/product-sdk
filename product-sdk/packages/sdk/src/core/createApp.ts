@@ -21,9 +21,11 @@ import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
 import {
     CloudStorageClient,
+    ProductCloudStorageError,
     calculateCid,
     createLazySigner,
 } from "@parity/product-sdk-cloud-storage";
+import { err, ok } from "@parity/result";
 import {
     createChainClient,
     getClient,
@@ -170,20 +172,28 @@ export async function createApp(config: AppConfig): Promise<App> {
         ? {
               upload: async (data) => {
                   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-                  // Explicitly request a DAG-PB manifest so chunked uploads always
-                  // resolve to a single root CID. Without this, AsyncBulletinClient
-                  // can return `result.cid: undefined` for chunked-without-manifest
-                  // uploads — but CloudStorageApi.upload promises a string return, and
-                  // app consumers expect a CID they can hand to `fetch(cid)`. Keep
-                  // the defensive null-check below as belt-and-braces in case the
-                  // upstream contract shifts.
-                  const result = await cloudStorageClient.store(bytes).withManifest(true).send();
-                  if (!result.cid) {
-                      throw new Error(
-                          "Cloud storage upload returned no CID despite .withManifest(true). Upstream contract may have shifted — file an issue.",
-                      );
+                  try {
+                      // Explicitly request a DAG-PB manifest so chunked uploads always
+                      // resolve to a single root CID. Without this, AsyncBulletinClient
+                      // can return `result.cid: undefined` for chunked-without-manifest
+                      // uploads — but app consumers expect a CID they can hand to
+                      // `fetch(cid)`, so treat a missing CID as an error.
+                      const uploaded = await cloudStorageClient
+                          .store(bytes)
+                          .withManifest(true)
+                          .send();
+                      if (!uploaded.cid) {
+                          return err(
+                              new ProductCloudStorageError(
+                                  "Cloud storage upload returned no CID despite .withManifest(true). Upstream contract may have shifted — file an issue.",
+                              ),
+                          );
+                      }
+                      return ok(uploaded.cid.toString());
+                  } catch (cause) {
+                      const message = cause instanceof Error ? cause.message : String(cause);
+                      return err(new ProductCloudStorageError(message, { cause }));
                   }
-                  return result.cid.toString();
               },
               fetch: (cid) => cloudStorageClient.fetchBytes(cid),
               computeCid: async (data) => {

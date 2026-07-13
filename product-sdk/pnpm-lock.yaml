@@ -381,6 +381,9 @@ importers:
       '@parity/product-sdk-descriptors':
         specifier: workspace:*
         version: link:../descriptors
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -390,6 +393,9 @@ importers:
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       multiformats:
         specifier: ^13.3.0
         version: 13.4.2
@@ -409,6 +415,9 @@ importers:
       '@parity/product-sdk-address':
         specifier: workspace:*
         version: link:../address
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys
@@ -421,6 +430,9 @@ importers:
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       '@polkadot-labs/hdkd-helpers':
         specifier: 'catalog:'
         version: 0.0.30
@@ -473,11 +485,26 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  packages/errors:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/host:
     dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       '@parity/truapi':
         specifier: 'catalog:'
         version: 0.3.2
@@ -566,6 +593,15 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@22.19.17)
 
+  packages/result:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/sdk:
     dependencies:
       '@parity/product-sdk-address':
@@ -583,6 +619,9 @@ importers:
       '@parity/product-sdk-crypto':
         specifier: workspace:*
         version: link:../crypto
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -601,6 +640,9 @@ importers:
       '@parity/product-sdk-tx':
         specifier: workspace:*
         version: link:../tx
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       polkadot-api:
         specifier: 'catalog:'
         version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
@@ -626,6 +668,9 @@ importers:
       '@parity/product-sdk-address':
         specifier: workspace:*
         version: link:../address
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -635,6 +680,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       polkadot-api:
         specifier: 'catalog:'
         version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
@@ -651,6 +699,9 @@ importers:
 
   packages/statement-store:
     dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
@@ -660,6 +711,9 @@ importers:
       '@parity/product-sdk-utils':
         specifier: workspace:*
         version: link:../utils
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       '@polkadot-api/substrate-client':
         specifier: 'catalog:'
         version: 0.7.0
@@ -746,12 +800,18 @@ importers:
 
   packages/tx:
     dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       '@polkadot-labs/hdkd-helpers':
         specifier: 'catalog:'
         version: 0.0.30

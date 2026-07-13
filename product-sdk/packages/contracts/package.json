@@ -37,6 +37,8 @@
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-errors": "workspace:*",
+        "@parity/result": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "@polkadot-labs/hdkd-helpers": "catalog:",

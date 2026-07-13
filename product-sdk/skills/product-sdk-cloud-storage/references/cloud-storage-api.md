@@ -65,15 +65,15 @@ estimateAuthorization(dataSize: number): { transactions: number; bytes: number }
 #### `client.fetchBytes(cid, options?)`
 
 ```ts
-async fetchBytes(cid: string, options?: QueryOptions): Promise<Uint8Array>
+async fetchBytes(cid: string, options?: QueryOptions): Promise<Result<Uint8Array, ProductCloudStorageError>>
 ```
 
-Container-only -- resolves via the host preimage lookup; **throws `CloudStorageHostUnavailableError` outside a container**.
+Container-only -- resolves via the host preimage lookup; **returns `err(CloudStorageHostUnavailableError)` outside a container**.
 
 #### `client.fetchJson<T>(cid, options?)`
 
 ```ts
-async fetchJson<T>(cid: string, options?: QueryOptions): Promise<T>
+async fetchJson<T>(cid: string, options?: QueryOptions): Promise<Result<T, ProductCloudStorageError>>
 ```
 
 Container-only -- same semantics as `fetchBytes`.
@@ -81,16 +81,16 @@ Container-only -- same semantics as `fetchBytes`.
 #### `client.checkAuthorization(address)`
 
 ```ts
-async checkAuthorization(address: string): Promise<AuthorizationStatus>
+async checkAuthorization(address: string): Promise<Result<AuthorizationStatus, CloudStorageAuthorizationError>>
 ```
 
 #### `client.verifyStored(cid, options)`
 
 ```ts
-async verifyStored(cid: string, options: VerifyStoredOptions): Promise<ChainStoredEntry | null>
+async verifyStored(cid: string, options: VerifyStoredOptions): Promise<Result<ChainStoredEntry | null, ProductCloudStorageError>>
 ```
 
-Confirm a CID was recorded on-chain at a known block (no byte fetch). `options.block` is required.
+Confirm a CID was recorded on-chain at a known block (no byte fetch). `options.block` is required. `ok(null)` means the CID was not recorded at that block.
 
 #### `client.destroy()`
 
@@ -145,15 +145,15 @@ Reconstruct a CID string from an on-chain hex hash.
 ### `queryBytes(cid, options?)`
 
 ```ts
-async function queryBytes(cid: string, options?: QueryOptions): Promise<Uint8Array>
+async function queryBytes(cid: string, options?: QueryOptions): Promise<Result<Uint8Array, ProductCloudStorageError>>
 ```
 
-Container-only -- resolves via the host preimage lookup; **throws `CloudStorageHostUnavailableError` outside a container**. No gateway argument.
+Container-only -- resolves via the host preimage lookup; **returns `err(CloudStorageHostUnavailableError)` outside a container**. No gateway argument.
 
 ### `queryJson<T>(cid, options?)`
 
 ```ts
-async function queryJson<T>(cid: string, options?: QueryOptions): Promise<T>
+async function queryJson<T>(cid: string, options?: QueryOptions): Promise<Result<T, ProductCloudStorageError>>
 ```
 
 Container-only -- same semantics as `queryBytes`.

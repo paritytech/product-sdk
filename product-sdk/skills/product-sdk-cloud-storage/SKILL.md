@@ -15,7 +15,8 @@ description: >
 
 - **Content-addressed storage**: Data is identified by its CID (Content Identifier), computed deterministically from the bytes via blake2b-256.
 - **Uploads always need a signer**: Every `store(...)` submits a `TransactionStorage.store` extrinsic, so `create(...)` **requires** a `signer`. In-container vs standalone only changes *where the signer comes from* (the host's account vs a `PolkadotSigner` you supply) -- there is no signer-less host upload path.
-- **Reads are container-only**: `fetchBytes`/`fetchJson`/`queryBytes` resolve content through the host's preimage subscription and **require a host container**. Outside a container they **throw `CloudStorageHostUnavailableError`** -- the SDK does **not** fall back to a public IPFS gateway. A product that needs a standalone read path must branch on `isInsideContainer()` and perform its own gateway fetch.
+- **Reads are container-only**: `fetchBytes`/`fetchJson`/`queryBytes` resolve content through the host's preimage subscription and **require a host container**. Outside a container they return **`err(CloudStorageHostUnavailableError)`** -- the SDK does **not** fall back to a public IPFS gateway. A product that needs a standalone read path must branch on `isInsideContainer()` and perform its own gateway fetch.
+- **Reads return `Result`, not thrown errors**: `queryBytes`/`queryJson`/`executeQuery`/`checkAuthorization`/`verifyStored` and their `CloudStorageClient` method equivalents (`fetchBytes`/`fetchJson`/`checkAuthorization`/`verifyStored`), plus the free `authorizeAccount`, return `Result<T, E>` = `{ ok: true; value: T } | { ok: false; error: E }`. Check `res.ok` and read `res.value` (or `res.error`) -- they do **not** throw. (Upstream `.send()` builder results and the sync CID helpers are unchanged.)
 - **Environments**: `create({ environment })` accepts `"paseo"` and `"summit"` (the `CloudStorageEnvironment` presets -- keys of `CloudStorageNetworks`; both currently available). `"polkadot"`/`"kusama"` are not yet available (compile error, and `getChainAPI` throws).
 
 ## Quick Start: Upload and Fetch
@@ -39,9 +40,11 @@ const result = await cloudStorage.store(data).send();
 console.log("CID:", result.cid?.toString());        // result.cid is a CID object (undefined for chunked-without-manifest)
 console.log("block:", result.blockNumber, "size:", result.size);
 
-// Fetch it back as JSON (requires a host container -- throws CloudStorageHostUnavailableError standalone)
+// Fetch it back as JSON (requires a host container -- returns err(CloudStorageHostUnavailableError) standalone).
+// fetchJson returns a Result, so check .ok before reading .value.
 const content = await cloudStorage.fetchJson<{ title: string }>(result.cid!.toString());
-console.log(content.title); // "Hello Cloud Storage"
+if (!content.ok) throw content.error;
+console.log(content.value.title); // "Hello Cloud Storage"
 ```
 
 > **WARNING**: `store()` expects `Uint8Array`, not strings. Always convert with `new TextEncoder().encode(...)`.
@@ -113,14 +116,18 @@ const result = await client
 
 ### Fetching Data
 
-`fetchBytes`/`fetchJson` are **instance methods** and **container-only** (host preimage lookup; throw `CloudStorageHostUnavailableError` standalone):
+`fetchBytes`/`fetchJson` are **instance methods** and **container-only** (host preimage lookup; return `err(CloudStorageHostUnavailableError)` standalone). Both return a `Result` -- check `.ok` before reading `.value`:
 
 ```ts
-// Raw bytes
-const bytes = await client.fetchBytes(cid);
+// Raw bytes -- fetchBytes returns Result<Uint8Array, ProductCloudStorageError>
+const res = await client.fetchBytes(cid);
+if (!res.ok) return handle(res.error);
+const bytes = res.value;
 
-// Parsed JSON
-const metadata = await client.fetchJson<{ name: string }>(cid);
+// Parsed JSON -- fetchJson returns Result<T, ProductCloudStorageError>
+const meta = await client.fetchJson<{ name: string }>(cid);
+if (!meta.ok) return handle(meta.error);
+const metadata = meta.value;
 ```
 
 ### Utility Methods
@@ -131,11 +138,16 @@ import { calculateCid } from "@parity/product-sdk-cloud-storage";
 // Compute a CID without uploading (standalone helper -- async, returns a CID object)
 const cid = await calculateCid(data);
 
-// Confirm a CID landed on-chain at a known block (pass the block from a store() receipt)
-const entry = await client.verifyStored(result.cid!.toString(), { block: result.blockNumber! });
+// Confirm a CID landed on-chain at a known block (pass the block from a store() receipt).
+// verifyStored returns Result<ChainStoredEntry | null, ProductCloudStorageError>; ok(null) = not recorded at that block.
+const verified = await client.verifyStored(result.cid!.toString(), { block: result.blockNumber! });
+if (!verified.ok) throw verified.error;
+const entry = verified.value; // ChainStoredEntry | null
 
-// Pre-flight authorization check
-const auth = await client.checkAuthorization(address);
+// Pre-flight authorization check -- returns Result<AuthorizationStatus, CloudStorageAuthorizationError>
+const authResult = await client.checkAuthorization(address);
+if (!authResult.ok) throw authResult.error;
+const auth = authResult.value;
 
 // Estimate the authorization (transactions + bytes) a payload needs
 const need = client.estimateAuthorization(data.length);
@@ -150,9 +162,9 @@ import {
   cidToPreimageKey,
   hashToCid,
   calculateCid,   // async; returns a CID object
-  queryBytes,     // container-only read (host preimage); throws CloudStorageHostUnavailableError standalone
-  queryJson,      // container-only read (host preimage); throws CloudStorageHostUnavailableError standalone
-  executeQuery,
+  queryBytes,     // container-only read (host preimage); returns Result, err(CloudStorageHostUnavailableError) standalone
+  queryJson,      // container-only read (host preimage); returns Result, err(CloudStorageHostUnavailableError) standalone
+  executeQuery,   // container-only read; returns Result<Uint8Array, ProductCloudStorageError>
   resolveQueryStrategy,
 } from "@parity/product-sdk-cloud-storage";
 ```
@@ -167,7 +179,8 @@ import {
 1. **Passing a string to `store()` instead of `Uint8Array`** - convert with `new TextEncoder().encode(...)`.
 2. **Forgetting that `create()` requires a signer** - every `store()` submits a transaction; use `createLazySigner` if no account is selected yet.
 3. **Treating `result.cid` as a string** - it's a `CID` object (or `undefined` for chunked-without-manifest); call `.toString()`.
-4. **Expecting reads to work standalone** - `fetchBytes`/`fetchJson`/`queryBytes` are container-only and throw `CloudStorageHostUnavailableError` outside a host.
+4. **Expecting reads to work standalone** - `fetchBytes`/`fetchJson`/`queryBytes` are container-only and return `err(CloudStorageHostUnavailableError)` outside a host.
+5. **Using a read result as a plain value** - `fetchBytes`/`fetchJson`/`queryBytes`/`queryJson`/`checkAuthorization`/`verifyStored` (and `authorizeAccount`) return `Result<T, E>`. Check `res.ok` and read `res.value` -- they do not throw.
 
 ## Reference Files
 

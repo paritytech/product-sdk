@@ -217,11 +217,11 @@ $btnStoreReport.addEventListener("click", async () => {
         const result = await contract.storeDailyReport.tx(shopKey, date, cid, 1n, { signer });
         if (result.ok) {
             log(
-                `storeDailyReport landed in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`,
+                `storeDailyReport landed in block #${result.value.block.number} (${result.value.txHash.slice(0, 18)}…)`,
                 "ok",
             );
         } else {
-            log(`storeDailyReport dispatch error: ${JSON.stringify(result.dispatchError)}`, "err");
+            log(`storeDailyReport failed: ${result.error.name}: ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`storeDailyReport failed: ${(err as Error).message}`, "err");
@@ -299,10 +299,14 @@ async function init() {
             productAccount.address,
             signer,
         );
+        if (!mapped.ok) {
+            log(`ensureContractAccountMapped failed: ${mapped.error.message}`, "err");
+            return;
+        }
         log(
-            mapped === null
+            mapped.value === null
                 ? "Account already mapped (no signature needed)"
-                : `Account mapped in block #${mapped.block.number}`,
+                : `Account mapped in block #${mapped.value.block.number}`,
             "ok",
         );
     } catch (err) {
