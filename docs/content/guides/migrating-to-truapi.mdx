@@ -1,9 +1,14 @@
 ---
 title: Migrating to @parity/truapi
 description: How to update direct getTruApi() calls now that the host client is @parity/truapi instead of the host-api-wrapper.
+sinceVersion: "@parity/product-sdk@0.17.0"
 ---
 
 # Migrating to `@parity/truapi`
+
+> **Applies to `@parity/product-sdk` v0.17.0 and later.** The switch to
+> `@parity/truapi` landed in v0.17.0 — this guide is only needed when upgrading
+> from an earlier version (≤ v0.16.x).
 
 `@parity/product-sdk-host` now talks to the host through Parity's own
 [`@parity/truapi`](https://github.com/paritytech/truapi) client instead of the

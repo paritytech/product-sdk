@@ -1,9 +1,14 @@
 ---
 title: Migrating to the Result API
 description: How to update code now that fallible SDK operations return a typed Result instead of throwing.
+sinceVersion: "@parity/product-sdk@0.18.0"
 ---
 
 # Migrating to the `Result` API
+
+> **Applies to `@parity/product-sdk` v0.18.0 and later.** If your app is already on
+> v0.18.0+ and compiles, you're on the new API — this guide is only needed when
+> upgrading from an earlier version (≤ v0.17.x).
 
 Fallible operations across `@parity/product-sdk-*` no longer throw — they return a
 typed [`Result`](#the-result-type). Instead of a `try/catch` around an opaque
