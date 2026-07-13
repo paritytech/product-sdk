@@ -10,7 +10,9 @@
  *
  * @packageDocumentation
  */
+import { ProductCloudStorageError } from "@parity/product-sdk-cloud-storage";
 import { createFakeHostLocalStorage } from "@parity/product-sdk-local-storage/testing";
+import { err, ok, unwrapErr, unwrapOk } from "@parity/result";
 
 import type {
     Account,
@@ -24,6 +26,10 @@ import type {
 const textEncoder = new TextEncoder();
 
 // Re-export the per-package fakes so `@parity/product-sdk/testing` is a one-stop import.
+// statement-store is deliberately absent: the umbrella doesn't wrap that package, so apps
+// using it depend on it directly — import `@parity/product-sdk-statement-store/testing`
+// there instead. Re-exporting its fake here would add a dependency the umbrella otherwise
+// doesn't have and could skew against the version the app actually installs.
 export * from "@parity/product-sdk-local-storage/testing";
 export * from "@parity/product-sdk-signer/testing";
 export * from "@parity/product-sdk-contracts/testing";
@@ -158,12 +164,18 @@ function makeFakeCloudStorage(): CloudStorageApi {
             const bytes = toBytes(data);
             const cid = cidOf(bytes);
             store.set(cid, bytes);
-            return cid;
+            return ok(cid);
         },
         async fetch(cid) {
             const bytes = store.get(cid);
-            if (!bytes) throw new Error(`fake cloud storage: no object stored for CID ${cid}`);
-            return bytes;
+            if (!bytes) {
+                return err(
+                    new ProductCloudStorageError(
+                        `fake cloud storage: no object stored for CID ${cid}`,
+                    ),
+                );
+            }
+            return ok(bytes);
         },
         async computeCid(data) {
             return cidOf(toBytes(data));
@@ -260,9 +272,12 @@ if (import.meta.vitest) {
         test("cloudStorage round-trips upload -> fetch; computeCid matches upload", async () => {
             const cs = createFakeApp().cloudStorage;
             if (!cs) throw new Error("expected default cloud storage");
-            const cid = await cs.upload("hello");
+            const cid = unwrapOk(await cs.upload("hello"));
             expect(await cs.computeCid("hello")).toBe(cid);
-            expect(new TextDecoder().decode(await cs.fetch(cid))).toBe("hello");
+            expect(new TextDecoder().decode(unwrapOk(await cs.fetch(cid)))).toBe("hello");
+            expect(unwrapErr(await cs.fetch("bafyfakemissing"))).toBeInstanceOf(
+                ProductCloudStorageError,
+            );
         });
 
         test("cloudStorage can be disabled with null", () => {

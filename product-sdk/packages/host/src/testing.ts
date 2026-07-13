@@ -10,28 +10,67 @@
  * makes a default `SignerManager`, `local-storage` auto-detection, and the
  * `statement-store` / `cloud-storage` host paths testable.
  *
- * Not modeled: the PAPI `chain` JSON-RPC surface behind `getHostProvider()`.
- * There's no chain-read fake, by design — the host owns RPC selection.
+ * Not modeled: the PAPI `chain` JSON-RPC surface behind `getHostProvider()` —
+ * there's no chain-read fake, by design; the host owns RPC selection — and the
+ * `chat` / `entropy` / `notifications` / `payment` / `permissions` /
+ * `resourceAllocation` / `theme` domains. Touching an unmodeled domain throws a
+ * descriptive error rather than failing with `undefined is not a function`.
  *
  * @packageDocumentation
  */
-import type { ObservableLike, TrUApiClient } from "@parity/truapi";
+import type { ObservableLike, Observer, Subscription, TrUApiClient } from "@parity/truapi";
 import { okAsync } from "neverthrow";
 
 import { setTruApiClient } from "./transport.js";
 
 export { setTruApiClient };
 
+/**
+ * The public surface of a generated truapi domain client. `keyof` skips private
+ * members, so this is the shape a plain object can implement — the classes
+ * themselves are unimplementable outside truapi because of their
+ * `private transport`.
+ */
+type PublicSurface<C> = { [K in keyof C]: C[K] };
+
+/**
+ * `TrUApiClient` seen through public surfaces only. The fake is checked against
+ * this member-by-member, so drift from the generated client — a renamed method,
+ * a changed request or response type — fails compilation here instead of
+ * surfacing as a runtime mismatch in consumers' tests.
+ */
+type PublicTruApiClient = { [D in keyof TrUApiClient]: PublicSurface<TrUApiClient[D]> };
+
 /** Inlined to keep the `truapi` facade out of this entry's bundle. */
 function toHex(bytes: Uint8Array): `0x${string}` {
     return `0x${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
+function fakeSubscription(): Subscription {
+    return { unsubscribe: () => {}, subscriptionId: "fake-subscription" };
+}
+
+/**
+ * Wrap a `subscribe` implementation into a full `ObservableLike`. The
+ * `Symbol.observable` interop member only lands on the object when the symbol
+ * is polyfilled (e.g. by rxjs) — same as the generated client — and nothing in
+ * the SDK reads it; it exists to satisfy the interface.
+ */
+function makeObservable<Item, Reason = never>(
+    subscribe: (observer?: Partial<Observer<Item, Reason>>) => Subscription,
+): ObservableLike<Item, Reason> {
+    const observable: ObservableLike<Item, Reason> = {
+        subscribe,
+        [Symbol.observable]() {
+            return observable;
+        },
+    };
+    return observable;
+}
+
 /** An `ObservableLike` that never emits. Drive statement delivery with `createFakeStatementTransport`. */
-function inertObservable(): ObservableLike<never> {
-    return {
-        subscribe: () => ({ unsubscribe: () => {} }),
-    } as unknown as ObservableLike<never>;
+function inertObservable<Item, Reason = never>(): ObservableLike<Item, Reason> {
+    return makeObservable(() => fakeSubscription());
 }
 
 /**
@@ -39,13 +78,29 @@ function inertObservable(): ObservableLike<never> {
  * matters: the caller assigns its subscription handle from the return value, so
  * the item must arrive after `subscribe()` returns, not during it.
  */
-function oneShotObservable<T>(item: T): ObservableLike<T> {
-    return {
-        subscribe: (observer: { next?: (value: T) => void }) => {
-            queueMicrotask(() => observer.next?.(item));
-            return { unsubscribe: () => {} };
+function oneShotObservable<Item>(item: Item): ObservableLike<Item> {
+    return makeObservable((observer) => {
+        queueMicrotask(() => observer?.next?.(item));
+        return fakeSubscription();
+    });
+}
+
+/**
+ * A domain the fake deliberately doesn't model (see the module header). Any
+ * member access throws with a pointer here, instead of the bare TypeError an
+ * empty stub would give. The empty-object cast is the one concession a Proxy
+ * needs; every modeled domain is checked structurally.
+ */
+function notModeled<D extends keyof TrUApiClient>(domain: D): PublicSurface<TrUApiClient[D]> {
+    return new Proxy({} as PublicSurface<TrUApiClient[D]>, {
+        get(_target, member) {
+            // Stay quiet for inspection probes (console.log, await-resolution).
+            if (typeof member === "symbol" || member === "then") return undefined;
+            throw new Error(
+                `createFakeTruApiClient: \`${domain}.${member}\` is not modeled by the fake. See the @parity/product-sdk-host/testing module docs for what is covered.`,
+            );
         },
-    } as unknown as ObservableLike<T>;
+    });
 }
 
 /** Deterministic `0x`-prefixed preimage key derived from a hex value (FNV-1a). */
@@ -79,7 +134,8 @@ export interface CreateFakeTruApiClientOptions {
 /**
  * Build a fake `TrUApiClient` covering the domains the host accessors use:
  * `localStorage` (real in-memory KV), `account` / `signing` (canned data),
- * `statementStore`, `preimage`, and `system.featureSupported`. `chain` is a stub.
+ * `statementStore`, `preimage`, and `system`. Unmodeled domains (`chain` et al —
+ * see the module header) throw on member access.
  */
 export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions): TrUApiClient {
     const primaryUsername = options?.primaryUsername ?? "alice.dot";
@@ -104,21 +160,24 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         preimages.set(key, toHex(value));
     }
 
-    const client = {
+    // Typed against the generated client's public surface: every method below is
+    // structurally checked, so a truapi signature change breaks this file's build,
+    // not a consumer's test run.
+    const client: PublicTruApiClient = {
         localStorage: {
-            read: ({ key }: { key: string }) => okAsync({ value: kv.get(key) }),
-            write: ({ key, value }: { key: string; value: `0x${string}` }) => {
+            read: ({ key }) => okAsync({ value: kv.get(key) }),
+            write: ({ key, value }) => {
                 kv.set(key, value);
                 return okAsync(undefined);
             },
-            clear: ({ key }: { key: string }) => {
+            clear: ({ key }) => {
                 kv.delete(key);
                 return okAsync(undefined);
             },
         },
         account: {
             getUserId: () => okAsync({ primaryUsername }),
-            requestLogin: () => okAsync({ primaryUsername }),
+            requestLogin: () => okAsync("Success"),
             getAccount: () => okAsync({ account: { publicKey } }),
             getAccountAlias: () =>
                 okAsync({ context: toHex(new Uint8Array([1])), alias: toHex(new Uint8Array([2])) }),
@@ -131,31 +190,45 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
             createTransactionWithLegacyAccount: () => okAsync({ transaction: signature }),
             signRaw: () => okAsync({ signature }),
             signRawWithLegacyAccount: () => okAsync({ signature }),
+            signPayload: () => okAsync({ signature }),
+            signPayloadWithLegacyAccount: () => okAsync({ signature }),
         },
         statementStore: {
             subscribe: () => inertObservable(),
+            createProof: () =>
+                okAsync({ proof: { tag: "Sr25519", value: { signature, signer: publicKey } } }),
             createProofAuthorized: () =>
                 okAsync({ proof: { tag: "Sr25519", value: { signature, signer: publicKey } } }),
             submit: () => okAsync(undefined),
         },
         system: {
+            handshake: () => okAsync(undefined),
             featureSupported: () => okAsync({ supported: chainSupported }),
+            navigateTo: () => okAsync(undefined),
         },
         preimage: {
-            lookupSubscribe: ({ request: { key } }: { request: { key: string } }) =>
+            lookupSubscribe: ({ request: { key } }) =>
                 oneShotObservable({ value: preimages.get(key) }),
-            submit: (value: `0x${string}`) => {
+            submit: (value) => {
                 const key = preimageKey(value);
                 preimages.set(key, value);
                 return okAsync(key);
             },
         },
-        // chain.* is read lazily by the PAPI provider; the full JSON-RPC surface
-        // is out of scope (see module header), so this stays a stub.
-        chain: {},
+        chain: notModeled("chain"),
+        chat: notModeled("chat"),
+        entropy: notModeled("entropy"),
+        notifications: notModeled("notifications"),
+        payment: notModeled("payment"),
+        permissions: notModeled("permissions"),
+        resourceAllocation: notModeled("resourceAllocation"),
+        theme: notModeled("theme"),
     };
 
-    return client as unknown as TrUApiClient;
+    // A plain downcast, not an `unknown` bridge: each generated class is
+    // assignable to its `PublicSurface`, and TS has already verified every fake
+    // member against the generated signatures in the annotation above.
+    return client as TrUApiClient;
 }
 
 /**

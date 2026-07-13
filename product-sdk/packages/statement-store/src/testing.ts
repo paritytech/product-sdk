@@ -113,9 +113,9 @@ if (import.meta.vitest) {
 
             const received: Array<{ msg: string }> = [];
             client.subscribe<{ msg: string }>((s) => received.push(s.data));
-            const ok = await client.publish({ msg: "gm" });
+            const result = await client.publish({ msg: "gm" });
 
-            expect(ok).toBe(true);
+            expect(result.ok).toBe(true);
             expect(transport.published).toHaveLength(1);
             expect(received).toEqual([{ msg: "gm" }]);
 
