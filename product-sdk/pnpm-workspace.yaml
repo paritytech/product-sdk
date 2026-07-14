@@ -3,33 +3,32 @@ packages:
   - "examples/*"
   - "scripts/bench-consumer"
 
-allowBuilds:
-  '@biomejs/biome': true
-  esbuild: true
-
 catalog:
-  polkadot-api: ^2.1.2
-  "@novasamatech/host-api-wrapper": ^0.7.9
-  "@novasamatech/sdk-statement": ^0.6.0
-  "@novasamatech/host-api": ^0.7.9
-  "@polkadot-api/substrate-bindings": ^0.12.0
+  "@parity/host-api-test-sdk": ^0.9.0
+  "@parity/truapi": ^0.3.2
+  "@playwright/test": ^1.60.0
+  "@polkadot-api/json-rpc-provider": ^0.2.0
+  "@polkadot-api/substrate-bindings": ^0.20.3
   "@polkadot-api/substrate-client": ^0.7.0
-  "@polkadot-labs/hdkd-helpers": ^0.0.27
-  tsup: ^8.4.0
+  "@polkadot-labs/hdkd-helpers": ^0.0.30
+  polkadot-api: ^2.1.6
+  tsup: ^8.5.1
   typescript: ^5.9.3
+  viem: ^2.52.0
+  vite: ^6.4.3
   vitest: ^3.1.4
-  "@playwright/test": ^1.50.0
-  "@parity/host-api-test-sdk": ^0.8.3
-  vite: ^6.3.0
-  viem: ^2.46.2
 
 overrides:
-  # A stale transitive (@polkadot-api/substrate-client@0.1.4) drags in
-  # json-rpc-provider@0.0.1, which lacks the `isResponse` export that the
-  # current @novasamatech/host-papp / host-api-wrapper (and thus
-  # product-sdk-terminal) import. Pin to 0.2.0 (superset; JsonRpcProvider
-  # core type is stable across 0.x) so terminal builds + tests resolve it.
-  "@polkadot-api/json-rpc-provider": "0.2.0"
+  "@polkadot-api/json-rpc-provider": "^0.2.0"
+  # Force the patched `ws` (GHSA: memory-exhaustion DoS from tiny fragments;
+  # affects >=8.0.0 <8.21.0). Pulled transitively by smoldot (`^8.8.1`, satisfied)
+  # and viem (pinned `8.20.1`, overridden). All major-8, so a patched minor.
+  "ws": "^8.21.0"
 
 onlyBuiltDependencies:
   - "@biomejs/biome"
+  - "esbuild"
+
+allowBuilds:
+  "@biomejs/biome": true
+  esbuild: true

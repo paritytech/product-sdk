@@ -1,72 +1,99 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Wrapper for the host's chat surface (`host_chat_*` family).
+ * Wrapper for the host's chat surface, backed by `truApi.chat.*`.
  *
- * Shipped flat-in-host rather than as `getTruApi().chat.*` (the shape
- * sketched in issue #93) because the upstream JS `hostApi` is itself a
- * flat object - there is no `.chat` accessor to mirror. A flat
- * `getChatManager()` matches the pattern already used by
- * {@link getThemeProvider}, {@link getAccountsProvider}, and
- * {@link getStatementStore}; if a namespaced view is desirable later, it
- * can be layered on top without breaking this surface.
+ * `getChatManager()` returns a manager for room/bot registration, message
+ * sending, and subscription to the room list and incoming actions.
  *
  * @module
  */
 
-import { createLogger } from "@parity/product-sdk-logger";
-
 import type {
-    ChatBotRegistrationResult as NovasamaChatBotRegistrationResult,
-    ChatCustomMessageRenderer as NovasamaChatCustomMessageRenderer,
-    ChatCustomMessageRendererParams as NovasamaChatCustomMessageRendererParams,
-    ChatMessageContent as NovasamaChatMessageContent,
-    ChatReceivedAction as NovasamaChatReceivedAction,
-    ChatRoom as NovasamaChatRoom,
-    ChatRoomRegistrationResult as NovasamaChatRoomRegistrationResult,
-    createProductChatManager,
-} from "@novasamatech/host-api-wrapper";
+    ChatBotRegistrationStatus,
+    ChatRoomRegistrationStatus,
+    HostChatActionSubscribeItem,
+    HostChatCreateRoomRequest,
+    HostChatRegisterBotRequest,
+    TrUApiClient,
+} from "@parity/truapi";
 
-const log = createLogger("host:chat");
+import { getClient, subscribeWithInterrupt } from "./transport.js";
+import { unwrapHostResult } from "./truapi.js";
+import type { HostSubscription } from "./types.js";
 
-/** Chat message payload variants. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type ChatMessageContent = NovasamaChatMessageContent;
+/** Chat message payload variants and room metadata. Re-exported from `@parity/truapi`. */
+export type { ChatMessageContent, ChatRoom } from "@parity/truapi";
+import type { ChatMessageContent, ChatRoom } from "@parity/truapi";
 
-/** Action received via {@link ChatManager.subscribeAction}. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type ChatReceivedAction = NovasamaChatReceivedAction;
+/** Action received via {@link ChatManager.subscribeAction} (`{ roomId, peer, payload }`). Re-exported from `@parity/truapi`. */
+export type ChatReceivedAction = HostChatActionSubscribeItem;
 
-/** Room metadata delivered to {@link ChatManager.subscribeChatList}. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type ChatRoom = NovasamaChatRoom;
+/** Result of registering a chat room (`"New" | "Exists"`). Re-exported from `@parity/truapi`. */
+export type ChatRoomRegistrationResult = ChatRoomRegistrationStatus;
 
-/** Result of registering a chat room (`"New" | "Exists"`). Re-exported from `@novasamatech/host-api-wrapper`. */
-export type ChatRoomRegistrationResult = NovasamaChatRoomRegistrationResult;
-
-/** Result of registering a bot (`"New" | "Exists"`). Re-exported from `@novasamatech/host-api-wrapper`. */
-export type ChatBotRegistrationResult = NovasamaChatBotRegistrationResult;
-
-/** Renderer callback for custom message types. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type ChatCustomMessageRenderer = NovasamaChatCustomMessageRenderer;
-
-/** Parameters passed to a {@link ChatCustomMessageRenderer}. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type ChatCustomMessageRendererParams<T = Uint8Array> =
-    NovasamaChatCustomMessageRendererParams<T>;
+/** Result of registering a bot (`"New" | "Exists"`). Re-exported from `@parity/truapi`. */
+export type ChatBotRegistrationResult = ChatBotRegistrationStatus;
 
 /**
- * Chat manager handle. Exposes room/bot registration, message sending,
- * subscription to room list and incoming actions, and custom-renderer
- * registration.
- *
- * Type identical to `createProductChatManager()` from
- * `@novasamatech/host-api-wrapper`.
+ * Chat manager handle. Exposes room/bot registration, message sending, and
+ * subscription to the room list and incoming actions.
  */
-export type ChatManager = ReturnType<typeof createProductChatManager>;
+export interface ChatManager {
+    registerRoom(request: HostChatCreateRoomRequest): Promise<ChatRoomRegistrationResult>;
+    registerBot(request: HostChatRegisterBotRequest): Promise<ChatBotRegistrationResult>;
+    sendMessage(roomId: string, payload: ChatMessageContent): Promise<{ messageId: string }>;
+    subscribeChatList(callback: (rooms: ChatRoom[]) => void): HostSubscription;
+    subscribeAction(callback: (action: ChatReceivedAction) => void): HostSubscription;
+}
+
+/** Build a {@link ChatManager} over a TruAPI client's `chat` domain. */
+function adaptChatManager(client: TrUApiClient): ChatManager {
+    const chat = client.chat;
+    // Cache registration status by id so repeat calls don't re-prompt the host.
+    const roomStatus = new Map<string, ChatRoomRegistrationResult>();
+    const botStatus = new Map<string, ChatBotRegistrationResult>();
+
+    return {
+        async registerRoom(request) {
+            const cached = roomStatus.get(request.roomId);
+            if (cached) return cached;
+            const response = await unwrapHostResult(
+                chat.createRoom(request),
+                "chat registerRoom failed",
+            );
+            roomStatus.set(request.roomId, response.status);
+            return response.status;
+        },
+        async registerBot(request) {
+            const cached = botStatus.get(request.botId);
+            if (cached) return cached;
+            const response = await unwrapHostResult(
+                chat.registerBot(request),
+                "chat registerBot failed",
+            );
+            botStatus.set(request.botId, response.status);
+            return response.status;
+        },
+        async sendMessage(roomId, payload) {
+            const response = await unwrapHostResult(
+                chat.postMessage({ roomId, payload }),
+                "chat sendMessage failed",
+            );
+            return { messageId: response.messageId };
+        },
+        subscribeChatList(callback) {
+            return subscribeWithInterrupt(chat.listSubscribe(), (item) => callback(item.rooms));
+        },
+        subscribeAction(callback) {
+            return subscribeWithInterrupt(chat.actionSubscribe(), callback);
+        },
+    };
+}
 
 /**
- * Get the host chat manager.
- *
- * Returns the chat manager from `@novasamatech/host-api-wrapper`, or `null` if
- * the package is unavailable (running outside a host container or the
- * optional peer dep isn't installed).
+ * Get the host chat manager, backed by `truApi.chat.*`. Returns `null` when
+ * running outside a host container.
  *
  * @returns The chat manager, or `null` if unavailable.
  *
@@ -82,45 +109,14 @@ export type ChatManager = ReturnType<typeof createProductChatManager>;
  * ```
  */
 export async function getChatManager(): Promise<ChatManager | null> {
-    try {
-        const sdk = await import("@novasamatech/host-api-wrapper");
-        return sdk.createProductChatManager();
-    } catch (err) {
-        log.debug("getChatManager unavailable", err);
-        return null;
-    }
-}
-
-/**
- * Dispatch helper that composes multiple custom-message renderers into a
- * single {@link ChatCustomMessageRenderer} keyed by `messageType`.
- *
- * Mirrors `matchChatCustomRenderers` from `@novasamatech/host-api-wrapper`
- * inline (the upstream implementation is pure dispatch logic with no
- * transport / runtime dependency on Novasama), so callers get the same
- * sync signature instead of an async-with-null wrapper.
- *
- * @param map - Object mapping `messageType` strings to renderers.
- * @returns A composed renderer that dispatches to the entry matching
- *          `params.messageType`, or throws if no renderer is registered.
- */
-export function matchChatCustomRenderers(
-    map: Record<string, ChatCustomMessageRenderer>,
-): ChatCustomMessageRenderer {
-    return (params, render) => {
-        const renderer = map[params.messageType];
-        if (!renderer) {
-            throw new Error(`Renderer for message type ${params.messageType} is not defined`);
-        }
-        return renderer(params, render);
-    };
+    const client = await getClient();
+    return client ? adaptChatManager(client) : null;
 }
 
 if (import.meta.vitest) {
     const { test, expect } = import.meta.vitest;
 
-    test("getChatManager returns manager when SDK is available", async () => {
-        const chat = await getChatManager();
-        expect(chat === null || typeof chat === "object").toBe(true);
+    test("getChatManager returns null outside a container", async () => {
+        expect(await getChatManager()).toBeNull();
     });
 }

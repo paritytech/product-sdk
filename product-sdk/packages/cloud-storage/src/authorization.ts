@@ -1,7 +1,8 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
-import { submitAndWatch, type TxStatus, type WaitFor } from "@parity/product-sdk-tx";
+import { type Result, err, ok, unwrapOk } from "@parity/result";
+import { submitAndWatch, type TxError, type TxStatus, type WaitFor } from "@parity/product-sdk-tx";
 import type { PolkadotSigner } from "polkadot-api";
 import { Enum } from "polkadot-api";
 
@@ -31,13 +32,16 @@ const NOT_AUTHORIZED: AuthorizationStatus = Object.freeze({
  *
  * @param api     - Typed Cloud Storage API instance.
  * @param address - SS58-encoded account address to check.
- * @returns Authorization status with remaining quota.
+ * @returns A {@link Result}: `ok(AuthorizationStatus)` with remaining quota, or
+ *   `err(CloudStorageAuthorizationError)` if the on-chain query fails.
  *
  * @example
  * ```ts
  * import { checkAuthorization } from "@parity/product-sdk-cloud-storage";
  *
- * const auth = await checkAuthorization(api, address);
+ * const r = await checkAuthorization(api, address);
+ * if (!r.ok) return console.error("authorization check failed:", r.error.message);
+ * const auth = r.value;
  * if (!auth.authorized) {
  *     console.error("Account is not authorized for cloud storage");
  * } else if (auth.remainingBytes < BigInt(fileBytes.length)) {
@@ -50,7 +54,7 @@ const NOT_AUTHORIZED: AuthorizationStatus = Object.freeze({
 export async function checkAuthorization(
     api: CloudStorageApi,
     address: string,
-): Promise<AuthorizationStatus> {
+): Promise<Result<AuthorizationStatus, CloudStorageAuthorizationError>> {
     let auth;
     try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -58,13 +62,16 @@ export async function checkAuthorization(
             Enum("Account", address),
         );
     } catch (error) {
-        log.error("checkAuthorization: query failed", { address, error });
-        throw new CloudStorageAuthorizationError(address, error);
+        // No log here — the CloudStorageAuthorizationError carries the address
+        // and underlying error as `cause`. Logging before returning would
+        // double-report transient failures (e.g. DisjointError) for callers
+        // that handle the err, spamming stderr they have no way to suppress.
+        return err(new CloudStorageAuthorizationError(address, error));
     }
 
     if (!auth) {
         log.debug("checkAuthorization: no authorization found", { address });
-        return NOT_AUTHORIZED;
+        return ok(NOT_AUTHORIZED);
     }
 
     // After polkadot-bulletin-chain PR #448 (e543696, 2026-04-30), AuthorizationExtent's
@@ -89,7 +96,7 @@ export async function checkAuthorization(
         expiration: status.expiration,
     });
 
-    return status;
+    return ok(status);
 }
 
 /**
@@ -153,8 +160,9 @@ export interface AuthorizeAccountOptions {
  * @param bytes        - Byte budget to **add** to the account's allowance.
  * @param signer       - Signer for the extrinsic. On `viaSudo: true` this must be the sudo key.
  * @param options      - Optional `viaSudo` flag plus standard submission controls.
- * @returns Block hash where the extrinsic was included.
- * @throws {ProductCloudStorageError} If `viaSudo: true` is requested but the chain has no `Sudo` pallet.
+ * @returns A {@link Result}: `ok({ blockHash })` where the extrinsic was included, or
+ *   `err` — a `ProductCloudStorageError` (`viaSudo: true` requested but the chain has no
+ *   `Sudo` pallet) or a `TxError` (submission / dispatch failure).
  *
  * @example Direct (account self-authorizes — local dev)
  * ```ts
@@ -180,7 +188,7 @@ export async function authorizeAccount(
     bytes: bigint,
     signer: PolkadotSigner,
     options: AuthorizeAccountOptions = {},
-): Promise<{ blockHash: string }> {
+): Promise<Result<{ blockHash: string }, ProductCloudStorageError | TxError>> {
     const { viaSudo = false, waitFor, timeoutMs, onStatus } = options;
 
     // Single `as any` cast for the whole function. `CloudStorageApi` is upstream-
@@ -198,9 +206,11 @@ export async function authorizeAccount(
     });
 
     if (viaSudo && !apiTx.Sudo?.sudo) {
-        throw new ProductCloudStorageError(
-            "viaSudo: true requires the Sudo pallet, which is not available on this network. " +
-                "On production networks (Polkadot, Kusama), authorize_account requires governance or a different mechanism.",
+        return err(
+            new ProductCloudStorageError(
+                "viaSudo: true requires the Sudo pallet, which is not available on this network. " +
+                    "On production networks (Polkadot, Kusama), authorize_account requires governance or a different mechanism.",
+            ),
         );
     }
 
@@ -221,13 +231,14 @@ export async function authorizeAccount(
         timeoutMs,
         onStatus,
     });
+    if (!result.ok) return result;
 
     log.info("authorizeAccount: included in block", {
         who,
-        blockHash: result.block.hash,
+        blockHash: result.value.block.hash,
     });
 
-    return { blockHash: result.block.hash };
+    return ok({ blockHash: result.value.block.hash });
 }
 
 if (import.meta.vitest) {
@@ -248,7 +259,7 @@ if (import.meta.vitest) {
     describe("checkAuthorization", () => {
         test("returns not authorized when no authorization exists", async () => {
             const api = createMockApi(undefined);
-            const status = await checkAuthorization(api, "5GrwvaEF...");
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(false);
             expect(status.remainingTransactions).toBe(0);
@@ -267,7 +278,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 999,
             });
-            const status = await checkAuthorization(api, "5GrwvaEF...");
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(true);
             expect(status.remainingTransactions).toBe(10);
@@ -286,7 +297,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 999,
             });
-            const status = await checkAuthorization(api, "5GrwvaEF...");
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(true);
             expect(status.remainingTransactions).toBe(0);
@@ -303,7 +314,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 999,
             });
-            const status = await checkAuthorization(api, "5GrwvaEF...");
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(true);
             expect(status.remainingBytes).toBe(0n);
@@ -320,7 +331,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 999,
             });
-            const status = await checkAuthorization(api, "5GrwvaEF...");
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.authorized).toBe(true);
             expect(status.remainingTransactions).toBe(7); // 10 − 3
@@ -338,7 +349,7 @@ if (import.meta.vitest) {
                 },
                 expiration: 12345,
             });
-            const status = await checkAuthorization(api, "5GrwvaEF...");
+            const status = unwrapOk(await checkAuthorization(api, "5GrwvaEF..."));
 
             expect(status.expiration).toBe(12345);
         });
@@ -354,12 +365,47 @@ if (import.meta.vitest) {
                 },
             } as unknown as CloudStorageApi;
 
-            const err = await checkAuthorization(api, "5GrwvaEF...").catch((e: unknown) => e);
-            expect(err).toBeInstanceOf(CloudStorageAuthorizationError);
-            const error = err as CloudStorageAuthorizationError;
-            expect(error.address).toBe("5GrwvaEF...");
-            expect(error.cause).toBeInstanceOf(Error);
-            expect((error.cause as Error).message).toBe("RPC connection lost");
+            const result = await checkAuthorization(api, "5GrwvaEF...");
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(CloudStorageAuthorizationError);
+                expect(result.error.address).toBe("5GrwvaEF...");
+                expect(result.error.cause).toBeInstanceOf(Error);
+                expect((result.error.cause as Error).message).toBe("RPC connection lost");
+            }
+        });
+
+        test("does NOT emit any error-level log when the query fails (caller owns the throw)", async () => {
+            // Regression guard for the "double-report" UX bug: pre-fix,
+            // checkAuthorization logged at error level *before* throwing,
+            // so a caller catching the throw (e.g. `.catch(() => null)`)
+            // still got a scary stderr line they had no way to suppress.
+            // The throw carries the address + cause already; let the caller
+            // decide whether to log.
+            const { configure } = await import("@parity/product-sdk-logger");
+            type LogEntry = { level: string; namespace: string; message: string };
+            const entries: LogEntry[] = [];
+            configure({
+                level: "debug",
+                handler: (e) => entries.push(e as LogEntry),
+            });
+
+            const api = {
+                query: {
+                    TransactionStorage: {
+                        Authorizations: {
+                            getValue: vi.fn().mockRejectedValue(new Error("DisjointError")),
+                        },
+                    },
+                },
+            } as unknown as CloudStorageApi;
+
+            await checkAuthorization(api, "5GrwvaEF...").catch(() => null);
+
+            const errorLogs = entries.filter(
+                (e) => e.namespace === "cloudStorage" && e.level === "error",
+            );
+            expect(errorLogs).toEqual([]);
         });
 
         test("passes correct Enum key to the query", async () => {
@@ -471,7 +517,8 @@ if (import.meta.vitest) {
                 mockSigner,
             );
 
-            expect(result).toEqual({ blockHash: "0xdeadbeef" });
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toEqual({ blockHash: "0xdeadbeef" });
         });
 
         test("sudo path: wraps the authorize_account call inside Sudo.sudo", async () => {
@@ -503,10 +550,11 @@ if (import.meta.vitest) {
                 { viaSudo: true },
             );
 
-            expect(result).toEqual({ blockHash: "0xsudoblock" });
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toEqual({ blockHash: "0xsudoblock" });
         });
 
-        test("throws ProductCloudStorageError when viaSudo is true but the chain lacks a Sudo pallet", async () => {
+        test("returns err(ProductCloudStorageError) when viaSudo is true but the chain lacks a Sudo pallet", async () => {
             const apiWithoutSudo = {
                 tx: {
                     TransactionStorage: {
@@ -519,17 +567,20 @@ if (import.meta.vitest) {
                 },
             };
 
-            const err = await authorizeAccount(
+            const result = await authorizeAccount(
                 apiWithoutSudo as unknown as CloudStorageApi,
                 "5GrwvaEF...",
                 10,
                 100n,
                 mockSigner,
                 { viaSudo: true },
-            ).catch((e: unknown) => e);
+            );
 
-            expect(err).toBeInstanceOf(ProductCloudStorageError);
-            expect((err as Error).message).toMatch(/Sudo pallet/i);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(ProductCloudStorageError);
+                expect(result.error.message).toMatch(/Sudo pallet/i);
+            }
             // Verify we did NOT proceed to submit anything
             expect(apiWithoutSudo.tx.TransactionStorage.authorize_account).not.toHaveBeenCalled();
         });

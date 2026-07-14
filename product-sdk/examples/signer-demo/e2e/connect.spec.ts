@@ -16,9 +16,12 @@ test.describe("@parity/product-sdk-signer — connect + subscribe", () => {
         // but we at least confirm connect() didn't throw.
         await expect(frame.locator('[data-testid="last-error"]')).toBeEmpty();
 
-        // Exactly two accounts (Bob + Charlie) from the fixture.
+        // Exactly one account: the host connect path no longer enumerates
+        // legacy accounts — it derives a single product account from the
+        // configured `dappName` ("signer-demo" → "signer-demo.dot/0", mapped
+        // to Bob by the fixture).
         const rows = frame.locator('[data-testid="accounts-list"] .account-row');
-        await expect(rows).toHaveCount(2);
+        await expect(rows).toHaveCount(1);
 
         // Selected account starts with the Paseo Asset Hub SS58 prefix.
         const selected = frame.locator('[data-testid="selected-address"]');

@@ -1,7 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import type { ChainDefinition } from "polkadot-api";
-import { BULLETIN_RPCS } from "@parity/product-sdk-host";
 import { createChainClient } from "./clients.js";
 import type { ChainClient } from "./types.js";
 
@@ -15,36 +14,15 @@ import type { kusama_asset_hub as KusamaAssetHubDef } from "@parity/product-sdk-
 import type { paseo_asset_hub as PaseoAssetHubDef } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 import type { paseo_bulletin as PaseoBulletinDef } from "@parity/product-sdk-descriptors/paseo-bulletin";
 import type { paseo_individuality as PaseoIndividualityDef } from "@parity/product-sdk-descriptors/paseo-individuality";
+import type { summit_asset_hub as SummitAssetHubDef } from "@parity/product-sdk-descriptors/summit-asset-hub";
+import type { summit_bulletin as SummitBulletinDef } from "@parity/product-sdk-descriptors/summit-bulletin";
+import type { summit_individuality as SummitIndividualityDef } from "@parity/product-sdk-descriptors/summit-individuality";
 
-/** Known network environment with built-in descriptors and RPC endpoints. */
-export type Environment = "polkadot" | "kusama" | "paseo";
+/** Known network environment with built-in descriptors. */
+export type Environment = "polkadot" | "kusama" | "paseo" | "summit";
 
 /** Environments where all chains (asset hub, bulletin, individuality) are live. */
-const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo"]);
-
-const rpcs = {
-    polkadot: {
-        assetHub: [
-            "wss://polkadot-asset-hub-rpc.polkadot.io",
-            "wss://sys.ibp.network/asset-hub-polkadot",
-        ],
-        bulletin: [...BULLETIN_RPCS.polkadot],
-        individuality: [] as string[],
-    },
-    kusama: {
-        assetHub: [
-            "wss://kusama-asset-hub-rpc.polkadot.io",
-            "wss://sys.ibp.network/asset-hub-kusama",
-        ],
-        bulletin: [...BULLETIN_RPCS.kusama],
-        individuality: [] as string[],
-    },
-    paseo: {
-        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
-        bulletin: [...BULLETIN_RPCS.paseo],
-        individuality: ["wss://paseo-people-next-system-rpc.polkadot.io"],
-    },
-} as const;
+const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo", "summit"]);
 
 /**
  * Lazy-load descriptors for a specific environment.
@@ -76,6 +54,12 @@ async function loadDescriptors(env: Environment) {
                 import("@parity/product-sdk-descriptors/paseo-bulletin"),
                 import("@parity/product-sdk-descriptors/paseo-individuality"),
             ]),
+        summit: () =>
+            Promise.all([
+                import("@parity/product-sdk-descriptors/summit-asset-hub"),
+                import("@parity/product-sdk-descriptors/summit-bulletin"),
+                import("@parity/product-sdk-descriptors/summit-individuality"),
+            ]),
     };
 
     const [ahMod, bulletinMod, individualityMod] = await loaders[env]();
@@ -85,13 +69,21 @@ async function loadDescriptors(env: Environment) {
             ? ahMod.polkadot_asset_hub
             : "kusama_asset_hub" in ahMod
               ? ahMod.kusama_asset_hub
-              : (ahMod as { paseo_asset_hub: typeof PaseoAssetHubDef }).paseo_asset_hub;
+              : "summit_asset_hub" in ahMod
+                ? (ahMod as { summit_asset_hub: typeof SummitAssetHubDef }).summit_asset_hub
+                : (ahMod as { paseo_asset_hub: typeof PaseoAssetHubDef }).paseo_asset_hub;
 
-    const bulletin = (bulletinMod as { paseo_bulletin: typeof PaseoBulletinDef }).paseo_bulletin;
+    const bulletin =
+        "summit_bulletin" in bulletinMod
+            ? (bulletinMod as { summit_bulletin: typeof SummitBulletinDef }).summit_bulletin
+            : (bulletinMod as { paseo_bulletin: typeof PaseoBulletinDef }).paseo_bulletin;
 
-    const individuality = (
-        individualityMod as { paseo_individuality: typeof PaseoIndividualityDef }
-    ).paseo_individuality;
+    const individuality =
+        "summit_individuality" in individualityMod
+            ? (individualityMod as { summit_individuality: typeof SummitIndividualityDef })
+                  .summit_individuality
+            : (individualityMod as { paseo_individuality: typeof PaseoIndividualityDef })
+                  .paseo_individuality;
 
     return { assetHub, bulletin, individuality };
 }
@@ -115,13 +107,18 @@ type PresetDescriptors = {
         bulletin: typeof PaseoBulletinDef;
         individuality: typeof PaseoIndividualityDef;
     };
+    summit: {
+        assetHub: typeof SummitAssetHubDef;
+        bulletin: typeof SummitBulletinDef;
+        individuality: typeof SummitIndividualityDef;
+    };
 };
 
 /** The chain shape returned by {@link getChainAPI} for a given environment. */
 export type PresetChains<E extends Environment> = PresetDescriptors[E];
 
 /**
- * Get a chain client for a known environment with built-in descriptors and RPCs.
+ * Get a chain client for a known environment with built-in descriptors.
  *
  * This is the **zero-config** path — no need to import descriptors or specify
  * endpoints. For custom chains or BYOD descriptors, use
@@ -156,18 +153,12 @@ export async function getChainAPI<E extends Environment>(
     }
 
     const descriptors = await loadDescriptors(env);
-    const envRpcs = rpcs[env];
 
     return createChainClient({
         chains: {
             assetHub: descriptors.assetHub,
             bulletin: descriptors.bulletin,
             individuality: descriptors.individuality,
-        },
-        rpcs: {
-            assetHub: [...envRpcs.assetHub],
-            bulletin: [...envRpcs.bulletin],
-            individuality: [...envRpcs.individuality],
         },
     }) as Promise<ChainClient<PresetChains<E>>>;
 }
@@ -180,9 +171,12 @@ if (import.meta.vitest) {
     const GENESIS = {
         polkadot_asset_hub: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
         kusama_asset_hub: "0x48239ef607d7928874027a43a67689209727dfb3d3dc5e5b03a39bdc2eda771a",
-        paseo_asset_hub: "0x173cea9df45656cf612c8b8ece56e04e9a693c69cfaac47d3628dae735067af8",
+        paseo_asset_hub: "0xbf0488dbe9daa1de1c08c5f743e26fdc2a4ecd74cf87dd1b4b1eeb99ae4ef19f",
         paseo_bulletin: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
-        paseo_individuality: "0x053e1a785bb0990b98768124d9609e963d9ca3558f5ac6e90a4297aaa0a0bd4b",
+        paseo_individuality: "0xc5af1826b31493f08b7e2a823842f98575b806a784126f28da9608c68665afa5",
+        summit_asset_hub: "0xf388dc6d6cdf6fb77eac3c4a91f31bc0c8642b142f1a757512ab7849f9f70660",
+        summit_bulletin: "0x147aae0d60625af72300d4d5ebd5dcb869f7ac4c6c1a326be1cbb14a4a65ae77",
+        summit_individuality: "0xbe5238f82c3553bc57ac3be43bef110bd58c49ad0744110814985195ca7d8c4e",
     } as const;
 
     beforeEach(() => {
@@ -195,21 +189,6 @@ if (import.meta.vitest) {
         for (const hash of Object.values(GENESIS)) {
             expect(hash).toMatch(/^0x[a-f0-9]{64}$/);
         }
-    });
-
-    // --- RPC config ---
-
-    test("rpcs defined for all environments", () => {
-        for (const env of ["polkadot", "kusama", "paseo"] as const) {
-            const envRpcs = rpcs[env];
-            expect(envRpcs.assetHub.length).toBeGreaterThan(0);
-        }
-    });
-
-    test("paseo has RPCs for all chains", () => {
-        const envRpcs = rpcs.paseo;
-        expect(envRpcs.bulletin.length).toBeGreaterThan(0);
-        expect(envRpcs.individuality.length).toBeGreaterThan(0);
     });
 
     // --- getChainAPI ---
@@ -232,10 +211,22 @@ if (import.meta.vitest) {
         expect(descriptors.individuality.genesis).toBe(GENESIS.paseo_individuality);
     });
 
+    test("loadDescriptors returns descriptors with genesis hashes for summit", async () => {
+        const descriptors = await loadDescriptors("summit");
+        expect(descriptors).toBeDefined();
+        expect(descriptors.assetHub).toBeDefined();
+        expect(descriptors.bulletin).toBeDefined();
+        expect(descriptors.individuality).toBeDefined();
+        expect(descriptors.assetHub.genesis).toBe(GENESIS.summit_asset_hub);
+        expect(descriptors.bulletin.genesis).toBe(GENESIS.summit_bulletin);
+        expect(descriptors.individuality.genesis).toBe(GENESIS.summit_individuality);
+    });
+
     // --- AVAILABLE_ENVIRONMENTS ---
 
-    test("paseo is currently available", () => {
+    test("paseo and summit are currently available", () => {
         expect(AVAILABLE_ENVIRONMENTS.has("paseo")).toBe(true);
+        expect(AVAILABLE_ENVIRONMENTS.has("summit")).toBe(true);
         expect(AVAILABLE_ENVIRONMENTS.has("polkadot")).toBe(false);
         expect(AVAILABLE_ENVIRONMENTS.has("kusama")).toBe(false);
     });

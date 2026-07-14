@@ -16,6 +16,7 @@ export {
     createHostLocalStorage,
     getHostProvider,
     getStatementStore,
+    ChainNotSupportedError,
 } from "./container.js";
 export type {
     HostLocalStorage,
@@ -31,22 +32,14 @@ export type {
 } from "./types.js";
 export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 
-// TruAPI - re-exports from @novasamatech/host-api-wrapper and @novasamatech/host-api
+// TruAPI - @parity/truapi client accessor + convenience wrappers.
 export {
     getTruApi,
     getPreimageManager,
     createHostPreimageManager,
-    getAccountsProvider,
     requestResourceAllocation,
     createProofAuthorized,
-    formatHostError,
-    // Helpers from @novasamatech/host-api
-    enumValue,
-    isEnumVariant,
-    assertEnumVariant,
-    unwrapResultOrThrow,
-    resultOk,
-    resultErr,
+    // Hex helpers
     toHex,
     fromHex,
 } from "./truapi.js";
@@ -54,18 +47,34 @@ export type {
     TruApi,
     HexString,
     PreimageManager,
+    ResultAsync,
+    AllocatableResource,
+    AllocationOutcome,
+    RemotePermission,
+} from "./truapi.js";
+
+// Result type + typed host errors (the throw→Result boundary)
+export { ok, err } from "./result.js";
+export type { Result } from "./result.js";
+export { type SdkError, isSdkError } from "@parity/product-sdk-errors";
+export {
+    HostError,
+    HostUnavailableError,
+    HostCallFailedError,
+    isHostError,
+    formatHostError,
+} from "./errors.js";
+export type { HostErrorPayload } from "./errors.js";
+
+// Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
+export { getAccountsProvider } from "./accounts.js";
+export type {
     AccountsProvider,
     HostAccount,
     ProductAccount,
     ContextualAlias,
-    ResultAsync,
-    AllocatableResource,
-    AllocatableResourceTag,
-    AllocationOutcome,
-    AllocationOutcomeTag,
-    RemotePermission,
-    RemotePermissionTag,
-} from "./truapi.js";
+    RingLocation,
+} from "./accounts.js";
 
 // Higher-level permission wrappers
 export { requestPermission, requestDevicePermission } from "./permissions.js";
@@ -73,13 +82,13 @@ export type { DevicePermissionKind, RemotePermissionItem } from "./permissions.j
 
 // Theme provider
 export { getThemeProvider } from "./theme.js";
-export type { ThemeMode, ThemeProvider } from "./theme.js";
+export type { ThemeMode, ThemeName, ThemeProvider, ThemeVariant } from "./theme.js";
 
 // Entropy derivation (RFC-0007)
 export { deriveEntropy } from "./entropy.js";
 
 // Chat
-export { getChatManager, matchChatCustomRenderers } from "./chat.js";
+export { getChatManager } from "./chat.js";
 export type {
     ChatManager,
     ChatMessageContent,
@@ -87,10 +96,36 @@ export type {
     ChatRoom,
     ChatRoomRegistrationResult,
     ChatBotRegistrationResult,
-    ChatCustomMessageRenderer,
-    ChatCustomMessageRendererParams,
 } from "./chat.js";
 
 // Payments (RFC-0006)
 export { getPaymentManager } from "./payments.js";
-export type { PaymentManager, PaymentBalance, PaymentStatus, TopUpSource } from "./payments.js";
+export type { PaymentManager } from "./payments.js";
+export type {
+    HostPaymentBalanceSubscribeItem,
+    HostPaymentStatusSubscribeItem,
+    PaymentTopUpSource,
+} from "@parity/truapi";
+
+// Notifications
+export { getNotificationManager } from "./notifications.js";
+export type {
+    NotificationManager,
+    NotificationId,
+    PushNotificationInput,
+    PushNotificationError,
+} from "./notifications.js";
+
+// Deep-link navigation
+export { navigateTo } from "./navigation.js";
+
+// Feature / chain support probes
+export { featureSupported, isChainSupported } from "./features.js";
+export type { Feature } from "./features.js";
+
+// Chain spec lookups
+export { getChainSpec } from "./chain-spec.js";
+export type { ChainSpec, ChainProperties } from "./chain-spec.js";
+
+// Transaction broadcast lifecycle
+export { broadcastTransaction, stopTransaction } from "./chain-transaction.js";

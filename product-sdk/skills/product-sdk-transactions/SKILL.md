@@ -35,9 +35,15 @@ const tx = api.tx.Balances.transfer_keep_alive({
 });
 
 // 3. Submit and watch
+// Returns Result<TxResult, TxError> — success/failure is the `.ok` discriminant.
+// Tx failures come back as err(TxError); they do NOT throw.
 const result = await submitAndWatch(tx, alice);
-// result: { txHash, ok, block: { hash, number, index }, events, dispatchError? }
-console.log(result.ok ? "Success" : "Failed", result.block.hash);
+if (!result.ok) {
+  console.log("Failed", result.error.message);
+} else {
+  // result.value: TxResult { txHash, ok, block: { hash, number, index }, events, dispatchError? }
+  console.log("Success", result.value.block.hash);
+}
 ```
 
 > **WARNING: Dev signers (`createDevSigner`) use well-known private keys. They are for local development and testnets ONLY. Never use in production.**
@@ -72,7 +78,10 @@ From an Ink SDK contract (dry-run first):
 import { extractTransaction } from "@parity/product-sdk-tx";
 
 const dryRun = await contract.query("mint", { origin, data: { name, price } });
-const tx = extractTransaction(dryRun); // Throws TxDryRunError on failure
+// extractTransaction is sync and returns Result<SubmittableTransaction, TxDryRunError>.
+const extracted = extractTransaction(dryRun);
+if (!extracted.ok) throw extracted.error; // TxDryRunError
+const tx = extracted.value;
 ```
 
 ### 2. Sign and Submit
@@ -87,7 +96,13 @@ const result = await submitAndWatch(tx, signer, {
   mortalityPeriod: 256,      // ~43 minutes on Polkadot
   onStatus: (status: TxStatus) => updateUI(status),
 });
-// result: TxResult { txHash, ok, block: { hash, number, index }, events, dispatchError? }
+// result: Result<TxResult, TxError>
+// On success, result.value is TxResult { txHash, ok, block: { hash, number, index }, events, dispatchError? }
+if (result.ok) {
+  console.log(result.value.txHash, result.value.block.hash);
+} else {
+  console.log(result.error.message); // typed TxError
+}
 ```
 
 ### 3. Batch Multiple Transactions
@@ -101,9 +116,15 @@ const tx1 = client.assetHub.tx.Balances.transfer_keep_alive({ dest: addr1, value
 const tx2 = client.assetHub.tx.Balances.transfer_keep_alive({ dest: addr2, value: 2_000n });
 const tx3 = client.assetHub.tx.System.remark({ remark: Binary.fromText("hello") });
 
+// Returns Result<TxResult, TxError>, same as submitAndWatch.
 const result = await batchSubmitAndWatch([tx1, tx2, tx3], client.assetHub, signer, {
   onStatus: (status: TxStatus) => updateUI(status),
 });
+if (!result.ok) {
+  handleBatchFailure(result.error); // e.g. TxBatchError
+  return;
+}
+console.log("Batch finalized", result.value.block.hash);
 ```
 
 Three batch modes:
@@ -127,7 +148,9 @@ const result = await withRetry(
 
 ## Error Handling
 
-All tx errors extend `TxError`:
+All tx errors extend `TxError`. `submitAndWatch` / `batchSubmitAndWatch` do NOT
+throw on tx failure — they return `err(TxError)`. Branch on `result.ok` and
+narrow the typed `result.error`:
 
 ```ts
 import {
@@ -135,9 +158,9 @@ import {
   TxSigningRejectedError, TxDryRunError, TxBatchError,
 } from "@parity/product-sdk-tx";
 
-try {
-  const result = await submitAndWatch(tx, signer);
-} catch (e) {
+const result = await submitAndWatch(tx, signer);
+if (!result.ok) {
+  const e = result.error;
   if (e instanceof TxSigningRejectedError) {
     // User rejected signing in wallet
   } else if (e instanceof TxDispatchError) {
@@ -147,6 +170,8 @@ try {
   } else if (e instanceof TxError) {
     // Catch-all for any tx error
   }
+} else {
+  // result.value is the TxResult
 }
 ```
 
@@ -253,7 +278,7 @@ Mirrors the algorithm used by polkadot-desktop and polkadot-app-android-v2. sr25
 
 3. **Missing `await` on `submitAndWatch`** - It returns a Promise.
 
-4. **Not handling `TxDispatchError`** - A transaction can be included on-chain but still fail. Always check `result.ok`.
+4. **Not handling `TxDispatchError`** - A transaction can be included on-chain but still fail. This comes back as `err(TxDispatchError)`, not a thrown error — always branch on `result.ok` and inspect `result.error`.
 
 5. **Forgetting account mapping** - EVM contract interactions on Asset Hub require calling `ensureAccountMapped` first.
 

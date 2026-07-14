@@ -14,14 +14,13 @@
  *      Bob's funded keypair via `productAccounts`.
  *   3. getChainAPI("paseo") routes RPC through the host's chainConnection.
  *   4. submitAndWatch uses productAccount.getSigner() — which routes
- *      through `getProductAccountSigner(..., "createTransaction")` and
- *      preserves arbitrary signed extensions (e.g. AsPgas on Paseo Next).
+ *      through the host's `createTransaction` path and preserves arbitrary
+ *      signed extensions (e.g. AsPgas on Paseo Next).
  *
- * Why not the legacy-account path: `manager.connect()` + `selectAccount`
- * + `manager.getSigner()` builds the signer via `getLegacyAccountSigner`,
- * which has no signerType switch upstream and always routes through PJS.
- * PJS throws on unknown signed extensions like AsPgas. Product-account
- * signing avoids that path entirely.
+ * This demo signs with an app-scoped product account. The legacy-account
+ * path (`manager.connect()` + `selectAccount` + `manager.getSigner()`)
+ * works too — both go through the host's create-transaction path and
+ * preserve unknown signed extensions.
  */
 
 import type { SignerAccount } from "@parity/product-sdk-signer";
@@ -129,9 +128,12 @@ $btnSubmitRemark.addEventListener("click", async () => {
             onStatus: makeStatusLogger("remark"),
         });
         if (result.ok) {
-            log(`remark landed in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`, "ok");
+            log(
+                `remark landed in block #${result.value.block.number} (${result.value.txHash.slice(0, 18)}…)`,
+                "ok",
+            );
         } else {
-            log(`remark failed: ${JSON.stringify(result.dispatchError)}`, "err");
+            log(`remark failed: ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`remark failed: ${(err as Error).message}`, "err");
@@ -162,9 +164,12 @@ $btnSubmitBatch.addEventListener("click", async () => {
             onStatus: makeStatusLogger("batch"),
         });
         if (result.ok) {
-            log(`batch landed in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`, "ok");
+            log(
+                `batch landed in block #${result.value.block.number} (${result.value.txHash.slice(0, 18)}…)`,
+                "ok",
+            );
         } else {
-            log(`batch failed: ${JSON.stringify(result.dispatchError)}`, "err");
+            log(`batch failed: ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`batch failed: ${(err as Error).message}`, "err");
@@ -197,11 +202,11 @@ $btnSubmitRemarkFinalized.addEventListener("click", async () => {
         });
         if (result.ok) {
             log(
-                `remark-finalized finalized in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`,
+                `remark-finalized finalized in block #${result.value.block.number} (${result.value.txHash.slice(0, 18)}…)`,
                 "finalized",
             );
         } else {
-            log(`remark-finalized failed: ${JSON.stringify(result.dispatchError)}`, "err");
+            log(`remark-finalized failed: ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`remark-finalized failed: ${(err as Error).message}`, "err");
@@ -235,12 +240,12 @@ $btnSubmitBadTx.addEventListener("click", async () => {
             onStatus: makeStatusLogger("bad-tx"),
         });
         if (result.ok) {
-            log(`bad-tx unexpectedly succeeded in block #${result.block.number}`, "err");
+            log(`bad-tx unexpectedly succeeded in block #${result.value.block.number}`, "err");
         } else {
-            log(`bad-tx dispatch error: ${JSON.stringify(result.dispatchError)}`, "err");
+            // TxDispatchError now arrives on the err channel — this is the expected path.
+            log(`bad-tx dispatch error: ${result.error.name}: ${result.error.message}`, "err");
         }
     } catch (err) {
-        // TxDispatchError rejects the promise — this is the expected path.
         const e = err as Error;
         log(`bad-tx rejected: ${e.name}: ${e.message}`, "err");
     } finally {
@@ -252,11 +257,10 @@ $btnSubmitBadTx.addEventListener("click", async () => {
 async function init() {
     log("Booting tx-demo…");
 
-    // Step 1: establish the host session. We don't use the returned legacy
-    // accounts — they sign via the PJS bridge, which throws on unknown
-    // signed extensions (e.g. AsPgas on Paseo Next). The product-account
-    // request below uses `getProductAccountSigner` with `"createTransaction"`
-    // and avoids that path.
+    // Step 1: establish the host session. This demo signs with an app-scoped
+    // product account via `getProductAccountSigner` (the host's
+    // create-transaction path, which preserves unknown signed extensions like
+    // AsPgas on Paseo Next).
     log("Connecting signer…");
     const connectRes = await manager.connect();
     if (!connectRes.ok) {

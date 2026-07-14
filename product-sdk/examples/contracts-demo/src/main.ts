@@ -6,7 +6,7 @@
  * Wires up SignerManager + chain-client + ContractManager against the
  * t3rminal @t3rminal/bulletin-index contract deployed on Paseo Asset Hub.
  *
- * Contract address: 0x3331A87C2B9312E246E6A7eE8D0C0AdD8d282B6F (CDM v3)
+ * Contract address: 0xD35CFc6E9F07B42Cc524A9Fa4A001F6ac90586E2 (redeployed)
  *
  * Exercises the two core host-API paths in @parity/product-sdk-contracts:
  *   - query()  — dry-run via chain RPC (no signing)
@@ -22,21 +22,24 @@
  *   4. ContractManager.fromClient(cdm, chain.raw.assetHub) wraps the contract.
  *   5. contract.getReportCount.query(shopKey) → dry-run via RPC — no signing.
  *   6. contract.storeDailyReport.tx(shopKey, date, cid, count) uses
- *      productAccount.getSigner() — which routes through
- *      `getProductAccountSigner(..., "createTransaction")` and preserves
- *      arbitrary signed extensions (e.g. AsPgas on Paseo Next).
+ *      productAccount.getSigner() — which routes through the host's
+ *      `createTransaction` path and preserves arbitrary signed extensions
+ *      (e.g. AsPgas on Paseo Next).
  *
- * Why not the legacy-account path: `manager.connect()` + `selectAccount`
- * + `manager.getSigner()` builds the signer via `getLegacyAccountSigner`,
- * which has no signerType switch upstream and always routes through PJS.
- * PJS throws on unknown signed extensions like AsPgas. Product-account
- * signing avoids that path entirely.
+ * This demo signs with an app-scoped product account. The legacy-account
+ * path (`manager.connect()` + `selectAccount` + `manager.getSigner()`)
+ * works too — both go through the host's create-transaction path and
+ * preserve unknown signed extensions.
  */
 
 import type { SignerAccount } from "@parity/product-sdk-signer";
 import { SignerManager } from "@parity/product-sdk-signer";
 import { getChainAPI } from "@parity/product-sdk-chain-client";
-import { ContractManager, ensureContractAccountMapped } from "@parity/product-sdk-contracts";
+import {
+    ContractManager,
+    ensureContractAccountMapped,
+    type CdmJson,
+} from "@parity/product-sdk-contracts";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 import cdm from "./cdm.json";
@@ -214,11 +217,11 @@ $btnStoreReport.addEventListener("click", async () => {
         const result = await contract.storeDailyReport.tx(shopKey, date, cid, 1n, { signer });
         if (result.ok) {
             log(
-                `storeDailyReport landed in block #${result.block.number} (${result.txHash.slice(0, 18)}…)`,
+                `storeDailyReport landed in block #${result.value.block.number} (${result.value.txHash.slice(0, 18)}…)`,
                 "ok",
             );
         } else {
-            log(`storeDailyReport dispatch error: ${JSON.stringify(result.dispatchError)}`, "err");
+            log(`storeDailyReport failed: ${result.error.name}: ${result.error.message}`, "err");
         }
     } catch (err) {
         log(`storeDailyReport failed: ${(err as Error).message}`, "err");
@@ -231,11 +234,10 @@ $btnStoreReport.addEventListener("click", async () => {
 async function init() {
     log("Booting contracts-demo…");
 
-    // Step 1: establish the host session. We don't use the returned legacy
-    // accounts — they sign via the PJS bridge, which throws on unknown
-    // signed extensions (e.g. AsPgas on Paseo Next). The product-account
-    // request below uses `getProductAccountSigner` with `"createTransaction"`
-    // and avoids that path.
+    // Step 1: establish the host session. This demo signs with an app-scoped
+    // product account via `getProductAccountSigner` (the host's
+    // create-transaction path, which preserves unknown signed extensions like
+    // AsPgas on Paseo Next).
     log("Connecting signer…");
     const connectRes = await manager.connect();
     if (!connectRes.ok) {
@@ -272,7 +274,7 @@ async function init() {
         // upgrade. Pass the raw client + descriptor so it can wire up both
         // typed (extrinsics + storage) and unsafe (dry-run) paths.
         contractManager = ContractManager.fromClient(
-            cdm as never,
+            cdm as CdmJson,
             chain.raw.assetHub,
             paseo_asset_hub,
             { signerManager: manager },
@@ -297,10 +299,14 @@ async function init() {
             productAccount.address,
             signer,
         );
+        if (!mapped.ok) {
+            log(`ensureContractAccountMapped failed: ${mapped.error.message}`, "err");
+            return;
+        }
         log(
-            mapped === null
+            mapped.value === null
                 ? "Account already mapped (no signature needed)"
-                : `Account mapped in block #${mapped.block.number}`,
+                : `Account mapped in block #${mapped.value.block.number}`,
             "ok",
         );
     } catch (err) {

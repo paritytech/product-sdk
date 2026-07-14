@@ -1,5 +1,169 @@
 # @parity/product-sdk-bulletin
 
+## 0.6.7
+
+### Patch Changes
+
+- Updated dependencies [f81fc2b]
+- Updated dependencies [f81fc2b]
+- Updated dependencies [f81fc2b]
+  - @parity/product-sdk-host@0.12.0
+  - @parity/product-sdk-chain-client@0.7.7
+  - @parity/product-sdk-tx@0.2.17
+
+## 0.6.6
+
+### Patch Changes
+
+- Updated dependencies [ef14a41]
+  - @parity/product-sdk-host@0.11.0
+  - @parity/product-sdk-chain-client@0.7.6
+  - @parity/product-sdk-tx@0.2.16
+
+## 0.6.5
+
+### Patch Changes
+
+- 8dd1232: chore(deps): bump polkadot-api to 2.1.6
+
+  Updates the `polkadot-api` catalog entry `^2.1.5` → `^2.1.6` (2.1.6 carries the
+  double-notification fix). Every published package resolves `polkadot-api`
+  through `catalog:`, so each one's published `dependencies` range moves to
+  `^2.1.6`. There is no source change in any package — these are patch bumps to
+  ship the new floor via the published `catalog:` resolution.
+
+  Releases the catalog bump from #223, which was merged to `main` without a
+  changeset.
+
+- Updated dependencies [8dd1232]
+  - @parity/product-sdk-chain-client@0.7.5
+  - @parity/product-sdk-descriptors@0.6.2
+  - @parity/product-sdk-host@0.10.3
+  - @parity/product-sdk-tx@0.2.15
+
+## 0.6.4
+
+### Patch Changes
+
+- Updated dependencies [c39332e]
+  - @parity/product-sdk-host@0.10.2
+  - @parity/product-sdk-chain-client@0.7.4
+  - @parity/product-sdk-tx@0.2.14
+
+## 0.6.3
+
+### Patch Changes
+
+- Updated dependencies [9ce5ab2]
+  - @parity/product-sdk-host@0.10.1
+  - @parity/product-sdk-chain-client@0.7.3
+  - @parity/product-sdk-tx@0.2.13
+
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-host@0.10.0
+  - @parity/product-sdk-chain-client@0.7.2
+  - @parity/product-sdk-tx@0.2.12
+
+## 0.6.1
+
+### Patch Changes
+
+- 2124e02: **`checkAuthorization` no longer logs at `error` level before throwing.**
+
+  `checkAuthorization` previously emitted `log.error("checkAuthorization: query failed", …)` from its catch block before throwing `CloudStorageAuthorizationError`. That doubled the failure report: once to the logger (stderr by default) and once as the thrown error. Callers handling the throw — e.g. a pre-flight quota check wrapped in `.catch(() => null)` — still got a scary stderr line they had no way to suppress.
+
+  The thrown `CloudStorageAuthorizationError` already carries the `address` and the underlying error as `cause`, so the log line was strictly redundant. Removed. Callers that want a log on the failure path can attach their own handler — the SDK now stays quiet on a throw, matching the convention used by the rest of the cloud-storage error paths.
+
+  Added a regression test asserting that no `cloudStorage`-namespace error-level entry is emitted on the query-failure path.
+
+- Updated dependencies [2124e02]
+- Updated dependencies [2124e02]
+- Updated dependencies [2124e02]
+  - @parity/product-sdk-host@0.9.0
+  - @parity/product-sdk-descriptors@0.6.1
+  - @parity/product-sdk-chain-client@0.7.1
+  - @parity/product-sdk-tx@0.2.11
+
+## 0.6.0
+
+### Minor Changes
+
+- a2fd276: **Add the Summit Network (Web3 Summit) as a new environment.**
+
+  Adds `summit-asset-hub`, `summit-bulletin`, and `summit-individuality`
+  (the People chain) descriptors, and wires `summit` through the host
+  Bulletin RPC list, the cloud-storage network preset, and
+  `getChainAPI("summit")`. Purely additive — no existing environment,
+  descriptor, or endpoint changes.
+
+### Patch Changes
+
+- Updated dependencies [a2fd276]
+- Updated dependencies [a2fd276]
+  - @parity/product-sdk-descriptors@0.6.0
+  - @parity/product-sdk-host@0.8.0
+  - @parity/product-sdk-chain-client@0.7.0
+  - @parity/product-sdk-tx@0.2.10
+
+## 0.5.5
+
+### Patch Changes
+
+- Updated dependencies [d4bc935]
+  - @parity/product-sdk-host@0.7.1
+  - @parity/product-sdk-chain-client@0.6.1
+  - @parity/product-sdk-tx@0.2.9
+
+## 0.5.4
+
+### Patch Changes
+
+- Updated dependencies [f6bdaaf]
+- Updated dependencies [f6bdaaf]
+  - @parity/product-sdk-chain-client@0.6.0
+  - @parity/product-sdk-host@0.7.0
+  - @parity/product-sdk-tx@0.2.8
+
+## 0.5.3
+
+### Patch Changes
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-host@0.6.1
+  - @parity/product-sdk-chain-client@0.5.3
+  - @parity/product-sdk-descriptors@0.5.2
+  - @parity/product-sdk-tx@0.2.7
+
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [551c1bb]
+  - @parity/product-sdk-host@0.6.0
+  - @parity/product-sdk-chain-client@0.5.2
+  - @parity/product-sdk-tx@0.2.6
+
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [30b798f]
+  - @parity/product-sdk-descriptors@0.5.1
+  - @parity/product-sdk-chain-client@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes

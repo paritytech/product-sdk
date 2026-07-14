@@ -39,7 +39,7 @@ client.destroy();
 
 ## createChainClient
 
-Create a chain client with custom chains and RPCs (BYOD path).
+Create a chain client with custom chains (BYOD path).
 
 ```typescript
 async function createChainClient<C extends ChainMap>(config: ChainClientConfig<C>): Promise<ChainClient<C>>
@@ -47,7 +47,6 @@ async function createChainClient<C extends ChainMap>(config: ChainClientConfig<C
 
 **Parameters:**
 - `config.chains` - Object mapping chain names to descriptors
-- `config.rpcs` - Object mapping chain names to RPC endpoint arrays
 
 **Returns:** A `ChainClient` with typed APIs for the specified chains.
 
@@ -60,10 +59,6 @@ const client = await createChainClient({
     chains: {
         assetHub: paseo_asset_hub,
         bulletin: paseo_bulletin,
-    },
-    rpcs: {
-        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
-        bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
     },
 });
 
@@ -150,6 +145,9 @@ const tx = client.assetHub.tx.Balances.transferKeepAlive({
 // Submit with @parity/product-sdk-tx
 import { submitAndWatch } from "@parity/product-sdk-tx";
 const result = await submitAndWatch(tx, signer, { waitFor: "finalized" });
+// Returns a Result — branch on .ok before reading the TxResult.
+if (!result.ok) throw result.error;
+const { block, txHash } = result.value;
 ```
 
 ### Constants
@@ -181,7 +179,6 @@ type ChainMap = Record<string, Descriptor>;
 ```typescript
 interface ChainClientConfig<C extends ChainMap> {
     chains: C;
-    rpcs: { [K in keyof C]: string[] };
 }
 ```
 

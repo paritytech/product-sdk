@@ -29,12 +29,14 @@ if (import.meta.vitest) {
         fakeProvider: (() => {}) as unknown as JsonRpcProvider,
         hostProviderCalls: [] as unknown[][],
         hostProviderAvailable: true,
+        hostProviderError: null as Error | null,
     }));
 
     vi.mock("@parity/product-sdk-host", async (importOriginal) => ({
         ...(await importOriginal<typeof import("@parity/product-sdk-host")>()),
         getHostProvider: async (...args: unknown[]) => {
             state.hostProviderCalls.push(args);
+            if (state.hostProviderError) throw state.hostProviderError;
             if (!state.hostProviderAvailable) return null;
             return state.fakeProvider;
         },
@@ -43,6 +45,7 @@ if (import.meta.vitest) {
     beforeEach(() => {
         state.hostProviderCalls = [];
         state.hostProviderAvailable = true;
+        state.hostProviderError = null;
     });
 
     test("returns host provider when available", async () => {
@@ -55,5 +58,13 @@ if (import.meta.vitest) {
     test("throws when host provider unavailable", async () => {
         state.hostProviderAvailable = false;
         await expect(createProvider("0xabc")).rejects.toThrow(/Host provider unavailable/);
+    });
+
+    test("propagates ChainNotSupportedError from the host provider", async () => {
+        const { ChainNotSupportedError } = await import("@parity/product-sdk-host");
+        state.hostProviderError = new ChainNotSupportedError("0xabc");
+        // The unsupported-chain error must surface to the caller rather than being
+        // collapsed into the generic "unavailable" path or swallowed.
+        await expect(createProvider("0xabc")).rejects.toBeInstanceOf(ChainNotSupportedError);
     });
 }

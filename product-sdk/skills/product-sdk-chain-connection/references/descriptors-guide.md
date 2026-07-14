@@ -55,10 +55,6 @@ const client = await createChainClient({
         assetHub: paseo_asset_hub,
         bulletin: paseo_bulletin,
     },
-    rpcs: {
-        assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"],
-        bulletin: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
-    },
 });
 
 // Fully typed!
@@ -106,7 +102,6 @@ import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub
 
 const client = await createChainClient({
     chains: { assetHub: paseo_asset_hub },
-    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
 });
 ```
 

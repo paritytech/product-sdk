@@ -18,13 +18,15 @@ constructor(config: StatementStoreConfig)
 
 ```ts
 async connect(credentials: ConnectionCredentials): Promise<void>
-async publish<T>(data: T, options?: PublishOptions): Promise<boolean>
+async publish<T>(data: T, options?: PublishOptions): Promise<Result<void, StatementStoreError>>
 subscribe<T>(callback: (statement: ReceivedStatement<T>) => void, options?: { topic2?: string }): Unsubscribable
 async query<T>(options?: { topic2?: string }): Promise<ReceivedStatement<T>[]>
 isConnected(): boolean
 getPublicKeyHex(): string
 destroy(): void
 ```
+
+`publish` returns a `Result<void, StatementStoreError>` — `ok(undefined)` on accept, `err(...)` carrying the reason (`StatementConnectionError`, `StatementDataTooLargeError`, or `StatementSubmitError`). Branch on `result.ok`, not on the object itself: a `Result` is always truthy, so `if (result)` is never false. (`connect` still throws `StatementConnectionError` rather than returning a `Result`.)
 
 ---
 
@@ -43,13 +45,15 @@ constructor(client: StatementStoreClient, options?: { topic2?: string })
 ### Methods
 
 ```ts
-async write(channelName: string, value: T): Promise<boolean>
+async write(channelName: string, value: T): Promise<Result<void, StatementStoreError>>
 read(channelName: string): T | undefined
 readAll(): ReadonlyMap<string, T>
 get size: number
 onChange(callback: (channelName: string, value: T, previous: T | undefined) => void): Unsubscribable
 destroy(): void
 ```
+
+`write` propagates the `Result<void, StatementStoreError>` returned by the underlying `publish`. Branch on `result.ok` to detect acceptance.
 
 ---
 
@@ -88,6 +92,14 @@ function fromHex(hex: string): Uint8Array
 
 ## Types
 
+### Result\<T, E\>
+
+```ts
+type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
+```
+
+Returned by `publish` and `ChannelStore.write`. Narrow on `.ok` before reading `.value` / `.error`; the object itself is always truthy.
+
 ### ConnectionCredentials
 
 ```ts
@@ -101,10 +113,7 @@ type ConnectionCredentials =
 ```ts
 interface StatementStoreConfig {
   appName: string;
-  endpoint?: string;
-  pollIntervalMs?: number;
   defaultTtlSeconds?: number;
-  enablePolling?: boolean;
   transport?: StatementTransport;
 }
 ```

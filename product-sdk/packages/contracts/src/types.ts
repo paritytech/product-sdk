@@ -1,8 +1,17 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
-import type { BatchableCall, SubmitOptions, TxResult, Weight } from "@parity/product-sdk-tx";
+import type { Result } from "@parity/result";
 import type { SignerManager } from "@parity/product-sdk-signer";
+import type {
+    BatchableCall,
+    SubmitOptions,
+    TxError,
+    TxResult,
+    Weight,
+} from "@parity/product-sdk-tx";
+import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
+
+import type { ContractError } from "./errors.js";
 import type { ContractDryRunAt } from "./runtime.js";
 
 // Re-export from the tx package — single source of truth.
@@ -12,11 +21,7 @@ export type { TxResult, SubmitOptions, BatchableCall } from "@parity/product-sdk
 // cdm.json schema
 // ---------------------------------------------------------------------------
 
-/** Pins a target to specific asset-hub and Bulletin chain hashes in `cdm.json`. */
-export interface CdmJsonTarget {
-    "asset-hub": string;
-    bulletin: string;
-}
+export type CdmJsonDependencyVersion = number | string;
 
 /**
  * A deployed contract's on-chain address, ABI, and optional metadata CID.
@@ -32,11 +37,11 @@ export interface CdmJsonContract {
     metadataCid?: string;
 }
 
-/** A project's `cdm.json` manifest: declared targets, runtime dependencies, and per-target contract deployments. */
+/** A project's `cdm.json` manifest. */
 export interface CdmJson {
-    targets: Record<string, CdmJsonTarget>;
-    dependencies: Record<string, Record<string, number | string>>;
-    contracts?: Record<string, Record<string, CdmJsonContract>>;
+    dependencies: Record<string, CdmJsonDependencyVersion>;
+    contracts?: Record<string, CdmJsonContract>;
+    registry?: HexString;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,9 +187,16 @@ export interface ContractOptions {
 }
 
 /** Options for {@link ContractManager} construction. */
-export interface ContractManagerOptions extends ContractOptions {
-    /** Explicit target hash to select from cdm.json. Defaults to the first target. */
-    targetHash?: string;
+export type ContractManagerOptions = ContractOptions;
+
+/** Options for resolving installed CDM contract addresses from the live CDM registry. */
+export interface LiveContractResolutionOptions {
+    /** CDM registry contract address. Defaults to `cdm.json.registry`. */
+    registryAddress?: HexString;
+    /** Subset of installed libraries to resolve. Defaults to every contract in the manifest. */
+    libraries?: readonly string[];
+    /** Origin used for CDM registry dry-run queries. Defaults to `defaultOrigin` in manager helpers. */
+    registryOrigin?: SS58String;
 }
 
 /**
@@ -200,7 +212,7 @@ export type Contract<C extends ContractDef> = {
          * cost gas. Returns the decoded response and estimated gas required.
          *
          * Origin is resolved from: explicit `{ origin }` option → signerManager →
-         * defaultOrigin → dev fallback (Alice).
+         * defaultOrigin → pallet-revive account fallback.
          */
         query: (
             ...args: [...C["methods"][K]["args"], opts?: QueryOptions]
@@ -210,9 +222,15 @@ export type Contract<C extends ContractDef> = {
          * Resolves at best-block by default (configurable via `waitFor`).
          *
          * Signer is resolved from: explicit `{ signer }` option → signerManager →
-         * defaultSigner. Throws {@link ContractSignerMissingError} if none available.
+         * defaultSigner.
+         *
+         * @returns A {@link Result}: `ok(TxResult)` once included/finalized, or `err`
+         *   carrying a `ContractError` (no signer available, pre-submit dry-run failed,
+         *   or the call reverted) or a `TxError` (submission/dispatch failure).
          */
-        tx: (...args: [...C["methods"][K]["args"], opts?: TxOptions]) => Promise<TxResult>;
+        tx: (
+            ...args: [...C["methods"][K]["args"], opts?: TxOptions]
+        ) => Promise<Result<TxResult, ContractError | TxError>>;
         /**
          * Prepare the method as a {@link BatchableCall} — returns the same
          * submittable that `.tx()` would build, but without signing or
@@ -229,16 +247,19 @@ export type Contract<C extends ContractDef> = {
          *
          * Sizing: when either `gasLimit` or `storageDepositLimit` is
          * omitted, `.prepare()` runs a `ReviveApi.call` dry-run (same as
-         * `.tx()`) against the dev fallback origin to fill the missing
+         * `.tx()`) against the fallback origin to fill the missing
          * field(s) — pass both to skip the dry-run entirely. A failing
-         * dry-run throws {@link ContractDryRunFailedError} before the
+         * dry-run yields `err({@link ContractDryRunFailedError})` before the
          * call is constructed.
          *
          * `.prepare()` does not require a signer; the batch's signer
          * replaces the dispatched origin at submission.
+         *
+         * @returns A {@link Result}: `ok(BatchableCall)`, or `err(ContractError)` if the
+         *   pre-build dry-run fails or the call reverts.
          */
         prepare: (
             ...args: [...C["methods"][K]["args"], opts?: PrepareOptions]
-        ) => Promise<BatchableCall>;
+        ) => Promise<Result<BatchableCall, ContractError>>;
     };
 };

@@ -12,6 +12,12 @@
 # `versioning-strategy: increase-if-necessary`, which raises the
 # package.json `^X.Y.Z` floor in lockstep with the lockfile so the two
 # stay in sync.
+#
+# Cooldown: zizmor flags missing cooldown, but cooldown only applies to
+# routine version-update PRs (which are already suppressed at limit 0).
+# We declare a defensive cooldown anyway in case `open-pull-requests-limit`
+# is ever raised — it won't affect security PRs, which Dependabot opens
+# without cooldown by design.
 
 version: 2
 updates:
@@ -20,6 +26,8 @@ updates:
       schedule:
           interval: "weekly"
       versioning-strategy: "increase-if-necessary"
+      cooldown:
+          default-days: 7
       commit-message:
           prefix: "chore(deps)"
           include: "scope"
@@ -31,6 +39,8 @@ updates:
       schedule:
           interval: "weekly"
       versioning-strategy: "increase-if-necessary"
+      cooldown:
+          default-days: 7
       commit-message:
           prefix: "chore(deps)"
           include: "scope"

@@ -1,0 +1,27 @@
+{
+    "name": "@parity/product-sdk-errors",
+    "version": "0.1.0",
+    "description": "The SdkError marker shared across the @parity/product-sdk family",
+    "type": "module",
+    "sideEffects": false,
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": ["dist", "src"],
+    "scripts": {
+        "build": "tsup",
+        "test": "vitest",
+        "clean": "rm -rf dist"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.0",
+        "vitest": "^3.0.0"
+    },
+    "license": "Apache-2.0"
+}

@@ -16,6 +16,7 @@ export default defineConfig({
         "react/index": "src/react/index.ts",
         "local-storage/index": "src/local-storage/index.ts",
         "wallet/index": "src/wallet/index.ts",
+        "testing/index": "src/testing.ts",
     },
     format: ["esm"],
     dts: true,

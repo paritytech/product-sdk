@@ -14,7 +14,10 @@ export {
     resolveDotNs,
     reverseDotNs,
     isDotNsAvailable,
+    accountIdHexToBytes,
+    resolvePeopleUsernameOwner,
 } from "./dotns.js";
+export type { PeopleUsernameChain, PeopleUsernameQueryApi } from "./dotns.js";
 
 // Context alias utilities
 export {

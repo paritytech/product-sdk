@@ -1,20 +1,17 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import { createLogger } from "@parity/product-sdk-logger";
-import type { HostStatementStore, StatementTopicFilter } from "@parity/product-sdk-host";
-
-import { StatementConnectionError, StatementSubscriptionError } from "./errors.js";
-import type { ConnectionCredentials, StatementTransport, Unsubscribable } from "./types.js";
-
-import type { Statement, TopicFilter as SdkTopicFilter } from "@novasamatech/sdk-statement";
-
-// Type-only imports for the host↔sdk bridge (erased at compile time, zero bundle cost).
-// product-sdk's SCALE-decoded types use Uint8Array + { tag } enums;
-// sdk-statement's types use hex strings + { type } enums.
 import type {
-    Statement as HostStatement,
+    HostStatementStore,
     SignedStatement as HostSignedStatement,
-} from "@novasamatech/host-api-wrapper";
+    Statement as HostStatement,
+    StatementTopicFilter,
+} from "@parity/product-sdk-host";
+import { createLogger } from "@parity/product-sdk-logger";
+
+import { fromHex, toHex } from "./data.js";
+import { StatementConnectionError, StatementSubscriptionError } from "./errors.js";
+import type { Statement, TopicFilter as SdkTopicFilter } from "./statement.js";
+import type { ConnectionCredentials, StatementTransport, Unsubscribable } from "./types.js";
 
 const log = createLogger("statement-store:transport");
 
@@ -26,8 +23,9 @@ const log = createLogger("statement-store:transport");
  * Statement transport that uses the Host API inside containers.
  *
  * Communicates through the host's native `remote_statement_store_*` protocol
- * which bypasses JSON-RPC entirely. Subscriptions, proof creation, and submission
- * all go through typed binary messages over the host transport.
+ * (now via `@parity/truapi`), which bypasses JSON-RPC entirely. Submission uses
+ * the RFC-10 sponsored path (`createProofAuthorized`): the host signs with the
+ * product's allowance account, so no per-call account id is required.
  */
 class HostTransport implements StatementTransport {
     private readonly store: HostStatementStore;
@@ -45,14 +43,19 @@ class HostTransport implements StatementTransport {
 
         try {
             const sub = this.store.subscribe(hostFilter, (page) => {
-                // product-sdk delivers HostSignedStatement[] (Uint8Array fields, { tag } enums)
-                // inside a StatementsPage. sdk-statement expects Statement (hex string fields,
-                // { type } enums). Type assertion needed: page.statements is unknown[] at the
-                // interface boundary but actual runtime values are HostSignedStatement[].
-                const converted = (page.statements as HostSignedStatement[]).map(
-                    hostSignedStatementToSdk,
-                );
-                onStatements(converted);
+                onStatements(page.statements.map(hostSignedStatementToSdk));
+            });
+
+            // Host-side teardown (transport close → `error`, host interrupt →
+            // `complete`) is delivered only through `onInterrupt`; surface it so the
+            // consumer learns the stream ended instead of silently waiting forever.
+            sub.onInterrupt((reason) => {
+                const msg =
+                    reason instanceof Error
+                        ? reason.message
+                        : "Host ended the statement subscription";
+                log.warn("Host subscription interrupted", { error: msg });
+                onError(new StatementSubscriptionError(msg));
             });
 
             log.info("Host subscription active");
@@ -71,20 +74,15 @@ class HostTransport implements StatementTransport {
     async signAndSubmit(statement: Statement, credentials: ConnectionCredentials): Promise<void> {
         if (credentials.mode !== "host") {
             throw new StatementConnectionError(
-                "HostTransport requires host credentials. Use { mode: 'host', accountId } to connect.",
+                "HostTransport requires host credentials. Use { mode: 'host' } to connect.",
             );
         }
 
-        // Convert sdk-statement format (hex strings) → product-sdk format (Uint8Array)
-        // so the host's SCALE codec can encode it correctly.
         const hostStatement = sdkStatementToHost(statement);
-        const proof = await this.store.createProof(credentials.accountId, hostStatement);
-        // Type assertion: StatementProof from host types is compatible with HostSignedStatement.proof
-        // at runtime, but TypeScript can't verify cross-package type compatibility.
-        const signedStatement: HostSignedStatement = {
-            ...hostStatement,
-            proof: proof as HostSignedStatement["proof"],
-        };
+        // RFC-10 sponsored path: the host signs with the product's allowance
+        // account, so no per-call account id is needed.
+        const proof = await this.store.createProofAuthorized(hostStatement);
+        const signedStatement: HostSignedStatement = { ...hostStatement, proof };
         await this.store.submit(signedStatement);
 
         log.debug("Statement submitted via host");
@@ -122,133 +120,44 @@ export async function createTransport(): Promise<StatementTransport> {
 }
 
 // ============================================================================
-// Internal Helpers
-// ============================================================================
-
-// ============================================================================
 // Host ↔ SDK Type Bridge
 //
-// product-sdk types (SCALE-decoded): Uint8Array fields, { tag: "Sr25519" } enums
-// sdk-statement types:               hex string fields, { type: "sr25519" } enums
-//
-// Both represent the same on-chain statement data but with different runtime
-// shapes. These converters bridge between the two so HostTransport can speak
-// both languages correctly.
+// Both sides now use `0x`-prefixed hex strings for topics/channel/decryptionKey
+// and bigint expiry, so those fields pass through unchanged. Only two things
+// differ: `data` (this package keeps raw `Uint8Array`; the host uses hex) and
+// the proof discriminant (`{ type: "sr25519" }` here vs `{ tag: "Sr25519" }` on
+// the host).
 // ============================================================================
 
-/** Convert an sdk-statement TopicFilter (hex strings) → host StatementTopicFilter (Uint8Array). */
+/** Convert an SDK TopicFilter → host StatementTopicFilter (both hex topics). */
 function sdkFilterToHost(filter: SdkTopicFilter): StatementTopicFilter {
     if (filter === "any") {
         // The host API has no "match anything" variant — express it as
-        // "match any of zero topics" which the host treats as a wildcard.
+        // "match any of zero topics", which the host treats as a wildcard.
         return { matchAny: [] };
     }
     if ("matchAll" in filter) {
-        return { matchAll: filter.matchAll.map(hexToBytes) };
+        return { matchAll: filter.matchAll };
     }
-    return { matchAny: filter.matchAny.map(hexToBytes) };
+    return { matchAny: filter.matchAny };
 }
 
-/** Convert a product-sdk SignedStatement (Uint8Array fields) → sdk-statement Statement (hex strings). */
+/**
+ * Convert a host SignedStatement → SDK Statement. The shapes are identical apart
+ * from `data` (the wire type carries hex; this SDK layer decodes to bytes), so
+ * everything else passes through unchanged.
+ */
 function hostSignedStatementToSdk(hostStmt: HostSignedStatement): Statement {
-    const result: Partial<Statement> = {};
-
-    // data: Uint8Array → Uint8Array (same in both formats)
-    if (hostStmt.data) result.data = hostStmt.data;
-
-    // expiry: bigint → bigint (same in both formats)
-    if (hostStmt.expiry !== undefined) result.expiry = hostStmt.expiry;
-
-    // topics: Uint8Array[] → hex string[]
-    if (hostStmt.topics) {
-        result.topics = hostStmt.topics.map(bytesToHex) as Statement["topics"];
-    }
-
-    // channel: Uint8Array → hex string
-    if (hostStmt.channel) {
-        result.channel = bytesToHex(hostStmt.channel) as Statement["channel"];
-    }
-
-    // decryptionKey: Uint8Array → hex string
-    if (hostStmt.decryptionKey) {
-        result.decryptionKey = bytesToHex(hostStmt.decryptionKey) as Statement["decryptionKey"];
-    }
-
-    // proof: { tag: "Sr25519" | "Ed25519" | "Ecdsa" | "OnChain", value: ... }
-    //      → { type: "sr25519" | "ed25519" | "ecdsa" | "onChain", value: ... } (with hex)
-    if (hostStmt.proof) {
-        const tag = hostStmt.proof.tag;
-        const value = hostStmt.proof.value;
-        // Product-sdk proof tags use PascalCase; sdk-statement variants are camelCase.
-        const sdkType =
-            tag === "OnChain" ? "onChain" : (tag.toLowerCase() as "sr25519" | "ed25519" | "ecdsa");
-
-        if (sdkType === "onChain" && "who" in value) {
-            result.proof = {
-                type: "onChain",
-                value: {
-                    who: bytesToHex(value.who),
-                    blockHash: bytesToHex(value.blockHash),
-                    event: value.event,
-                },
-            } as Statement["proof"];
-        } else if ("signature" in value && "signer" in value) {
-            result.proof = {
-                type: sdkType,
-                value: {
-                    signature: bytesToHex(value.signature),
-                    signer: bytesToHex(value.signer),
-                },
-            } as Statement["proof"];
-        }
-    }
-
-    return result as Statement;
+    return {
+        ...hostStmt,
+        data: hostStmt.data !== undefined ? fromHex(hostStmt.data) : undefined,
+    };
 }
 
-/** Convert an sdk-statement Statement (hex strings) → product-sdk HostStatement (Uint8Array). */
+/** Convert an SDK Statement (bytes `data`) → host Statement (hex `data`). */
 function sdkStatementToHost(stmt: Statement): HostStatement {
-    const result: Partial<HostStatement> = {};
-
-    // data: Uint8Array → Uint8Array (same)
-    if (stmt.data) result.data = stmt.data;
-
-    // expiry: bigint → bigint (same)
-    if (stmt.expiry !== undefined) result.expiry = stmt.expiry;
-
-    // topics: hex string[] → Uint8Array[]
-    if (stmt.topics) {
-        result.topics = stmt.topics.map(hexToBytes);
-    }
-
-    // channel: hex string → Uint8Array
-    if (stmt.channel) {
-        result.channel = hexToBytes(stmt.channel);
-    }
-
-    // decryptionKey: hex string → Uint8Array
-    if (stmt.decryptionKey) {
-        result.decryptionKey = hexToBytes(stmt.decryptionKey);
-    }
-
-    return result as HostStatement;
-}
-
-/** Convert a 0x-prefixed hex string to Uint8Array. */
-function hexToBytes(hex: string): Uint8Array {
-    const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-    const bytes = new Uint8Array(clean.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = Number.parseInt(clean.substring(i * 2, i * 2 + 2), 16);
-    }
-    return bytes;
-}
-
-/** Convert Uint8Array to 0x-prefixed hex string. */
-function bytesToHex(bytes: Uint8Array): string {
-    let hex = "0x";
-    for (let i = 0; i < bytes.length; i++) {
-        hex += bytes[i].toString(16).padStart(2, "0");
-    }
-    return hex;
+    return {
+        ...stmt,
+        data: stmt.data !== undefined ? (toHex(stmt.data) as `0x${string}`) : undefined,
+    };
 }

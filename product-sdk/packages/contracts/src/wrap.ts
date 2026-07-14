@@ -1,5 +1,15 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import { createLogger } from "@parity/product-sdk-logger";
+import { type Result, err, ok, unwrapErr, unwrapOk } from "@parity/result";
+import { submitAndWatch } from "@parity/product-sdk-tx";
+import type {
+    BatchableCall,
+    SubmittableTransaction,
+    TxError,
+    TxResult,
+} from "@parity/product-sdk-tx";
+import { ss58Address } from "@polkadot-labs/hdkd-helpers";
 import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
 import {
     bytesToHex,
@@ -8,18 +18,15 @@ import {
     encodeFunctionData,
     type Abi as ViemAbi,
 } from "viem";
-import { submitAndWatch } from "@parity/product-sdk-tx";
-import { seedToAccount } from "@parity/product-sdk-keys";
-import { createLogger } from "@parity/product-sdk-logger";
-import { DEV_PHRASE, ss58Address } from "@polkadot-labs/hdkd-helpers";
+
 import {
+    type ContractError,
     ContractDryRunFailedError,
     ContractRevertedError,
     ContractSignerMissingError,
     type ContractRevertInfo,
 } from "./errors.js";
 import type { ContractRuntime } from "./runtime.js";
-import type { BatchableCall, SubmittableTransaction } from "@parity/product-sdk-tx";
 import type {
     AbiEntry,
     Contract,
@@ -62,11 +69,23 @@ function extractOverrides<T>(
 }
 
 /**
- * Dev address (Alice) used as fallback origin for read-only queries when no
- * wallet is connected. Queries are dry-run simulations — the origin only
- * affects gas estimation and is safe to stub.
+ * pallet-revive's own account, used as the fallback origin for read-only
+ * queries when no wallet is connected. The runtime API requires an origin, so
+ * we pass this account when there is no connected one.
+ *
+ * Exported so other products can reuse the exact same read origin instead of
+ * re-deriving it: pass it as an explicit `defaultOrigin` / `registryOrigin`,
+ * or compare against it. Its SS58 (substrate generic, prefix 42) value is
+ * `5EYCAe5ijiYfhaAUBd6H9WGRTsvwFFc7GnhQkiHvBYxdvpbV`.
+ *
+ * This mirrors `Pallet::<T>::account_id()` in pallet-revive, which is
+ * `PalletId(*b"py/reviv").into_account_truncating()`. The 32-byte AccountId is
+ * the PalletId `TYPE_ID` (`b"modl"`) followed by the id (`b"py/reviv"`), zero
+ * padded, i.e. `"modlpy/reviv"` + 20 trailing zero bytes.
  */
-const QUERY_FALLBACK_ORIGIN = seedToAccount(DEV_PHRASE, "//Alice").ss58Address as SS58String;
+const REVIVE_PALLET_ACCOUNT = new Uint8Array(32);
+REVIVE_PALLET_ACCOUNT.set(new TextEncoder().encode("modlpy/reviv"));
+export const QUERY_FALLBACK_ORIGIN = ss58Address(REVIVE_PALLET_ACCOUNT) as SS58String;
 
 function resolveOrigin(
     defaults: ContractDefaults,
@@ -78,7 +97,7 @@ function resolveOrigin(
     if (sourceAddr) return sourceAddr as SS58String;
     if (defaults.origin) return defaults.origin;
     if (forQuery) {
-        log.warn("No origin configured — using dev fallback (Alice) for query dry-run");
+        log.warn("No origin configured — using pallet-revive account fallback for query dry-run");
         return QUERY_FALLBACK_ORIGIN;
     }
     return undefined;
@@ -229,8 +248,9 @@ function decodeReturn(abi: AbiEntry[], methodName: string, returnData: Uint8Arra
  *      revert / OOG / `AccountNotMapped`. Skipped when both are provided.
  *   3. Build the `Revive.call` extrinsic via the typed API.
  *
- * Returned `SubmittableTransaction` is what `.tx()` hands to `submitAndWatch`
- * and what `.prepare()` returns as a `BatchableCall`.
+ * Returns a {@link Result}: `ok(SubmittableTransaction)` — what `.tx()` hands to
+ * `submitAndWatch` and what `.prepare()` returns as a `BatchableCall` — or
+ * `err(ContractError)` if the pre-submit dry-run fails or the call reverts.
  */
 async function buildReviveCall(
     runtime: ContractRuntime,
@@ -240,7 +260,7 @@ async function buildReviveCall(
     positionalArgs: unknown[],
     origin: SS58String,
     overrides: PrepareOptions | TxOptions | undefined,
-): Promise<SubmittableTransaction> {
+): Promise<Result<SubmittableTransaction, ContractError>> {
     const value = overrides?.value ?? 0n;
     const calldata = hexToBytes(encodeCalldata(abi, methodName, positionalArgs));
 
@@ -260,13 +280,13 @@ async function buildReviveCall(
             overrides?.at !== undefined ? { at: overrides.at } : undefined,
         );
         if (!dryRun.result.success) {
-            throw new ContractDryRunFailedError(methodName, dryRun.result.value);
+            return err(new ContractDryRunFailedError(methodName, dryRun.result.value));
         }
         if ((dryRun.result.value.flags & REVERT_FLAG) !== 0) {
             // Fail fast so callers don't pay gas on a call the chain already told us would revert.
             const { data, reason, decoded } = decodeRevert(abi, dryRun.result.value.data);
             log.debug("Contract reverted", { methodName, reason, errorName: decoded?.errorName });
-            throw new ContractRevertedError(methodName, data, { reason, decoded });
+            return err(new ContractRevertedError(methodName, data, { reason, decoded }));
         }
         weightLimit = weightLimit ?? dryRun.weight_required;
         if (storageDepositLimit === undefined) {
@@ -275,13 +295,15 @@ async function buildReviveCall(
         }
     }
 
-    return runtime.api.tx.Revive.call({
-        dest,
-        value,
-        weight_limit: weightLimit,
-        storage_deposit_limit: storageDepositLimit,
-        data: calldata,
-    });
+    return ok(
+        runtime.api.tx.Revive.call({
+            dest,
+            value,
+            weight_limit: weightLimit,
+            storage_deposit_limit: storageDepositLimit,
+            data: calldata,
+        }),
+    );
 }
 
 /**
@@ -367,21 +389,23 @@ export function wrapContract(
                     };
                 },
 
-                tx: async (...args: unknown[]) => {
+                tx: async (
+                    ...args: unknown[]
+                ): Promise<Result<TxResult, ContractError | TxError>> => {
                     const { positionalArgs, overrides } = extractOverrides<TxOptions>(
                         argNames,
                         args,
                     );
                     const signer = resolveSigner(defaults, overrides?.signer);
                     if (!signer) {
-                        throw new ContractSignerMissingError();
+                        return err(new ContractSignerMissingError());
                     }
 
                     const origin =
                         resolveOrigin(defaults, overrides?.origin) ??
                         (ss58Address(signer.publicKey) as SS58String);
 
-                    const tx = await buildReviveCall(
+                    const built = await buildReviveCall(
                         runtime,
                         dest,
                         abi,
@@ -390,8 +414,9 @@ export function wrapContract(
                         origin,
                         overrides,
                     );
+                    if (!built.ok) return built;
 
-                    return submitAndWatch(tx, signer, {
+                    return submitAndWatch(built.value, signer, {
                         waitFor: overrides?.waitFor,
                         timeoutMs: overrides?.timeoutMs,
                         mortalityPeriod: overrides?.mortalityPeriod,
@@ -399,14 +424,16 @@ export function wrapContract(
                     });
                 },
 
-                prepare: async (...args: unknown[]): Promise<BatchableCall> => {
+                prepare: async (
+                    ...args: unknown[]
+                ): Promise<Result<BatchableCall, ContractError>> => {
                     // `.prepare()` builds the same `Revive.call` extrinsic as
                     // `.tx()` but stops before submission — the returned
                     // SubmittableTransaction is a BatchableCall consumable
-                    // by `batchSubmitAndWatch`. Origin defaults to the dev
-                    // address (Alice) for dry-run gas estimation since no
-                    // signer is required at prepare time; the batch's signer
-                    // replaces the dispatched origin at submission.
+                    // by `batchSubmitAndWatch`. Origin defaults to the
+                    // pallet-revive account for the dry-run since no signer is
+                    // required at prepare time; the batch's signer replaces the
+                    // dispatched origin at submission.
                     const { positionalArgs, overrides } = extractOverrides<PrepareOptions>(
                         argNames,
                         args,
@@ -679,6 +706,14 @@ if (import.meta.vitest) {
 
         test("returns undefined when nothing available", () => {
             expect(resolveOrigin({})).toBeUndefined();
+        });
+
+        test("query fallback derives pallet-revive's keyless account", () => {
+            // Frozen public value: other products import QUERY_FALLBACK_ORIGIN
+            // to reuse this exact read origin. A regression here breaks them.
+            expect(QUERY_FALLBACK_ORIGIN).toBe("5EYCAe5ijiYfhaAUBd6H9WGRTsvwFFc7GnhQkiHvBYxdvpbV");
+            const defaults: ContractDefaults = {};
+            expect(resolveOrigin(defaults, undefined, true)).toBe(QUERY_FALLBACK_ORIGIN);
         });
     });
 
@@ -1175,11 +1210,14 @@ if (import.meta.vitest) {
                 origin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
             });
 
-            await expect(
-                (
-                    wrapped as unknown as { increment: { tx: () => Promise<unknown> } }
+            const error = unwrapErr(
+                await (
+                    wrapped as unknown as {
+                        increment: { tx: () => Promise<Result<unknown, unknown>> };
+                    }
                 ).increment.tx(),
-            ).rejects.toMatchObject({
+            );
+            expect(error).toMatchObject({
                 name: "ContractDryRunFailedError",
                 methodName: "increment",
                 dispatchError,
@@ -1306,13 +1344,14 @@ if (import.meta.vitest) {
                 origin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
             });
 
-            await expect(
-                (
+            const error = unwrapErr(
+                await (
                     wrapped as unknown as {
-                        increment: { tx: (opts: unknown) => Promise<unknown> };
+                        increment: { tx: (opts: unknown) => Promise<Result<unknown, unknown>> };
                     }
                 ).increment.tx({ gasLimit: { ref_time: 1n, proof_size: 1n } }),
-            ).rejects.toMatchObject({ name: "ContractDryRunFailedError" });
+            );
+            expect(error).toMatchObject({ name: "ContractDryRunFailedError" });
             expect(dryRunInvoked).toBe(true);
         });
     });
@@ -1389,21 +1428,26 @@ if (import.meta.vitest) {
             const wrapped = wrapContract(runtime, ADDRESS, abi, {});
 
             const overrideWeight = { ref_time: 99n, proof_size: 11n };
-            const result = await (
-                wrapped as unknown as {
-                    add: {
-                        prepare: (n: number, opts: unknown) => Promise<{ decodedCall: unknown }>;
-                    };
-                }
-            ).add.prepare(7, {
-                gasLimit: overrideWeight,
-                storageDepositLimit: 42n,
-                value: 5n,
-            });
+            const prepared = unwrapOk(
+                await (
+                    wrapped as unknown as {
+                        add: {
+                            prepare: (
+                                n: number,
+                                opts: unknown,
+                            ) => Promise<Result<{ decodedCall: unknown }, unknown>>;
+                        };
+                    }
+                ).add.prepare(7, {
+                    gasLimit: overrideWeight,
+                    storageDepositLimit: 42n,
+                    value: 5n,
+                }),
+            ) as { decodedCall: unknown };
 
             // SubmittableTransaction is a valid BatchableCall —
             // `batchSubmitAndWatch` reads `.decodedCall` off it.
-            expect(result.decodedCall).toBe(sentinelDecodedCall);
+            expect(prepared.decodedCall).toBe(sentinelDecodedCall);
 
             // Override values flowed straight through to the extrinsic.
             expect(txArgs).toEqual({
@@ -1508,16 +1552,17 @@ if (import.meta.vitest) {
             // No signer / signerManager / defaultOrigin set.
             const wrapped = wrapContract(runtime, ADDRESS, abi, {});
 
-            await expect(
-                (
+            const prepared = unwrapOk(
+                await (
                     wrapped as unknown as {
-                        increment: { prepare: () => Promise<unknown> };
+                        increment: { prepare: () => Promise<Result<unknown, unknown>> };
                     }
                 ).increment.prepare(),
-            ).resolves.toMatchObject({ decodedCall: { sentinel: true } });
+            );
+            expect(prepared).toMatchObject({ decodedCall: { sentinel: true } });
 
             // Origin must have been resolved without throwing — falls
-            // back to the dev address (Alice) for dry-run gas estimation.
+            // back to the pallet-revive account for the dry-run.
             expect(capturedOrigin).toBe(QUERY_FALLBACK_ORIGIN);
         });
 
@@ -1546,11 +1591,14 @@ if (import.meta.vitest) {
             };
             const wrapped = wrapContract(runtime, ADDRESS, abi, {});
 
-            await expect(
-                (
-                    wrapped as unknown as { increment: { prepare: () => Promise<unknown> } }
+            const error = unwrapErr(
+                await (
+                    wrapped as unknown as {
+                        increment: { prepare: () => Promise<Result<unknown, unknown>> };
+                    }
                 ).increment.prepare(),
-            ).rejects.toMatchObject({
+            );
+            expect(error).toMatchObject({
                 name: "ContractDryRunFailedError",
                 methodName: "increment",
                 dispatchError,
@@ -1586,14 +1634,20 @@ if (import.meta.vitest) {
             };
             const wrapped = wrapContract(runtime, ADDRESS, abi, {});
 
-            const a = await (
-                wrapped as unknown as { increment: { prepare: () => Promise<BatchableCall> } }
-            ).increment.prepare();
-            const b = await (
-                wrapped as unknown as {
-                    add: { prepare: (n: number) => Promise<BatchableCall> };
-                }
-            ).add.prepare(1);
+            const a = unwrapOk(
+                await (
+                    wrapped as unknown as {
+                        increment: { prepare: () => Promise<Result<BatchableCall, unknown>> };
+                    }
+                ).increment.prepare(),
+            );
+            const b = unwrapOk(
+                await (
+                    wrapped as unknown as {
+                        add: { prepare: (n: number) => Promise<Result<BatchableCall, unknown>> };
+                    }
+                ).add.prepare(1),
+            );
 
             let batchCalls: unknown[] | null = null;
             const fakeApi = {
@@ -1817,15 +1871,16 @@ if (import.meta.vitest) {
                 origin: ORIGIN,
             });
 
-            await expect(
-                (
+            const error = unwrapErr(
+                await (
                     wrapped as unknown as {
                         transfer: {
-                            tx: (to: string, amount: bigint) => Promise<unknown>;
+                            tx: (to: string, amount: bigint) => Promise<Result<unknown, unknown>>;
                         };
                     }
                 ).transfer.tx("0x0000000000000000000000000000000000000001", 1n),
-            ).rejects.toMatchObject({
+            );
+            expect(error).toMatchObject({
                 name: "ContractRevertedError",
                 methodName: "transfer",
                 data: "0x556e617574686f72697a6564",
@@ -1833,18 +1888,22 @@ if (import.meta.vitest) {
             });
         });
 
-        test("prepare() throws ContractRevertedError before constructing the extrinsic", async () => {
+        test("prepare() returns err(ContractRevertedError) before constructing the extrinsic", async () => {
             const wrapped = wrapContract(revertingRuntime(), ADDRESS, abi, {});
 
-            await expect(
-                (
+            const error = unwrapErr(
+                await (
                     wrapped as unknown as {
                         transfer: {
-                            prepare: (to: string, amount: bigint) => Promise<unknown>;
+                            prepare: (
+                                to: string,
+                                amount: bigint,
+                            ) => Promise<Result<unknown, unknown>>;
                         };
                     }
                 ).transfer.prepare("0x0000000000000000000000000000000000000001", 1n),
-            ).rejects.toMatchObject({
+            );
+            expect(error).toMatchObject({
                 name: "ContractRevertedError",
                 methodName: "transfer",
                 reason: "Unauthorized",

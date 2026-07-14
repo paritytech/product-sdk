@@ -28,7 +28,7 @@ function ownFolderFor(pkg: Declaration, registry: PackageRegistry): string {
   const folder = registry.nameToFolder.get(pkg.name);
   if (folder) return folder;
   if (pkg.name === "@parity/product-sdk") return "sdk";
-  return pkg.name.replace(/^@parity\/product-sdk-/, "");
+  return pkg.name.replace(/^@parity\/(product-sdk-)?/, "");
 }
 
 async function writeFileAtomic(path: string, contents: string): Promise<void> {
@@ -145,22 +145,19 @@ async function main(): Promise<void> {
     const firstLine = cleaned.split(/\r?\n/)[0]?.trim() ?? "";
     packageInfos.push({ slug, name: pkg.name, summary: firstLine });
   }
-  const slugs = packageInfos.map((p) => p.slug);
-
   // Root api _meta.ts: landing page, umbrella pinned first, then leaves
   // alphabetically. Each package slug maps to its folder; Nextra expands the
   // folder in the sidebar to show the symbol anchors from the nested _meta.ts.
-  slugs.sort((a, b) => {
-    if (a === "sdk") return -1;
-    if (b === "sdk") return 1;
-    return a.localeCompare(b);
+  // Label is the package's real name (not reconstructed from the slug), so
+  // non-`product-sdk-` packages like `@parity/result` render correctly.
+  const sortedInfos = [...packageInfos].sort((a, b) => {
+    if (a.slug === "sdk") return -1;
+    if (b.slug === "sdk") return 1;
+    return a.slug.localeCompare(b.slug);
   });
   const rootMeta: MetaEntry[] = [
     { key: "index", label: "Overview" },
-    ...slugs.map((slug) => ({
-      key: slug,
-      label: slug === "sdk" ? "@parity/product-sdk" : `@parity/product-sdk-${slug}`,
-    })),
+    ...sortedInfos.map((pkg) => ({ key: pkg.slug, label: pkg.name })),
   ];
   await writeFileAtomic(join(API_CONTENT, "_meta.ts"), renderMeta(rootMeta));
   await writeFileAtomic(
@@ -168,7 +165,7 @@ async function main(): Promise<void> {
     renderApiLandingPage(packageInfos),
   );
 
-  console.log(`Generated API reference for ${slugs.length} package(s).`);
+  console.log(`Generated API reference for ${packageInfos.length} package(s).`);
 }
 
 main().catch((err) => {

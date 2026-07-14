@@ -104,7 +104,12 @@ $btnQuery.addEventListener("click", async () => {
     log(`Querying: CID=${cid.slice(0, 20)}…`);
 
     try {
-        const bytes = await bulletinClient.fetchBytes(cid);
+        const result = await bulletinClient.fetchBytes(cid);
+        if (!result.ok) {
+            log(`Query failed: ${result.error.message}`, "err");
+            return;
+        }
+        const bytes = result.value;
         const text = new TextDecoder().decode(bytes);
         $queryResult.textContent = text;
         log(`Query result (${bytes.length} bytes): "${text}"`, "ok");

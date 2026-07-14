@@ -1,16 +1,37 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { SdkError } from "@parity/product-sdk-errors";
+
 import type { ProviderType } from "./types.js";
 
-/** Base class for all signer errors. Use `instanceof SignerError` to catch any signer-related error. */
-export class SignerError extends Error {
+/**
+ * Base class for all signer errors. Use `instanceof SignerError` to catch any
+ * signer-related error. Implements the cross-package {@link SdkError} marker so
+ * `isSdkError(e)` also recognizes it.
+ */
+export class SignerError extends Error implements SdkError {
+    readonly isSdkError = true as const;
+    readonly source = "signer";
+
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = "SignerError";
     }
 }
 
-/** The Host API is not available (product-sdk not installed or not inside a container). */
+/**
+ * The Host API is not available.
+ *
+ * Common causes:
+ * - The app is loaded outside a Polkadot host container (a regular browser tab
+ *   under `npm run dev`, no iframe, no WebView). This is the dominant case
+ *   during local development.
+ * - The host environment is detected but the TruAPI transport can't be reached
+ *   (no injected message port / unresolvable host origin).
+ *
+ * Branch with `instanceof HostUnavailableError` to surface a "open this app
+ * in a Polkadot host, or pick a dev provider" message to the user.
+ */
 export class HostUnavailableError extends SignerError {
     constructor(message = "Host API is not available") {
         super(message);

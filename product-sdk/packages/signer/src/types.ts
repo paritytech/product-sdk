@@ -54,18 +54,12 @@ export interface SignerState {
     error: SignerError | null;
 }
 
-/** Lightweight Result type for operations that can fail expectedly. */
-export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
-
-/** Create a successful Result. */
-export function ok<T>(value: T): Result<T, never> {
-    return { ok: true, value };
-}
-
-/** Create a failed Result. */
-export function err<E>(error: E): Result<never, E> {
-    return { ok: false, error };
-}
+/**
+ * Result type for operations that can fail expectedly — re-exported from the
+ * shared `@parity/result` leaf so the whole SDK shares one
+ * definition. This module stays as the signer-internal import path.
+ */
+export { type Result, ok, err } from "@parity/result";
 
 /** Factory function that creates a SignerProvider for a given type. */
 export type ProviderFactory = (type: ProviderType) => import("./providers/types.js").SignerProvider;
@@ -119,10 +113,11 @@ export interface SignerManagerOptions {
      * plus an `AbortSignal` that fires if the user disconnects or
      * destroys the manager mid-flight.
      *
-     * `requestResourceAllocation` throws on failure (matches the
-     * `@parity/product-sdk-host` export of the same name); errors thrown
-     * from `onConnect` are logged but do not affect the connected state —
-     * the next reconnect retries.
+     * `requestResourceAllocation` throws on failure (it adapts the
+     * `Result`-returning `@parity/product-sdk-host` export of the same name,
+     * re-throwing the typed error on the `err` channel); errors thrown from
+     * `onConnect` are logged but do not affect the connected state — the next
+     * reconnect retries.
      *
      * @example
      * ```ts
@@ -133,7 +128,7 @@ export interface SignerManagerOptions {
      *         { tag: "AutoSigning", value: undefined },
      *       ]);
      *       if (signal.aborted) return;
-     *       if (outcomes.some((o) => o.tag !== "Allocated")) {
+     *       if (outcomes.some((o) => o !== "Allocated")) {
      *         logWarning("partial permissions", outcomes);
      *       }
      *     } catch (cause) {
@@ -155,9 +150,10 @@ export interface ConnectContext {
      */
     signal: AbortSignal;
     /**
-     * Request a batch of host resource allocations. Bound shorthand for
-     * `requestResourceAllocation` from `@parity/product-sdk-host` —
-     * throws on failure, returns the unwrapped outcomes on success.
+     * Request a batch of host resource allocations. Adapts
+     * `requestResourceAllocation` from `@parity/product-sdk-host` (which returns
+     * a `Result`) to this throwing contract — returns the unwrapped outcomes on
+     * success, throws the typed host error on failure.
      */
     requestResourceAllocation: (resources: AllocatableResource[]) => Promise<AllocationOutcome[]>;
 }
@@ -165,71 +161,5 @@ export interface ConnectContext {
 /** Callback signature for {@link SignerManagerOptions.onConnect}. */
 export type OnConnect = (account: SignerAccount, ctx: ConnectContext) => void | Promise<void>;
 
-if (import.meta.vitest) {
-    const { test, expect, describe } = import.meta.vitest;
-
-    describe("ok", () => {
-        test("produces ok result with value", () => {
-            const result = ok(42);
-            expect(result.ok).toBe(true);
-            expect(result).toEqual({ ok: true, value: 42 });
-        });
-
-        test("works with complex values", () => {
-            const result = ok({ name: "Alice", age: 30 });
-            expect(result.ok).toBe(true);
-            if (result.ok) {
-                expect(result.value.name).toBe("Alice");
-            }
-        });
-
-        test("works with null value", () => {
-            const result = ok(null);
-            expect(result).toEqual({ ok: true, value: null });
-        });
-
-        test("works with undefined value", () => {
-            const result = ok(undefined);
-            expect(result).toEqual({ ok: true, value: undefined });
-        });
-    });
-
-    describe("err", () => {
-        test("produces error result", () => {
-            const result = err("something went wrong");
-            expect(result.ok).toBe(false);
-            expect(result).toEqual({ ok: false, error: "something went wrong" });
-        });
-
-        test("works with typed error objects", () => {
-            const error = { type: "HOST_UNAVAILABLE" as const, message: "no host" };
-            const result = err(error);
-            expect(result.ok).toBe(false);
-            if (!result.ok) {
-                expect(result.error.type).toBe("HOST_UNAVAILABLE");
-            }
-        });
-    });
-
-    describe("Result type narrowing", () => {
-        test("ok narrows to value access", () => {
-            const result: Result<number, string> = ok(42);
-            if (result.ok) {
-                const value: number = result.value;
-                expect(value).toBe(42);
-            } else {
-                expect.unreachable("should be ok");
-            }
-        });
-
-        test("err narrows to error access", () => {
-            const result: Result<number, string> = err("fail");
-            if (!result.ok) {
-                const error: string = result.error;
-                expect(error).toBe("fail");
-            } else {
-                expect.unreachable("should be err");
-            }
-        });
-    });
-}
+// `Result` / `ok` / `err` are re-exported from `@parity/result`,
+// which owns their unit tests; nothing to test here.

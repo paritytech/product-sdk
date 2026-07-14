@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-contracts",
     "description": "Typed contract interactions on Polkadot Asset Hub",
-    "version": "0.6.0",
+    "version": "0.8.3",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -17,6 +17,10 @@
         "./pvm": {
             "types": "./dist/pvm.d.ts",
             "import": "./dist/pvm.js"
+        },
+        "./testing": {
+            "types": "./dist/testing.d.ts",
+            "import": "./dist/testing.js"
         }
     },
     "files": ["dist"],
@@ -33,6 +37,8 @@
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-errors": "workspace:*",
+        "@parity/result": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "@polkadot-labs/hdkd-helpers": "catalog:",
@@ -43,5 +49,6 @@
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
-    }
+    },
+    "license": "Apache-2.0"
 }

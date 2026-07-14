@@ -3,22 +3,26 @@
 /**
  * Public types for the host wrappers.
  *
- * These are re-exported from `@novasamatech/host-api-wrapper` (the runtime
- * objects the host getters cast to) rather than hand-mirrored, so the
- * Parity surface stays in lockstep with the upstream codec types.
+ * The statement-store types are re-exported from `@parity/truapi` so the Parity
+ * surface stays in lockstep with the in-house protocol codec types. Their fields
+ * are `0x`-prefixed hex strings (`HexString`) and their enums are `{ tag }` unions.
  */
 
 import type {
-    hostLocalStorage,
-    createStatementStore,
-    ProductAccountId as NovasamaProductAccountId,
-    SignedStatement as NovasamaSignedStatement,
-    Statement as NovasamaStatement,
-    StatementTopicFilter as NovasamaStatementTopicFilter,
-    StatementsPage as NovasamaStatementsPage,
-    Topic as NovasamaTopic,
-} from "@novasamatech/host-api-wrapper";
-import type { Subscription } from "@novasamatech/host-api";
+    ProductAccountId,
+    RemoteStatementStoreSubscribeItem,
+    SignedStatement,
+    Statement,
+    StatementProof,
+    Topic,
+} from "@parity/truapi";
+
+// Statement-store types, re-exported verbatim from `@parity/truapi` (imported
+// above for the local signatures): `Statement` / `SignedStatement` /
+// `StatementProof` / `Topic` / `ProductAccountId`. Their fields are
+// `0x`-prefixed `HexString`s and their enums are `{ tag }` unions; the proof
+// variants cover `Sr25519` / `Ed25519` / `Ecdsa` / `OnChain`.
+export type { ProductAccountId, SignedStatement, Statement, StatementProof, Topic };
 
 /**
  * Persistent storage exposed by the host container, including string, JSON
@@ -27,67 +31,71 @@ import type { Subscription } from "@novasamatech/host-api";
  * via {@link getHostLocalStorage} when you need raw host storage without the
  * KV abstraction.
  *
- * Type identical to `hostLocalStorage` from `@novasamatech/host-api-wrapper`.
+ * Backed by `truApi.localStorage.*` (raw `read`/`write`/`clear` over hex bytes);
+ * {@link getHostLocalStorage} adapts that into this richer surface. `readString`
+ * resolves to `""` for a missing key and `readJSON`/`readBytes` to
+ * `null`/`undefined`.
  */
-export type HostLocalStorage = typeof hostLocalStorage;
-
-/**
- * Cryptographic proof attached to a statement before submission, returned by
- * {@link HostStatementStore.createProof}. Variants cover the supported
- * signature schemes - `Sr25519`, `Ed25519`, `Ecdsa`, and `OnChain` (chain-
- * attestation-based proofs).
- *
- * Inferred from `createStatementStore().createProof`'s return type so codec
- * changes surface here as compile errors, not runtime decode failures.
- */
-export type StatementProof = Awaited<
-    ReturnType<ReturnType<typeof createStatementStore>["createProof"]>
->;
+export interface HostLocalStorage {
+    /** Read a UTF-8 string value; `""` when the key is absent. */
+    readString(key: string): Promise<string>;
+    /** Write a UTF-8 string value. */
+    writeString(key: string, value: string): Promise<void>;
+    /** Read and JSON-parse a value; `null` when the key is absent. */
+    readJSON(key: string): Promise<unknown>;
+    /** JSON-stringify and write a value. */
+    writeJSON(key: string, value: unknown): Promise<void>;
+    /** Read raw bytes; `undefined` when the key is absent. */
+    readBytes(key: string): Promise<Uint8Array | undefined>;
+    /** Write raw bytes. */
+    writeBytes(key: string, value: Uint8Array): Promise<void>;
+    /** Remove a key. */
+    clear(key: string): Promise<void>;
+}
 
 /**
  * Topic-based subscription filter. The host delivers statements that match
- * either *all* of the listed topics (`matchAll`) or *any* of them
- * (`matchAny`). Re-exported from `@novasamatech/host-api-wrapper`.
+ * either *all* of the listed topics (`matchAll`) or *any* of them (`matchAny`).
+ *
+ * This is a field-discriminated form of truapi's `RemoteStatementStoreSubscribeRequest`,
+ * which is a tagged union (`{ tag: "MatchAll"; value: Topic[] } | { tag: "MatchAny"; value: Topic[] }`).
+ * The transport maps between the two.
  */
-export type StatementTopicFilter = NovasamaStatementTopicFilter;
-
-/** A single topic value used inside a {@link StatementTopicFilter}. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type Topic = NovasamaTopic;
-
-/** `[ss58Address, chainPrefix]` tuple identifying a product account at the codec layer. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type ProductAccountId = NovasamaProductAccountId;
-
-/** Unsigned statement payload. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type Statement = NovasamaStatement;
-
-/** Statement bundled with its {@link StatementProof}. Re-exported from `@novasamatech/host-api-wrapper`. */
-export type SignedStatement = NovasamaSignedStatement;
+export type StatementTopicFilter = { matchAll: Topic[] } | { matchAny: Topic[] };
 
 /**
  * A page of signed statements delivered by {@link HostStatementStore.subscribe}.
  *
- * Pages arrive sequentially. `isComplete` is `true` on the final page of a
- * subscription's initial backfill; subsequent pages contain new statements
- * as they appear on chain. `statements` is `SignedStatement[]` (typed,
- * not `unknown[]`).
+ * truapi's `RemoteStatementStoreSubscribeItem`, re-exported under a friendlier
+ * name. Pages arrive sequentially; `isComplete` is `false` while the host
+ * streams the historical backfill and `true` once it's done (and on every
+ * subsequent live-update page).
  */
-export type StatementsPage = NovasamaStatementsPage;
+export type StatementsPage = RemoteStatementStoreSubscribeItem;
 
 /**
- * Subscription handle returned by the host - equivalent to
- * `Subscription<void>` from `@novasamatech/host-api`. Exposes
- * `unsubscribe()` plus an `onInterrupt` hook that fires if the host
- * interrupts the subscription server-side.
+ * Subscription handle returned by the host. Exposes `unsubscribe()` plus an
+ * `onInterrupt` hook that fires if the host interrupts the subscription
+ * server-side; `onInterrupt` returns a function that cancels the hook.
  */
-export type HostSubscription = Subscription<void>;
+export interface HostSubscription {
+    unsubscribe(): void;
+    onInterrupt(callback: (reason?: unknown) => void): () => void;
+}
 
 /**
- * Statement Store handle exposed by the host container. Provides
- * `subscribe`, `createProof`, and `submit` operations that go through the
- * host's native binary protocol; the `statement-store` package layers a
- * higher-level client on top.
- *
- * Type identical to `createStatementStore()` from
- * `@novasamatech/host-api-wrapper`.
+ * Statement Store handle exposed by the host container, backed by
+ * `truApi.statementStore.*`. `subscribe` streams matching statements;
+ * `createProofAuthorized` signs a statement with the product's RFC-10 allowance
+ * account (the sponsored path — no per-call account id); `submit` publishes a
+ * signed statement. The `statement-store` package layers a higher-level client
+ * on top.
  */
-export type HostStatementStore = ReturnType<typeof createStatementStore>;
+export interface HostStatementStore {
+    subscribe(
+        filter: StatementTopicFilter,
+        callback: (page: StatementsPage) => void,
+    ): HostSubscription;
+    createProofAuthorized(statement: Statement): Promise<StatementProof>;
+    submit(signedStatement: SignedStatement): Promise<void>;
+}

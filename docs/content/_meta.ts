@@ -10,4 +10,5 @@ export default {
   },
   "getting-started": "Getting Started",
   api: "API Reference",
+  migrations: "Migrations",
 };

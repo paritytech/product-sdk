@@ -41,10 +41,13 @@ test.describe("@parity/product-sdk-signer — onConnect lifecycle hook", () => {
         const subscribeBefore = parseInt((await subscribeCount.textContent()) ?? "0", 10);
         const transitionBefore = parseInt((await transitionCount.textContent()) ?? "0", 10);
 
-        // Click an account row — subscribe fires (selectedAccount changes),
-        // but neither status transition nor onConnect should advance.
+        // Click the account row — selectAccount() calls setState(), which
+        // notifies subscribers unconditionally (even when re-selecting the
+        // already-selected account), so subscribe fires. Neither a status
+        // transition nor onConnect should advance. (The host connect path
+        // surfaces a single product account, so there's only one row to click.)
         const rows = frame.locator('[data-testid="accounts-list"] .account-row');
-        await rows.nth(1).click();
+        await rows.nth(0).click();
 
         // Subscribe count must strictly increase; transition + onConnect stay put.
         await expect

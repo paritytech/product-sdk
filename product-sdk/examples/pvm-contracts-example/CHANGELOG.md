@@ -1,5 +1,94 @@
 # @parity/product-sdk-pvm-contracts-example
 
+## 0.0.19
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.8.3
+
+## 0.0.18
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.8.2
+
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies [8dd1232]
+  - @parity/product-sdk-contracts@0.8.1
+
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies [0ce53f6]
+  - @parity/product-sdk-contracts@0.8.0
+
+## 0.0.15
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.7.7
+
+## 0.0.14
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.7.6
+
+## 0.0.13
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.7.5
+
+## 0.0.12
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.7.4
+
+## 0.0.11
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.7.3
+
+## 0.0.10
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.7.2
+
+## 0.0.9
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.7.1
+
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-contracts@0.7.0
+
+## 0.0.7
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.6.2
+
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [2498950]
+  - @parity/product-sdk-contracts@0.6.1
+
 ## 0.0.5
 
 ### Patch Changes

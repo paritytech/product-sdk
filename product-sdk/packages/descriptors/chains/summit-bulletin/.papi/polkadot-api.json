@@ -1,0 +1,12 @@
+{
+    "version": 0,
+    "descriptorPath": "generated",
+    "entries": {
+        "summit_bulletin": {
+            "wsUrl": "wss://summit-bulletin-rpc.polkadot.io",
+            "metadata": "../../.papi/metadata/summit_bulletin.scale",
+            "genesis": "0x147aae0d60625af72300d4d5ebd5dcb869f7ac4c6c1a326be1cbb14a4a65ae77",
+            "codeHash": "0xbf2cd56d20198f00ab6f38d7e77f15a9d5671d47beb5d456012ed45d23572045"
+        }
+    }
+}

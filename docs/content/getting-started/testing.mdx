@@ -1,0 +1,214 @@
+---
+title: Testing your app
+description: Unit-test SDK app code with the in-memory fakes each package ships under /testing — no host, chain, or wallet required.
+---
+
+# Testing your app
+
+App code that uses the SDK usually touches something that only lives inside a host
+container: the wallet, host storage, a chain connection. Each package ships a
+`/testing` subpath with a ready-made **fake** — a working in-memory implementation
+of that package's interface, with no host and no network. Import one, wire it into
+the same call sites you use in production, and assert.
+
+The fakes sit behind a separate entry point, so your production bundle never
+includes them as long as app code imports `/testing` only in tests. They pull in no
+test framework either, so they run under Vitest, Jest, `node:test`, or nothing at
+all.
+
+```ts
+import { createFakeHostLocalStorage } from "@parity/product-sdk-local-storage/testing";
+```
+
+Meta-package users can import the fakes of every package the umbrella wraps from
+one place (the statement-store fake is the exception — the umbrella doesn't wrap
+that package, so import it from `@parity/product-sdk-statement-store/testing`):
+
+```ts
+import { createFakeApp, createFakeSignerProvider } from "@parity/product-sdk/testing";
+```
+
+## Wallet and signing
+
+`createFakeSignerProvider` hands `SignerManager` a provider a test can drive: fail a
+`connect()`, push status changes, swap the account list. Pair it with
+`fakeSignerAccount`, which builds a `SignerAccount` you can override field by field.
+
+```ts
+import { SignerManager } from "@parity/product-sdk-signer";
+import { createFakeSignerProvider, fakeSignerAccount } from "@parity/product-sdk-signer/testing";
+
+test("shows a reconnect banner when the host drops", async () => {
+  const provider = createFakeSignerProvider({ accounts: [fakeSignerAccount({ name: "Alice" })] });
+  const manager = new SignerManager({ createProvider: () => provider, persistence: null });
+
+  await manager.connect("dev");
+  expect(manager.getState().status).toBe("connected");
+
+  provider.emitStatus("disconnected");
+  expect(myUi.banner).toBe("reconnecting");
+});
+```
+
+For the happy path against real dev keys, `DevProvider` (Alice/Bob/…) also works
+without a host.
+
+## Local storage
+
+Pass `createFakeHostLocalStorage()` as the `hostLocalStorage` for
+`createLocalKvStore` and your storage code runs in Node. It round-trips string,
+JSON, and byte values, and reports missing keys the way the host does.
+
+```ts
+import { createLocalKvStore } from "@parity/product-sdk-local-storage";
+import { createFakeHostLocalStorage } from "@parity/product-sdk-local-storage/testing";
+
+test("persists the theme choice", async () => {
+  const kv = await createLocalKvStore({
+    hostLocalStorage: createFakeHostLocalStorage(),
+    prefix: "my-app",
+  });
+  await myApp.saveTheme(kv, "dark");
+  expect(await kv.get("theme")).toBe("dark");
+});
+```
+
+Seed initial state for read-path tests with `createFakeHostLocalStorage({ seed })`.
+
+## Statement store
+
+`createFakeStatementTransport` is an in-memory transport for
+`StatementStoreClient`. It records every published statement and echoes it to
+matching subscribers, so your app's publish/subscribe/dedup flow runs against the
+real client.
+
+```ts
+import { StatementStoreClient } from "@parity/product-sdk-statement-store";
+import { createFakeStatementTransport } from "@parity/product-sdk-statement-store/testing";
+
+test("delivers a published message to a subscriber", async () => {
+  const transport = createFakeStatementTransport();
+  const client = new StatementStoreClient({ appName: "chat", transport });
+  await client.connect({ mode: "host" });
+
+  const received: string[] = [];
+  client.subscribe<string>((s) => received.push(s.data));
+  await myChatApp.send(client, "gm");
+
+  expect(received).toEqual(["gm"]);
+  expect(transport.published).toHaveLength(1);
+});
+```
+
+`transport.inject(statement)` simulates a statement arriving from a peer. Each
+package fake exposes an inspection surface like this (`.calls` or `.published`) plus
+a `.reset()`, so tests can assert what the app did, not only what it got back.
+
+## Contracts
+
+`createContract` accepts any `ContractRuntime` structurally, so you can test call
+construction and decoding with no chain and no deployed contract.
+`createFakeContractRuntime` builds one: pass your `abi` and an `onQuery` that returns
+the value each method should decode to.
+
+```ts
+import { createContract } from "@parity/product-sdk-contracts";
+import { createFakeContractRuntime, fakeDryRunResult } from "@parity/product-sdk-contracts/testing";
+
+test("reads a balance", async () => {
+  const runtime = createFakeContractRuntime({
+    abi: erc20Abi,
+    onQuery: ({ functionName }) => (functionName === "balanceOf" ? 1000n : 0n),
+  });
+  const token = createContract(runtime, ADDRESS, erc20Abi);
+
+  const res = await token.balanceOf.query(HOLDER);
+  expect(res.success && res.value).toBe(1000n);
+  expect(runtime.calls[0]?.functionName).toBe("balanceOf");
+});
+```
+
+Return `fakeDryRunResult({ revert })` or `fakeDryRunResult({ failure })` from
+`onQuery` to exercise revert and dispatch-failure paths. Pass an `onCall` to capture
+the extrinsic that `.tx()` / `.prepare()` builds without submitting.
+
+## The whole app
+
+If your app is built on `createApp()`, `createFakeApp()` returns a fake `App` you can
+use directly or hand to React. `wallet` lists the accounts you pass; `localStorage`
+and `cloudStorage` round-trip in memory; `chain` is unconfigured until you override
+it. Every sub-API is overridable.
+
+```ts
+import { createFakeApp } from "@parity/product-sdk/testing";
+
+const app = createFakeApp({ wallet: { accounts: [alice, bob], selected: alice } });
+await app.wallet.connect();
+expect(app.wallet.getAccounts()).toHaveLength(2);
+```
+
+For React, feed the fake to the exported context — no `ProductSDKProvider` (and no
+host) needed:
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { ProductSDKContext } from "@parity/product-sdk/react";
+import { createFakeApp } from "@parity/product-sdk/testing";
+
+test("<AccountPicker/> lists connected accounts", () => {
+  const app = createFakeApp({ wallet: { accounts: [alice, bob] } });
+  render(
+    <ProductSDKContext.Provider value={app}>
+      <AccountPicker />
+    </ProductSDKContext.Provider>,
+  );
+  expect(screen.getByText("alice")).toBeVisible();
+});
+```
+
+## Code that calls the host directly
+
+Some code reaches host accessors itself: `getHostLocalStorage`,
+`getAccountsProvider`, `getStatementStore`, `getTruApi`. `createFakeHost` injects a
+fake client through `setTruApiClient`, so every accessor resolves it. Declare it with
+`using` and the real client is restored when the scope ends — no `afterEach` to
+forget, no override leaking into the next test.
+
+```ts
+import { createFakeHost } from "@parity/product-sdk-host/testing";
+import { getHostLocalStorage } from "@parity/product-sdk-host";
+
+test("host storage is reachable", async () => {
+  using host = createFakeHost({ primaryUsername: "carol.dot" });
+  const ls = await getHostLocalStorage(); // resolves the fake
+  await ls?.writeString("k", "v");
+  expect(await ls?.readString("k")).toBe("v");
+});
+```
+
+If you can't use `using`, call `host.dispose()` in an `afterEach`. Under Vitest with
+`globals: true`, the handle also self-registers `onTestFinished`, so cleanup still
+runs if you forget.
+
+While a fake host is set, `isInsideContainer()` reports `true`, so code that branches
+on it takes the container path.
+
+## Chain reads
+
+There's no fake for chain reads, by design. The host owns RPC selection — a product
+never picks its own endpoint — so the SDK gives you no seam to point
+`createChainClient` at a node of your choosing. Test chain-reading logic one level up
+instead: put the reads behind your own small interface, stub that in unit tests, and
+cover the real wiring in an e2e run against a live chain.
+
+## Cloud storage
+
+Cloud-storage reads go through the host preimage domain, which `createFakeHost`
+models: `getPreimageManager()` resolves, and `createFakeHost({ preimages })` seeds
+reads keyed by preimage key. For app-level tests, `createFakeApp().cloudStorage`
+round-trips upload and fetch in memory. Chain-level writes are testable with
+`MockBulletinClient` from `@parity/product-sdk-cloud-storage`.
+
+One caveat: the fakes derive preimage keys and CIDs deterministically, but they are
+not real hashes — they're shorter than what production produces. Round-trips work
+(submit → lookup, upload → fetch), but don't assert on key or CID format.

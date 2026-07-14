@@ -1,12 +1,11 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * @parity/product-sdk-local-storage — One key-value API across the host container and the browser.
+ * @parity/product-sdk-local-storage — Key-value storage backed by the host container.
  *
- * `createLocalKvStore` returns a `LocalKvStore` that uses the host-provided
- * `HostLocalStorage` when running inside a Polkadot host container and falls back
- * to browser `localStorage` otherwise, so app code reads and writes the same way
- * on desktop, mobile, and web.
+ * `createLocalKvStore` returns a `LocalKvStore` backed by the host-provided
+ * `HostLocalStorage`. It runs only inside a Polkadot host container (Browser /
+ * Desktop) and throws if host storage is unavailable.
  *
  * @packageDocumentation
  */

@@ -1,14 +1,20 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { SdkError } from "@parity/product-sdk-errors";
+
 import { MAX_STATEMENT_SIZE } from "./types.js";
 
 /**
  * Base class for all statement store errors.
  *
  * Use `instanceof StatementStoreError` to catch any error originating
- * from the statement store package.
+ * from the statement store package. Implements the cross-package
+ * {@link SdkError} marker so `isSdkError(e)` also recognizes it.
  */
-export class StatementStoreError extends Error {
+export class StatementStoreError extends Error implements SdkError {
+    readonly isSdkError = true as const;
+    readonly source = "statement-store";
+
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = "StatementStoreError";

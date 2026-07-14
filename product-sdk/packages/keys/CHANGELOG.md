@@ -1,5 +1,94 @@
 # @parity/product-sdk-keys
 
+## 0.3.13
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.12
+
+## 0.3.12
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.11
+
+## 0.3.11
+
+### Patch Changes
+
+- 8dd1232: chore(deps): bump polkadot-api to 2.1.6
+
+  Updates the `polkadot-api` catalog entry `^2.1.5` → `^2.1.6` (2.1.6 carries the
+  double-notification fix). Every published package resolves `polkadot-api`
+  through `catalog:`, so each one's published `dependencies` range moves to
+  `^2.1.6`. There is no source change in any package — these are patch bumps to
+  ship the new floor via the published `catalog:` resolution.
+
+  Releases the catalog bump from #223, which was merged to `main` without a
+  changeset.
+
+  - @parity/product-sdk-local-storage@0.2.10
+
+## 0.3.10
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.9
+
+## 0.3.9
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.8
+
+## 0.3.8
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.7
+
+## 0.3.7
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.6
+
+## 0.3.6
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.5
+
+## 0.3.5
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.4
+
+## 0.3.4
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.3
+
+## 0.3.3
+
+### Patch Changes
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+  - @parity/product-sdk-local-storage@0.2.2
+
+## 0.3.2
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.2.1
+
 ## 0.3.1
 
 ### Patch Changes

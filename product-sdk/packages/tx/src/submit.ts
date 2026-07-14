@@ -1,10 +1,12 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { PolkadotSigner } from "polkadot-api";
 import { createLogger } from "@parity/product-sdk-logger";
+import { type Result, err, normalizeError, ok } from "@parity/result";
+import type { PolkadotSigner } from "polkadot-api";
 
 import {
     TxDispatchError,
+    TxError,
     TxSigningRejectedError,
     TxTimeoutError,
     formatDispatchError,
@@ -52,17 +54,17 @@ function buildTxResult(
  * @param signer - The signer to use. Can come from the Host API
  *   (`getProductAccountSigner`) or {@link createDevSigner}.
  * @param options - Submission options (waitFor, timeout, mortality, status callback).
- * @returns The transaction result once included/finalized.
- *
- * @throws {TxTimeoutError} If the transaction does not reach the target state within `timeoutMs`.
- * @throws {TxDispatchError} If the on-chain dispatch fails (e.g., insufficient balance, contract revert).
- * @throws {TxSigningRejectedError} If the user rejects signing in their wallet.
+ * @returns A {@link Result}: `ok(TxResult)` once included/finalized, or `err(TxError)` on failure.
+ *   The `err` channel carries a typed `TxError` — a `TxTimeoutError` (target state not reached
+ *   within `timeoutMs`), `TxDispatchError` (on-chain dispatch failed, e.g. insufficient balance or
+ *   contract revert), `TxSigningRejectedError` (user rejected signing), or a base `TxError`
+ *   wrapping any other failure.
  */
 export async function submitAndWatch(
     tx: SubmittableTransaction,
     signer: PolkadotSigner,
     options?: SubmitOptions,
-): Promise<TxResult> {
+): Promise<Result<TxResult, TxError>> {
     const waitFor = options?.waitFor ?? "best-block";
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const mortalityPeriod = options?.mortalityPeriod ?? DEFAULT_MORTALITY_PERIOD;
@@ -70,7 +72,7 @@ export async function submitAndWatch(
 
     const resolvedTx = await resolveTransaction(tx);
 
-    return new Promise<TxResult>((resolve, reject) => {
+    return new Promise<Result<TxResult, TxError>>((resolve) => {
         let settled = false;
         let subscription: { unsubscribe: () => void } | null = null;
 
@@ -79,7 +81,7 @@ export async function submitAndWatch(
             if (!settled) {
                 settled = true;
                 onStatus?.("error");
-                reject(new TxTimeoutError(timeoutMs));
+                resolve(err(new TxTimeoutError(timeoutMs)));
             }
         }, timeoutMs);
 
@@ -88,12 +90,13 @@ export async function submitAndWatch(
             subscription?.unsubscribe();
         }
 
-        function settleReject(error: Error): void {
+        /** Settle the outcome on the `err` channel, normalizing to a `TxError`. */
+        function settleErr(error: unknown): void {
             if (settled) return;
             settled = true;
             teardown();
             onStatus?.("error");
-            reject(error);
+            resolve(err(normalizeError(error, TxError)));
         }
 
         try {
@@ -126,7 +129,7 @@ export async function submitAndWatch(
                                     formatted,
                                     block: event.block,
                                 });
-                                settleReject(new TxDispatchError(event.dispatchError, formatted));
+                                settleErr(new TxDispatchError(event.dispatchError, formatted));
                                 return;
                             }
 
@@ -145,12 +148,14 @@ export async function submitAndWatch(
                                 settled = true;
                                 clearTimeout(timer);
                                 resolve(
-                                    buildTxResult(
-                                        event as TxEvent & {
-                                            ok: boolean;
-                                            block: TxResult["block"];
-                                            events: unknown[];
-                                        },
+                                    ok(
+                                        buildTxResult(
+                                            event as TxEvent & {
+                                                ok: boolean;
+                                                block: TxResult["block"];
+                                                events: unknown[];
+                                            },
+                                        ),
                                     ),
                                 );
                             }
@@ -175,9 +180,7 @@ export async function submitAndWatch(
                                         { formatted, block: event.block },
                                     );
                                 } else {
-                                    settleReject(
-                                        new TxDispatchError(event.dispatchError, formatted),
-                                    );
+                                    settleErr(new TxDispatchError(event.dispatchError, formatted));
                                 }
                                 subscription?.unsubscribe();
                                 return;
@@ -188,7 +191,7 @@ export async function submitAndWatch(
                             if (!settled) {
                                 settled = true;
                                 teardown();
-                                resolve(buildTxResult(event));
+                                resolve(ok(buildTxResult(event)));
                             } else {
                                 // Already resolved at best-block, finalization confirmed success.
                                 subscription?.unsubscribe();
@@ -197,24 +200,24 @@ export async function submitAndWatch(
                         }
                     }
                 },
-                error: (err: Error) => {
-                    log.error("Transaction subscription error", { error: err.message });
+                error: (subErr: Error) => {
+                    log.error("Transaction subscription error", { error: subErr.message });
 
-                    if (isSigningRejection(err)) {
-                        settleReject(new TxSigningRejectedError());
+                    if (isSigningRejection(subErr)) {
+                        settleErr(new TxSigningRejectedError());
                     } else {
-                        settleReject(err);
+                        settleErr(subErr);
                     }
                 },
             });
-        } catch (err) {
-            log.error("Failed to start transaction", { error: (err as Error).message });
+        } catch (caughtErr) {
+            log.error("Failed to start transaction", { error: (caughtErr as Error).message });
             teardown();
 
-            if (isSigningRejection(err)) {
-                settleReject(new TxSigningRejectedError());
+            if (isSigningRejection(caughtErr)) {
+                settleErr(new TxSigningRejectedError());
             } else {
-                settleReject(err as Error);
+                settleErr(caughtErr);
             }
         }
     });
@@ -290,7 +293,7 @@ if (import.meta.vitest) {
     };
 
     describe("submitAndWatch", () => {
-        test("resolves at best-block by default", async () => {
+        test("resolves ok at best-block by default", async () => {
             const tx = createMockTx((h) => {
                 h.next(signedEvent);
                 h.next(broadcastedEvent);
@@ -299,10 +302,10 @@ if (import.meta.vitest) {
             });
             const result = await submitAndWatch(tx, mockSigner);
             expect(result.ok).toBe(true);
-            expect(result.block.number).toBe(100);
+            if (result.ok) expect(result.value.block.number).toBe(100);
         });
 
-        test("resolves at finalized when configured", async () => {
+        test("resolves ok at finalized when configured", async () => {
             const tx = createMockTx((h) => {
                 h.next(signedEvent);
                 h.next(bestBlockOk);
@@ -310,36 +313,39 @@ if (import.meta.vitest) {
             });
             const result = await submitAndWatch(tx, mockSigner, { waitFor: "finalized" });
             expect(result.ok).toBe(true);
-            expect(result.block.number).toBe(101);
+            if (result.ok) expect(result.value.block.number).toBe(101);
         });
 
-        test("rejects with TxDispatchError on best-block failure", async () => {
+        test("returns err(TxDispatchError) on best-block failure", async () => {
             const tx = createMockTx((h) => {
                 h.next(signedEvent);
                 h.next(bestBlockFail);
             });
-            await expect(submitAndWatch(tx, mockSigner)).rejects.toThrow(TxDispatchError);
+            const result = await submitAndWatch(tx, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxDispatchError);
         });
 
-        test("rejects with TxDispatchError on finalized failure", async () => {
+        test("returns err(TxDispatchError) on finalized failure", async () => {
             const tx = createMockTx((h) => {
                 h.next(signedEvent);
                 h.next(finalizedFail);
             });
-            await expect(submitAndWatch(tx, mockSigner, { waitFor: "finalized" })).rejects.toThrow(
-                TxDispatchError,
-            );
+            const result = await submitAndWatch(tx, mockSigner, { waitFor: "finalized" });
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxDispatchError);
         });
 
-        test("rejects with TxTimeoutError after timeout", async () => {
+        test("returns err(TxTimeoutError) after timeout", async () => {
             const tx = createMockTx(() => {
                 // Never emits any events - tx hangs forever
             });
-            const error = await submitAndWatch(tx, mockSigner, { timeoutMs: 50 }).catch(
-                (e: unknown) => e,
-            );
-            expect(error).toBeInstanceOf(TxTimeoutError);
-            expect((error as TxTimeoutError).timeoutMs).toBe(50);
+            const result = await submitAndWatch(tx, mockSigner, { timeoutMs: 50 });
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxTimeoutError);
+                expect((result.error as TxTimeoutError).timeoutMs).toBe(50);
+            }
         });
 
         test("calls onStatus callbacks in order", async () => {
@@ -394,7 +400,9 @@ if (import.meta.vitest) {
             const tx = createMockTx((h) => {
                 h.error(new Error("User rejected the request"));
             });
-            await expect(submitAndWatch(tx, mockSigner)).rejects.toThrow(TxSigningRejectedError);
+            const result = await submitAndWatch(tx, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxSigningRejectedError);
         });
 
         test("skips txBestBlocksState with found=false", async () => {
@@ -411,22 +419,31 @@ if (import.meta.vitest) {
             expect(result.ok).toBe(true);
         });
 
-        test("rejects with original error for non-rejection Observable errors", async () => {
+        test("returns err wrapping the original error for non-rejection Observable errors", async () => {
             const tx = createMockTx((h) => {
                 h.error(new Error("WebSocket disconnected"));
             });
-            const err = await submitAndWatch(tx, mockSigner).catch((e) => e);
-            expect(err.message).toBe("WebSocket disconnected");
-            expect(err).not.toBeInstanceOf(TxSigningRejectedError);
+            const result = await submitAndWatch(tx, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxError);
+                expect(result.error.message).toBe("WebSocket disconnected");
+                expect(result.error).not.toBeInstanceOf(TxSigningRejectedError);
+            }
         });
 
-        test("handles synchronous throw from signSubmitAndWatch", async () => {
+        test("returns err wrapping a synchronous throw from signSubmitAndWatch", async () => {
             const tx: SubmittableTransaction = {
                 signSubmitAndWatch: () => {
                     throw new Error("Signer not available");
                 },
             };
-            await expect(submitAndWatch(tx, mockSigner)).rejects.toThrow("Signer not available");
+            const result = await submitAndWatch(tx, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxError);
+                expect(result.error.message).toBe("Signer not available");
+            }
         });
 
         test("calls onStatus error on dispatch failure", async () => {
@@ -488,7 +505,8 @@ if (import.meta.vitest) {
 
             const result = await submitAndWatch(tx, mockSigner);
             // Should resolve from finalized, not best-block (since ok was undefined)
-            expect(result.block.number).toBe(101);
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value.block.number).toBe(101);
         });
     });
 }

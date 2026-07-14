@@ -50,12 +50,12 @@ export function createChannel(name: string): ChannelHash {
  * @param hash - A 32-byte topic or channel hash.
  * @returns Hex string with "0x" prefix.
  */
-export function topicToHex(hash: Uint8Array): string {
+export function topicToHex(hash: Uint8Array): `0x${string}` {
     let hex = "0x";
     for (let i = 0; i < hash.length; i++) {
         hex += hash[i].toString(16).padStart(2, "0");
     }
-    return hex;
+    return hex as `0x${string}`;
 }
 
 /**

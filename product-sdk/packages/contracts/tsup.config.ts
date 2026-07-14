@@ -7,6 +7,7 @@ export default defineConfig({
         index: "src/index.ts",
         codegen: "src/codegen.ts",
         pvm: "src/pvm.ts",
+        testing: "src/testing.ts",
     },
     format: ["esm"],
     dts: true,

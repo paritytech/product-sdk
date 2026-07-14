@@ -21,15 +21,23 @@ import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
 import {
     CloudStorageClient,
+    ProductCloudStorageError,
     calculateCid,
     createLazySigner,
 } from "@parity/product-sdk-cloud-storage";
+import { err, ok } from "@parity/result";
 import {
     createChainClient,
     getClient,
     isConnected,
     destroyAll,
 } from "@parity/product-sdk-chain-client";
+import { getAccountsProvider } from "@parity/product-sdk-host";
+import {
+    accountIdHexToBytes,
+    type PeopleUsernameQueryApi,
+    resolvePeopleUsernameOwner,
+} from "../identity/dotns.js";
 
 const log = createLogger("app");
 
@@ -94,7 +102,9 @@ export async function createApp(config: AppConfig): Promise<App> {
     // The signer is wrapped lazily so the cloud storage client can be built before
     // an account is selected. Uploads will throw a clear error if no signer
     // is available at submission time. Reads (fetch / fetchJson) don't need
-    // a signer and work regardless.
+    // a signer, so they work regardless of whether an account is selected --
+    // but they are container-only and throw CloudStorageHostUnavailableError
+    // outside a host container (no IPFS-gateway fallback).
     const cloudStorageEnabled = config.cloudStorage !== false;
     const cloudStorageEnvironment =
         typeof config.cloudStorage === "object" ? config.cloudStorage.environment : "paseo";
@@ -144,11 +154,7 @@ export async function createApp(config: AppConfig): Promise<App> {
 
         async connect<T extends Record<string, ChainDefinition>>(chains: T) {
             log.debug("connect called", { chains: Object.keys(chains) });
-            // Build empty rpcs object (required by API but unused - host routes connections)
-            const rpcs = Object.fromEntries(
-                Object.keys(chains).map((k) => [k, [] as readonly string[]]),
-            ) as { [K in keyof T]: readonly string[] };
-            return createChainClient({ chains, rpcs });
+            return createChainClient({ chains });
         },
 
         isConnected(descriptor) {
@@ -166,20 +172,28 @@ export async function createApp(config: AppConfig): Promise<App> {
         ? {
               upload: async (data) => {
                   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-                  // Explicitly request a DAG-PB manifest so chunked uploads always
-                  // resolve to a single root CID. Without this, AsyncBulletinClient
-                  // can return `result.cid: undefined` for chunked-without-manifest
-                  // uploads — but CloudStorageApi.upload promises a string return, and
-                  // app consumers expect a CID they can hand to `fetch(cid)`. Keep
-                  // the defensive null-check below as belt-and-braces in case the
-                  // upstream contract shifts.
-                  const result = await cloudStorageClient.store(bytes).withManifest(true).send();
-                  if (!result.cid) {
-                      throw new Error(
-                          "Cloud storage upload returned no CID despite .withManifest(true). Upstream contract may have shifted — file an issue.",
-                      );
+                  try {
+                      // Explicitly request a DAG-PB manifest so chunked uploads always
+                      // resolve to a single root CID. Without this, AsyncBulletinClient
+                      // can return `result.cid: undefined` for chunked-without-manifest
+                      // uploads — but app consumers expect a CID they can hand to
+                      // `fetch(cid)`, so treat a missing CID as an error.
+                      const uploaded = await cloudStorageClient
+                          .store(bytes)
+                          .withManifest(true)
+                          .send();
+                      if (!uploaded.cid) {
+                          return err(
+                              new ProductCloudStorageError(
+                                  "Cloud storage upload returned no CID despite .withManifest(true). Upstream contract may have shifted — file an issue.",
+                              ),
+                          );
+                      }
+                      return ok(uploaded.cid.toString());
+                  } catch (cause) {
+                      const message = cause instanceof Error ? cause.message : String(cause);
+                      return err(new ProductCloudStorageError(message, { cause }));
                   }
-                  return result.cid.toString();
               },
               fetch: (cid) => cloudStorageClient.fetchBytes(cid),
               computeCid: async (data) => {
@@ -279,6 +293,61 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
             return result.value;
         },
 
+        async signMessageWithDotNsIdentity(args) {
+            const message =
+                typeof args.message === "string"
+                    ? new TextEncoder().encode(args.message)
+                    : args.message;
+            const accountsProvider = await getHostAccountsProvider();
+            const username = args.username ?? (await getPrimaryUsername(accountsProvider));
+
+            // Reuse an already-connected People chain when the caller has
+            // wired one up via `app.chain.connect({ ..., <name>: peopleChain })`.
+            // Fall back to opening a transient connection so first-time users
+            // don't have to think about chain lifecycles. The chain-client
+            // module caches by genesis fingerprint, so subsequent
+            // signMessageWithDotNsIdentity calls share whichever connection
+            // got established first.
+            const peopleClient = isConnected(args.peopleChain)
+                ? getClient(args.peopleChain)
+                : await createChainClient({ chains: { people: args.peopleChain } }).then(
+                      (c) => c.raw.people,
+                  );
+            // PAPI's `TypedApi.query.X.Y.getValue` is variadic
+            // (`...args: [...WithCallOptions<Args>]`) so it's not assignable
+            // to our deliberately-narrow `(key) => Promise<...>` shape. The
+            // resolver only ever passes the storage key; the cast adapts the
+            // wider PAPI surface to the minimum we depend on.
+            const peopleApi = peopleClient.getTypedApi(
+                args.peopleChain,
+            ) as unknown as PeopleUsernameQueryApi;
+            const accountId = await resolvePeopleUsernameOwner(username, peopleApi);
+            if (!accountId) {
+                throw new Error(`No account owns DotNS username "${username}"`);
+            }
+
+            const owner = accountIdHexToBytes(accountId);
+            const signer = accountsProvider.getLegacyAccountSigner({
+                publicKey: owner,
+                name: username,
+            });
+
+            try {
+                return {
+                    username,
+                    accountId,
+                    signature: await signer.signBytes(message),
+                };
+            } catch (cause) {
+                throw new Error(
+                    `Failed to sign with DotNS username "${username}": ${
+                        cause instanceof Error ? cause.message : String(cause)
+                    }`,
+                    { cause },
+                );
+            }
+        },
+
         onAccountChange(callback: (account: Account | null) => void): () => void {
             accountChangeSubscribers.add(callback);
             return () => accountChangeSubscribers.delete(callback);
@@ -310,4 +379,28 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
             );
         },
     };
+}
+
+type HostAccountsProvider = NonNullable<Awaited<ReturnType<typeof getAccountsProvider>>>;
+
+async function getHostAccountsProvider(): Promise<HostAccountsProvider> {
+    const provider = await getAccountsProvider();
+    if (!provider) {
+        throw new Error("Host accounts provider is not available");
+    }
+    return provider;
+}
+
+async function getPrimaryUsername(accountsProvider: HostAccountsProvider): Promise<string> {
+    const result = await accountsProvider.getUserId().match(
+        (value) => value,
+        (err) => {
+            throw err;
+        },
+    );
+    const username = result.primaryUsername.trim();
+    if (!username) {
+        throw new Error("Host identity did not provide a primary DotNS username");
+    }
+    return username;
 }

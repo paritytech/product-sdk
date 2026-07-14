@@ -1,0 +1,27 @@
+{
+    "name": "@parity/result",
+    "version": "0.1.0",
+    "description": "Generic zero-dependency Result type and helpers",
+    "type": "module",
+    "sideEffects": false,
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": ["dist", "src"],
+    "scripts": {
+        "build": "tsup",
+        "test": "vitest",
+        "clean": "rm -rf dist"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.0",
+        "vitest": "^3.0.0"
+    },
+    "license": "Apache-2.0"
+}

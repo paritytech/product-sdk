@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-host",
-    "version": "0.5.0",
+    "version": "0.12.0",
     "description": "Host container detection and storage access for Polkadot Desktop and Mobile environments",
     "type": "module",
     "sideEffects": false,
@@ -11,6 +11,10 @@
         ".": {
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
+        },
+        "./testing": {
+            "import": "./dist/testing.js",
+            "types": "./dist/testing.d.ts"
         }
     },
     "files": ["dist", "src"],
@@ -21,23 +25,16 @@
     },
     "dependencies": {
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-errors": "workspace:*",
+        "@parity/result": "workspace:*",
+        "@parity/truapi": "catalog:",
+        "@polkadot-api/json-rpc-provider": "catalog:",
+        "@polkadot-api/substrate-bindings": "catalog:",
+        "neverthrow": "^8.2.0",
         "polkadot-api": "catalog:"
     },
-    "peerDependencies": {
-        "@novasamatech/host-api-wrapper": ">=0.1.0",
-        "@novasamatech/host-api": ">=0.6.0"
-    },
-    "peerDependenciesMeta": {
-        "@novasamatech/host-api-wrapper": {
-            "optional": true
-        },
-        "@novasamatech/host-api": {
-            "optional": true
-        }
-    },
     "devDependencies": {
-        "@novasamatech/host-api-wrapper": "catalog:",
-        "@novasamatech/host-api": "catalog:",
+        "tsup": "catalog:",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0"
     },

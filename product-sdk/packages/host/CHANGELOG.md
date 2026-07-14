@@ -1,5 +1,377 @@
 # @parity/product-sdk-host
 
+## 0.12.0
+
+### Minor Changes
+
+- f81fc2b: Move the throw→`Result` boundary into `@parity/product-sdk-host`: the flat public host operations now return a tagged `Result<T, HostError>` instead of throwing opaque `Error`s, so every consumer gets typed errors (not just the signer, which previously wrapped host's throws in its own `try/catch`).
+
+  **New exports (`@parity/product-sdk-host`):**
+
+  - `Result<T, E>` (`{ ok: true; value } | { ok: false; error }`) plus `ok()` / `err()` constructors. The shape is intentionally identical to `@parity/product-sdk-signer`'s `Result`, so the two layers compose with no adapter.
+  - A `HostError` class hierarchy — `HostError` (base, extends `Error`), `HostUnavailableError` (raised when running outside a host container), and `HostCallFailedError` (a host call reached the container but failed; carries the structured truapi error as `.payload` and as `cause`) — plus an `isHostError(e)` type guard. The hierarchy mirrors the signer's error classes, so `instanceof HostUnavailableError` works across both layers.
+
+  **Breaking (shape) changes — minor-bumped because the package is pre-1.0:**
+
+  - These functions now return `Promise<Result<T, HostError>>` instead of throwing: `requestPermission`, `requestDevicePermission`, `requestResourceAllocation`, `createProofAuthorized`, `deriveEntropy`, `navigateTo`, `broadcastTransaction`, `stopTransaction`, `featureSupported`, `isChainSupported`. Migrate `const x = await foo()` (which threw on failure) to `const r = await foo(); if (!r.ok) handle(r.error); const x = r.value`.
+  - `getChainSpec` now returns `Promise<Result<ChainSpec | null, HostError>>`. `ok(null)` still means "running outside a host container" (an expected state, not a failure); a real host-call failure now surfaces on the `err` channel instead of throwing. Migrate `const spec = await getChainSpec(h); if (spec) …` to `const r = await getChainSpec(h); if (r.ok && r.value) …`.
+  - The exported error-payload type **`HostError` is renamed to `HostErrorPayload`** (the structured truapi `Err`-channel shape), freeing the name `HostError` for the new base error class. The payload now rides inside `HostCallFailedError.payload`.
+
+  **Unchanged:**
+
+  - The feature-detection getters that return `T | null` (`getThemeProvider`, `getAccountsProvider`, `getHostProvider`, `getHostLocalStorage` / `createHostLocalStorage`, `getStatementStore`, `getPreimageManager` / `createHostPreimageManager`, `getChatManager`, `getNotificationManager`, `getPaymentManager`) keep their `T | null` signatures. Their throwing lives in the methods of the adapter objects they return — some of which implement external interfaces (e.g. polkadot-api's `JsonRpcProvider`) whose signatures can't carry a `Result` — so those methods keep the throw convention via the retained internal `unwrapHostResult` helper.
+
+  **`@parity/product-sdk-signer` (patch):** internal only — the public API is unchanged. `HostProvider`'s default `requestChainSubmitPermissionFn` and `SignerManager`'s `ConnectContext.requestResourceAllocation` now adapt host's `Result`-returning functions back to their existing `Promise<boolean>` / `Promise<AllocationOutcome[]>` contracts (unwrap-or-throw at the boundary), so consumer callbacks see no change.
+
+- f81fc2b: Migrate `@parity/product-sdk-host`'s host-API surface — plus the statement store, preimage, and the signer's host provider — from the third-party `@novasamatech` packages to the in-house `@parity/truapi` client, and drop `@novasamatech/sdk-statement` from `@parity/product-sdk-statement-store`.
+
+  A new sandbox-bootstrap module detects the host environment (iframe / webview / injected message port), builds the `@parity/truapi` transport, creates the client, and runs the `system.handshake` — replacing the wrapper's auto-detected `hostApi` singleton. `@parity/truapi` is now a hard runtime dependency of `host` (alongside `neverthrow`, `@polkadot-api/json-rpc-provider`, and `@polkadot-api/substrate-bindings`). With the accounts/signer surface migrated, **nothing in `host` or `signer` imports `@novasamatech/host-api-wrapper` / `host-api` at runtime anymore.**
+
+  **Migrated to `@parity/truapi`:** `getTruApi`, `requestResourceAllocation`, `requestPermission`, `requestDevicePermission`, `deriveEntropy`, `getHostLocalStorage` / `createHostLocalStorage` (adapted onto `localStorage.read/write/clear`), `isInsideContainer` / `isInsideContainerSync`, `getStatementStore` + `createProofAuthorized` (`statementStore.*`), `getPreimageManager` / `createHostPreimageManager` (`preimage.*`), `getThemeProvider` (`theme.*`), `getChatManager` (`chat.*`), `getPaymentManager` (`payment.*`), `getNotificationManager` (`notifications.*`), `navigateTo` (`system.navigateTo`), `featureSupported` / `isChainSupported` (`system.featureSupported`), `getChainSpec` (`chain.getSpec*`), `broadcastTransaction` / `stopTransaction` (`chain.*`), `getHostProvider` (the PAPI `JsonRpcProvider`, over `chain.*` + `system.featureSupported`), and `getAccountsProvider` (over `account.*` + `signing.*`).
+
+  The `getNotificationManager`, `navigateTo`, `featureSupported` / `isChainSupported`, `getChainSpec`, and `broadcastTransaction` / `stopTransaction` wrappers were re-pointed from the flat novasama `hostApi` onto the namespaced truapi client (`system.*` / `chain.*` / `notifications.*`); their public Promise-shaped signatures are unchanged. `PushNotificationError` is now the `@parity/truapi` `{ tag }` tagged union (`"ScheduleLimitReached"` / `"Unknown"`) rather than a SCALE codec — branch on `(err as Error).cause` (the rejected `Error` carries the host error as its `cause`) instead of `instanceof`.
+
+  The PAPI provider is built by a new `papi-provider` module — a backport of `@novasamatech/host-api-wrapper`'s `createPapiProvider` into product-sdk, with the per-method calls re-pointed at `truApi.chain.*`. It bridges PAPI's JSON-RPC `chainHead` / `chainSpec` / `transaction` API to the host's structured calls (request dispatch, `chainHead_v1_followEvent` synthesis, synthetic follow-subscription ids, operation/broadcast bookkeeping). Unlike the upstream it needs no `getSyncProvider` deferral or no-op fallback: `getHostProvider` is async and runs the chain-support gate (throwing `ChainNotSupportedError`) before the provider is built. `getHostProvider`'s signature and `ChainNotSupportedError` behavior are unchanged.
+
+  **Accounts + signer.** `getAccountsProvider` moves to a new `accounts` module — a backport of the wrapper's `createAccountsProvider`, with lookups/proofs re-pointed onto `truApi.account.*` and the `PolkadotSigner` factories (`getProductAccountSigner` / `getLegacyAccountSigner`) built over `truApi.signing.*`. The account types (`HostAccount`, `ProductAccount`, `ContextualAlias`, `AccountsProvider`, plus a re-exported `RingLocation`) now live in `accounts` and are derived from / re-exported alongside `@parity/truapi`. The provider's public method surface and the `PolkadotSigner` behavior (metadata-driven `txExtVersion`, signed-extension mapping, the `createTransaction` vs deprecated `signPayload` modes) are preserved.
+
+  `@parity/product-sdk-signer`'s `HostProvider` now consumes `host`'s `getAccountsProvider` instead of dynamically importing the wrapper, and requests the `ChainSubmit` permission via `host`'s `requestPermission` (`truApi.permissions`, plain `{ tag }` shapes) — so the wrapper-shaped loader indirection (`loadSdk` / `loadHostApiEnum` / the `host-api` `RemotePermission` enum constructors) is gone. `HostProviderOptions` swaps the internal `loadSdk` / `loadHostApiEnum` hooks for `loadAccountsProvider` / `requestChainSubmitPermissionFn`; the public `connect()` / account / signer behavior is unchanged.
+
+  **Still on `@novasamatech/host-api-wrapper`:** nothing in `host` / `signer`. (The `terminal` package's separate `@novasamatech/host-papp` / `statement-store` / `storage-adapter` deps are out of scope.)
+
+  **Removed:** chat custom-message rendering — `matchChatCustomRenderers`, `getChatManager().onCustomMessageRenderingRequest`, and the `ChatCustomMessageRenderer` / `ChatCustomMessageRendererParams` types. `@parity/truapi` models custom render as a different, currently-stubbed client subscription with no product-as-renderer primitive; this will be reintroduced when that flow lands. The chat / theme / payment types (`ChatRoom`, `ChatMessageContent`, `ChatReceivedAction`, `ChatRoomRegistrationResult` / `ChatBotRegistrationResult`, `ThemeMode` / `ThemeName` / `ThemeVariant`, `PaymentBalance`, `PaymentStatus`, `TopUpSource`) are now re-exported from `@parity/truapi` — proofs/statuses use `{ tag }`, and `PaymentStatus` / `TopUpSource` follow the truapi shapes.
+
+  **`@parity/product-sdk-host` breaking (shape) changes** — minor-bumped because the package is pre-1.0:
+
+  - **`TruApi` / `getTruApi()`** now resolve to the namespaced `@parity/truapi` `TrUApiClient` instead of the flat novasama `hostApi`. Direct callers move from e.g. `truApi.permission(enumValue("v1", p))` to `truApi.permissions.requestRemotePermission({ permission: p })`, and `truApi.navigateTo(url)` to `truApi.system.navigateTo({ url })`.
+  - **`AllocationOutcome`** is now the string union `"Allocated" | "Rejected" | "NotAvailable"` (previously a tagged enum). Inspect with `outcome === "Allocated"` rather than `outcome.tag === "Allocated"`.
+  - **`AllocatableResource`, `RemotePermission`, `DevicePermissionKind`** are derived from `@parity/truapi` types; variant tags are unchanged, except `DevicePermissionKind` is now a string union (`"Camera"`, `"Microphone"`, …).
+  - **`HostLocalStorage`** is now an explicit interface (`readString` / `writeString` / `readJSON` / `writeJSON` / `readBytes` / `writeBytes` / `clear`); method signatures unchanged.
+  - **Statement types** (`Statement`, `SignedStatement`, `StatementProof`, `Topic`, `ProductAccountId`, `StatementTopicFilter`, `StatementsPage`) are re-exported from `@parity/truapi`: fields are `0x`-prefixed `HexString`s, proofs use `{ tag: "Sr25519" }`, and `ProductAccountId` is `{ dotNsIdentifier, derivationIndex }`. `HostStatementStore` exposes `subscribe` / `createProofAuthorized` / `submit`. `HostSubscription` is an explicit `{ unsubscribe; onInterrupt }` interface.
+  - New exported helper **`unwrapHostResult(result, label)`** collapses the repeated `ResultAsync.match(ok, err ⇒ throw)` pattern across the host wrappers.
+
+  Host-error formatting (`formatHostError`) now reads `@parity/truapi`'s error shapes (`GenericError`'s `reason`, tagged-variant reasons, unit tags) while still unwrapping the legacy novasama envelope for the surfaces on the wrapper.
+
+  **`@parity/product-sdk-statement-store`:**
+
+  - Drops the `@novasamatech/sdk-statement` dependency and the `@novasamatech/host-api-wrapper` peer/dev dependency.
+  - The statement value types are now **derived** from the `@parity/truapi` wire types (`Statement = Omit<WireStatement, "data"> & { data?: Uint8Array }`), so protocol changes propagate automatically; `Proof` / `Topic` are re-exported verbatim. The only intentional difference is `data` (decoded `Uint8Array` vs the wire hex string). `createExpiry` and the ergonomic `TopicFilter` (`"any" | matchAll | matchAny`) remain local; the unused `SubmitResult` type is removed.
+  - **Behavior change:** host-mode submission now uses the RFC-10 sponsored path (`createProofAuthorized`) — statements are signed by the product's allowance account rather than a per-call account. The host-mode `accountId` credential is no longer used (now optional, ignored if supplied).
+
+  Submitted statements are unchanged on the wire; only the TypeScript surface and the signing account change. No consumer code changes are required beyond dropping any direct `@novasamatech/sdk-statement` imports in favor of `@parity/product-sdk-statement-store`.
+
+- f81fc2b: Remove the last PolkadotJS (`polkadot-api/pjs-signer`) dependency from the host account signer factories. `getLegacyAccountSigner` now builds a PAPI `PolkadotSigner` directly over `truApi.signing.createTransactionWithLegacyAccount` / `signRawWithLegacyAccount`, mirroring the product-account `createTransaction` path, so opaque signed extensions (e.g. Paseo Next's `AsPgas`) survive end-to-end for legacy accounts too.
+
+  `getProductAccountSigner` drops its `signerType` parameter — the deprecated `"signPayload"` (PJS-bridge) mode is gone; product-account signing always uses the host's `createTransaction` path. The signer's `HostProvider` no longer passes a signer type.
+
+## 0.11.0
+
+### Minor Changes
+
+- ef14a41: **Add typed wrappers for the host's navigation, feature-probe, chain-spec, and transaction-broadcast TruAPI calls.**
+
+  These raw `hostApi.*` methods previously required `getTruApi()` plus a manual `enumValue("v1", ...)` wrap and neverthrow `ResultAsync` unwrap. They now have thin, fully-typed wrappers in `@parity/product-sdk-host` (re-exported from `@parity/product-sdk/host`), matching the throw-on-error / return-null conventions of the existing `requestPermission`, `deriveEntropy`, and `getThemeProvider` helpers.
+
+  ### New public API
+
+  - `navigateTo(url: string): Promise<void>` — deep-link / external navigation. Throws on `NavigateToErr::PermissionDenied` / `::Unknown`.
+  - `featureSupported(feature: Feature): Promise<boolean>` and `isChainSupported(genesisHash: HexString): Promise<boolean>` — probe host feature/chain support. `Feature` is `{ tag: "Chain"; value: HexString }`.
+  - `getChainSpec(genesisHash: HexString): Promise<ChainSpec | null>` — fetches genesis hash, chain name, and properties in one concurrent call. Returns `null` outside a container. `ChainSpec` carries `{ genesisHash, name, properties: ChainProperties | null, propertiesRaw: string }`; `properties` is the host's properties JSON parsed into `{ ss58Format?, tokenDecimals?, tokenSymbol?, [k]: unknown }`, with `propertiesRaw` preserving the original string (and `properties === null` when the JSON can't be parsed).
+  - `broadcastTransaction(genesisHash: HexString, transaction: HexString): Promise<string | null>` — broadcast a signed tx; resolves to the operation id (or `null`).
+  - `stopTransaction(genesisHash: HexString, operationId: string): Promise<void>` — stop an in-flight broadcast.
+
+  All wrappers throw `"<fn>: TruAPI unavailable"` when running outside a host container, except `getChainSpec`, which returns `null` to match the sibling `get*` getters.
+
+## 0.10.3
+
+### Patch Changes
+
+- 8dd1232: chore(deps): bump polkadot-api to 2.1.6
+
+  Updates the `polkadot-api` catalog entry `^2.1.5` → `^2.1.6` (2.1.6 carries the
+  double-notification fix). Every published package resolves `polkadot-api`
+  through `catalog:`, so each one's published `dependencies` range moves to
+  `^2.1.6`. There is no source change in any package — these are patch bumps to
+  ship the new floor via the published `catalog:` resolution.
+
+  Releases the catalog bump from #223, which was merged to `main` without a
+  changeset.
+
+## 0.10.2
+
+### Patch Changes
+
+- c39332e: chore(deps): bump @novasamatech/\* host SDKs to 0.8.9
+
+  Update the upstream host-API SDKs to the 0.8.9 release:
+
+  - catalog: `@novasamatech/host-api` and `@novasamatech/host-api-wrapper` `^0.8.8` → `^0.8.9`
+  - terminal: `@novasamatech/host-papp`, `@novasamatech/statement-store`, `@novasamatech/storage-adapter`, and `@novasamatech/substrate-slot-sr25519-wasm` `^0.8.8` → `^0.8.9`
+
+  `@novasamatech/sdk-statement` is unaffected (separate package, latest is 0.6.0).
+
+## 0.10.1
+
+### Patch Changes
+
+- 9ce5ab2: **Sign messages with the account that owns a People / People Lite DotNS username, plus a catalog bump to `@novasamatech/host-api` 0.8.8.**
+
+  ### `@parity/product-sdk` — `wallet.signMessageWithDotNsIdentity`
+
+  - `wallet.signMessageWithDotNsIdentity({ peopleChain, username?, message })` — resolves `Resources.UsernameOwnerOf` on the supplied People / Individuality chain descriptor, then signs the message with that account through the host's legacy-account signing path. Returns `{ username, accountId, signature }`.
+  - A matching `useWallet` action surfaces the same call from React.
+  - Falls back to the host's primary DotNS username when none is supplied (via the host's `accounts.getUserId()` — triggers a host identity-permission prompt).
+
+  **Implementation note (worth knowing for consumers).** The owning account is named explicitly via the host's `getLegacyAccountSigner({ publicKey })` rather than matched against an enumerated wallet list. On Proof-of-Personhood / product-account hosts (e.g. Polkadot Desktop), the connected-accounts list returned by `getLegacyAccounts()` is intentionally empty — the host exposes only per-dapp product accounts via enumeration and never surfaces the user's identity account. Such hosts still sign with that account when it's _named explicitly_ (typically behind a user-approval prompt), and that's the path this flow uses.
+
+  **Chain-connection lifecycle is automatic.** The SDK reuses an existing chain client when `app.chain.connect({ ..., <name>: peopleChain })` was called upfront (matched by genesis), and falls back to opening a transient connection otherwise. For long-running apps, call `app.chain.connect` once at startup to avoid the cold-path cost.
+
+  ### `@parity/product-sdk-signer` — `SignerManager.getUserId()`
+
+  `SignerManager.getUserId()` wraps the existing `HostProvider.getUserId()` for callers that want to fetch the host primary username without going through a product-account-derivation flow. Returns `HostUnavailableError` when not connected via host, `DestroyedError` after `destroy()`.
+
+  ### Catalog bump — `@novasamatech/host-api` family `^0.8.7` → `^0.8.8`
+
+  `@novasamatech/host-api`, `@novasamatech/host-api-wrapper`, `@novasamatech/host-papp`, `@novasamatech/statement-store`, `@novasamatech/storage-adapter`, and `@novasamatech/substrate-slot-sr25519-wasm` move from `^0.8.7` to `^0.8.8`. The headline from upstream is the **legacy sign-request protocol** (PR #218): new `signRawLegacy` / `createTransactionLegacy` UserSession methods plus the matching SCALE codecs (`SignRawLegacyRequest`/`Response`, `CreateTransactionLegacyRequest`, `LegacyTransaction`). This is the protocol scaffolding the new `signMessageWithDotNsIdentity` flow relies on for signing with a wallet's identity account.
+
+  No session/secrets codec changes — `terminal`'s `testing.ts` codec mirror round-trips cleanly against 0.8.8; both interop suites pass.
+
+  ### Example
+
+  ```ts
+  import { createApp } from "@parity/product-sdk";
+  import { paseo_individuality } from "@parity/product-sdk-descriptors/paseo-individuality";
+
+  const app = await createApp({ name: "my-app" });
+
+  // Recommended: connect the People chain upfront to share one chainHead
+  // subscription across every subsequent identity sign.
+  await app.chain.connect({ people: paseo_individuality });
+
+  // No prior `app.wallet.connect()` required — the signing flow names the
+  // identity account directly and the host prompts the user to approve.
+  //
+  // Omit `username` to sign with the host's primary username (the one shown
+  // for the currently-logged-in user), or pass it explicitly to sign with a
+  // specific People-chain identity the user owns.
+  const { username, accountId, signature } =
+    await app.wallet.signMessageWithDotNsIdentity({
+      peopleChain: paseo_individuality,
+      message: "verifying ownership",
+    });
+  ```
+
+## 0.10.0
+
+### Minor Changes
+
+- acb2228: **Make `@novasamatech/*` runtime dependencies instead of optional peer dependencies.**
+
+  `@parity/product-sdk-host` now declares `@novasamatech/host-api` and
+  `@novasamatech/host-api-wrapper` as regular `dependencies` (via the existing `catalog:`
+  range) rather than optional `peerDependencies`. `host-api` was always required at runtime
+  — its `enumValue` is statically imported by the published bundle — so the optional-peer
+  declaration was incorrect; `host-api-wrapper` is loaded lazily by the host bridge and is
+  now pulled transitively too. Consumers can reach the host APIs purely through
+  `@parity/product-sdk-host` with no direct `@novasamatech/*` dependency of their own.
+
+### Patch Changes
+
+- acb2228: **Bump `@novasamatech/host-api` family from `^0.8.7-2` to `^0.8.7` (stable).**
+
+  Stable `0.8.7` is now published across the family (`host-api`, `host-api-wrapper`, `host-papp`, `statement-store`, `storage-adapter`, `substrate-slot-sr25519-wasm`). This bump removes the prerelease specifier from the published artifact — consumers see a cleaner semver range and get the same upstream code we've been testing against.
+
+  ### Delta vs `0.8.7-2`
+
+  - **`MAX_SSO_REQUEST_SIZE` raised** in `host-papp`: 256 KiB → 500 KiB. Larger Mobile-SSO statements now flow without splitting.
+  - **`ExpiryTooLowError` / `AccountFullError` constructors** in `statement-store` accept `bigint` instead of `number`. Internal — our code doesn't construct these directly.
+  - **New additive exports** in `statement-store`: `PRIORITY_EPOCH_OFFSET`, `createExpiryAllocator`, `ExpiryAllocator`, `submitWithRetry`, `isPriorityTooLow`, `SubmitRetryOptions`, `signAndSubmitStatement`, `submitStatementOnce`, `SubmitStatementParams`. Not consumed by product-sdk; opt-in for downstream callers.
+  - **No session/secrets codec changes.** The `testing.ts` codec mirror in `@parity/product-sdk-terminal` continues to round-trip through the real `SsoSessionManager` and `UserSecretRepository` against 0.8.7 — both interop tests pass.
+
+  No public API change on the product-sdk side; no migration needed.
+
+## 0.9.0
+
+### Minor Changes
+
+- 2124e02: **Add a `getNotificationManager()` host wrapper.**
+
+  `getNotificationManager()` returns the host's `notificationManager` singleton
+  (`push` / `cancel`), matching the `getPaymentManager` / `getPreimageManager`
+  pattern. The module also re-exports `PushNotificationError` (with its
+  `ScheduleLimitReached` variant, for `instanceof` branching on the host's
+  pending-notification cap) plus the derived `NotificationId` /
+  `PushNotificationInput` types.
+
+  Lets consumers reach the host push-notification surface without importing
+  `@novasamatech/host-api(-wrapper)` directly.
+
+### Patch Changes
+
+- 2124e02: **Bump `@novasamatech/host-api` family from `^0.8.6` to `^0.8.7-2`.** Picks up the upstream `deviceEncPubKey` addition on the V2 session schema (PR #212), the statement-store allowance-slot-prover fix (PR #214 — `createSr25519Prover` → `createSlotAccountProver`), and the `ExpiryTooLow` retry fix in `submitWithRetry`.
+
+  One consumer-visible behavioral change worth flagging up front:
+
+  > **CLI consumers using `@parity/product-sdk-terminal`** — host-papp `0.8.7-1` renamed the on-disk session storage key (`SsoSessionsV2` → `SsoSessionsV3`) and added a required `deviceEncPubKey: Bytes(65)` field on the persisted session. Sessions persisted from a previous CLI run will be invisible after upgrading; users will need to re-pair their phone the first time they launch the upgraded CLI. The `UserSecretsV2_<sessionId>.json` file format is unchanged.
+
+  ### What's new
+
+  **Upstream catalog bump.** `@novasamatech/host-api`, `@novasamatech/host-api-wrapper`, `@novasamatech/host-papp`, `@novasamatech/statement-store`, `@novasamatech/storage-adapter`, and `@novasamatech/substrate-slot-sr25519-wasm` move from `^0.8.6` to `^0.8.7-2`. Headlines from upstream (between `release: 0.8.6 (#208)` and `chore(release): publish 0.8.7-2`):
+
+  - **`deviceEncPubKey` on the V2 session schema** (upstream PR #212). The persisted session codec gains a required `deviceEncPubKey: Bytes(65)` — the paired phone's long-lived ECDH key, lifted from `HandshakeResponseV2.deviceEncPubKey`, used by the host's device-sync channel. The storage key was renamed `SsoSessionsV2 → SsoSessionsV3` in the same release; the old graceful-degrade for V2 blobs is gone.
+  - **Statement-store allowance-slot-prover fix** (upstream PR #214). `AllowanceService.getStatementStoreProver` now uses `createSlotAccountProver` instead of `createSr25519Prover` — fixes a signature-scheme mismatch when proving slot-account-derived secrets. No public API change on our side (our `getStatementStoreProver` wrapper passes through unchanged), but the proofs the returned prover emits are now of the correct scheme.
+  - **`ExpiryTooLow` retry handling in `submitWithRetry`** (upstream `73cb870`). Internal to host-papp/statement-store retry logic; no consumer-side change.
+
+  ### `@parity/product-sdk-terminal`
+
+  Internal codec mirror used by `createTestSession` updated to match host-papp 0.8.7-2's reshaped session schema:
+
+  - Appended `deviceEncPubKey: Bytes(65)` to the mirrored codec; the synthesized field reuses the remote peer's P-256 encryption pubkey (same value already used for `identityChatPublicKey` and `ssoEncPubKey`).
+  - Storage-key rename: `SsoSessionsV2.json` → `SsoSessionsV3.json`. The in-source unit tests and TSDoc references all updated.
+
+  No public-API change; `createTestSession`'s signature is unchanged. The interop test continues to round-trip the synthesized session through the real `SsoSessionManager` and `UserSecretRepository` to catch upstream drift early — both interop suites pass against host-papp 0.8.7-2.
+
+  ### `@parity/product-sdk-host`, `@parity/product-sdk-signer`, `@parity/product-sdk-statement-store`
+
+  Patch-bumped to signal "tested against host-api(-wrapper) 0.8.7-2" via the published peer-dep / catalog resolution. No source change; runtime behavior is unchanged.
+
+  ### Migration
+
+  **`@parity/product-sdk-terminal` — existing sessions need to be re-paired.** No source change required, but any sessions persisted to disk by a previous CLI run will be invisible after upgrading. host-papp 0.8.7-2 reads from `<storageDir>/<appId>_SsoSessionsV3.json`; the previous `SsoSessionsV2.json` path is no longer consulted, and the old graceful-degrade for stale blobs is gone.
+
+  What this means in practice:
+
+  - A user upgrading the CLI will see the same UX they'd see on a fresh install — `waitForSessions` returns no sessions until they complete a QR pairing.
+  - The old `SsoSessionsV2.json` file is not deleted, just ignored. Optional cleanup: surface a one-liner to the user ("we updated the session format, please re-pair") and `fs.unlink` the legacy path.
+  - The `UserSecretsV2_<sessionId>.json` file format is unchanged; legacy secrets files become orphaned (the new session has a different `sessionId`) but don't cause errors.
+  - Synthesized test sessions emitted by `createTestSession` automatically write to the new path — no test code change needed unless your tests asserted on the old filenames.
+
+## 0.8.0
+
+### Minor Changes
+
+- a2fd276: **Add the Summit Network (Web3 Summit) as a new environment.**
+
+  Adds `summit-asset-hub`, `summit-bulletin`, and `summit-individuality`
+  (the People chain) descriptors, and wires `summit` through the host
+  Bulletin RPC list, the cloud-storage network preset, and
+  `getChainAPI("summit")`. Purely additive — no existing environment,
+  descriptor, or endpoint changes.
+
+## 0.7.1
+
+### Patch Changes
+
+- d4bc935: Bump `@novasamatech/host-api`, `@novasamatech/host-api-wrapper`, `@novasamatech/host-papp`, `@novasamatech/statement-store`, and `@novasamatech/storage-adapter` from `^0.8.5` to `^0.8.6`.
+
+  0.8.6 lands RFC-0007 (PR #205 upstream — derive product entropy from `rootEntropySource`) and a `polkadot-api` bump to `2.1.6` (double-notification fix). The RFC-0007 work changes the on-disk session and secrets schemas:
+
+  - **Session** (`SsoSessions` → `SsoSessionsV2`): dropped the `Option` wrapper on `identityAccountId`, `identityChatPublicKey`, and `ssoEncPubKey` (all now required); appended `rootEntropySource: Bytes(32)` for the host's `host_derive_entropy` handler.
+  - **Secrets** (`UserSecrets` → `UserSecretsV2`): dropped `entropy` (now lives on the session as `rootEntropySource`); added the V2 `identityChatPrivateKey: Bytes(32)`.
+  - **Graceful-degrade removed.** Old-shape blobs no longer fall back to empty — they now throw at decode. A CLI on 0.8.5 disk state will need to re-pair after the consumer upgrades.
+
+  `host-api` and `host-api-wrapper` had no source changes in 0.8.6 (lockstep version tag only) — `host`, `signer`, and `statement-store` are patch-bumped to signal "tested against 0.8.6" via published peer-dep / catalog resolution; their runtime behavior is unchanged.
+
+  In `@parity/product-sdk-terminal`, the internal codec mirror for `createTestSession` was updated to match the 0.8.6 session and secrets shapes — including the storage-key rename to `*V2` — so synthesized test sessions round-trip cleanly through the real 0.8.6 `SsoSessionManager` / `UserSecretRepository`. No public-API change in any of the four packages.
+
+## 0.7.0
+
+### Minor Changes
+
+- f6bdaaf: **Surface a catchable error when the host doesn't support a chain, instead of hanging forever.**
+
+  Previously, connecting to a chain the host doesn't recognize (e.g. not enabled
+  in the current Desktop/Browser build, or a descriptor genesis hash that drifted
+  after a network reset) produced a provider whose JSON-RPC requests were silently
+  dropped. Every query against that chain then awaited indefinitely — no rejection,
+  no error, no built-in timeout.
+
+  `getHostProvider` now verifies host support (via the same `host_feature_supported`
+  check the wrapper performs internally) _before_ handing a provider to PAPI, and
+  throws the new `ChainNotSupportedError` (carrying the offending `genesisHash`) when
+  the host can't serve the chain.
+
+  `createChainClient` degrades per-chain rather than all-or-nothing: supported chains
+  in the same call stay fully usable, and an unsupported chain's API throws
+  `ChainNotSupportedError` on first use (e.g. `client.assetHub.query…`) instead of
+  hanging. This matches the reported behaviour where one chain (Bulletin) keeps
+  working while another is unavailable. A hard failure (e.g. not running inside a
+  container) still rejects the whole call as before.
+
+  ```ts
+  import {
+    createChainClient,
+    ChainNotSupportedError,
+  } from "@parity/product-sdk-chain-client";
+
+  const client = await createChainClient({
+    chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
+  });
+
+  try {
+    await client.assetHub.query.System.Number.getValue();
+  } catch (err) {
+    if (err instanceof ChainNotSupportedError) {
+      // err.genesisHash — the chain the host refused
+    }
+  }
+
+  // Other chains in the same client are unaffected:
+  await client.bulletin.query.TransactionStorage.ByteFee.getValue();
+  ```
+
+  `ChainNotSupportedError` is exported from both `@parity/product-sdk-host` and
+  `@parity/product-sdk-chain-client`. Connecting outside a host container still
+  returns `null` / throws the existing "host provider unavailable" error.
+
+## 0.6.1
+
+### Patch Changes
+
+- dc3a452: Bump `@novasamatech/host-api` and `@novasamatech/host-api-wrapper` to `^0.8.4`.
+
+  0.8.4 ships the `getLegacyAccountSigner` SS58 fix: the wrapper now sends an
+  SS58 address as the wire `signer` instead of a raw hex public key, so
+  legacy-account `signRaw`/`signPayload` are accepted by the wallet instead of
+  rejected. Fixes the root cause behind
+  [paritytech/product-sdk#156](https://github.com/paritytech/product-sdk/issues/156).
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+
+## 0.6.0
+
+### Minor Changes
+
+- 551c1bb: **Migrate to `@novasamatech/host-api(-wrapper)` v0.8.**
+
+  Hosts now deliver `host-api` 0.8, and products must run a matching
+  `@novasamatech/host-api-wrapper` — v0.8 is wire-incompatible with v0.7.
+  The catalog now pins both at `^0.8.0`, and the `host` / `statement-store`
+  peer ranges require `>=0.8.0`. The Polkadot Module / SSO integration
+  (`@novasamatech/host-papp` and friends, used by
+  `@parity/product-sdk-terminal`) intentionally stays on 0.7.x for now, so
+  `terminal` is unchanged.
+
+  Breaking changes surfaced to consumers of these packages:
+
+  - **`@parity/product-sdk-host` — theme payload is now a struct.** The
+    `subscribeTheme` callback (`getThemeProvider`) delivers a `ThemeMode`
+    `{ name, variant }` object instead of a flat `"Light" | "Dark"` string.
+    Read `theme.variant` for the light/dark value and `theme.name` for the
+    theme name (`{ tag: "Default" }` or `{ tag: "Custom", value }`). New
+    `ThemeVariant` and `ThemeName` types are exported.
+  - **`@parity/product-sdk-host` — resource-allocation tag renamed.** The
+    `AllocatableResource` / `AllocatableResourceTag` value `BulletInAllowance`
+    is now `BulletinAllowance`; the `RemotePermission` tag `WebRTC` is now
+    `WebRtc` (pure renames from the upstream codec).
+  - **`@parity/product-sdk-signer` / `@parity/product-sdk-statement-store`**
+    now require the v0.8 wrapper to stay wire-compatible with a v0.8 host.
+
 ## 0.5.0
 
 ### Minor Changes

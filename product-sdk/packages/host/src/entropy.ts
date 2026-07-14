@@ -3,18 +3,19 @@
 /**
  * Higher-level wrapper for the host's entropy derivation (RFC-0007).
  *
- * `hostApi.deriveEntropy` is reachable via {@link getTruApi}, but consumers
- * have to wrap the value in the versioned envelope (`enumValue("v1", ...)`)
- * and unwrap the neverthrow `ResultAsync` themselves. `deriveEntropy`
- * collapses that to a throw-on-error Promise that matches the shape of
- * {@link requestPermission} and {@link requestResourceAllocation}.
+ * `truApi.entropy.derive` takes a hex `context` and returns a hex `entropy`
+ * payload wrapped in a neverthrow `ResultAsync`. `deriveEntropy` keeps the
+ * ergonomic `Uint8Array → Result<Uint8Array, HostError>` signature: it
+ * hex-encodes the context on the way in and decodes the entropy on the way out.
  *
  * @module
  */
 
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { enumValue, formatHostError, getTruApi } from "./truapi.js";
+import { type HostError, HostUnavailableError } from "./errors.js";
+import { type Result, err } from "./result.js";
+import { fromHex, getTruApi, mapHostResult, toHex } from "./truapi.js";
 
 const log = createLogger("host:entropy");
 
@@ -26,42 +27,79 @@ const log = createLogger("host:entropy");
  * different keys (or different wallets) yield uncorrelated entropy.
  *
  * @param key - Context key bytes (typically a SCALE-encoded discriminator).
- * @returns The derived entropy bytes.
- * @throws If the host is unavailable or the host-side derivation fails.
+ * @returns `ok` with the derived entropy bytes, or
+ *   `err(HostUnavailableError | HostCallFailedError)`.
  *
  * @example
  * ```ts
  * import { deriveEntropy } from "@parity/product-sdk-host";
  *
- * const seed = await deriveEntropy(new TextEncoder().encode("my-app:seed-v1"));
+ * const r = await deriveEntropy(new TextEncoder().encode("my-app:seed-v1"));
+ * if (r.ok) { const seed = r.value; }
  * ```
  */
-export async function deriveEntropy(key: Uint8Array): Promise<Uint8Array> {
+export async function deriveEntropy(key: Uint8Array): Promise<Result<Uint8Array, HostError>> {
     const truApi = await getTruApi();
     if (!truApi) {
-        throw new Error("deriveEntropy: TruAPI unavailable");
+        return err(new HostUnavailableError("deriveEntropy: TruAPI unavailable"));
     }
     log.debug("deriveEntropy", { keyLen: key.length });
 
-    return await truApi.deriveEntropy(enumValue("v1", key)).match(
-        (envelope: { tag: "v1"; value: Uint8Array }) => envelope.value,
-        (err: unknown) => {
-            throw new Error(`deriveEntropy failed: ${formatHostError(err)}`, { cause: err });
-        },
+    return mapHostResult(
+        truApi.entropy.derive({ context: toHex(key) }),
+        (response) => fromHex(response.entropy),
+        "deriveEntropy failed",
     );
 }
 
 if (import.meta.vitest) {
-    const { test, expect } = import.meta.vitest;
+    const { test, expect, describe, vi } = import.meta.vitest;
 
-    test("deriveEntropy throws when TruAPI is unavailable", async () => {
-        const api = await getTruApi();
-        if (api === null) {
-            await expect(deriveEntropy(new Uint8Array([1, 2, 3]))).rejects.toThrow(
-                /TruAPI unavailable/,
-            );
-        } else {
-            expect(typeof deriveEntropy).toBe("function");
+    function okAsync<T>(value: T) {
+        return { match: async (onOk: (v: T) => unknown) => onOk(value) };
+    }
+
+    async function withMockedTruApi<T>(
+        client: unknown,
+        fn: (mod: typeof import("./entropy.js")) => Promise<T>,
+    ): Promise<T> {
+        vi.resetModules();
+        vi.doMock("./truapi.js", async (importOriginal) => {
+            const original = await importOriginal<typeof import("./truapi.js")>();
+            return { ...original, getTruApi: async () => client };
+        });
+        try {
+            const mod = await import("./entropy.js");
+            return await fn(mod);
+        } finally {
+            vi.doUnmock("./truapi.js");
+            vi.resetModules();
         }
+    }
+
+    // Tests live inside `describe` so the re-import in `withMockedTruApi`
+    // (via `vi.resetModules`) doesn't re-register top-level `test()` calls.
+    describe("deriveEntropy", () => {
+        test("returns err(HostUnavailableError) when TruAPI is unavailable", async () => {
+            await withMockedTruApi(null, async (mod) => {
+                const result = await mod.deriveEntropy(new Uint8Array([1, 2, 3]));
+                expect(result.ok).toBe(false);
+                if (!result.ok) {
+                    expect(result.error.name).toBe("HostUnavailableError");
+                }
+            });
+        });
+
+        test("hex-encodes the context and decodes the entropy bytes", async () => {
+            const derive = vi.fn(() => okAsync({ entropy: "0xc0ffee" }));
+            await withMockedTruApi({ entropy: { derive } }, async (mod) => {
+                const result = await mod.deriveEntropy(new Uint8Array([0xab, 0xcd]));
+                expect(derive).toHaveBeenCalledWith({ context: "0xabcd" });
+                expect(result.ok).toBe(true);
+                if (result.ok) {
+                    expect(Array.from(result.value)).toEqual([0xc0, 0xff, 0xee]);
+                }
+            });
+        });
     });
 }

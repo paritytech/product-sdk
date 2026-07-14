@@ -3,14 +3,13 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-    entry: ["src/index.ts"],
+    entry: ["src/index.ts", "src/testing.ts"],
     format: ["esm"],
     dts: true,
     sourcemap: true,
     clean: true,
     target: "es2022",
     treeshake: true,
-    external: ["@novasamatech/host-api-wrapper", "@novasamatech/host-api"],
     define: {
         "import.meta.vitest": "undefined",
     },

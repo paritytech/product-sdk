@@ -1,18 +1,21 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import { createLogger } from "@parity/product-sdk-logger";
+import { type Result, err, ok } from "@parity/result";
 import type { PolkadotSigner } from "polkadot-api";
 
-import { createLogger } from "@parity/product-sdk-logger";
-
+import { TxError } from "./errors.js";
 import { submitAndWatch } from "./submit.js";
 import type { SubmittableTransaction, TxResult } from "./types.js";
 
 const log = createLogger("tx:mapping");
 
 /**
- * Error thrown when account mapping fails.
+ * Error raised when account mapping fails. Extends {@link TxError} so it flows on
+ * the `err` channel of the mapping functions alongside the other tx errors and
+ * carries the shared `SdkError` marker.
  */
-export class TxAccountMappingError extends Error {
+export class TxAccountMappingError extends TxError {
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = "TxAccountMappingError";
@@ -67,11 +70,10 @@ export interface EnsureAccountMappedOptions {
  *   from a pallet-revive-capable typed API by querying `Revive.OriginalAccount`.
  * @param api - A typed API with `tx.Revive.map_account()`.
  * @param options - Optional timeout and status callback.
- * @returns The transaction result if mapping was performed, or `null` if already mapped.
- *
- * @throws {TxAccountMappingError} If the mapping check or transaction fails.
- * @throws {TxDispatchError} If the map_account transaction fails on-chain.
- * @throws {TxTimeoutError} If the mapping transaction times out.
+ * @returns A {@link Result}: `ok(TxResult)` if mapping was performed, `ok(null)` if the account
+ *   was already mapped (an expected, non-failure state), or `err(TxError)` if the mapping check
+ *   or `map_account` transaction fails (a `TxAccountMappingError` for a failed check, or a
+ *   `TxDispatchError` / `TxTimeoutError` from the submission).
  *
  * @example
  * ```ts
@@ -84,7 +86,8 @@ export interface EnsureAccountMappedOptions {
  *         (await api.query.Revive.OriginalAccount.getValue(ss58ToH160(addr))) !== undefined,
  * };
  *
- * await ensureAccountMapped(address, signer, checker, api);
+ * const result = await ensureAccountMapped(address, signer, checker, api);
+ * if (!result.ok) handle(result.error);
  * // Account is now mapped — safe to call PolkaVM/Solidity contracts
  * ```
  */
@@ -94,7 +97,7 @@ export async function ensureAccountMapped(
     checker: MappingChecker,
     api: ReviveApi,
     options?: EnsureAccountMappedOptions,
-): Promise<TxResult | null> {
+): Promise<Result<TxResult | null, TxError>> {
     const timeoutMs = options?.timeoutMs ?? 60_000;
     const onStatus = options?.onStatus;
 
@@ -104,13 +107,15 @@ export async function ensureAccountMapped(
     try {
         isMapped = await checker.addressIsMapped(address);
     } catch (cause) {
-        throw new TxAccountMappingError(`Failed to check mapping status for ${address}`, { cause });
+        return err(
+            new TxAccountMappingError(`Failed to check mapping status for ${address}`, { cause }),
+        );
     }
 
     if (isMapped) {
         log.debug("account already mapped", { address });
         onStatus?.("already-mapped");
-        return null;
+        return ok(null);
     }
 
     // Step 2: Submit map_account transaction
@@ -118,16 +123,15 @@ export async function ensureAccountMapped(
     onStatus?.("mapping");
 
     const tx = api.tx.Revive.map_account();
-    // submitAndWatch throws TxDispatchError on dispatch failure and
-    // TxTimeoutError on timeout — both propagate to the caller as documented.
     const result = await submitAndWatch(tx, signer, {
         waitFor: "best-block",
         timeoutMs,
     });
+    if (!result.ok) return result;
 
-    log.info("account mapped successfully", { address, block: result.block });
+    log.info("account mapped successfully", { address, block: result.value.block });
     onStatus?.("mapped");
-    return result;
+    return ok(result.value);
 }
 
 /**
@@ -149,14 +153,15 @@ if (import.meta.vitest) {
     describe("ensureAccountMapped", () => {
         const mockSigner = {} as PolkadotSigner;
 
-        test("returns null when already mapped", async () => {
+        test("returns ok(null) when already mapped", async () => {
             const checker: MappingChecker = {
                 addressIsMapped: vi.fn().mockResolvedValue(true),
             };
             const api = {} as ReviveApi;
 
             const result = await ensureAccountMapped("5Alice", mockSigner, checker, api);
-            expect(result).toBeNull();
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toBeNull();
             expect(checker.addressIsMapped).toHaveBeenCalledWith("5Alice");
         });
 
@@ -172,14 +177,19 @@ if (import.meta.vitest) {
             expect(statuses).toEqual(["checking", "already-mapped"]);
         });
 
-        test("throws TxAccountMappingError when check fails", async () => {
+        test("returns err(TxAccountMappingError) when check fails", async () => {
             const checker: MappingChecker = {
                 addressIsMapped: vi.fn().mockRejectedValue(new Error("network error")),
             };
 
-            await expect(
-                ensureAccountMapped("5Alice", mockSigner, checker, {} as ReviveApi),
-            ).rejects.toThrow(TxAccountMappingError);
+            const result = await ensureAccountMapped(
+                "5Alice",
+                mockSigner,
+                checker,
+                {} as ReviveApi,
+            );
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxAccountMappingError);
         });
 
         test("submits map_account when not mapped", async () => {
@@ -211,8 +221,8 @@ if (import.meta.vitest) {
             };
 
             const result = await ensureAccountMapped("5Alice", mockSigner, checker, api);
-            expect(result).not.toBeNull();
-            expect(result!.ok).toBe(true);
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).not.toBeNull();
         });
 
         test("calls onStatus through full mapping flow", async () => {
@@ -279,9 +289,9 @@ if (import.meta.vitest) {
                 tx: { Revive: { map_account: () => mockTx } },
             };
 
-            await expect(ensureAccountMapped("5Alice", mockSigner, checker, api)).rejects.toThrow(
-                TxDispatchError,
-            );
+            const result = await ensureAccountMapped("5Alice", mockSigner, checker, api);
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxDispatchError);
         });
 
         test("propagates TxTimeoutError from submitAndWatch", async () => {
@@ -300,9 +310,11 @@ if (import.meta.vitest) {
                 tx: { Revive: { map_account: () => mockTx } },
             };
 
-            await expect(
-                ensureAccountMapped("5Alice", mockSigner, checker, api, { timeoutMs: 50 }),
-            ).rejects.toThrow(TxTimeoutError);
+            const result = await ensureAccountMapped("5Alice", mockSigner, checker, api, {
+                timeoutMs: 50,
+            });
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(TxTimeoutError);
         });
     });
 

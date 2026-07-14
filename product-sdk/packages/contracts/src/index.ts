@@ -11,12 +11,21 @@
  *
  * @packageDocumentation
  */
-export { ContractManager, createContract, createContractFromClient } from "./manager.js";
+export {
+    ContractManager,
+    createContract,
+    createContractFromClient,
+    withLiveContractAddresses,
+} from "./manager.js";
 export {
     createContractRuntime,
     createContractRuntimeFromClient,
     ensureContractAccountMapped,
 } from "./runtime.js";
+// pallet-revive's keyless account, used as the read-only query origin when no
+// wallet is connected. Exported so other products can reuse the same origin
+// instead of re-deriving it.
+export { QUERY_FALLBACK_ORIGIN } from "./wrap.js";
 export type {
     ContractRuntime,
     ContractRuntimeOptions,
@@ -34,14 +43,15 @@ export {
     ContractError,
     ContractSignerMissingError,
     ContractNotFoundError,
+    ContractLiveAddressResolutionError,
     ContractDryRunFailedError,
     ContractRevertedError,
 } from "./errors.js";
 export type { ContractRevertInfo, DecodedContractRevert } from "./errors.js";
 export type {
     CdmJson,
-    CdmJsonTarget,
     CdmJsonContract,
+    CdmJsonDependencyVersion,
     AbiParam,
     AbiEntry,
     ContractDef,
@@ -56,4 +66,5 @@ export type {
     ContractDefaults,
     ContractManagerOptions,
     ContractOptions,
+    LiveContractResolutionOptions,
 } from "./types.js";

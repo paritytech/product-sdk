@@ -1,6 +1,6 @@
 {
   "name": "@parity/product-sdk-bench-consumer",
-  "version": "0.0.7",
+  "version": "0.0.22",
   "private": true,
   "type": "module",
   "dependencies": {

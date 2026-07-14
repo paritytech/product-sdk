@@ -9,9 +9,9 @@ import { waitForAppReady } from "./helpers";
  * root-only; a non-root signer reaches dispatch cleanly and the runtime
  * rejects with `BadOrigin`.
  *
- * `submitAndWatch` surfaces this by rejecting the promise with
- * `TxDispatchError` carrying a formatted cause. The demo's catch block
- * logs it as "bad-tx rejected: TxDispatchError: ...".
+ * `submitAndWatch` surfaces this on the `err` channel of its `Result` as a
+ * `TxDispatchError` carrying a formatted cause. The demo logs it as
+ * "bad-tx dispatch error: TxDispatchError: ...".
  */
 test.describe("@parity/product-sdk-tx via Host API — dispatch error", () => {
     test("root-only call surfaces TxDispatchError after block inclusion", async ({
@@ -29,17 +29,17 @@ test.describe("@parity/product-sdk-tx via Host API — dispatch error", () => {
         // Proof the tx was actually signed + submitted (not blocked at
         // submission time): we see the `broadcasting` onStatus callback
         // fire. submitAndWatch does NOT emit `in-block` for a failing tx —
-        // see submit.ts:118-128, it exits early with TxDispatchError as
-        // soon as `event.ok === false` is observed at best-block.
+        // it settles with err(TxDispatchError) as soon as `event.ok === false`
+        // is observed at best-block.
         await expect(logLoc).toContainText(/bad-tx: broadcasting/, { timeout: 90_000 });
 
-        // The promise must then reject with TxDispatchError. The demo's
-        // catch block names the error class; message format comes from
+        // The Result must then be err(TxDispatchError). The demo's else
+        // branch names the error class; message format comes from
         // `formatDispatchError` and typically includes "BadOrigin".
-        await expect(logLoc).toContainText(/bad-tx rejected:.*TxDispatchError/i, {
+        await expect(logLoc).toContainText(/bad-tx dispatch error:.*TxDispatchError/i, {
             timeout: 90_000,
         });
-        // And onStatus("error") fires before the reject, giving us a
+        // And onStatus("error") fires before the settle, giving us a
         // typed error surface to render.
         await expect(logLoc).toContainText(/bad-tx: error/, { timeout: 5_000 });
 

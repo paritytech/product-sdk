@@ -1,14 +1,14 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
+import {
+    getAccountsProvider,
+    type RemotePermission,
+    requestPermission,
+} from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 
-import {
-    HostRejectedError,
-    HostUnavailableError,
-    NoAccountsError,
-    type SignerError,
-} from "../errors.js";
+import { HostRejectedError, HostUnavailableError, type SignerError } from "../errors.js";
 import { withRetry } from "../retry.js";
 import type { ConnectionStatus, ProviderType, Result, SignerAccount } from "../types.js";
 import { err, ok } from "../types.js";
@@ -25,17 +25,35 @@ export interface HostProviderOptions {
     /** Initial retry delay in ms. Default: 500 */
     retryDelay?: number;
     /**
-     * Custom SDK loader. Defaults to `import("@novasamatech/host-api-wrapper")`.
-     * Override this for testing or custom SDK setups.
-     * @internal
+     * Dapp identifier the SDK falls back to when {@link productAccount} is
+     * not set, so `connect()` can still surface a usable account on hosts
+     * that don't enumerate legacy accounts.
+     *
+     * The value is treated as a dotNS identifier (`.dot` is appended if
+     * missing) and routed through `getProductAccount(dappName, 0)`. If the
+     * host rejects the derivation (e.g. the identifier isn't registered),
+     * `connect()` resolves with an empty accounts list rather than
+     * throwing — consumers can still drive the explicit signing paths
+     * (`signMessageWithDotNsIdentity`, `getLegacyAccountSigner`).
+     *
+     * Wired through from `SignerManager` automatically; only set directly
+     * when instantiating `HostProvider` outside the manager.
      */
-    loadSdk?: () => Promise<ProductSdkModule>;
+    dappName?: string;
     /**
-     * Custom loader for `@novasamatech/host-api` (used to construct the
-     * `ChainSubmit` permission request). Defaults to dynamic import.
+     * Custom accounts-provider loader. Defaults to `@parity/product-sdk-host`'s
+     * `getAccountsProvider`, which returns `null` outside a host container.
+     * Override for testing or custom host setups.
      * @internal
      */
-    loadHostApiEnum?: () => Promise<HostApiEnumHelper>;
+    loadAccountsProvider?: () => Promise<AccountsProvider | null>;
+    /**
+     * Custom `ChainSubmit` permission requester. Defaults to a thin adapter over
+     * `@parity/product-sdk-host`'s `requestPermission` that unwraps its `Result`
+     * (throwing the typed error on the `err` channel). Override for testing.
+     * @internal
+     */
+    requestChainSubmitPermissionFn?: (permission: RemotePermission) => Promise<boolean>;
     /**
      * Whether to request the host's `ChainSubmit` permission after a
      * successful `connect()`. Without this, subsequent signing requests are
@@ -50,6 +68,33 @@ export interface HostProviderOptions {
     requestChainSubmitPermission?: boolean;
     /** @deprecated Renamed to `requestChainSubmitPermission`. */
     requestTransactionSubmitPermission?: boolean;
+    /**
+     * If set, `connect()` returns a single product account for the given
+     * `dotNsIdentifier`, skipping the legacy fetch entirely. For apps
+     * that sign exclusively with a per-dapp derived account.
+     *
+     * Signing goes through the host's `createTransaction` path (see PR #96).
+     */
+    productAccount?: {
+        /** App identifier (e.g., `"playground.dot"`). */
+        dotNsIdentifier: string;
+        /** Derivation index within the app scope. Default: 0. */
+        derivationIndex?: number;
+        /**
+         * Populate `SignerAccount.name` best-effort from
+         * `accounts.getUserId().primaryUsername`.
+         *
+         * On by default. Set to `false` to skip the fetch: `getUserId`
+         * triggers a host identity-permission prompt, so apps that don't
+         * render the user's name (those with their own display chain, e.g.
+         * registry username → fallback) can opt out and avoid the prompt.
+         * When enabled and the fetch fails (NotConnected, PermissionDenied,
+         * codec drift) the name stays null and connect still succeeds. The
+         * name can also be fetched later on demand via
+         * {@link HostProvider.getUserId}. Default: `true`.
+         */
+        requestName?: boolean;
+    };
 }
 
 /**
@@ -102,38 +147,22 @@ interface NeverthrowResultAsync<T, E> {
     match: <A, B = A>(ok: (t: T) => A, err: (e: E) => B) => Promise<A | B>;
 }
 
-/**
- * Pin product-account signing to Nova's `host_create_transaction` path.
- *
- * The `createTransaction` path forwards opaque signed-extension bytes to
- * the host for metadata-driven decoding, so unknown extensions (e.g.
- * `AsPgas` on Paseo Next) survive end-to-end. The alternate
- * `"signPayload"` path wraps via PJS and throws
- * `"PJS does not support this signed-extension: AsPgas"` on those chains.
- *
- * Nova's `host-api-wrapper@0.7.9` already defaults to `"createTransaction"`,
- * so this is a defensive pin rather than an opt-in — it guards against a
- * future upstream default flip and makes the routing legible at the call
- * site. The legacy-account signer doesn't expose this switch.
- */
-const PRODUCT_SIGNER_TYPE = "createTransaction" as const;
-
 /** @internal */
 export interface AccountsProvider {
     getLegacyAccounts: () => NeverthrowResultAsync<RawAccount[], unknown>;
-    getLegacyAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+    getLegacyAccountSigner: (account: {
+        publicKey: Uint8Array;
+    }) => import("polkadot-api").PolkadotSigner;
     getProductAccount: (
         dotNsIdentifier: string,
         derivationIndex?: number,
     ) => NeverthrowResultAsync<RawAccount, unknown>;
-    getProductAccountSigner: (
-        account: ProductAccount,
-        signerType?: "signPayload" | "createTransaction",
-    ) => import("polkadot-api").PolkadotSigner;
+    getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
     getProductAccountAlias: (
         dotNsIdentifier: string,
         derivationIndex?: number,
     ) => NeverthrowResultAsync<ContextualAlias, unknown>;
+    getUserId: () => NeverthrowResultAsync<{ primaryUsername: string }, unknown>;
     createRingVRFProof: (
         dotNsIdentifier: string,
         derivationIndex: number,
@@ -145,44 +174,33 @@ export interface AccountsProvider {
     ) => { unsubscribe: () => void } | (() => void);
 }
 
-/** @internal */
-export interface HostApiPermissionBridge {
-    /**
-     * Request a Host API permission. Product-sdk's `hostApi.permission(...)`
-     * takes a tagged enum like `enumValue("v1", { tag: "TransactionSubmit" })`
-     * and returns a neverthrow ResultAsync.
-     */
-    permission: (request: unknown) => NeverthrowResultAsync<unknown, unknown>;
-}
-
-/** @internal */
-export interface HostApiEnumHelper {
-    enumValue: (version: string, value: { tag: string; value?: unknown }) => unknown;
-}
-
-/** @internal */
-export interface ProductSdkModule {
-    createAccountsProvider: () => AccountsProvider;
-    /** Present from product-sdk ≥ 0.6; used to request TransactionSubmit. */
-    hostApi?: HostApiPermissionBridge;
-}
-
 /* @integration */
-async function defaultLoadSdk(): Promise<ProductSdkModule> {
-    return (await import("@novasamatech/host-api-wrapper")) as unknown as ProductSdkModule;
+async function defaultLoadAccountsProvider(): Promise<AccountsProvider | null> {
+    // `@parity/product-sdk-host`'s provider is structurally compatible with the
+    // (looser) shape declared above; the cast bridges the nominal gap.
+    return (await getAccountsProvider()) as unknown as AccountsProvider | null;
 }
 
-/* @integration */
-async function defaultLoadHostApiEnum(): Promise<HostApiEnumHelper> {
-    return (await import("@novasamatech/host-api")) as unknown as HostApiEnumHelper;
+/**
+ * Default `requestChainSubmitPermissionFn`: bridge host's `Result`-returning
+ * {@link requestPermission} back to the option's `Promise<boolean>` contract by
+ * throwing the typed `HostError` on the `err` channel. The throw is caught
+ * (and warned, not fatal) at the connect-time call site.
+ */
+async function defaultRequestChainSubmitPermission(permission: RemotePermission): Promise<boolean> {
+    const result = await requestPermission(permission);
+    if (!result.ok) throw result.error;
+    return result.value;
 }
 
 /**
  * Provider for the Host API (Polkadot Desktop / Android).
  *
- * Dynamically imports `@novasamatech/host-api-wrapper` at runtime so it remains
- * an optional peer dependency. Apps running outside a host container will
- * gracefully get a `HOST_UNAVAILABLE` error.
+ * Backed by `@parity/product-sdk-host`'s `getAccountsProvider`, which talks to
+ * the host over `@parity/truapi`. Apps running outside a host container — e.g.
+ * a plain browser tab during `npm run dev` — get a `HOST_UNAVAILABLE` error
+ * (the provider resolves to `null`) with actionable guidance, surfaced before
+ * any host RPC call.
  *
  * Supports both non-product accounts (user's external wallets) and product
  * accounts (app-scoped derived accounts managed by the host).
@@ -192,9 +210,13 @@ export class HostProvider implements SignerProvider {
     private readonly ss58Prefix: number;
     private readonly maxRetries: number;
     private readonly retryDelay: number;
-    private readonly loadSdk: () => Promise<ProductSdkModule>;
-    private readonly loadHostApiEnum: () => Promise<HostApiEnumHelper>;
+    private readonly loadAccountsProvider: () => Promise<AccountsProvider | null>;
+    private readonly requestChainSubmitPermissionFn: (
+        permission: RemotePermission,
+    ) => Promise<boolean>;
     private readonly requestChainSubmitPermission: boolean;
+    private readonly productAccount: HostProviderOptions["productAccount"];
+    private readonly dappName: string | undefined;
 
     private accountsProvider: AccountsProvider | null = null;
     private statusCleanup: (() => void) | null = null;
@@ -205,13 +227,16 @@ export class HostProvider implements SignerProvider {
         this.ss58Prefix = options?.ss58Prefix ?? 42;
         this.maxRetries = options?.maxRetries ?? 3;
         this.retryDelay = options?.retryDelay ?? 500;
-        this.loadSdk = options?.loadSdk ?? defaultLoadSdk;
-        this.loadHostApiEnum = options?.loadHostApiEnum ?? defaultLoadHostApiEnum;
+        this.loadAccountsProvider = options?.loadAccountsProvider ?? defaultLoadAccountsProvider;
+        this.requestChainSubmitPermissionFn =
+            options?.requestChainSubmitPermissionFn ?? defaultRequestChainSubmitPermission;
         // New name takes precedence; fall back to the deprecated alias.
         this.requestChainSubmitPermission =
             options?.requestChainSubmitPermission ??
             options?.requestTransactionSubmitPermission ??
             true;
+        this.productAccount = options?.productAccount;
+        this.dappName = options?.dappName;
     }
 
     async connect(signal?: AbortSignal): Promise<Result<SignerAccount[], SignerError>> {
@@ -305,10 +330,7 @@ export class HostProvider implements SignerProvider {
                     if (!this.accountsProvider) {
                         throw new Error("Host provider is disconnected");
                     }
-                    return this.accountsProvider.getProductAccountSigner(
-                        productAccount,
-                        PRODUCT_SIGNER_TYPE,
-                    );
+                    return this.accountsProvider.getProductAccountSigner(productAccount);
                 },
             });
         } catch (cause) {
@@ -327,17 +349,15 @@ export class HostProvider implements SignerProvider {
      * Convenience method for when you already have the product account details.
      * Requires a prior successful `connect()` call.
      *
-     * Routing is pinned to `signerType: "createTransaction"` via
-     * {@link PRODUCT_SIGNER_TYPE} so unknown signed extensions (e.g. `AsPgas`
-     * on Paseo Next) are forwarded to the host as opaque bytes for
-     * metadata-driven decoding, rather than going through the PJS bridge
-     * that throws on unknown extensions.
+     * Signing routes through the host's `createTransaction` path, so unknown
+     * signed extensions (e.g. `AsPgas` on Paseo Next) are forwarded to the host
+     * as opaque bytes for metadata-driven decoding.
      */
     getProductAccountSigner(account: ProductAccount): import("polkadot-api").PolkadotSigner {
         if (!this.accountsProvider) {
             throw new Error("Host provider is not connected");
         }
-        return this.accountsProvider.getProductAccountSigner(account, PRODUCT_SIGNER_TYPE);
+        return this.accountsProvider.getProductAccountSigner(account);
     }
 
     /**
@@ -372,6 +392,43 @@ export class HostProvider implements SignerProvider {
             return err(
                 new HostRejectedError(
                     cause instanceof Error ? cause.message : "Failed to get product account alias",
+                ),
+            );
+        }
+    }
+
+    /**
+     * Fetch the connected user's primary username from the host.
+     *
+     * Use this to retrieve the name lazily — e.g. on a profile screen that
+     * actually displays it — when `connect()` ran without
+     * `productAccount.requestName` (the default) and so never fetched it.
+     * Like the connect-time fetch this triggers a host identity-permission
+     * prompt; unlike it, the result is returned as a structured `Result` so
+     * callers can react to a `PermissionDenied` / `NotConnected` rejection
+     * explicitly instead of silently falling back to a nameless account.
+     *
+     * Requires a prior successful `connect()` call.
+     */
+    async getUserId(): Promise<Result<{ primaryUsername: string }, SignerError>> {
+        if (!this.accountsProvider) {
+            return err(new HostUnavailableError("Host provider is not connected"));
+        }
+
+        try {
+            const result = (await this.accountsProvider.getUserId().match(
+                (value) => value,
+                (error) => {
+                    throw new Error(`Host rejected user id request: ${formatError(error)}`);
+                },
+            )) as { primaryUsername: string };
+
+            return ok(result);
+        } catch (cause) {
+            log.error("failed to get user id", { cause });
+            return err(
+                new HostRejectedError(
+                    cause instanceof Error ? cause.message : "Failed to get user id",
                 ),
             );
         }
@@ -421,46 +478,111 @@ export class HostProvider implements SignerProvider {
     // ── Private ──────────────────────────────────────────────────────
 
     private async tryConnect(): Promise<Result<SignerAccount[], SignerError>> {
-        // Step 1: Load product-sdk
-        let sdk: ProductSdkModule;
+        // Step 1: Obtain the host accounts provider. `null` (or a thrown error)
+        // means we're not inside a host container.
+        let provider: AccountsProvider | null;
         try {
-            sdk = await this.loadSdk();
+            provider = await this.loadAccountsProvider();
         } catch (cause) {
-            log.warn("product-sdk not available", { cause });
+            log.warn("host accounts provider unavailable", { cause });
             return err(
                 new HostUnavailableError(
                     cause instanceof Error
-                        ? `product-sdk import failed: ${cause.message}`
-                        : "product-sdk is not installed",
+                        ? `host accounts provider failed: ${cause.message}`
+                        : "host accounts provider is unavailable",
                 ),
             );
         }
 
-        // Step 2: Create accounts provider
-        const provider = sdk.createAccountsProvider();
+        // Step 2: Verify we're actually running inside a host container.
+        //
+        // `getAccountsProvider()` resolves to `null` when the app isn't loaded
+        // inside a Polkadot host container (e.g. a plain browser tab during
+        // `npm run dev`, with no iframe under Polkadot Desktop or WebView under
+        // Polkadot Mobile). Returning `HostUnavailableError` here — before any
+        // host RPC call — matches the TSDoc contract ("Apps running outside a
+        // host container will gracefully get a HOST_UNAVAILABLE error") and
+        // gives consumers actionable guidance, rather than letting a later RPC
+        // surface a misleading rejection.
+        if (!provider) {
+            log.warn("not inside a host container — Host API unavailable");
+            return err(
+                new HostUnavailableError(
+                    "Host API is not available: not running inside a Polkadot host container. " +
+                        "Open this app inside Polkadot Desktop or the Polkadot Mobile WebView, " +
+                        "or pick a non-host signer provider (e.g. dev accounts).",
+                ),
+            );
+        }
         this.accountsProvider = provider;
 
-        // Step 3: Fetch non-product accounts
-        let rawAccounts: RawAccount[];
-        try {
-            rawAccounts = (await provider.getLegacyAccounts().match(
-                (accounts) => accounts,
-                (error) => {
-                    throw new Error(`Host rejected account request: ${formatError(error)}`);
-                },
-            )) as RawAccount[];
-        } catch (cause) {
-            log.error("failed to get accounts from host", { cause });
-            return err(
-                new HostRejectedError(
-                    cause instanceof Error ? cause.message : "Failed to get accounts from host",
-                ),
+        // Step 3: Fetch accounts.
+        //
+        // Both branches end in `fetchProductSignerAccount`. The difference
+        // is only where the dotNS identifier comes from:
+        //  - explicit `productAccount` option (caller-supplied), OR
+        //  - implicit derivation from `dappName` (the SDK-managed default
+        //    for hosts that don't enumerate accounts, e.g. Polkadot Desktop).
+        //
+        // On hosts that don't enumerate accounts (PoP / product-account
+        // hosts), `getLegacyAccounts()` returns `[]` by design — the host
+        // exposes only per-dapp product accounts and never the user's
+        // identity account. The implicit derivation path matches that
+        // contract: derive the per-dapp account using the consumer's
+        // `dappName` as the identifier, surface it on `connect()`. When
+        // the host rejects the derivation (typically because the dapp's
+        // dotNS identifier isn't registered for this user), we resolve
+        // with an empty accounts list rather than throwing so consumers
+        // can still drive the explicit-name signing paths
+        // (`signMessageWithDotNsIdentity`, `getLegacyAccountSigner`).
+        let signerAccounts: SignerAccount[];
+        if (this.productAccount) {
+            const accountResult = await this.fetchProductSignerAccount(
+                provider,
+                this.productAccount.dotNsIdentifier,
+                this.productAccount.derivationIndex ?? 0,
+                this.productAccount.requestName ?? true,
             );
-        }
-
-        if (rawAccounts.length === 0) {
-            log.warn("host returned no accounts");
-            return err(new NoAccountsError("host"));
+            if (!accountResult.ok) return accountResult;
+            signerAccounts = [accountResult.value];
+        } else if (this.dappName) {
+            // `.dot` is appended if missing so `"my-app"` and `"my-app.dot"`
+            // resolve to the same identifier on the host side.
+            const dotNsIdentifier = this.dappName.endsWith(".dot")
+                ? this.dappName
+                : `${this.dappName}.dot`;
+            const accountResult = await this.fetchProductSignerAccount(
+                provider,
+                dotNsIdentifier,
+                0,
+                true,
+            );
+            if (!accountResult.ok) {
+                // Soft-degrade: host couldn't derive a product account for
+                // this dappName (most commonly because the identifier isn't
+                // registered for this user). Returning [] lets `connect()`
+                // resolve successfully — consumers handle the empty list
+                // and drive explicit signing paths.
+                log.warn(
+                    "host could not derive a product account for dappName; resolving with empty accounts",
+                    {
+                        dotNsIdentifier,
+                        error: accountResult.error.message,
+                    },
+                );
+                signerAccounts = [];
+            } else {
+                signerAccounts = [accountResult.value];
+            }
+        } else {
+            // No `productAccount`, no `dappName` — caller asked the SDK to
+            // pick accounts with no hints. We can't, so resolve with an
+            // empty list. Consumers driving explicit-name signing still
+            // work; consumers expecting enumeration get a clear `[]`.
+            log.warn(
+                "no productAccount or dappName configured; resolving connect() with empty accounts",
+            );
+            signerAccounts = [];
         }
 
         // Step 4: Request ChainSubmit permission up-front.
@@ -476,41 +598,25 @@ export class HostProvider implements SignerProvider {
         // We don't fail `connect()` if this step fails: the consumer can still
         // use the signer for read-only code paths, and the actual sign call
         // will surface a clear error if permission is missing.
-        //
-        // The legal v1 RemotePermission variants per
-        // `@novasamatech/host-api@0.7.7` are: Remote, WebRTC, ChainSubmit,
-        // PreimageSubmit, StatementSubmit. ChainSubmit is the chain-tx
-        // permission (was named TransactionSubmit in earlier host-api
-        // revisions; renamed in 0.7).
-        if (this.requestChainSubmitPermission && sdk.hostApi) {
+        if (this.requestChainSubmitPermission) {
             try {
-                const hostApiEnum = await this.loadHostApiEnum();
-                const request = hostApiEnum.enumValue("v1", {
+                const granted = await this.requestChainSubmitPermissionFn({
                     tag: "ChainSubmit",
                     value: undefined,
                 });
-                await sdk.hostApi.permission(request).match(
-                    () => {
-                        log.debug("ChainSubmit permission granted");
-                    },
-                    (error) => {
-                        log.warn("ChainSubmit permission rejected by host", {
-                            error: formatError(error),
-                        });
-                    },
-                );
+                log.debug("ChainSubmit permission result", { granted });
             } catch (cause) {
                 log.warn("failed to request ChainSubmit permission", { cause });
             }
         }
 
-        // Step 5: Map to SignerAccount[]
-        const accounts = this.mapAccounts(rawAccounts);
-        log.info("host connected", { accounts: accounts.length });
+        log.info("host connected", { accounts: signerAccounts.length });
 
-        // Step 6: Subscribe to connection status
+        // Step 5: Subscribe to connection status. The host reports a string
+        // union (`"Connected"` / `"Disconnected"`); match case-insensitively.
         const sub = provider.subscribeAccountConnectionStatus((status) => {
-            const mapped: ConnectionStatus = status === "connected" ? "connected" : "disconnected";
+            const mapped: ConnectionStatus =
+                String(status).toLowerCase() === "connected" ? "connected" : "disconnected";
             log.debug("host status changed", { status: mapped });
             for (const listener of this.statusListeners) {
                 listener(mapped);
@@ -518,31 +624,48 @@ export class HostProvider implements SignerProvider {
         });
         this.statusCleanup = typeof sub === "function" ? sub : () => sub.unsubscribe();
 
-        return ok(accounts);
+        return ok(signerAccounts);
     }
 
-    private mapAccounts(rawAccounts: ReadonlyArray<RawAccount>): SignerAccount[] {
-        return rawAccounts.map((raw) => {
-            const address = ss58Encode(raw.publicKey, this.ss58Prefix);
-            const h160Address = deriveH160(raw.publicKey);
-            return {
-                address,
-                h160Address,
-                publicKey: raw.publicKey,
-                name: raw.name ?? null,
-                source: "host" as const,
-                getSigner: () => {
-                    if (!this.accountsProvider) {
-                        throw new Error("Host provider is disconnected");
-                    }
-                    return this.accountsProvider.getLegacyAccountSigner({
-                        dotNsIdentifier: "",
-                        derivationIndex: 0,
-                        publicKey: raw.publicKey,
-                    });
-                },
-            };
-        });
+    private async fetchProductSignerAccount(
+        provider: AccountsProvider,
+        dotNsIdentifier: string,
+        derivationIndex: number,
+        requestName: boolean,
+    ): Promise<Result<SignerAccount, SignerError>> {
+        // The name fetch is on by default; `requestName: false` opts out.
+        // `getUserId` triggers a host identity-permission prompt, so apps
+        // that don't render the user's name can skip it. When enabled it
+        // runs in parallel with the account fetch — they're independent host
+        // RPCs — and its failures (NotConnected, PermissionDenied, codec
+        // drift) resolve to `null` so they never abort connect; the account
+        // name then falls back to whatever `getProductAccount` returned
+        // (typically also null, since product accounts are nameless on the
+        // host side).
+        const fetchUsername = async (): Promise<string | null> => {
+            if (!requestName) return null;
+            try {
+                return await provider.getUserId().match(
+                    (result) => result.primaryUsername,
+                    (error) => {
+                        log.debug("getUserId failed; product account name stays null", {
+                            error: formatError(error),
+                        });
+                        return null as string | null;
+                    },
+                );
+            } catch (cause) {
+                log.debug("getUserId threw; product account name stays null", { cause });
+                return null;
+            }
+        };
+        const [accountResult, primaryUsername] = await Promise.all([
+            this.getProductAccount(dotNsIdentifier, derivationIndex),
+            fetchUsername(),
+        ]);
+        if (!accountResult.ok) return accountResult;
+        const account = accountResult.value;
+        return ok({ ...account, name: account.name ?? primaryUsername });
     }
 }
 
@@ -562,7 +685,12 @@ export class HostProvider implements SignerProvider {
 function formatError(error: unknown): string {
     if (!error || typeof error !== "object") return String(error);
     const e = error as Record<string, unknown>;
-    if (!("tag" in e)) return String(error);
+    // truapi GenericError is { reason } with no `tag`.
+    if (!("tag" in e)) {
+        if (typeof e.reason === "string") return e.reason;
+        if (typeof e.message === "string") return e.message;
+        return String(error);
+    }
 
     const outerTag = String(e.tag);
     const inner = e.value;
@@ -603,6 +731,7 @@ if (import.meta.vitest) {
             accounts?: RawAccountTest[];
             shouldReject?: boolean;
             error?: unknown;
+            primaryUsername?: string;
         } = {},
     ) {
         const accounts = options.accounts ?? [];
@@ -656,120 +785,210 @@ if (import.meta.vitest) {
                 },
             }),
             subscribeAccountConnectionStatus: vi.fn().mockReturnValue(() => {}),
+            getUserId: vi.fn().mockReturnValue({
+                match: async (
+                    onOk: (v: { primaryUsername: string }) => unknown,
+                    onErr: (e: unknown) => unknown,
+                ) => {
+                    if (shouldReject) {
+                        return onErr(options.error ?? "Unknown");
+                    }
+                    return onOk({ primaryUsername: options.primaryUsername ?? "" });
+                },
+            }),
         };
     }
 
-    function createMockSdk(
-        mockProvider: ReturnType<typeof createMockProvider>,
-        opts?: {
-            hostApi?: HostApiPermissionBridge;
-        },
-    ): ProductSdkModule {
-        return {
-            createAccountsProvider: () => mockProvider as unknown as AccountsProvider,
-            ...(opts?.hostApi ? { hostApi: opts.hostApi } : {}),
-        };
+    /** Wrap a mock accounts provider as the loader the HostProvider expects. */
+    function loadProvider(mockProvider: ReturnType<typeof createMockProvider>) {
+        return () => Promise.resolve(mockProvider as unknown as AccountsProvider);
     }
 
-    /**
-     * A fake neverthrow ResultAsync-like object. Resolves via `onOk` when
-     * `error === undefined`, otherwise via `onErr`.
-     */
-    function fakeResult<T>(value: T, error?: unknown): NeverthrowResultAsync<T, unknown> {
-        return {
-            match: async (onOk, onErr) => {
-                if (error !== undefined) return onErr(error);
-                return onOk(value);
-            },
-        };
+    /** A permission requester spy that always grants, unless overridden. */
+    function grantPermission() {
+        return vi.fn<(permission: RemotePermission) => Promise<boolean>>().mockResolvedValue(true);
     }
-
-    const fakeHostApiEnum: HostApiEnumHelper = {
-        enumValue: (version, value) => ({ version, value }),
-    };
 
     beforeEach(() => {
         vi.restoreAllMocks();
     });
 
     describe("HostProvider", () => {
-        test("returns HOST_UNAVAILABLE when SDK load fails", async () => {
+        test("returns HOST_UNAVAILABLE when the accounts-provider loader throws", async () => {
             const provider = new HostProvider({
                 maxRetries: 1,
-                loadSdk: () => Promise.reject(new Error("Cannot find module")),
+                loadAccountsProvider: () => Promise.reject(new Error("boom")),
             });
             const result = await provider.connect();
 
             expect(result.ok).toBe(false);
             if (!result.ok) {
                 expect(result.error).toBeInstanceOf(HostUnavailableError);
-                expect(result.error.message).toContain("Cannot find module");
+                expect(result.error.message).toContain("boom");
             }
         });
 
-        test("returns HOST_REJECTED when getLegacyAccounts fails", async () => {
-            const mockProvider = createMockProvider({ shouldReject: true, error: "Rejected" });
+        test("returns HOST_UNAVAILABLE when not inside a host container (provider null)", async () => {
             const provider = new HostProvider({
                 maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                loadAccountsProvider: () => Promise.resolve(null),
             });
             const result = await provider.connect();
 
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toBeInstanceOf(HostRejectedError);
+                expect(result.error).toBeInstanceOf(HostUnavailableError);
             }
         });
 
-        test("returns NO_ACCOUNTS when host returns empty list", async () => {
+        test("returns HOST_UNAVAILABLE with actionable guidance when not inside a host container", async () => {
+            // Outside a host container `getAccountsProvider()` resolves to null;
+            // connect() returns a HostUnavailableError naming the host container
+            // and pointing the user at the fix path — without making any host
+            // RPC call. (Repro for playground-cli#4: `npm run dev` opens
+            // localhost in a plain browser tab — no iframe, no WebView.)
             const mockProvider = createMockProvider({ accounts: [] });
             const provider = new HostProvider({
                 maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                loadAccountsProvider: () => Promise.resolve(null),
             });
             const result = await provider.connect();
 
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toBeInstanceOf(NoAccountsError);
+                expect(result.error).toBeInstanceOf(HostUnavailableError);
+                expect(result.error.message).toMatch(
+                    /not running inside a Polkadot host container/i,
+                );
+                expect(result.error.message).toMatch(/Polkadot Desktop|Polkadot Mobile/i);
             }
+            // We never reached `getLegacyAccounts()` — proves the env check
+            // short-circuits before any RPC call, so users in a dev browser
+            // never see the upstream exception text leak through.
+            expect(mockProvider.getLegacyAccounts).not.toHaveBeenCalled();
         });
 
-        test("maps accounts correctly on success", async () => {
-            const rawAccounts: RawAccountTest[] = [
-                { publicKey: new Uint8Array(32).fill(0xaa), name: "Alice" },
-                { publicKey: new Uint8Array(32).fill(0xbb), name: undefined },
-            ];
-            const mockProvider = createMockProvider({ accounts: rawAccounts });
+        test("connect with dappName fallback derives a product account", async () => {
+            // Without an explicit `productAccount`, the SDK derives the
+            // dotNS identifier from `dappName` (with `.dot` appended if
+            // missing). This is the path hosts that don't enumerate
+            // accounts (PoP / Polkadot Desktop) take by default.
+            const productPubkey = new Uint8Array(32).fill(0x42);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+                primaryUsername: "alice",
+            });
             const provider = new HostProvider({
                 maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                dappName: "my-cli",
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
             });
             const result = await provider.connect();
 
             expect(result.ok).toBe(true);
             if (result.ok) {
-                expect(result.value).toHaveLength(2);
-                expect(result.value[0].name).toBe("Alice");
+                expect(result.value).toHaveLength(1);
+                expect(result.value[0].publicKey).toEqual(productPubkey);
                 expect(result.value[0].source).toBe("host");
-                expect(result.value[0].publicKey).toEqual(rawAccounts[0].publicKey);
-                expect(result.value[1].name).toBeNull();
+            }
+            // `.dot` appended automatically.
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("my-cli.dot", 0);
+        });
+
+        test("connect with dappName already ending in .dot doesn't double-append", async () => {
+            const productPubkey = new Uint8Array(32).fill(0x77);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                dappName: "my-cli.dot",
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("my-cli.dot", 0);
+        });
+
+        test("connect succeeds when the default ChainSubmit permission request fails", async () => {
+            // No `requestChainSubmitPermissionFn` override → the default adapter
+            // (`defaultRequestChainSubmitPermission`) calls host's real
+            // `requestPermission`, which returns `err` outside a container. The
+            // adapter unwraps that and throws; the connect step catches it
+            // (warn, non-fatal — see Step 4) so `connect()` still resolves.
+            const productPubkey = new Uint8Array(32).fill(0x55);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                dappName: "my-cli",
+                loadAccountsProvider: loadProvider(mockProvider),
+                // requestChainSubmitPermission defaults to true; no Fn override.
+            });
+
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toHaveLength(1);
             }
         });
 
-        test("getProductAccountSigner pins signerType to 'createTransaction'", async () => {
-            // Regression guard: the alternate "signPayload" route goes through
-            // PJS and throws on unknown signed extensions (e.g. AsPgas on
-            // Paseo Next). If a future refactor drops the explicit pin and
-            // upstream's default ever flips back to signPayload, this would
-            // silently regress.
+        test("connect with dappName fallback resolves to [] when host rejects derivation", async () => {
+            // Soft-degrade: when the host can't derive a product account
+            // for the dappName (commonly because the dotNS identifier isn't
+            // registered for this user), connect() returns ok([]) rather
+            // than throwing. Consumers handle the empty list and drive
+            // explicit signing paths.
+            const mockProvider = createMockProvider({ shouldReject: true, error: "Rejected" });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                dappName: "not-registered",
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toEqual([]);
+            }
+        });
+
+        test("connect resolves to [] when neither productAccount nor dappName is set", async () => {
+            // Caller asked us to pick accounts with no hints. We can't, so
+            // resolve with an empty list rather than throwing.
+            const mockProvider = createMockProvider({});
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toEqual([]);
+            }
+        });
+
+        test("getProductAccountSigner delegates to the host accounts provider", async () => {
+            // The host accounts provider's getProductAccountSigner has a single
+            // signing path (the host's `createTransaction`, which forwards opaque
+            // signed extensions like AsPgas on Paseo Next). There is no PJS
+            // fallback to select, so it's called with just the account.
             const rawAccounts: RawAccountTest[] = [
                 { publicKey: new Uint8Array(32).fill(0xaa), name: "Alice" },
             ];
             const mockProvider = createMockProvider({ accounts: rawAccounts });
             const provider = new HostProvider({
                 maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider)),
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
             });
             await provider.connect();
 
@@ -781,7 +1000,6 @@ if (import.meta.vitest) {
             });
             expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
                 expect.anything(),
-                "createTransaction",
             );
 
             // Path 2: getSigner() returned from HostProvider.getProductAccount(...)
@@ -791,7 +1009,6 @@ if (import.meta.vitest) {
                 productAccountResult.value.getSigner();
                 expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
                     expect.anything(),
-                    "createTransaction",
                 );
             }
         });
@@ -814,160 +1031,235 @@ if (import.meta.vitest) {
             expect(typeof unsub).toBe("function");
             unsub();
         });
+
+        test("productAccount populates name via getUserId by default and skips the legacy fetch", async () => {
+            const productPubkey = new Uint8Array(32).fill(0xcc);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+                primaryUsername: "alice",
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "myapp.dot", derivationIndex: 0 },
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toHaveLength(1);
+                expect(result.value[0].publicKey).toEqual(productPubkey);
+                expect(result.value[0].source).toBe("host");
+                expect(result.value[0].name).toBe("alice");
+                result.value[0].getSigner();
+                expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
+                    expect.objectContaining({
+                        dotNsIdentifier: "myapp.dot",
+                        derivationIndex: 0,
+                    }),
+                );
+            }
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("myapp.dot", 0);
+            expect(mockProvider.getUserId).toHaveBeenCalled();
+            expect(mockProvider.getLegacyAccounts).not.toHaveBeenCalled();
+        });
+
+        test("productAccount with requestName:false skips getUserId (no identity prompt) and leaves name null", async () => {
+            // Opt-out: `getUserId` triggers a host identity-permission prompt,
+            // so apps that don't render the name set `requestName: false`.
+            const productPubkey = new Uint8Array(32).fill(0xab);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+                primaryUsername: "alice",
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toHaveLength(1);
+                expect(result.value[0].publicKey).toEqual(productPubkey);
+                expect(result.value[0].name).toBeNull();
+            }
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("myapp.dot", 0);
+            expect(mockProvider.getUserId).not.toHaveBeenCalled();
+            expect(mockProvider.getLegacyAccounts).not.toHaveBeenCalled();
+        });
+
+        test("productAccount survives getUserId failure (name stays null, connect still succeeds)", async () => {
+            const productPubkey = new Uint8Array(32).fill(0xee);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+            });
+            // Force getUserId to reject — connect must still succeed with name=null.
+            mockProvider.getUserId.mockReturnValue({
+                match: async (
+                    _onOk: (v: { primaryUsername: string }) => unknown,
+                    onErr: (e: unknown) => unknown,
+                ) => onErr({ tag: "PermissionDenied" }),
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "myapp.dot" },
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value[0].name).toBeNull();
+            }
+        });
+
+        test("getUserId() retrieves the primary username after a connect that opted out of the name fetch", async () => {
+            // The escape hatch for `requestName: false`: connect without the
+            // prompt (name=null), then fetch the name lazily later — e.g. when
+            // a profile screen needs to display it.
+            const productPubkey = new Uint8Array(32).fill(0xa1);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+                primaryUsername: "alice",
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            const connectResult = await provider.connect();
+            expect(connectResult.ok).toBe(true);
+            if (connectResult.ok) expect(connectResult.value[0].name).toBeNull();
+            // Not fetched during connect...
+            expect(mockProvider.getUserId).not.toHaveBeenCalled();
+
+            // ...but reachable on demand afterwards.
+            const userId = await provider.getUserId();
+            expect(userId.ok).toBe(true);
+            if (userId.ok) expect(userId.value.primaryUsername).toBe("alice");
+            expect(mockProvider.getUserId).toHaveBeenCalledTimes(1);
+        });
+
+        test("getUserId() returns HostUnavailableError before connect", async () => {
+            const provider = new HostProvider({ maxRetries: 1 });
+            const result = await provider.getUserId();
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(HostUnavailableError);
+        });
+
+        test("getUserId() surfaces a host rejection as HostRejectedError", async () => {
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0xa2), name: undefined }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            await provider.connect();
+            // After connect, force the host to reject the on-demand fetch.
+            mockProvider.getUserId.mockReturnValue({
+                match: async (
+                    _onOk: (v: { primaryUsername: string }) => unknown,
+                    onErr: (e: unknown) => unknown,
+                ) => onErr({ tag: "v1", value: { tag: "GetUserIdErr::PermissionDenied" } }),
+            });
+            const result = await provider.getUserId();
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(HostRejectedError);
+        });
+
+        test("productAccount option succeeds when host has no legacy accounts (regression: signer 0.5.0 NoAccountsError)", async () => {
+            // Without the option, this scenario returned `err(NoAccountsError)`
+            // before any product-account fetch could happen — breaking every
+            // product-only app whose host doesn't surface legacy accounts.
+            const productPubkey = new Uint8Array(32).fill(0xdd);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+            });
+            // Force the legacy path to look empty if it were ever consulted.
+            mockProvider.getLegacyAccounts.mockReturnValue({
+                match: async (
+                    onOk: (v: RawAccountTest[]) => unknown,
+                    _onErr: (e: unknown) => unknown,
+                ) => onOk([]),
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "playground.dot" },
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value).toHaveLength(1);
+                expect(result.value[0].publicKey).toEqual(productPubkey);
+            }
+        });
     });
 
     describe("ChainSubmit permission request", () => {
-        test("sends a v1 ChainSubmit request (regression guard for the TransactionSubmit bug)", async () => {
-            const captured: unknown[] = [];
-            const hostApi: HostApiPermissionBridge = {
-                permission: (request) => {
-                    captured.push(request);
-                    return fakeResult(undefined);
-                },
-            };
+        function providerWithPermission(
+            requestChainSubmitPermissionFn: (permission: RemotePermission) => Promise<boolean>,
+            extra?: Partial<HostProviderOptions>,
+        ) {
             const mockProvider = createMockProvider({
                 accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
             });
-            const provider = new HostProvider({
+            return new HostProvider({
                 maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
-                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn,
+                ...extra,
             });
+        }
 
-            await provider.connect();
+        test("requests the ChainSubmit permission on connect", async () => {
+            const requestFn = grantPermission();
+            await providerWithPermission(requestFn).connect();
 
-            expect(captured).toHaveLength(1);
-            // The fake hostApiEnum returns `{ version, value }` so we can
-            // assert on the exact wire shape that would reach
-            // host-api's RemotePermission codec.
-            expect(captured[0]).toEqual({
-                version: "v1",
-                value: { tag: "ChainSubmit", value: undefined },
-            });
-        });
-
-        test("does NOT send a TransactionSubmit tag (the bug)", async () => {
-            const captured: unknown[] = [];
-            const hostApi: HostApiPermissionBridge = {
-                permission: (request) => {
-                    captured.push(request);
-                    return fakeResult(undefined);
-                },
-            };
-            const mockProvider = createMockProvider({
-                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
-            });
-            const provider = new HostProvider({
-                maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
-                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
-            });
-
-            await provider.connect();
-
-            const sent = JSON.stringify(captured[0]);
-            expect(sent).not.toContain("TransactionSubmit");
-        });
-
-        test("skipped when sdk.hostApi is unavailable (older product-sdk)", async () => {
-            const mockProvider = createMockProvider({
-                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
-            });
-            const provider = new HostProvider({
-                maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider /* no hostApi */)),
-                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
-            });
-
-            const result = await provider.connect();
-            // Connect should succeed even without the hostApi bridge —
-            // permission is best-effort.
-            expect(result.ok).toBe(true);
+            expect(requestFn).toHaveBeenCalledTimes(1);
+            expect(requestFn).toHaveBeenCalledWith({ tag: "ChainSubmit", value: undefined });
         });
 
         test("skipped when requestChainSubmitPermission is false", async () => {
-            const captured: unknown[] = [];
-            const hostApi: HostApiPermissionBridge = {
-                permission: (request) => {
-                    captured.push(request);
-                    return fakeResult(undefined);
-                },
-            };
-            const mockProvider = createMockProvider({
-                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
-            });
-            const provider = new HostProvider({
-                maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
-                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
+            const requestFn = grantPermission();
+            await providerWithPermission(requestFn, {
                 requestChainSubmitPermission: false,
-            });
-
-            await provider.connect();
-            expect(captured).toHaveLength(0);
+            }).connect();
+            expect(requestFn).not.toHaveBeenCalled();
         });
 
         test("deprecated requestTransactionSubmitPermission alias still controls the request", async () => {
-            const captured: unknown[] = [];
-            const hostApi: HostApiPermissionBridge = {
-                permission: (request) => {
-                    captured.push(request);
-                    return fakeResult(undefined);
-                },
-            };
-            const mockProvider = createMockProvider({
-                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
-            });
-            const provider = new HostProvider({
-                maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
-                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
-                // Old name; new code path should still respect it as `false`.
+            const requestFn = grantPermission();
+            await providerWithPermission(requestFn, {
                 requestTransactionSubmitPermission: false,
-            });
-
-            await provider.connect();
-            expect(captured).toHaveLength(0);
+            }).connect();
+            expect(requestFn).not.toHaveBeenCalled();
         });
 
-        test("connect succeeds even when permission request rejects", async () => {
-            // Whatever the host says about permission, connect() should
-            // still return ok — the consumer can sign later with whatever
-            // permission they negotiate.
-            const hostApi: HostApiPermissionBridge = {
-                permission: () => fakeResult(undefined, { tag: "PermissionDenied" }),
-            };
-            const mockProvider = createMockProvider({
-                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
-            });
-            const provider = new HostProvider({
-                maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
-                loadHostApiEnum: () => Promise.resolve(fakeHostApiEnum),
-            });
-
-            const result = await provider.connect();
+        test("connect succeeds even when the permission is denied", async () => {
+            const requestFn = vi
+                .fn<(permission: RemotePermission) => Promise<boolean>>()
+                .mockResolvedValue(false);
+            const result = await providerWithPermission(requestFn).connect();
             expect(result.ok).toBe(true);
         });
 
-        test("connect succeeds even when the hostApiEnum loader throws (codec drift)", async () => {
-            // The original bug: the v1 RemotePermission codec didn't
-            // recognize the TransactionSubmit tag and threw client-side.
-            // Even when something like that happens, connect() must
-            // remain ok — permission is best-effort.
-            const hostApi: HostApiPermissionBridge = {
-                permission: () => fakeResult(undefined),
-            };
-            const mockProvider = createMockProvider({
-                accounts: [{ publicKey: new Uint8Array(32).fill(0x01) }],
-            });
-            const provider = new HostProvider({
-                maxRetries: 1,
-                loadSdk: () => Promise.resolve(createMockSdk(mockProvider, { hostApi })),
-                loadHostApiEnum: () => Promise.reject(new Error("codec drift")),
-            });
-
-            const result = await provider.connect();
+        test("connect succeeds even when the permission request throws", async () => {
+            const requestFn = vi
+                .fn<(permission: RemotePermission) => Promise<boolean>>()
+                .mockRejectedValue(new Error("host unreachable"));
+            const result = await providerWithPermission(requestFn).connect();
             expect(result.ok).toBe(true);
         });
     });
@@ -983,6 +1275,10 @@ if (import.meta.vitest) {
             expect(formatError(42)).toBe("42");
             expect(formatError(null)).toBe("null");
             expect(formatError(undefined)).toBe("undefined");
+        });
+
+        test("surfaces GenericError.reason when there is no tag", () => {
+            expect(formatError({ reason: "boom" })).toContain("boom");
         });
 
         test("surfaces inner Error name + message under the outer tag", () => {
@@ -1026,34 +1322,6 @@ if (import.meta.vitest) {
 
         test("formats a primitive inner value alongside the tag", () => {
             expect(formatError({ tag: "v1", value: "code-42" })).toBe("v1 (code-42)");
-        });
-    });
-
-    describe("RemotePermission codec interop", () => {
-        // Smoke test that the wire payload we build (`ChainSubmit`) round-trips
-        // through the real host-api codec. The previous bug shipped
-        // `TransactionSubmit`, which the codec rejects — locking this in here
-        // catches a regression at the codec layer without needing the host.
-        test("encodes ChainSubmit payload without throwing", async () => {
-            const { RemotePermission } = await import("@novasamatech/host-api");
-            const payload = { tag: "ChainSubmit" as const, value: undefined };
-            const encoded = RemotePermission.enc(payload);
-            expect(encoded).toBeInstanceOf(Uint8Array);
-            const decoded = RemotePermission.dec(encoded);
-            expect(decoded.tag).toBe("ChainSubmit");
-        });
-
-        test("rejects the legacy TransactionSubmit tag", async () => {
-            const { RemotePermission } = await import("@novasamatech/host-api");
-            // `TransactionSubmit` is not a valid variant in v1 — the codec
-            // should refuse to encode it. This proves the codec actually
-            // validates tags (so test 1 isn't a tautology).
-            expect(() =>
-                RemotePermission.enc({
-                    tag: "TransactionSubmit",
-                    value: undefined,
-                } as never),
-            ).toThrow();
         });
     });
 }

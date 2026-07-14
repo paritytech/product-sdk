@@ -21,7 +21,7 @@
     },
     "dependencies": {
         "@noble/hashes": "^2.2.0",
-        "@polkadot-api/substrate-bindings": "^0.12.0"
+        "@polkadot-api/substrate-bindings": "catalog:"
     },
     "devDependencies": {
         "typescript": "^5.7.0",

@@ -1,5 +1,203 @@
 # @parity/product-sdk-chain-client
 
+## 0.7.7
+
+### Patch Changes
+
+- Updated dependencies [f81fc2b]
+- Updated dependencies [f81fc2b]
+- Updated dependencies [f81fc2b]
+  - @parity/product-sdk-host@0.12.0
+
+## 0.7.6
+
+### Patch Changes
+
+- Updated dependencies [ef14a41]
+  - @parity/product-sdk-host@0.11.0
+
+## 0.7.5
+
+### Patch Changes
+
+- 8dd1232: chore(deps): bump polkadot-api to 2.1.6
+
+  Updates the `polkadot-api` catalog entry `^2.1.5` → `^2.1.6` (2.1.6 carries the
+  double-notification fix). Every published package resolves `polkadot-api`
+  through `catalog:`, so each one's published `dependencies` range moves to
+  `^2.1.6`. There is no source change in any package — these are patch bumps to
+  ship the new floor via the published `catalog:` resolution.
+
+  Releases the catalog bump from #223, which was merged to `main` without a
+  changeset.
+
+- Updated dependencies [8dd1232]
+  - @parity/product-sdk-descriptors@0.6.2
+  - @parity/product-sdk-host@0.10.3
+
+## 0.7.4
+
+### Patch Changes
+
+- Updated dependencies [c39332e]
+  - @parity/product-sdk-host@0.10.2
+
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [9ce5ab2]
+  - @parity/product-sdk-host@0.10.1
+
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [acb2228]
+- Updated dependencies [acb2228]
+  - @parity/product-sdk-host@0.10.0
+
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [2124e02]
+- Updated dependencies [2124e02]
+- Updated dependencies [2124e02]
+  - @parity/product-sdk-host@0.9.0
+  - @parity/product-sdk-descriptors@0.6.1
+
+## 0.7.0
+
+### Minor Changes
+
+- a2fd276: **Add the Summit Network (Web3 Summit) as a new environment.**
+
+  Adds `summit-asset-hub`, `summit-bulletin`, and `summit-individuality`
+  (the People chain) descriptors, and wires `summit` through the host
+  Bulletin RPC list, the cloud-storage network preset, and
+  `getChainAPI("summit")`. Purely additive — no existing environment,
+  descriptor, or endpoint changes.
+
+### Patch Changes
+
+- Updated dependencies [a2fd276]
+- Updated dependencies [a2fd276]
+  - @parity/product-sdk-descriptors@0.6.0
+  - @parity/product-sdk-host@0.8.0
+
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [d4bc935]
+  - @parity/product-sdk-host@0.7.1
+
+## 0.6.0
+
+### Minor Changes
+
+- f6bdaaf: **Remove the unused `rpcs` field from `ChainClientConfig`.**
+
+  `createChainClient` routed every connection through the host provider, so
+  the `rpcs` endpoints were never read at runtime — the field only forced
+  callers to construct and pass a no-op argument. It has been removed, and
+  `createChainClient({ chains })` is now the full config shape. The internal
+  preset RPC table and the dead `getChainAPI` wiring that fed it were dropped
+  as well.
+
+  **Breaking:** callers that passed `rpcs: {...}` will hit a TypeScript
+  excess-property error and must delete that key. There is no runtime behavior
+  change — the field carried no effect.
+
+  ```diff
+   const client = await createChainClient({
+       chains: { assetHub: paseo_asset_hub },
+  -    rpcs: { assetHub: ["wss://paseo-asset-hub-next-rpc.polkadot.io"] },
+   });
+  ```
+
+- f6bdaaf: **Surface a catchable error when the host doesn't support a chain, instead of hanging forever.**
+
+  Previously, connecting to a chain the host doesn't recognize (e.g. not enabled
+  in the current Desktop/Browser build, or a descriptor genesis hash that drifted
+  after a network reset) produced a provider whose JSON-RPC requests were silently
+  dropped. Every query against that chain then awaited indefinitely — no rejection,
+  no error, no built-in timeout.
+
+  `getHostProvider` now verifies host support (via the same `host_feature_supported`
+  check the wrapper performs internally) _before_ handing a provider to PAPI, and
+  throws the new `ChainNotSupportedError` (carrying the offending `genesisHash`) when
+  the host can't serve the chain.
+
+  `createChainClient` degrades per-chain rather than all-or-nothing: supported chains
+  in the same call stay fully usable, and an unsupported chain's API throws
+  `ChainNotSupportedError` on first use (e.g. `client.assetHub.query…`) instead of
+  hanging. This matches the reported behaviour where one chain (Bulletin) keeps
+  working while another is unavailable. A hard failure (e.g. not running inside a
+  container) still rejects the whole call as before.
+
+  ```ts
+  import {
+    createChainClient,
+    ChainNotSupportedError,
+  } from "@parity/product-sdk-chain-client";
+
+  const client = await createChainClient({
+    chains: { assetHub: paseo_asset_hub, bulletin: paseo_bulletin },
+  });
+
+  try {
+    await client.assetHub.query.System.Number.getValue();
+  } catch (err) {
+    if (err instanceof ChainNotSupportedError) {
+      // err.genesisHash — the chain the host refused
+    }
+  }
+
+  // Other chains in the same client are unaffected:
+  await client.bulletin.query.TransactionStorage.ByteFee.getValue();
+  ```
+
+  `ChainNotSupportedError` is exported from both `@parity/product-sdk-host` and
+  `@parity/product-sdk-chain-client`. Connecting outside a host container still
+  returns `null` / throws the existing "host provider unavailable" error.
+
+### Patch Changes
+
+- Updated dependencies [f6bdaaf]
+  - @parity/product-sdk-host@0.7.0
+
+## 0.5.3
+
+### Patch Changes
+
+- dc3a452: Bump shared catalog dependencies to their latest within range. Dependency-range updates only; no public API changes:
+
+  - `polkadot-api` `^2.1.2` → `^2.1.5` (all packages listed)
+  - `@polkadot-labs/hdkd-helpers` `^0.0.27` → `^0.0.30` (contracts, keys, tx)
+  - `viem` `^2.46.2` → `^2.52.0` (contracts)
+  - `@novasamatech/host-api` & `@novasamatech/host-api-wrapper` `^0.8.0` → `^0.8.3` (signer's optional deps; host/statement-store carry them as dev-only/unchanged peers)
+
+- Updated dependencies [dc3a452]
+- Updated dependencies [dc3a452]
+  - @parity/product-sdk-host@0.6.1
+  - @parity/product-sdk-descriptors@0.5.2
+
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [551c1bb]
+  - @parity/product-sdk-host@0.6.0
+
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [30b798f]
+  - @parity/product-sdk-descriptors@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes

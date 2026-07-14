@@ -42,7 +42,6 @@ import { StatementStoreClient } from "@parity/product-sdk-statement-store";
 
 const client = new StatementStoreClient({
   appName: "my-app",
-  endpoint: "wss://paseo-bulletin-next-rpc.polkadot.io",
 });
 
 await client.connect({
@@ -67,9 +66,8 @@ client.destroy();
 ```ts
 const client = new StatementStoreClient({
   appName: "my-app",               // required: hashed as topic1
-  endpoint: "wss://...",           // optional: fallback WebSocket URL
-  pollIntervalMs: 10_000,          // optional: polling interval
-  defaultTtlSeconds: 30,           // optional: statement TTL
+  defaultTtlSeconds: 30,           // optional: statement TTL (default 30)
+  // transport: customTransport,   // optional: BYOD transport for tests
 });
 ```
 
@@ -85,11 +83,19 @@ await client.connect({ mode: "local", signer: { publicKey, sign } });
 
 ### Publish
 
+Returns a `Result<void, StatementStoreError>` — `ok` on accept, `err` carrying the reason (`StatementConnectionError`, `StatementDataTooLargeError`, or `StatementSubmitError`).
+
 ```ts
-const accepted = await client.publish<MyData>(data, {
+const result = await client.publish<MyData>(data, {
   channel: "my-channel",
   topic2: "room-id",
 });
+if (result.ok) {
+  // accepted
+} else {
+  // rejected or errored — inspect result.error for why
+  console.error(result.error);
+}
 ```
 
 ### Subscribe
@@ -112,7 +118,9 @@ import { ChannelStore } from "@parity/product-sdk-statement-store";
 
 const channels = new ChannelStore<Presence>(client, { topic2: "doc-123" });
 
-await channels.write("presence/peer-abc", { type: "presence", timestamp: Date.now() });
+// write returns a Result<void, StatementStoreError> — ok on accept, err carrying the reason
+const result = await channels.write("presence/peer-abc", { type: "presence", timestamp: Date.now() });
+if (!result.ok) console.error(result.error);
 const value = channels.read("presence/peer-abc");
 const all = channels.readAll();
 
@@ -140,8 +148,11 @@ import {
   StatementStoreError,
   StatementConnectionError,
   StatementDataTooLargeError,
+  StatementSubmitError,
 } from "@parity/product-sdk-statement-store";
 ```
+
+`publish` and `ChannelStore.write` return a `Result<void, StatementStoreError>` rather than throwing. On failure, `result.error` is one of the subclasses above; narrow on it to react to the specific cause.
 
 ## Common Mistakes
 

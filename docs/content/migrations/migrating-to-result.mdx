@@ -1,0 +1,221 @@
+---
+title: Migrating to the Result API
+description: How to update code now that fallible SDK operations return a typed Result instead of throwing.
+sinceVersion: "@parity/product-sdk@0.18.0"
+---
+
+# Migrating to the `Result` API
+
+> **Applies to `@parity/product-sdk` v0.18.0 and later.** If your app is already on
+> v0.18.0+ and compiles, you're on the new API — this guide is only needed when
+> upgrading from an earlier version (≤ v0.17.x).
+
+Fallible operations across `@parity/product-sdk-*` no longer throw — they return a
+typed [`Result`](#the-result-type). Instead of a `try/catch` around an opaque
+`Error`, you get a value you branch on, with the failure typed on the `err`
+channel.
+
+```ts
+import { ok } from "@parity/product-sdk";
+
+const r = await contract.transfer.tx(to, amount);
+if (!r.ok) {
+  // r.error is a typed ContractError | TxError
+  return showError(r.error.message);
+}
+useReceipt(r.value); // r.value is the TxResult
+```
+
+If your app only uses the high-level `createApp()` facade, the changes are small
+and localized — skip to [The `createApp` facade](#the-createapp-facade). If you
+consume the leaf packages (`tx`, `contracts`, `cloud-storage`,
+`statement-store`, `host`, `signer`) directly, read on.
+
+## The `Result` type
+
+`@parity/product-sdk` (and each leaf package) exports a single shared shape:
+
+```ts
+type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
+
+import { ok, err, isSdkError } from "@parity/product-sdk";
+```
+
+- Check `r.ok`, then read `r.value` (success) or `r.error` (failure). TypeScript
+  narrows both branches.
+- Every error still extends its package's base error class (`TxError`,
+  `ContractError`, …) — so `instanceof` and the per-package `isXxxError` guards
+  keep working on `r.error`.
+- **`isSdkError(e)`** recognizes *any* error raised by an `@parity/product-sdk-*`
+  package (each base error carries an `isSdkError` marker and a `source` string
+  like `"tx"` / `"contracts"`). Use it for cross-cutting handling.
+
+## The general migration
+
+The mechanical change is the same everywhere:
+
+```ts
+// Before — threw on failure
+try {
+  const value = await someOperation();
+  use(value);
+} catch (e) {
+  handle(e);
+}
+
+// After — returns a Result
+const r = await someOperation();
+if (!r.ok) return handle(r.error);
+use(r.value);
+```
+
+> **Watch out for boolean returns.** A few operations used to return a `boolean`
+> (`statement-store`'s `publish` / `ChannelStore.write`). They now return
+> `Result`. A bare `if (result)` **silently always passes** now — a `Result`
+> object is truthy. The compiler cannot catch this. Search your code for
+> `if (await publish(...))` / `if (await write(...))` and switch to `r.ok`.
+
+## Per-package changes
+
+### `@parity/product-sdk-tx`
+
+| Function | Now returns |
+|---|---|
+| `submitAndWatch` | `Promise<Result<TxResult, TxError>>` |
+| `batchSubmitAndWatch` | `Promise<Result<TxResult, TxError>>` |
+| `ensureAccountMapped` | `Promise<Result<TxResult \| null, TxError>>` — `ok(null)` = already mapped |
+| `extractTransaction` | `Result<SubmittableTransaction, TxDryRunError>` (sync) |
+
+Unchanged (still throw / sync): `createDevSigner`, `getDevPublicKey`,
+`applyWeightBuffer`, `calculateDelay`, `withRetry`, `isAccountMapped`, and the
+`format*` / `isSigningRejection` helpers.
+
+```ts
+// Before
+try { const res = await submitAndWatch(tx, signer); log(res.block.number); }
+catch (e) { if (e instanceof TxDispatchError) … }
+
+// After
+const r = await submitAndWatch(tx, signer);
+if (!r.ok) { if (r.error instanceof TxDispatchError) …; return; }
+log(r.value.block.number);
+```
+
+`extractTransaction` is synchronous but also returns a `Result`:
+
+```ts
+const extracted = extractTransaction(dryRun);
+if (!extracted.ok) return handle(extracted.error);
+const r = await submitAndWatch(extracted.value, signer);
+```
+
+### `@parity/product-sdk-contracts`
+
+| Member | Now returns |
+|---|---|
+| `contract.<method>.tx` | `Promise<Result<TxResult, ContractError \| TxError>>` |
+| `contract.<method>.prepare` | `Promise<Result<BatchableCall, ContractError>>` |
+| `withLiveContractAddresses` | `Promise<Result<CdmJson, ContractError>>` |
+| `ContractManager.fromLive` / `fromLiveClient` | `Promise<Result<ContractManager, ContractError>>` |
+| `ensureContractAccountMapped` | `Promise<Result<TxResult \| null, TxError>>` |
+
+**`contract.<method>.query` is unchanged** — it still returns `QueryResult<T>`
+(`{ success: true; value; gasRequired } | { success: false; value; gasRequired? }`).
+A dry-run revert is an *expected outcome* of a query, not a thrown error, so it
+keeps its richer three-state shape rather than being flattened into `Result`.
+
+```ts
+// query — unchanged
+const q = await contract.balanceOf.query(addr);
+if (q.success) use(q.value);
+
+// tx — now a Result
+const r = await contract.transfer.tx(to, amount, { signer });
+if (!r.ok) return handle(r.error);
+use(r.value);
+```
+
+### `@parity/product-sdk-cloud-storage`
+
+| Function / method | Now returns |
+|---|---|
+| `queryBytes`, `executeQuery`, `CloudStorageClient.fetchBytes` | `Promise<Result<Uint8Array, ProductCloudStorageError>>` |
+| `queryJson`, `CloudStorageClient.fetchJson` | `Promise<Result<T, ProductCloudStorageError>>` |
+| `checkAuthorization`, `CloudStorageClient.checkAuthorization` | `Promise<Result<AuthorizationStatus, CloudStorageAuthorizationError>>` |
+| `verifyStored`, `CloudStorageClient.verifyStored` | `Promise<Result<ChainStoredEntry \| null, ProductCloudStorageError>>` — `ok(null)` = not recorded at that block |
+| `authorizeAccount` | `Promise<Result<{ blockHash }, ProductCloudStorageError \| TxError>>` |
+
+Unchanged: the `CloudStorageClient` methods that forward to the upstream client
+(`store`, `authorizeAccount` the *method*, `authorizePreimage`, `renew`,
+`estimateAuthorization`) — they return the upstream builders. The sync CID
+helpers (`hashToCid`, `cidToPreimageKey`), `createLazySigner`, and the client
+factories are unchanged.
+
+### `@parity/product-sdk-statement-store`
+
+| Member | Now returns |
+|---|---|
+| `StatementStoreClient.publish` | `Promise<Result<void, StatementStoreError>>` (was `Promise<boolean>`) |
+| `ChannelStore.write` | `Promise<Result<void, StatementStoreError>>` (was `Promise<boolean>`) |
+
+The old `boolean` **swallowed the failure reason** into `false`; the `Result`
+now carries *why* it failed (`StatementConnectionError`,
+`StatementDataTooLargeError`, `StatementSubmitError`). See the boolean warning
+[above](#the-general-migration).
+
+```ts
+// Before
+const ok = await client.publish(data);
+if (ok) …           // ⚠️ now always truthy — bug!
+
+// After
+const r = await client.publish(data);
+if (r.ok) …
+else showError(r.error.message);
+```
+
+`subscribe`, `connect`, and the pure helpers (`encodeData`/`decodeData`/…) are
+unchanged.
+
+### `@parity/product-sdk-host` and `-signer`
+
+These already moved to `Result` in earlier releases (host's public operations
+like `requestPermission`, `getChainSpec`, `navigateTo`, and the signer's connect
+flow). No further changes here — they now share the same `Result`/`SdkError`
+types as everything else, so a host `Result` composes directly into signer code
+with no adapter.
+
+## The `createApp` facade
+
+`createApp().cloudStorage` now returns `Result` for its fallible methods:
+
+```ts
+const app = await createApp({ name: "my-app" });
+
+// upload / fetch — now Result
+const uploaded = await app.cloudStorage?.upload(bytes);
+if (uploaded && !uploaded.ok) return showError(uploaded.error.message);
+const cid = uploaded?.value;
+
+const fetched = await app.cloudStorage?.fetch(cid!);
+if (fetched?.ok) render(fetched.value);
+```
+
+`computeCid` is unchanged — it does no I/O, so it throws on invalid input rather
+than returning a `Result`.
+
+## Error handling patterns
+
+```ts
+import { isSdkError } from "@parity/product-sdk";
+import { TxDispatchError } from "@parity/product-sdk-tx";
+
+const r = await contract.transfer.tx(to, amount);
+if (!r.ok) {
+  // Fine-grained: branch on the concrete error class
+  if (r.error instanceof TxDispatchError) return retryLater();
+  // Cross-cutting: is this any SDK error? which package?
+  if (isSdkError(r.error)) log.warn(`sdk error from ${r.error.source}`, r.error);
+  return showError(r.error.message);
+}
+```

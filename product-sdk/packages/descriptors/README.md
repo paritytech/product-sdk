@@ -11,6 +11,9 @@ PAPI-generated chain descriptors for the Polkadot ecosystem. These provide fully
 | Paseo Asset Hub | `@parity/product-sdk-descriptors/paseo-asset-hub` | Testnet |
 | Paseo Bulletin | `@parity/product-sdk-descriptors/paseo-bulletin` | Testnet |
 | Paseo Individuality | `@parity/product-sdk-descriptors/paseo-individuality` | Testnet |
+| Summit Asset Hub | `@parity/product-sdk-descriptors/summit-asset-hub` | Summit |
+| Summit Bulletin | `@parity/product-sdk-descriptors/summit-bulletin` | Summit |
+| Summit Individuality | `@parity/product-sdk-descriptors/summit-individuality` | Summit |
 
 ## Usage
 

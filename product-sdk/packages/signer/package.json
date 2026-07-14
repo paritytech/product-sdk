@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-signer",
-    "version": "0.4.0",
+    "version": "0.9.0",
     "description": "Signer manager for Polkadot — Host API and dev accounts",
     "type": "module",
     "sideEffects": false,
@@ -11,6 +11,10 @@
         ".": {
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
+        },
+        "./testing": {
+            "import": "./dist/testing.js",
+            "types": "./dist/testing.d.ts"
         }
     },
     "files": ["dist", "src"],
@@ -24,11 +28,9 @@
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-errors": "workspace:*",
+        "@parity/result": "workspace:*",
         "polkadot-api": "catalog:"
-    },
-    "optionalDependencies": {
-        "@novasamatech/host-api-wrapper": "catalog:",
-        "@novasamatech/host-api": "catalog:"
     },
     "devDependencies": {
         "tsup": "catalog:",

@@ -1,0 +1,5 @@
+# Dev-machine-only pnpm hook used to `link:` a local @parity/truapi checkout
+# during the truapi migration (see local-docs/truapi-migration.md). It is
+# intentionally NOT committed: on CI / other machines the local path doesn't
+# exist, the hook no-ops, and `@parity/truapi` resolves from the catalog.
+.pnpmfile.cjs
