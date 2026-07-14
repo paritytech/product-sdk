@@ -28,9 +28,17 @@ describe("summarizeOutcomes", () => {
         { tag: "SmartContractAllowance", value: 0 },
     ];
 
+    // A minimal valid `Allocated` payload. `summarizeOutcomes` only reads the
+    // outer tag, so the inner resource variant is arbitrary — SmartContract's
+    // `value: undefined` is the least noisy one to spell out.
+    const allocated: AllocationOutcome = {
+        tag: "Allocated",
+        value: { tag: "SmartContractAllowance", value: undefined },
+    };
+
     test("buckets outcomes by tag, mapping outcomes[i] → resources[i]", () => {
         const outcomes: AllocationOutcome[] = [
-            { tag: "Allocated", value: {} },
+            allocated,
             { tag: "Rejected", value: undefined },
             { tag: "NotAvailable", value: undefined },
         ];
@@ -41,10 +49,7 @@ describe("summarizeOutcomes", () => {
     });
 
     test("all granted", () => {
-        const outcomes: AllocationOutcome[] = resources.map(() => ({
-            tag: "Allocated",
-            value: {},
-        }));
+        const outcomes: AllocationOutcome[] = resources.map(() => allocated);
         const summary = summarizeOutcomes(outcomes, resources);
         expect(summary.granted).toHaveLength(3);
         expect(summary.rejected).toHaveLength(0);
@@ -53,8 +58,8 @@ describe("summarizeOutcomes", () => {
 
     test("drops outcomes with no matching resource (index past resources)", () => {
         const outcomes: AllocationOutcome[] = [
-            { tag: "Allocated", value: {} },
-            { tag: "Allocated", value: {} }, // no resources[1]
+            allocated,
+            allocated, // no resources[1]
         ];
         const summary = summarizeOutcomes(outcomes, [resources[0]]);
         expect(summary.granted).toHaveLength(1);
