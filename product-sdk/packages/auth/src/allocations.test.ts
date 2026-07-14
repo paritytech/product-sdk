@@ -41,7 +41,10 @@ describe("summarizeOutcomes", () => {
     });
 
     test("all granted", () => {
-        const outcomes: AllocationOutcome[] = resources.map(() => ({ tag: "Allocated", value: {} }));
+        const outcomes: AllocationOutcome[] = resources.map(() => ({
+            tag: "Allocated",
+            value: {},
+        }));
         const summary = summarizeOutcomes(outcomes, resources);
         expect(summary.granted).toHaveLength(3);
         expect(summary.rejected).toHaveLength(0);

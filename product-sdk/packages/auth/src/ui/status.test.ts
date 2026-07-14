@@ -24,7 +24,9 @@ describe("renderLoginStatus", () => {
         expect(renderLoginStatus({ step: "paired" })).toMatch(/finishing/i);
     });
     test("pending surfaces the stage", () => {
-        expect(renderLoginStatus({ step: "pending", stage: "attestation" })).toContain("attestation");
+        expect(renderLoginStatus({ step: "pending", stage: "attestation" })).toContain(
+            "attestation",
+        );
     });
     test("success surfaces the address", () => {
         expect(
@@ -48,9 +50,9 @@ describe("renderLogoutStatus", () => {
         expect(renderLogoutStatus({ step: "success", address: "5X" })).toMatch(/signed out/i);
     });
     test("partial surfaces the reason", () => {
-        expect(
-            renderLogoutStatus({ step: "partial", address: "5X", reason: "ws down" }),
-        ).toContain("ws down");
+        expect(renderLogoutStatus({ step: "partial", address: "5X", reason: "ws down" })).toContain(
+            "ws down",
+        );
     });
     test("error surfaces the message", () => {
         expect(renderLogoutStatus({ step: "error", message: "nope" })).toContain("nope");

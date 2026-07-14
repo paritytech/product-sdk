@@ -96,6 +96,6 @@ describe("session signer account equivalence", () => {
                 productId: PRODUCT_ID,
                 derivationIndex: 0,
             }),
-        ).toThrow('Stored login session is missing the root account public key.');
+        ).toThrow("Stored login session is missing the root account public key.");
     });
 });

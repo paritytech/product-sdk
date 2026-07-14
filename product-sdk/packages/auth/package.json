@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-auth",
-    "version": "0.0.0",
+    "version": "0.1.0",
     "description": "Authentication and session signing for Polkadot CLI apps — QR/mobile sign-in via host-papp",
     "type": "module",
     "sideEffects": false,

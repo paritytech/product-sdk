@@ -128,10 +128,7 @@ function coerceAssetId(value: unknown): `0x${string}` | undefined {
     return undefined;
 }
 
-export function createSessionSigner(
-    session: UserSession,
-    ref: ProductAccountRef,
-): PolkadotSigner {
+export function createSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
     // `session.remoteAccount.accountId` is the wallet's currently-selected
     // substrate account (`walletAccount.defaultAccountId()` on Android), NOT
     // the product-derived account that actually signs on-chain. Using it as
