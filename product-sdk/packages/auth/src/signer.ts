@@ -58,9 +58,18 @@ export class SignerNotAvailableError extends Error {
 
 const DEV_NAMES: readonly DevAccountName[] = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"];
 
+/**
+ * Parse a well-known dev-account SURI (`//Alice`, `//Bob`, …).
+ *
+ * Requires the `//` hard-derivation prefix and an exact-case name, matching
+ * Substrate SURI semantics (and `createDevSigner`, which derives `//${name}`).
+ * A bare `Alice` or a different case is NOT a dev SURI — it falls through to the
+ * mnemonic path in `resolveSigner`, where it fails as an invalid mnemonic.
+ */
 export function parseDevAccountName(suri: string): DevAccountName | null {
-    const name = suri.replace(/^\/\//, "");
-    return DEV_NAMES.find((n) => n.toLowerCase() === name.toLowerCase()) ?? null;
+    if (!suri.startsWith("//")) return null;
+    const name = suri.slice(2);
+    return DEV_NAMES.find((n) => n === name) ?? null;
 }
 
 /**

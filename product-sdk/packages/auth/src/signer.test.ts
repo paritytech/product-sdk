@@ -30,9 +30,16 @@ function stubAuthClient(session: Awaited<ReturnType<AuthClient["getSessionSigner
 }
 
 describe("parseDevAccountName", () => {
-    test("recognizes dev names case-insensitively", () => {
+    test("recognizes well-known dev SURIs (exact case, // prefix)", () => {
         expect(parseDevAccountName("//Alice")).toBe("Alice");
-        expect(parseDevAccountName("//bob")).toBe("Bob");
+        expect(parseDevAccountName("//Bob")).toBe("Bob");
+    });
+    test("requires the // prefix — a bare name is not a dev SURI", () => {
+        expect(parseDevAccountName("Alice")).toBeNull();
+    });
+    test("is case-sensitive, matching Substrate SURI semantics", () => {
+        expect(parseDevAccountName("//alice")).toBeNull();
+        expect(parseDevAccountName("//BOB")).toBeNull();
     });
     test("returns null for non-dev suris", () => {
         expect(parseDevAccountName("//NotADev")).toBeNull();
