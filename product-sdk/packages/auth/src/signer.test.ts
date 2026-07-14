@@ -74,7 +74,11 @@ describe("resolveSigner", () => {
     test("no suri + a session → session signer (source 'session')", async () => {
         const fakeHandle = {
             address: "5SESSION",
-            addresses: { rootAddress: "r", productAddress: "5SESSION", productH160: "0xabc" },
+            addresses: {
+                rootAddress: "r",
+                productAddress: "5SESSION",
+                productH160: "0xabc" as `0x${string}`,
+            },
             signer: {} as never,
             userSession: {} as never,
             destroy() {},
