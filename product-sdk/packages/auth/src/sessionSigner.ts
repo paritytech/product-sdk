@@ -16,46 +16,18 @@
 /**
  * Session-backed `PolkadotSigner` for a product account.
  *
- * Lifted from playground-cli `src/utils/sessionSigner.ts` (issue #411). The
- * product id + derivation index are injected via `ProductAccountRef` so this
- * module is product-agnostic.
- *
- * **Why a local builder and not `createSessionSignerForAccount` from
- * `@parity/product-sdk-terminal`?**
- *
- * The SDK's "PR #81 fix" routes tx signing through
- * `session.signRaw({ data: { tag: "Payload", value: hex(toSign) } })`. Android
- * v1198 (and earlier) ALWAYS applies the `<Bytes>...</Bytes>` anti-phishing
- * envelope inside `SignRawInteractor.sign()` — so the resulting signature is
- * over `<Bytes>${utf8(hex)}</Bytes>`, NOT the bare extrinsic payload. The chain
- * reconstructs the bare payload, verifies, and rejects with
- * `{ type: "Invalid", value: { type: "BadProof" } }` on EVERY tx with the AsPgas
- * extension active.
- *
- * The canonical workaround comes from the Android team's own sample app:
- *
- *   1. Build a PJS-style signer with `getPolkadotSignerFromPjs(address, signPayload, signRaw)`.
- *   2. Provide a custom `signPayload` that maps PJS's `SignerPayloadJSON` onto
- *      the session's `SigningPayloadRequest` and forwards via `session.signPayload(...)`.
- *      Android's `signPayload` handler then reconstructs the full payload itself
- *      (including AsPgas sponsoring) and signs the bare bytes correctly.
- *   3. Wrap the resulting signer so that for `RELAXED_SIGNED_EXTENSIONS`
- *      (extensions PAPI sees but the PJS adapter can't recognize, e.g. `AsPgas`
- *      and `AsRingAlias`), we zero out `value` + `additionalSigned` BEFORE PJS
- *      walks them. That sidesteps PJS's "PJS does not support this
- *      signed-extension" throw WITHOUT dropping the identifier from
- *      `signedExtensions[]` — so android still knows to include them and fills
- *      in the correct encoding from its own runtime view.
- *
- * Replace this whole file with a `product-sdk-terminal` re-export once that
- * package's signer uses `session.signPayload` and ships the relaxed-extensions
- * wrapper natively.
+ * The signer itself is built by `@parity/product-sdk-terminal`'s
+ * `createSessionSignerForAccount`, which routes tx signing through
+ * `session.createTransaction` (the wallet assembles + signs the extrinsic and
+ * preserves chain-specific signed extensions like `AsPgas`/`AsRingAlias`
+ * verbatim). This module only owns the product-account *derivation* — terminal
+ * doesn't derive the product key, it expects the caller to pass it in
+ * `ProductAccountRef.publicKey` — so `createSessionSigner` here derives that key
+ * from the session root and delegates the rest.
  */
 
-import { getPolkadotSignerFromPjs, type SignerPayloadJSON } from "polkadot-api/pjs-signer";
-import { fromHex, toHex } from "polkadot-api/utils";
-import { ss58Encode } from "@parity/product-sdk-address";
 import type { UserSession } from "@parity/product-sdk-terminal";
+import { createSessionSignerForAccount } from "@parity/product-sdk-terminal";
 import type { PolkadotSigner } from "polkadot-api";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 
@@ -99,114 +71,24 @@ export function deriveProductPublicKey(
 }
 
 /**
- * Identifiers whose payload PAPI may populate but the PJS adapter doesn't
- * recognize. Mirrors `RELAXED_SIGNED_EXTENSIONS` in the polkadot-app sample.
- * Add to this set if a future runtime adds another v2-style extension PAPI
- * doesn't know about; android's host fills in the actual encoding.
- */
-const RELAXED_SIGNED_EXTENSIONS: ReadonlySet<string> = new Set(["AsPgas", "AsRingAlias"]);
-
-function asHexString(value: string | undefined): `0x${string}` | undefined {
-    if (value === undefined) return undefined;
-    // The session's SigningPayloadRequest types hex fields as `0x${string}`.
-    // PJS adapter populates them via toPjsHex / toHex which produce hex strings;
-    // cast through since the runtime values are guaranteed-prefixed.
-    return value as `0x${string}`;
-}
-
-/**
- * Coerce PJS's `assetId: number | object | undefined` to the session's hex shape.
+ * Build the session-backed `PolkadotSigner` for a product account.
  *
- * For `ChargeAssetTxPayment` and `AsPgas`, the PJS mapper produces a `0x…`
- * string when the asset is set. Other shapes (number / nested object) don't
- * surface in paseo-next-v2 today; if one ever does it's dropped to `undefined`
- * (the tx signs with the native fee asset) rather than guessed at.
+ * Derives the product account's public key from the session root (terminal
+ * doesn't do this — it stamps whatever key we hand it into the extrinsic signer
+ * address) and delegates the actual signing to terminal's
+ * `createSessionSignerForAccount`. Sharing `deriveProductPublicKey` with
+ * `deriveSessionAddresses` keeps the signing key and the displayed SS58/H160 in
+ * lockstep: they're computed by exactly one function.
  */
-function coerceAssetId(value: unknown): `0x${string}` | undefined {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "string" && value.startsWith("0x")) return value as `0x${string}`;
-    // Unsupported non-hex asset id — drop it (native fee asset) rather than
-    // fabricate a wire value we can't encode correctly.
-    return undefined;
-}
-
 export function createSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
     // `session.remoteAccount.accountId` is the wallet's currently-selected
-    // substrate account (`walletAccount.defaultAccountId()` on Android), NOT
-    // the product-derived account that actually signs on-chain. Using it as
-    // `signer.publicKey` would cause every funding / balance lookup / allowance
-    // marker / display address to point at the wallet, while the
-    // mobile-constructed `signedTransaction` carries a different `From`
-    // (the product account derived at `/product/{productId}/{idx}`).
-    //
-    // `session.rootAccountId` is the handshake-time `rootUserAccountId` —
-    // the user's bare-mnemonic keypair public key on current mobile builds
-    // (`deriveRootAccount()` = `derivationPath = null`).
+    // account — NOT the product-derived account that signs on-chain. Deriving
+    // and passing `publicKey` explicitly is what makes terminal stamp the
+    // product account (not the wallet) as the extrinsic signer.
     const publicKey = deriveProductPublicKey(sessionRootPublicKey(session), ref);
-    const address = ss58Encode(publicKey);
-
-    // Wire-shape identifier passed to the session's `signPayload` / `signRaw`.
-    // Has to be assembled here (not in derive) because the host message codec
-    // wants the productId/derivationIndex as a separate tuple field.
-    const productAccountId: [string, number] = [ref.productId, ref.derivationIndex];
-
-    const signPayload = async (pjs: SignerPayloadJSON) => {
-        const result = await session.signPayload({
-            productAccountId,
-            blockHash: asHexString(pjs.blockHash) as `0x${string}`,
-            blockNumber: asHexString(pjs.blockNumber) as `0x${string}`,
-            era: asHexString(pjs.era) as `0x${string}`,
-            genesisHash: asHexString(pjs.genesisHash) as `0x${string}`,
-            method: asHexString(pjs.method) as `0x${string}`,
-            nonce: asHexString(pjs.nonce) as `0x${string}`,
-            specVersion: asHexString(pjs.specVersion) as `0x${string}`,
-            tip: asHexString(pjs.tip) as `0x${string}`,
-            transactionVersion: asHexString(pjs.transactionVersion) as `0x${string}`,
-            signedExtensions: pjs.signedExtensions,
-            version: pjs.version,
-            assetId: coerceAssetId(pjs.assetId),
-            metadataHash: asHexString(pjs.metadataHash),
-            mode: pjs.mode,
-            withSignedTransaction: pjs.withSignedTransaction,
-        });
-        if (result.isErr()) {
-            throw new Error(`Mobile signing failed: ${result.error.message}`);
-        }
-        const data = result.value;
-        return {
-            signature: toHex(data.signature),
-            signedTransaction: data.signedTransaction ? toHex(data.signedTransaction) : undefined,
-        };
-    };
-
-    const signRaw = async (payload: { address: string; data: string; type: "bytes" }) => {
-        if (!payload.data.startsWith("0x")) {
-            throw new Error("Raw signing payload must be 0x-prefixed hex");
-        }
-        const result = await session.signRaw({
-            productAccountId,
-            data: { tag: "Bytes", value: fromHex(payload.data as `0x${string}`) },
-        });
-        if (result.isErr()) {
-            throw new Error(`Mobile signing failed: ${result.error.message}`);
-        }
-        return { id: 0, signature: toHex(result.value.signature) };
-    };
-
-    const baseSigner = getPolkadotSignerFromPjs(address, signPayload, signRaw);
-
-    // Relaxed-extensions wrapper — see the file-level comment.
-    return {
-        publicKey: baseSigner.publicKey,
-        signBytes: baseSigner.signBytes,
-        signTx: (callData, signedExtensions, metadata, atBlockNumber, hasher) => {
-            const relaxed: typeof signedExtensions = {};
-            for (const [identifier, ext] of Object.entries(signedExtensions)) {
-                relaxed[identifier] = RELAXED_SIGNED_EXTENSIONS.has(identifier)
-                    ? { ...ext, value: new Uint8Array(0), additionalSigned: new Uint8Array(0) }
-                    : ext;
-            }
-            return baseSigner.signTx(callData, relaxed, metadata, atBlockNumber, hasher);
-        },
-    };
+    return createSessionSignerForAccount(session, {
+        productId: ref.productId,
+        derivationIndex: ref.derivationIndex,
+        publicKey,
+    });
 }
