@@ -103,23 +103,49 @@ export async function requestResourceAllocation(
             autoPolicy: options.onExisting === undefined,
         });
 
-        const result = await session.requestResourceAllocation({
-            callingProductId: adapter.appId,
+        const outcomes = await sendResourceAllocation(
+            session,
+            adapter.appId,
             resources,
             onExisting,
-        });
+        );
 
-        if (result.isErr()) {
-            throw new Error(`requestResourceAllocation failed: ${result.error.message}`);
-        }
-
-        const next = mergeOutcomes(cache, resources, result.value);
+        const next = mergeOutcomes(cache, resources, outcomes);
         if (next !== cache) {
             await saveCache(adapter.appId, next, adapter.storageDir);
         }
 
-        return result.value;
+        return outcomes;
     });
+}
+
+/**
+ * Send an AP `request_resource_allocation` message over the paired session and
+ * return the outcomes in request order. This is the raw wire call: no disk
+ * cache, no `onExisting` auto-pick, no adapter. Callers that want the caching /
+ * slot-reuse behaviour should use {@link requestResourceAllocation} instead;
+ * this primitive exists for consumers (e.g. `@parity/product-sdk-auth`) that
+ * only hold a `productId` and manage their own policy.
+ *
+ * @throws If the session call fails (transport, timeout, AH protocol error).
+ */
+export async function sendResourceAllocation(
+    session: UserSession,
+    productId: string,
+    resources: AllocatableResource[],
+    onExisting: OnExistingAllowancePolicy,
+): Promise<ApAllocationOutcome[]> {
+    const result = await session.requestResourceAllocation({
+        callingProductId: productId,
+        resources,
+        onExisting,
+    });
+
+    if (result.isErr()) {
+        throw new Error(`requestResourceAllocation failed: ${result.error.message}`);
+    }
+
+    return result.value;
 }
 
 /**
@@ -169,20 +195,17 @@ export async function ensureSlotAccountSigner(
 
         log.debug("ensureSlotAccountSigner: cache miss, allocating", { resource: resource.tag });
 
-        // Inline the wire → merge → save sequence rather than calling the
-        // public `requestResourceAllocation` wrapper. `withCacheLock` is
-        // non-reentrant, so calling the wrapper from inside would deadlock
-        // on the second lock acquisition.
+        // Use the cache-free `sendResourceAllocation` primitive, not the public
+        // `requestResourceAllocation` wrapper: `withCacheLock` is non-reentrant,
+        // so calling the wrapper from inside this critical section would
+        // deadlock on the second lock acquisition. We do the merge → save here.
         const onExisting = pickOnExistingPolicy(cache, [resource]);
-        const result = await session.requestResourceAllocation({
-            callingProductId: adapter.appId,
-            resources: [resource],
+        const outcomes = await sendResourceAllocation(
+            session,
+            adapter.appId,
+            [resource],
             onExisting,
-        });
-        if (result.isErr()) {
-            throw new Error(`requestResourceAllocation failed: ${result.error.message}`);
-        }
-        const outcomes = result.value;
+        );
         const next = mergeOutcomes(cache, [resource], outcomes);
         if (next !== cache) {
             await saveCache(adapter.appId, next, adapter.storageDir);

@@ -14,60 +14,40 @@
 // limitations under the License.
 
 /**
- * Thin wrapper over the RFC-0010 `host_request_resource_allocation` call.
- * Lifted from playground-cli `src/utils/allowances/host.ts` (issue #411).
+ * RFC-0010 `host_request_resource_allocation` helpers for auth consumers.
  *
- * `@parity/product-sdk-terminal` does not yet re-export this API at its package
- * root, but the `UserSession` it surfaces exposes `requestResourceAllocation()`.
- * We call it directly here and gate the shape locally so consumers stay
- * decoupled from the deep import path. Replace this whole module with a
- * `product-sdk-terminal` re-export once the SDK surfaces the same call.
- *
- * Wire format (SCALE-derived, mirrors the host's resource-allocation codec):
- *   request  → { callingProductId, resources: AllocatableResource[], onExisting }
- *   response → AllocationOutcome[] (one per resource, in order)
+ * The wire call, and the resource / outcome types, live in
+ * `@parity/product-sdk-terminal` (derived from `UserSession` so they can't
+ * drift from the host codec). This module delegates the wire call to terminal's
+ * `sendResourceAllocation` — the cache-free primitive — and layers on the
+ * auth-consumer conveniences (`DEFAULT_RESOURCES`, `summarizeOutcomes`) plus a
+ * `productId`-based signature so headless callers don't need a `TerminalAdapter`.
  *
  * The mobile app handles `hostRequestResourceAllocation` in
  * `AllowanceHostCalls.kt` and routes the user through an approval UI.
  */
 
 import type { UserSession } from "@parity/product-sdk-terminal";
+import {
+    type AllocatableResource,
+    type ApAllocationOutcome,
+    type OnExistingAllowancePolicy,
+    sendResourceAllocation,
+} from "@parity/product-sdk-terminal";
+
+export type { AllocatableResource, OnExistingAllowancePolicy } from "@parity/product-sdk-terminal";
 
 /**
- * Structural mirror of the host's `ApAllocatableResource` codec type. We
- * declare it locally because the terminal/host layer doesn't re-export the
- * codec types yet — when it does, this can be replaced with a direct import.
- *
- *   StatementStoreAllowance — write to the SSS (host_chat, allowance ring).
- *   BulletInAllowance       — write to Bulletin (TransactionStorage.store).
- *   SmartContractAllowance  — PGAS sponsoring for Revive contract calls.
- *                             The `value` is the derivation index of the
- *                             product account (0 for the default account).
- *   AutoSigning             — surrender the product-account signing key to
- *                             the host so it can sign on the user's behalf
- *                             without per-call prompts. Not used today.
+ * Outcome of one allocation. Re-exported from terminal's wire-derived type
+ * under the name auth consumers already use. We don't read the inner
+ * `Allocated` payload (allowance slot keys, derivation secrets) — the host
+ * stores them and uses them transparently on subsequent calls. We just need
+ * the tag to know whether the allocation succeeded.
  */
-export type AllocatableResource =
-    | { tag: "StatementStoreAllowance"; value: undefined }
-    | { tag: "BulletInAllowance"; value: undefined }
-    | { tag: "SmartContractAllowance"; value: number }
-    | { tag: "AutoSigning"; value: undefined };
-
-/**
- * Outcome of one allocation. We don't read the inner `Allocated` payload
- * (allowance slot keys, derivation secrets) — the host stores them and uses
- * them transparently on subsequent calls. We just need the tag to know
- * whether the allocation succeeded.
- */
-export type AllocationOutcome =
-    | { tag: "Allocated"; value: unknown }
-    | { tag: "Rejected"; value: undefined }
-    | { tag: "NotAvailable"; value: undefined };
+export type AllocationOutcome = ApAllocationOutcome;
 
 /** Tag-only view, handy for downstream code that doesn't care about payloads. */
 export type ResourceTag = AllocatableResource["tag"];
-
-export type OnExistingAllowancePolicy = "Ignore" | "Increase";
 
 /**
  * Default mobile-granted resource set for a CLI product account: write access
@@ -96,15 +76,7 @@ export async function requestResourceAllocation(
     resources: AllocatableResource[] = DEFAULT_RESOURCES,
     onExisting: OnExistingAllowancePolicy = "Ignore",
 ): Promise<AllocationOutcome[]> {
-    const result = await session.requestResourceAllocation({
-        callingProductId: productId,
-        resources,
-        onExisting,
-    });
-    if (result.isErr()) {
-        throw new Error(`Resource allocation request failed: ${result.error.message}`);
-    }
-    return result.value as AllocationOutcome[];
+    return sendResourceAllocation(session, productId, resources, onExisting);
 }
 
 export interface AllocationSummary {
