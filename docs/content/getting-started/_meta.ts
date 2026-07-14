@@ -3,4 +3,5 @@
 export default {
   installation: "Installation",
   quickstart: "Quickstart",
+  testing: "Testing",
 };
