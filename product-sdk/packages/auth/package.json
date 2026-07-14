@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-auth",
     "version": "0.1.0",
-    "description": "Authentication and session signing for Polkadot CLI apps — QR/mobile sign-in via host-papp",
+    "description": "Authentication and session signing for Polkadot CLI apps — QR/mobile sign-in",
     "type": "module",
     "sideEffects": false,
     "main": "./dist/index.js",
@@ -25,7 +25,6 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
-        "@novasamatech/host-papp": "^0.7.7",
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-terminal": "workspace:*",

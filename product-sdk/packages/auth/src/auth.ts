@@ -302,6 +302,9 @@ export function createAuthClient(config: AuthConfig): AuthClient {
             }
         } finally {
             unsubPairing();
+            // The pairing adapter isn't needed after login — getSessionSigner()
+            // builds its own — so tear it down to release the WebSocket.
+            adapter.destroy().catch(() => {});
         }
 
         return address;

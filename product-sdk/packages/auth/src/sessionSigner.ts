@@ -36,7 +36,7 @@
  *
  *   1. Build a PJS-style signer with `getPolkadotSignerFromPjs(address, signPayload, signRaw)`.
  *   2. Provide a custom `signPayload` that maps PJS's `SignerPayloadJSON` onto
- *      host-papp's `SigningPayloadRequest` and forwards via `session.signPayload(...)`.
+ *      the session's `SigningPayloadRequest` and forwards via `session.signPayload(...)`.
  *      Android's `signPayload` handler then reconstructs the full payload itself
  *      (including AsPgas sponsoring) and signs the bare bytes correctly.
  *   3. Wrap the resulting signer so that for `RELAXED_SIGNED_EXTENSIONS`
@@ -108,23 +108,25 @@ const RELAXED_SIGNED_EXTENSIONS: ReadonlySet<string> = new Set(["AsPgas", "AsRin
 
 function asHexString(value: string | undefined): `0x${string}` | undefined {
     if (value === undefined) return undefined;
-    // host-papp's SigningPayloadRequest types hex fields as `0x${string}`.
+    // The session's SigningPayloadRequest types hex fields as `0x${string}`.
     // PJS adapter populates them via toPjsHex / toHex which produce hex strings;
     // cast through since the runtime values are guaranteed-prefixed.
     return value as `0x${string}`;
 }
 
 /**
- * Coerce PJS's `assetId: number | object | undefined` to host-papp's hex shape.
+ * Coerce PJS's `assetId: number | object | undefined` to the session's hex shape.
  *
  * For `ChargeAssetTxPayment` and `AsPgas`, the PJS mapper produces a `0x…`
- * string when the asset is set. Other shapes (number / nested object) shouldn't
- * surface in paseo-next-v2 today; we coerce defensively.
+ * string when the asset is set. Other shapes (number / nested object) don't
+ * surface in paseo-next-v2 today; if one ever does it's dropped to `undefined`
+ * (the tx signs with the native fee asset) rather than guessed at.
  */
 function coerceAssetId(value: unknown): `0x${string}` | undefined {
     if (value === undefined || value === null) return undefined;
     if (typeof value === "string" && value.startsWith("0x")) return value as `0x${string}`;
-    // Defensive fallback: stringify and warn upstream.
+    // Unsupported non-hex asset id — drop it (native fee asset) rather than
+    // fabricate a wire value we can't encode correctly.
     return undefined;
 }
 
@@ -143,9 +145,9 @@ export function createSessionSigner(session: UserSession, ref: ProductAccountRef
     const publicKey = deriveProductPublicKey(sessionRootPublicKey(session), ref);
     const address = ss58Encode(publicKey);
 
-    // Wire-shape identifier passed to host-papp's `signPayload` / `signRaw`.
-    // Has to be assembled here (not in derive) because the host-papp message
-    // codec wants the productId/derivationIndex as a separate tuple field.
+    // Wire-shape identifier passed to the session's `signPayload` / `signRaw`.
+    // Has to be assembled here (not in derive) because the host message codec
+    // wants the productId/derivationIndex as a separate tuple field.
     const productAccountId: [string, number] = [ref.productId, ref.derivationIndex];
 
     const signPayload = async (pjs: SignerPayloadJSON) => {

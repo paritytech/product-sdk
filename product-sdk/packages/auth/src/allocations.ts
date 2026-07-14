@@ -17,15 +17,13 @@
  * Thin wrapper over the RFC-0010 `host_request_resource_allocation` call.
  * Lifted from playground-cli `src/utils/allowances/host.ts` (issue #411).
  *
- * `@parity/product-sdk-terminal` does not yet re-export this API at its
- * package root, but the underlying `UserSession` (from `@novasamatech/host-papp`)
- * exposes `requestResourceAllocation()`. We call it directly here and gate the
- * shape locally so consumers stay decoupled from the deep import path. Replace
- * this whole module with a `product-sdk-terminal` re-export once the SDK
- * surfaces the same call.
+ * `@parity/product-sdk-terminal` does not yet re-export this API at its package
+ * root, but the `UserSession` it surfaces exposes `requestResourceAllocation()`.
+ * We call it directly here and gate the shape locally so consumers stay
+ * decoupled from the deep import path. Replace this whole module with a
+ * `product-sdk-terminal` re-export once the SDK surfaces the same call.
  *
- * Wire format (SCALE-derived, mirrors host-papp's
- * `dist/sso/sessionManager/scale/resourceAllocation.d.ts`):
+ * Wire format (SCALE-derived, mirrors the host's resource-allocation codec):
  *   request  → { callingProductId, resources: AllocatableResource[], onExisting }
  *   response → AllocationOutcome[] (one per resource, in order)
  *
@@ -36,10 +34,9 @@
 import type { UserSession } from "@parity/product-sdk-terminal";
 
 /**
- * Structural mirror of host-papp's `ApAllocatableResource` codec type. We
- * declare it locally because host-papp's package root doesn't re-export the
- * codec types yet — when it does (and product-sdk-terminal threads them
- * through) this can be replaced with a direct import.
+ * Structural mirror of the host's `ApAllocatableResource` codec type. We
+ * declare it locally because the terminal/host layer doesn't re-export the
+ * codec types yet — when it does, this can be replaced with a direct import.
  *
  *   StatementStoreAllowance — write to the SSS (host_chat, allowance ring).
  *   BulletInAllowance       — write to Bulletin (TransactionStorage.store).
