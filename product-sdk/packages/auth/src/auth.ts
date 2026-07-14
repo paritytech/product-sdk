@@ -41,7 +41,11 @@ import {
     type UserSession,
 } from "@parity/product-sdk-terminal";
 import type { PolkadotSigner } from "polkadot-api";
-import { createSessionSigner, deriveProductPublicKey, sessionRootPublicKey } from "./sessionSigner.js";
+import {
+    createSessionSigner,
+    deriveProductPublicKey,
+    sessionRootPublicKey,
+} from "./sessionSigner.js";
 import {
     requestResourceAllocation,
     DEFAULT_RESOURCES,
@@ -118,7 +122,10 @@ export interface LogoutHandle {
 /** The product-bound auth surface returned by `createAuthClient`. */
 export interface AuthClient {
     connect(): Promise<ConnectResult>;
-    waitForLogin(handle: LoginHandle, onStatus: (status: LoginStatus) => void): Promise<string | null>;
+    waitForLogin(
+        handle: LoginHandle,
+        onStatus: (status: LoginStatus) => void,
+    ): Promise<string | null>;
     getSessionSigner(): Promise<SessionHandle | null>;
     findSession(): Promise<LogoutHandle | null>;
     waitForLogout(handle: LogoutHandle, onStatus: (status: LogoutStatus) => void): Promise<void>;
@@ -141,7 +148,6 @@ export function createAuthClient(config: AuthConfig): AuthClient {
     function createAdapter(): TerminalAdapter {
         return createTerminalAdapter({
             appId: config.dappId,
-            metadataUrl: config.metadataUrl,
             endpoints: config.peopleEndpoints,
         });
     }
@@ -166,7 +172,8 @@ export function createAuthClient(config: AuthConfig): AuthClient {
     }
 
     function sessionRemoteAddress(session: UserSession): string | null {
-        const raw = (session as { remoteAccount?: { accountId?: Uint8Array } }).remoteAccount?.accountId;
+        const raw = (session as { remoteAccount?: { accountId?: Uint8Array } }).remoteAccount
+            ?.accountId;
         const accountId = raw ? new Uint8Array(raw) : new Uint8Array();
         return accountId.length === 32 ? ss58Encode(accountId) : null;
     }
@@ -201,6 +208,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
             const qrCode = await Promise.race([
                 new Promise<string>((resolve) => {
                     let done = false;
+                    // biome-ignore lint/style/useConst: self-referential — the callback calls unsub() to unsubscribe itself, so it can't be const.
                     let unsub: (() => void) | undefined;
                     unsub = adapter.sso.pairingStatus.subscribe(async (status: PairingStatus) => {
                         if (status.step === "pairing" && !done) {
@@ -265,6 +273,14 @@ export function createAuthClient(config: AuthConfig): AuthClient {
                 (session) => {
                     if (session) {
                         authenticated = true;
+                    } else {
+                        // Ok channel but no session — pairing resolved without
+                        // producing a session. Surface it rather than returning
+                        // null with no status, which would hang the caller.
+                        onStatus({
+                            step: "error",
+                            message: "Login did not produce a session",
+                        });
                     }
                 },
                 (error) => {

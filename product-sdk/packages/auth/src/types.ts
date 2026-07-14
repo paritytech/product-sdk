@@ -17,8 +17,8 @@
  * Per-product configuration injected into `createAuthClient`. Lifting the
  * sign-in glue out of playground-cli (issue #411) means the env-specific
  * constants playground hard-coded in its `config.ts` (DAPP_ID, product id,
- * metadata URL, People-chain endpoints) become consumer-supplied so the same
- * package serves `playground` and `dot` (and future products) unchanged.
+ * People-chain endpoints) become consumer-supplied so the same package serves
+ * `playground` and `dot` (and future products) unchanged.
  */
 export interface AuthConfig {
     /** The dApp identity string. Scopes the on-disk session namespace
@@ -29,8 +29,6 @@ export interface AuthConfig {
     productId: string;
     /** Derivation index of the product account (0 = default). */
     derivationIndex: number;
-    /** Hosted app-metadata doc (name/icon) the mobile wallet reads at pairing. */
-    metadataUrl: string;
     /** People-parachain RPC endpoints the terminal adapter connects to. */
     peopleEndpoints: string[];
 }

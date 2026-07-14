@@ -21,7 +21,6 @@ const config: AuthConfig = {
     dappId: "test-app",
     productId: "test.dot",
     derivationIndex: 0,
-    metadataUrl: "https://example.com/metadata.json",
     peopleEndpoints: ["wss://example.com/people"],
 };
 
