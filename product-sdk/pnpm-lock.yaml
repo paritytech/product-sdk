@@ -779,6 +779,9 @@ importers:
       '@novasamatech/storage-adapter':
         specifier: ^0.8.9
         version: 0.8.9
+      '@parity/product-sdk-keys':
+        specifier: workspace:*
+        version: link:../keys
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
