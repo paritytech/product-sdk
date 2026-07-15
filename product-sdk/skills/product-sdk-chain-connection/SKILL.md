@@ -119,13 +119,12 @@ const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 
 ## Environment Support
 
-> **WARNING:** Only the `"paseo"`, `"summit"`, and `"devnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
+> **WARNING:** Only the `"paseo"` and `"devnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
 
 | Environment | Asset Hub | Bulletin | Individuality |
 |-------------|-----------|----------|---------------|
 | **paseo** (Paseo Next v2) | Yes | Yes | Yes |
 | **devnet** (public Paseo testnet) | Yes | Yes | Yes |
-| **summit** (Web3 Summit) | Yes | Yes | Yes |
 | polkadot (mainnet) | Planned | Planned | Planned |
 | kusama (canary) | Planned | Planned | Planned |
 
@@ -153,7 +152,7 @@ destroyAll();
 
 1. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return Promises.
 
-2. **Using unavailable environments** — Only `"paseo"`, `"summit"`, and `"devnet"` work. `"polkadot"` and `"kusama"` throw.
+2. **Using unavailable environments** — Only `"paseo"` and `"devnet"` work. `"polkadot"` and `"kusama"` throw.
 
 3. **Not cleaning up** — Call `client.destroy()` when done to close WebSocket connections.
 

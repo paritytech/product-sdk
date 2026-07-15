@@ -11,9 +11,6 @@ PAPI-generated chain descriptors for the Polkadot ecosystem. These provide fully
 | Paseo Asset Hub | `@parity/product-sdk-descriptors/paseo-asset-hub` | Testnet |
 | Paseo Bulletin | `@parity/product-sdk-descriptors/paseo-bulletin` | Testnet |
 | Paseo Individuality | `@parity/product-sdk-descriptors/paseo-individuality` | Testnet |
-| Summit Asset Hub | `@parity/product-sdk-descriptors/summit-asset-hub` | Summit |
-| Summit Bulletin | `@parity/product-sdk-descriptors/summit-bulletin` | Summit |
-| Summit Individuality | `@parity/product-sdk-descriptors/summit-individuality` | Summit |
 | Devnet Asset Hub | `@parity/product-sdk-descriptors/devnet-asset-hub` | Paseo testnet (products devnet) |
 | Devnet Bulletin | `@parity/product-sdk-descriptors/devnet-bulletin` | Paseo testnet (products devnet) |
 | Devnet Individuality | `@parity/product-sdk-descriptors/devnet-individuality` | Paseo testnet (products devnet) |
@@ -27,7 +24,6 @@ PAPI-generated chain descriptors for the Polkadot ecosystem. These provide fully
 - **`devnet-*` targets the public Paseo testnet** system chains (Asset Hub 1000,
   People 1004, Bulletin 1010) — the community-run "products devnet" operated by the
   Polkadot Community Foundation.
-- **`summit-*`** targets the Web3 Summit network.
 
 The `wsUrl` in each chain's `.papi/polkadot-api.json` is used **only at descriptor
 generation time** (fetching metadata, pinning `genesis`/`codeHash`). At runtime the
