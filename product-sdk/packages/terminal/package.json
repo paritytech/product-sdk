@@ -38,6 +38,7 @@
         "@novasamatech/host-papp": "^0.8.9",
         "@novasamatech/statement-store": "^0.8.9",
         "@novasamatech/storage-adapter": "^0.8.9",
+        "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@polkadot-api/substrate-bindings": "catalog:",
         "@polkadot-api/utils": "^0.4.0",

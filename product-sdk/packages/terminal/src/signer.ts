@@ -42,6 +42,7 @@
  */
 import type { UserSession } from "@novasamatech/host-papp";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
+import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { TerminalAdapter } from "./adapter.js";
@@ -68,8 +69,10 @@ export interface ProductAccountRef {
      * wallet's selected/root account (`session.remoteAccount.accountId`). A
      * mismatch produces an invalid signature.
      *
-     * When omitted, the signer falls back to the session's selected account,
-     * which is only correct when the product account *is* the selected account.
+     * When omitted, the signer soft-derives it from the session's root account
+     * (`mnemonic + "/product/{productId}/{derivationIndex}"`), which is correct
+     * for every product account. Supply it explicitly only to avoid the
+     * re-derivation or when you've already derived it elsewhere.
      */
     publicKey?: Uint8Array;
 }
@@ -208,17 +211,49 @@ function makeRawBytesSignCallback(session: UserSession, productAccountId: [strin
     };
 }
 
+export const INCOMPLETE_SESSION_MESSAGE =
+    'Stored login session is missing the root account public key. Run "logout" and then "login" to pair again.';
+
+/**
+ * The session's handshake-time root account public key (`rootUserAccountId` =
+ * the user's bare-mnemonic keypair on current mobile builds). This is the
+ * parent key product accounts soft-derive from. host-papp's live `UserSession`
+ * doesn't surface it on the public type, so we read it structurally.
+ *
+ * @throws {@link INCOMPLETE_SESSION_MESSAGE} if the session predates the
+ *   `rootAccountId` field (a stale login that must re-pair).
+ */
+function sessionRootPublicKey(session: UserSession): Uint8Array {
+    const rootAccountId = (session as { rootAccountId?: Uint8Array }).rootAccountId;
+    const publicKey = rootAccountId ? new Uint8Array(rootAccountId) : new Uint8Array();
+    if (publicKey.length !== 32) {
+        throw new Error(INCOMPLETE_SESSION_MESSAGE);
+    }
+    return publicKey;
+}
+
 function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
     const productAccountId: [string, number] = [ref.productId, ref.derivationIndex];
 
     // The signer's public key must be the *product* account's key — the one the
     // wallet signs with for [productId, derivationIndex] — not the wallet's
     // selected root account. PAPI stamps this into the extrinsic's address and
-    // verifies against it, so a mismatch yields an invalid signature. The host
-    // supplies the derived key via `ref.publicKey`; we fall back to the
-    // session's selected account only when none is provided (i.e. product
-    // account == selected account). See {@link ProductAccountRef.publicKey}.
-    const publicKey = ref.publicKey ?? new Uint8Array(session.remoteAccount.accountId);
+    // verifies against it, so a mismatch yields an invalid signature.
+    //
+    // When the caller supplies `ref.publicKey` we trust it; otherwise we
+    // soft-derive it here from the session root. sr25519 soft derivation is
+    // composable on public keys, so this reproduces the key the host derives
+    // privately as `mnemonic + "/product/{productId}/{index}"`. We deliberately
+    // do NOT fall back to `session.remoteAccount.accountId` (the selected
+    // account) — that silently produces an invalid signature for any product
+    // account that isn't the currently-selected one.
+    const publicKey =
+        ref.publicKey ??
+        deriveProductAccountPublicKey(
+            sessionRootPublicKey(session),
+            ref.productId,
+            ref.derivationIndex,
+        );
 
     return {
         publicKey,
@@ -243,9 +278,8 @@ function buildSessionSigner(session: UserSession, ref: ProductAccountRef): Polka
  * @param adapter The {@link TerminalAdapter} that loaded the session. Its `appId`
  *   is used as the `productId` in the wire request.
  * @param publicKey The product account's sr25519 public key for
- *   `[adapter.appId, 0]`, as derived by the host. See
- *   {@link ProductAccountRef.publicKey}; omit only when the product account is
- *   the session's selected account.
+ *   `[adapter.appId, 0]`. Optional — when omitted it's soft-derived from the
+ *   session root. See {@link ProductAccountRef.publicKey}.
  */
 export function createSessionSigner(
     session: UserSession,
@@ -275,6 +309,15 @@ export function createSessionSignerForAccount(
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
     const { ok, err } = await import("neverthrow");
+    const { seedToAccount } = await import("@parity/product-sdk-keys");
+
+    // A real sr25519 root public key — the derivation runs actual ristretto255
+    // point math, so a fixture root must be a valid curve point, not arbitrary
+    // bytes. Derived once from a fixed dev seed.
+    const DEV_ROOT_PUBLIC_KEY = seedToAccount(
+        "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
+        "",
+    ).publicKey;
 
     /**
      * Build a minimal `UserSession`-shaped stub. `signPayload`, `signRaw`, and
@@ -286,10 +329,17 @@ if (import.meta.vitest) {
         signRaw?: (req: unknown) => Promise<unknown>;
         createTransaction?: (req: unknown) => Promise<unknown>;
         accountIdBytes?: number[];
+        /** Root account the product key is soft-derived from when publicKey is
+         * omitted. Defaults to a valid 32-byte key; pass `null` to simulate a
+         * stale session that predates the `rootAccountId` field. */
+        rootAccountId?: number[] | null;
     }): UserSession {
         const accountIdBytes = opts.accountIdBytes ?? new Array(32).fill(0).map((_, i) => i);
+        const rootAccountId =
+            opts.rootAccountId === undefined ? Array.from(DEV_ROOT_PUBLIC_KEY) : opts.rootAccountId;
         return {
             remoteAccount: { accountId: accountIdBytes },
+            ...(rootAccountId === null ? {} : { rootAccountId: new Uint8Array(rootAccountId) }),
             signPayload: vi.fn(
                 opts.signPayload ??
                     (async () => {
@@ -329,13 +379,27 @@ if (import.meta.vitest) {
     }
 
     describe("createSessionSigner", () => {
-        test("falls back to remoteAccount.accountId when no product key is passed", () => {
-            const bytes = Array.from({ length: 32 }, (_, i) => i);
+        test("self-derives the product key from the session root when none is passed", () => {
+            // No explicit publicKey → derive from rootAccountId, NOT the selected
+            // account. The derived key must equal deriveProductAccountPublicKey
+            // and must differ from remoteAccount.accountId (the old buggy fallback).
+            const walletBytes = Array.from({ length: 32 }, (_, i) => i);
             const signer = createSessionSigner(
-                makeSession({ accountIdBytes: bytes }),
+                makeSession({
+                    accountIdBytes: walletBytes,
+                    rootAccountId: Array.from(DEV_ROOT_PUBLIC_KEY),
+                }),
                 fakeAdapter("test-app"),
             );
-            expect(signer.publicKey).toEqual(new Uint8Array(bytes));
+            const expected = deriveProductAccountPublicKey(DEV_ROOT_PUBLIC_KEY, "test-app", 0);
+            expect(signer.publicKey).toEqual(expected);
+            expect(signer.publicKey).not.toEqual(new Uint8Array(walletBytes));
+        });
+
+        test("throws on a stale session with no root account key", () => {
+            expect(() =>
+                createSessionSigner(makeSession({ rootAccountId: null }), fakeAdapter("test-app")),
+            ).toThrow(INCOMPLETE_SESSION_MESSAGE);
         });
 
         test("uses the host-supplied product-account public key when provided", () => {
