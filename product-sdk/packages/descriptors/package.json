@@ -6,6 +6,18 @@
     "type": "module",
     "sideEffects": false,
     "exports": {
+        "./devnet-asset-hub": {
+            "types": "./chains/devnet-asset-hub/generated/dist/index.d.ts",
+            "import": "./chains/devnet-asset-hub/generated/dist/index.js"
+        },
+        "./devnet-bulletin": {
+            "types": "./chains/devnet-bulletin/generated/dist/index.d.ts",
+            "import": "./chains/devnet-bulletin/generated/dist/index.js"
+        },
+        "./devnet-individuality": {
+            "types": "./chains/devnet-individuality/generated/dist/index.d.ts",
+            "import": "./chains/devnet-individuality/generated/dist/index.js"
+        },
         "./kusama-asset-hub": {
             "types": "./chains/kusama-asset-hub/generated/dist/index.d.ts",
             "import": "./chains/kusama-asset-hub/generated/dist/index.js"

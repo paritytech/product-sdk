@@ -14,6 +14,26 @@ PAPI-generated chain descriptors for the Polkadot ecosystem. These provide fully
 | Summit Asset Hub | `@parity/product-sdk-descriptors/summit-asset-hub` | Summit |
 | Summit Bulletin | `@parity/product-sdk-descriptors/summit-bulletin` | Summit |
 | Summit Individuality | `@parity/product-sdk-descriptors/summit-individuality` | Summit |
+| Devnet Asset Hub | `@parity/product-sdk-descriptors/devnet-asset-hub` | Paseo testnet (products devnet) |
+| Devnet Bulletin | `@parity/product-sdk-descriptors/devnet-bulletin` | Paseo testnet (products devnet) |
+| Devnet Individuality | `@parity/product-sdk-descriptors/devnet-individuality` | Paseo testnet (products devnet) |
+
+## Which network does each descriptor target?
+
+- **`paseo-*` targets Paseo Next v2** (`*-next-*.polkadot.io` chain instances), not the
+  long-lived public Paseo testnet. This was a deliberate migration when Paseo Next v1
+  shut down (see `packages/chain-client/CHANGELOG.md`, the 1cc3790 entry) — per the
+  Paseo team, Next v2 is the successor instance, so the `paseo` name followed it.
+- **`devnet-*` targets the public Paseo testnet** system chains (Asset Hub 1000,
+  People 1004, Bulletin 1010) — the community-run "products devnet" operated by the
+  Polkadot Community Foundation.
+- **`summit-*`** targets the Web3 Summit network.
+
+The `wsUrl` in each chain's `.papi/polkadot-api.json` is used **only at descriptor
+generation time** (fetching metadata, pinning `genesis`/`codeHash`). At runtime the
+SDK never dials these URLs: all connections route through the host container, which
+selects the RPC endpoint for a given genesis hash. There is no standalone (non-host)
+transport path in the SDK.
 
 ## Usage
 

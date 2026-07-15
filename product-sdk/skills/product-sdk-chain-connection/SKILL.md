@@ -119,13 +119,22 @@ const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 
 ## Environment Support
 
-> **WARNING:** Only the `"paseo"` environment is currently available. Using `"polkadot"` or `"kusama"` will throw an error.
+> **WARNING:** Only the `"paseo"`, `"summit"`, and `"devnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
 
 | Environment | Asset Hub | Bulletin | Individuality |
 |-------------|-----------|----------|---------------|
-| **paseo** (testnet) | Yes | Yes | Yes |
+| **paseo** (Paseo Next v2) | Yes | Yes | Yes |
+| **devnet** (public Paseo testnet) | Yes | Yes | Yes |
+| **summit** (Web3 Summit) | Yes | Yes | Yes |
 | polkadot (mainnet) | Planned | Planned | Planned |
 | kusama (canary) | Planned | Planned | Planned |
+
+> **`"paseo"` is not the public Paseo testnet.** It targets the Paseo Next v2 chain
+> instances (`*-next-*.polkadot.io`). For the community-run products devnet on the
+> long-lived Paseo testnet system chains (Asset Hub 1000, People 1004, Bulletin 1010),
+> use `"devnet"`. Endpoint selection is host-owned: descriptors pin chain identity
+> (genesis hash) and the host container picks the RPC — there is no standalone
+> (non-host) transport path.
 
 ## Cleanup
 
@@ -144,7 +153,7 @@ destroyAll();
 
 1. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return Promises.
 
-2. **Using unavailable environments** — Only `"paseo"` works. `"polkadot"` and `"kusama"` throw.
+2. **Using unavailable environments** — Only `"paseo"`, `"summit"`, and `"devnet"` work. `"polkadot"` and `"kusama"` throw.
 
 3. **Not cleaning up** — Call `client.destroy()` when done to close WebSocket connections.
 

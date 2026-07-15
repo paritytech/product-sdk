@@ -1,0 +1,12 @@
+{
+    "version": 0,
+    "descriptorPath": "generated",
+    "entries": {
+        "devnet_individuality": {
+            "wsUrl": "wss://people-paseo.rotko.net",
+            "metadata": "../../.papi/metadata/devnet_individuality.scale",
+            "genesis": "0xe6c30d6e148f250b887105237bcaa5cb9f16dd203bf7b5b9d4f1da7387cb86ec",
+            "codeHash": "0x4fb59713bb8216e8d29ec87ac8b4cf1ae85af9e9af5bb4b75d42a1e7cf3a3a91"
+        }
+    }
+}

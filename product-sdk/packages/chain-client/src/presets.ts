@@ -17,12 +17,25 @@ import type { paseo_individuality as PaseoIndividualityDef } from "@parity/produ
 import type { summit_asset_hub as SummitAssetHubDef } from "@parity/product-sdk-descriptors/summit-asset-hub";
 import type { summit_bulletin as SummitBulletinDef } from "@parity/product-sdk-descriptors/summit-bulletin";
 import type { summit_individuality as SummitIndividualityDef } from "@parity/product-sdk-descriptors/summit-individuality";
+import type { devnet_asset_hub as DevnetAssetHubDef } from "@parity/product-sdk-descriptors/devnet-asset-hub";
+import type { devnet_bulletin as DevnetBulletinDef } from "@parity/product-sdk-descriptors/devnet-bulletin";
+import type { devnet_individuality as DevnetIndividualityDef } from "@parity/product-sdk-descriptors/devnet-individuality";
 
-/** Known network environment with built-in descriptors. */
-export type Environment = "polkadot" | "kusama" | "paseo" | "summit";
+/**
+ * Known network environment with built-in descriptors.
+ *
+ * - `"polkadot"` / `"kusama"` — production networks. Reserved: their Bulletin and
+ *   Individuality chains are not live yet, so `getChainAPI` throws for both.
+ * - `"paseo"` — the Paseo **Next v2** deployment
+ * - `"devnet"` — the public "products devnet" on the Paseo **testnet** system
+ *   chains, community-run by the
+ *   Polkadot Community Foundation.
+ * - `"summit"` — the Web3 Summit network.
+ */
+export type Environment = "polkadot" | "kusama" | "paseo" | "summit" | "devnet";
 
 /** Environments where all chains (asset hub, bulletin, individuality) are live. */
-const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo", "summit"]);
+const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo", "summit", "devnet"]);
 
 /**
  * Lazy-load descriptors for a specific environment.
@@ -60,6 +73,12 @@ async function loadDescriptors(env: Environment) {
                 import("@parity/product-sdk-descriptors/summit-bulletin"),
                 import("@parity/product-sdk-descriptors/summit-individuality"),
             ]),
+        devnet: () =>
+            Promise.all([
+                import("@parity/product-sdk-descriptors/devnet-asset-hub"),
+                import("@parity/product-sdk-descriptors/devnet-bulletin"),
+                import("@parity/product-sdk-descriptors/devnet-individuality"),
+            ]),
     };
 
     const [ahMod, bulletinMod, individualityMod] = await loaders[env]();
@@ -71,19 +90,26 @@ async function loadDescriptors(env: Environment) {
               ? ahMod.kusama_asset_hub
               : "summit_asset_hub" in ahMod
                 ? (ahMod as { summit_asset_hub: typeof SummitAssetHubDef }).summit_asset_hub
-                : (ahMod as { paseo_asset_hub: typeof PaseoAssetHubDef }).paseo_asset_hub;
+                : "devnet_asset_hub" in ahMod
+                  ? (ahMod as { devnet_asset_hub: typeof DevnetAssetHubDef }).devnet_asset_hub
+                  : (ahMod as { paseo_asset_hub: typeof PaseoAssetHubDef }).paseo_asset_hub;
 
     const bulletin =
         "summit_bulletin" in bulletinMod
             ? (bulletinMod as { summit_bulletin: typeof SummitBulletinDef }).summit_bulletin
-            : (bulletinMod as { paseo_bulletin: typeof PaseoBulletinDef }).paseo_bulletin;
+            : "devnet_bulletin" in bulletinMod
+              ? (bulletinMod as { devnet_bulletin: typeof DevnetBulletinDef }).devnet_bulletin
+              : (bulletinMod as { paseo_bulletin: typeof PaseoBulletinDef }).paseo_bulletin;
 
     const individuality =
         "summit_individuality" in individualityMod
             ? (individualityMod as { summit_individuality: typeof SummitIndividualityDef })
                   .summit_individuality
-            : (individualityMod as { paseo_individuality: typeof PaseoIndividualityDef })
-                  .paseo_individuality;
+            : "devnet_individuality" in individualityMod
+              ? (individualityMod as { devnet_individuality: typeof DevnetIndividualityDef })
+                    .devnet_individuality
+              : (individualityMod as { paseo_individuality: typeof PaseoIndividualityDef })
+                    .paseo_individuality;
 
     return { assetHub, bulletin, individuality };
 }
@@ -111,6 +137,11 @@ type PresetDescriptors = {
         assetHub: typeof SummitAssetHubDef;
         bulletin: typeof SummitBulletinDef;
         individuality: typeof SummitIndividualityDef;
+    };
+    devnet: {
+        assetHub: typeof DevnetAssetHubDef;
+        bulletin: typeof DevnetBulletinDef;
+        individuality: typeof DevnetIndividualityDef;
     };
 };
 
@@ -177,6 +208,9 @@ if (import.meta.vitest) {
         summit_asset_hub: "0xf388dc6d6cdf6fb77eac3c4a91f31bc0c8642b142f1a757512ab7849f9f70660",
         summit_bulletin: "0x147aae0d60625af72300d4d5ebd5dcb869f7ac4c6c1a326be1cbb14a4a65ae77",
         summit_individuality: "0xbe5238f82c3553bc57ac3be43bef110bd58c49ad0744110814985195ca7d8c4e",
+        devnet_asset_hub: "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
+        devnet_bulletin: "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
+        devnet_individuality: "0xe6c30d6e148f250b887105237bcaa5cb9f16dd203bf7b5b9d4f1da7387cb86ec",
     } as const;
 
     beforeEach(() => {
@@ -222,11 +256,23 @@ if (import.meta.vitest) {
         expect(descriptors.individuality.genesis).toBe(GENESIS.summit_individuality);
     });
 
+    test("loadDescriptors returns descriptors with genesis hashes for devnet", async () => {
+        const descriptors = await loadDescriptors("devnet");
+        expect(descriptors).toBeDefined();
+        expect(descriptors.assetHub).toBeDefined();
+        expect(descriptors.bulletin).toBeDefined();
+        expect(descriptors.individuality).toBeDefined();
+        expect(descriptors.assetHub.genesis).toBe(GENESIS.devnet_asset_hub);
+        expect(descriptors.bulletin.genesis).toBe(GENESIS.devnet_bulletin);
+        expect(descriptors.individuality.genesis).toBe(GENESIS.devnet_individuality);
+    });
+
     // --- AVAILABLE_ENVIRONMENTS ---
 
-    test("paseo and summit are currently available", () => {
+    test("paseo, summit, and devnet are currently available", () => {
         expect(AVAILABLE_ENVIRONMENTS.has("paseo")).toBe(true);
         expect(AVAILABLE_ENVIRONMENTS.has("summit")).toBe(true);
+        expect(AVAILABLE_ENVIRONMENTS.has("devnet")).toBe(true);
         expect(AVAILABLE_ENVIRONMENTS.has("polkadot")).toBe(false);
         expect(AVAILABLE_ENVIRONMENTS.has("kusama")).toBe(false);
     });

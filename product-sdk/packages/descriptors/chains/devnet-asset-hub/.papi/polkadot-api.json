@@ -1,0 +1,12 @@
+{
+    "version": 0,
+    "descriptorPath": "generated",
+    "entries": {
+        "devnet_asset_hub": {
+            "wsUrl": "wss://asset-hub-paseo-rpc.n.dwellir.com",
+            "metadata": "../../.papi/metadata/devnet_asset_hub.scale",
+            "genesis": "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
+            "codeHash": "0xaba3d61e25e728f0b588ef708c6cd2a446d0c49b1398dd0f6ac96c0ae1c80462"
+        }
+    }
+}
