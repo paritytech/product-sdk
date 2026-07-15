@@ -197,13 +197,25 @@ export function createAuthClient(config: AuthConfig): AuthClient {
 
         const sessions = await waitForSessions(adapter);
         if (sessions.length > 0) {
-            const addresses = deriveSessionAddresses(sessions[0]);
-            return { kind: "existing", address: addresses.productAddress, addresses };
+            // The pairing adapter isn't handed back on the existing-session path
+            // (ConnectResult.existing carries no handle), so tear it down before
+            // returning — including if deriveSessionAddresses throws on a stale
+            // session — or its WebSocket leaks for the process lifetime.
+            try {
+                const addresses = deriveSessionAddresses(sessions[0]);
+                return { kind: "existing", address: addresses.productAddress, addresses };
+            } finally {
+                adapter.destroy().catch(() => {});
+            }
         }
 
         // Start authenticate — this triggers the pairing flow and QR emission.
         const authPromise = adapter.sso.authenticate();
 
+        // Captured so the loser of the race can be cancelled: if the QR payload
+        // wins, an un-cleared setTimeout stays armed and keeps the Node event
+        // loop alive, hanging the CLI for up to QR_TIMEOUT_MS after login.
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         try {
             const qrCode = await Promise.race([
                 new Promise<string>((resolve) => {
@@ -218,8 +230,8 @@ export function createAuthClient(config: AuthConfig): AuthClient {
                         }
                     });
                 }),
-                new Promise<never>((_, reject) =>
-                    setTimeout(
+                new Promise<never>((_, reject) => {
+                    timeoutHandle = setTimeout(
                         () =>
                             reject(
                                 new Error(
@@ -229,8 +241,8 @@ export function createAuthClient(config: AuthConfig): AuthClient {
                                 ),
                             ),
                         QR_TIMEOUT_MS,
-                    ),
-                ),
+                    );
+                }),
             ]);
 
             return { kind: "qr", qrCode, login: { adapter, authPromise } };
@@ -241,6 +253,11 @@ export function createAuthClient(config: AuthConfig): AuthClient {
             // WS close.
             adapter.destroy().catch(() => {});
             throw err;
+        } finally {
+            // Clear the timeout regardless of which promise won — on the QR-win
+            // path this disarms the still-pending timer; on the timeout/error
+            // path it's a harmless no-op.
+            clearTimeout(timeoutHandle);
         }
     }
 
@@ -326,8 +343,19 @@ export function createAuthClient(config: AuthConfig): AuthClient {
         }
 
         const session = sessions[0];
-        const signer = createSigner(session);
-        const addresses = deriveSessionAddresses(session);
+        // createSigner / deriveSessionAddresses derive the product key and can
+        // throw on a stale session (missing rootAccountId). Destroy the adapter
+        // on that path — the handle that owns `destroy` is never returned, so
+        // without this the WebSocket leaks.
+        let signer: PolkadotSigner;
+        let addresses: SessionAddresses;
+        try {
+            signer = createSigner(session);
+            addresses = deriveSessionAddresses(session);
+        } catch (err) {
+            adapter.destroy().catch(() => {});
+            throw err;
+        }
 
         let destroyed = false;
         const destroy = () => {
