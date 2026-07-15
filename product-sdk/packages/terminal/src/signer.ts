@@ -223,13 +223,37 @@ export const INCOMPLETE_SESSION_MESSAGE =
  * @throws {@link INCOMPLETE_SESSION_MESSAGE} if the session predates the
  *   `rootAccountId` field (a stale login that must re-pair).
  */
-function sessionRootPublicKey(session: UserSession): Uint8Array {
+export function sessionRootPublicKey(session: UserSession): Uint8Array {
     const rootAccountId = (session as { rootAccountId?: Uint8Array }).rootAccountId;
     const publicKey = rootAccountId ? new Uint8Array(rootAccountId) : new Uint8Array();
     if (publicKey.length !== 32) {
         throw new Error(INCOMPLETE_SESSION_MESSAGE);
     }
     return publicKey;
+}
+
+/**
+ * Soft-derive a product account's sr25519 public key from a paired session's
+ * root account.
+ *
+ * This is the single source of truth for product-account math. The session
+ * signer uses it to stamp the correct signer address; consumers that need the
+ * product address *without* building a signer (e.g. a login-status display
+ * triple) call it directly so the displayed address can't desync from what the
+ * signer actually signs with.
+ *
+ * sr25519 soft derivation is composable on public keys alone, so deriving from
+ * `session.rootAccountId` locally produces the SAME key the host derives
+ * privately via `mnemonic + "/product/{productId}/{derivationIndex}"`.
+ *
+ * @throws {@link INCOMPLETE_SESSION_MESSAGE} on a stale session with no root key.
+ */
+export function deriveProductPublicKey(session: UserSession, ref: ProductAccountRef): Uint8Array {
+    return deriveProductAccountPublicKey(
+        sessionRootPublicKey(session),
+        ref.productId,
+        ref.derivationIndex,
+    );
 }
 
 function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
@@ -241,19 +265,11 @@ function buildSessionSigner(session: UserSession, ref: ProductAccountRef): Polka
     // verifies against it, so a mismatch yields an invalid signature.
     //
     // When the caller supplies `ref.publicKey` we trust it; otherwise we
-    // soft-derive it here from the session root. sr25519 soft derivation is
-    // composable on public keys, so this reproduces the key the host derives
-    // privately as `mnemonic + "/product/{productId}/{index}"`. We deliberately
-    // do NOT fall back to `session.remoteAccount.accountId` (the selected
-    // account) — that silently produces an invalid signature for any product
-    // account that isn't the currently-selected one.
-    const publicKey =
-        ref.publicKey ??
-        deriveProductAccountPublicKey(
-            sessionRootPublicKey(session),
-            ref.productId,
-            ref.derivationIndex,
-        );
+    // soft-derive it from the session root. We deliberately do NOT fall back to
+    // `session.remoteAccount.accountId` (the selected account) — that silently
+    // produces an invalid signature for any product account that isn't the
+    // currently-selected one.
+    const publicKey = ref.publicKey ?? deriveProductPublicKey(session, ref);
 
     return {
         publicKey,

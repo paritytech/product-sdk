@@ -159,7 +159,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
      */
     function deriveSessionAddresses(session: UserSession): SessionAddresses {
         const rootBytes = sessionRootPublicKey(session);
-        const productPubkey = deriveProductPublicKey(rootBytes, ref);
+        const productPubkey = deriveProductPublicKey(session, ref);
         return {
             rootAddress: ss58Encode(rootBytes),
             productAddress: ss58Encode(productPubkey),

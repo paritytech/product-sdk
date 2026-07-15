@@ -9,7 +9,13 @@ export {
 export type { TerminalAdapterOptions, TerminalAdapter } from "./adapter.js";
 
 // Session Signer
-export { createSessionSigner, createSessionSignerForAccount } from "./signer.js";
+export {
+    createSessionSigner,
+    createSessionSignerForAccount,
+    deriveProductPublicKey,
+    sessionRootPublicKey,
+    INCOMPLETE_SESSION_MESSAGE,
+} from "./signer.js";
 export type { ProductAccountRef } from "./signer.js";
 
 // Allowance service — `adapter.allowance` lives on every TerminalAdapter (inherited
