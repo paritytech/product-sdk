@@ -68,6 +68,7 @@ polkadot-api                        # Core runtime (peer dep of descriptors)
 | Submit transactions | `@parity/product-sdk-tx` | product-sdk-transactions |
 | Wallet connection (Talisman, Polkadot.js, Host API) | `@parity/product-sdk-signer` | product-sdk-transactions |
 | Key derivation | `@parity/product-sdk-keys` | product-sdk-transactions |
+| CLI sign-in (QR/mobile) + session signers | `@parity/product-sdk-auth` | product-sdk-transactions |
 | Decentralized storage | `@parity/product-sdk-cloud-storage` | product-sdk-cloud-storage |
 | Pub/sub messaging | `@parity/product-sdk-statement-store` | product-sdk-statement-store |
 | Address encoding | `@parity/product-sdk-address` | product-sdk-utilities |

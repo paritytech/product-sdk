@@ -25,8 +25,11 @@ START
 │  ├─ Need testnet dev accounts only?
 │  │  YES → @parity/product-sdk-tx (includes createDevSigner)
 │  │
-│  └─ Need key derivation or session keys?
-│     YES → @parity/product-sdk-keys
+│  ├─ Need key derivation or session keys?
+│  │  YES → @parity/product-sdk-keys
+│  │
+│  └─ Building a CLI that signs as a product account via phone (QR) pairing?
+│     YES → @parity/product-sdk-auth (see product-sdk-transactions › CLI Sign-In)
 │
 ├─ Need to interact with smart contracts (PolkaVM/Solidity on Asset Hub)?
 │  YES → @parity/product-sdk-contracts
@@ -136,6 +139,7 @@ local-storage ← host, logger
 keys ← address, crypto, utils, local-storage
 tx ← keys, logger
 signer ← address, keys, logger
+auth ← address, keys, terminal, tx  (CLI QR/mobile sign-in + session signers)
 chain-client ← descriptors, host  (provides .raw for ContractRuntime creation)
 contracts ← tx, signer, keys, logger  (needs ContractRuntime from @parity/product-sdk-contracts)
 cloud-storage ← chain-client, descriptors, host, logger, tx
