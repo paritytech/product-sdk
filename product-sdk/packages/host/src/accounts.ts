@@ -27,17 +27,20 @@ import { AccountId, type PolkadotSigner } from "polkadot-api";
 
 import type {
     HostAccountConnectionStatusSubscribeItem,
-    HostAccountCreateProofError,
     HostAccountGetAliasResponse as WireAlias,
-    HostAccountGetError,
-    HostGetUserIdError,
-    HostRequestLoginError,
     HostRequestLoginResponse,
     LegacyAccount as WireLegacyAccount,
     ProductAccount as WireProductAccount,
     ProductAccountId,
     RingLocation,
     TrUApiClient,
+    VersionedHostAccountCreateProofError,
+    VersionedHostAccountGetAliasError,
+    VersionedHostAccountGetError,
+    VersionedHostGetLegacyAccountsError,
+    VersionedHostGetUserIdError,
+    VersionedHostRequestLoginError,
+    scale,
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
@@ -97,26 +100,36 @@ export type ContextualAlias = { [K in keyof WireAlias]: Uint8Array };
  * user identity, connection status, and `PolkadotSigner` factories.
  *
  * Lookup methods return a neverthrow `ResultAsync` (use `.match(ok, err)`);
- * the signer factories return a synchronous PAPI `PolkadotSigner`.
+ * the signer factories return a synchronous PAPI `PolkadotSigner`. The `err`
+ * channel carries truapi's canonical `CallErrorValue` envelope around the
+ * per-call versioned domain error, exactly as the generated client returns it.
  */
 export interface AccountsProvider {
-    getUserId(): ResultAsync<{ primaryUsername: string }, HostGetUserIdError>;
-    requestLogin(reason?: string): ResultAsync<HostRequestLoginResponse, HostRequestLoginError>;
+    getUserId(): ResultAsync<
+        { primaryUsername: string },
+        scale.CallErrorValue<VersionedHostGetUserIdError>
+    >;
+    requestLogin(
+        reason?: string,
+    ): ResultAsync<HostRequestLoginResponse, scale.CallErrorValue<VersionedHostRequestLoginError>>;
     getProductAccount(
         dotNsIdentifier: string,
         derivationIndex?: number,
-    ): ResultAsync<ProductAccount, HostAccountGetError>;
+    ): ResultAsync<ProductAccount, scale.CallErrorValue<VersionedHostAccountGetError>>;
     getProductAccountAlias(
         dotNsIdentifier: string,
         derivationIndex?: number,
-    ): ResultAsync<ContextualAlias, HostAccountGetError>;
-    getLegacyAccounts(): ResultAsync<HostAccount[], HostAccountGetError>;
+    ): ResultAsync<ContextualAlias, scale.CallErrorValue<VersionedHostAccountGetAliasError>>;
+    getLegacyAccounts(): ResultAsync<
+        HostAccount[],
+        scale.CallErrorValue<VersionedHostGetLegacyAccountsError>
+    >;
     createRingVRFProof(
         dotNsIdentifier: string,
         derivationIndex: number,
         location: RingLocation,
         message: Uint8Array,
-    ): ResultAsync<Uint8Array, HostAccountCreateProofError>;
+    ): ResultAsync<Uint8Array, scale.CallErrorValue<VersionedHostAccountCreateProofError>>;
     /**
      * Build a `PolkadotSigner` for a product account. Signing routes through the
      * host's `createTransaction` path: the host decodes the metadata and forwards
