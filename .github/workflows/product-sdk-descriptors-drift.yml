@@ -160,14 +160,19 @@ jobs:
                     echo
                     echo "## How to resolve"
                     echo
-                    echo "When a chain drifts, the bundled PAPI descriptors are stale against the live runtime. Regenerate and republish:"
+                    echo "When a chain drifts, the bundled PAPI descriptors are a stale snapshot of its live runtime. Re-pin them and republish:"
                     echo
                     echo '1. `cd product-sdk/packages/descriptors`'
-                    echo '2. `pnpm generate` — fetches fresh metadata from every chain RPC and rewrites `chains/*/.papi/polkadot-api.json` + the `.scale` metadata blobs.'
-                    echo '3. `pnpm build` — regenerates the TypeScript bindings under `chains/*/generated/dist/`.'
-                    echo '4. Verify nothing else changed unexpectedly: `git diff packages/descriptors/`.'
-                    echo '5. Add a changeset: `pnpm changeset` → `@parity/product-sdk-descriptors: patch` (or `minor` if a chain runtime added new pallets / breaking decode shape).'
-                    echo "6. Open a PR. Run \`pnpm test:e2e\` against the regenerated bindings before merging — drift sometimes hides a real consumer-side break (e.g. a pallet rename)."
+                    echo '2. Re-pin each drifting chain from its live RPC with `npx papi update`. Run it from **inside that chain directory** so the refreshed `.scale` blob lands in the shared `.papi/metadata/`; `--skip-codegen` keeps this step to just the metadata + pins. Once per drifting `<chain>` in the table above:'
+                    echo '   ```bash'
+                    echo '   ( cd chains/<chain> && npx papi update "$(jq -r ".entries | keys[0]" .papi/polkadot-api.json)" --config .papi/polkadot-api.json --skip-codegen )'
+                    echo '   ```'
+                    echo '   This rewrites the shared `.papi/metadata/<key>.scale` blob and the `codeHash`/`genesis` pins in that per-chain `.papi/polkadot-api.json`.'
+                    echo '3. Restore canonical formatting on the rewritten configs (papi emits 2-space; the repo uses 4-space): `npx biome format --write chains/*/.papi/polkadot-api.json`.'
+                    echo '4. Regenerate and verify the bindings compile: `pnpm clean && pnpm build`, then drop the `dependencies: { "@polkadot-api/descriptors": "file:generated" }` entry papi re-adds to any touched `chains/*/package.json`: `git checkout -- chains/*/package.json`.'
+                    echo '5. Verify only the intended chains changed: `git diff packages/descriptors/`. Expect updated `.papi/metadata/*.scale` and `.papi/polkadot-api.json` (codeHash/genesis) for the drifting chains, plus any `generated/package.json` bumps; nothing else. Then run `pnpm check` to confirm formatting/lint is clean (the gate CI enforces).'
+                    echo '6. Add a changeset: `pnpm changeset` → `@parity/product-sdk-descriptors: patch` (or `minor` if a chain runtime added new pallets / breaking decode shape).'
+                    echo "7. Open a PR. Run \`pnpm test:e2e\` against the regenerated bindings before merging — drift sometimes hides a real consumer-side break (e.g. a pallet rename)."
                     echo
                     echo "## Why this issue stays open"
                     echo
