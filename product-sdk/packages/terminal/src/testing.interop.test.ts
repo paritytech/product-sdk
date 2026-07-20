@@ -41,8 +41,12 @@ const statementStoreShim: StatementStoreAdapter = {
     subscribeStatements: () => () => {},
     submitStatement: () => okAsync(undefined),
 };
+// Must satisfy host-papp's IdentityAdapter (not exported from the package root,
+// so matched structurally). Neither method runs in these tests — `watchIdentity`
+// is present only to keep the shim complete when host-papp adds members.
 const identityShim = {
     readIdentities: () => errAsync(new Error("test shim")),
+    watchIdentity: neverCalled,
 };
 // `createPappAdapter` only reaches the lazy client if we don't supply a
 // `statementStore` / `identities` — we do supply shims for both, so none of
