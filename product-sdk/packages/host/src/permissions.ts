@@ -168,7 +168,12 @@ if (import.meta.vitest) {
             await withMockedTruApi(
                 {
                     permissions: {
-                        requestRemotePermission: vi.fn(() => errAsync({ reason: "boom" })),
+                        requestRemotePermission: vi.fn(() =>
+                            errAsync({
+                                tag: "Domain",
+                                value: { tag: "V1", value: { reason: "boom" } },
+                            }),
+                        ),
                     },
                 },
                 async (mod) => {
@@ -217,7 +222,12 @@ if (import.meta.vitest) {
             await withMockedTruApi(
                 {
                     permissions: {
-                        requestDevicePermission: vi.fn(() => errAsync({ reason: "boom" })),
+                        requestDevicePermission: vi.fn(() =>
+                            errAsync({
+                                tag: "Domain",
+                                value: { tag: "V1", value: { reason: "boom" } },
+                            }),
+                        ),
                     },
                 },
                 async (mod) => {

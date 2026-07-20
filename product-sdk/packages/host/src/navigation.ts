@@ -110,7 +110,11 @@ if (import.meta.vitest) {
                             match: async (
                                 _onOk: (v: unknown) => unknown,
                                 onErr: (e: unknown) => unknown,
-                            ) => onErr({ tag: "PermissionDenied" }),
+                            ) =>
+                                onErr({
+                                    tag: "Domain",
+                                    value: { tag: "V1", value: { tag: "PermissionDenied" } },
+                                }),
                         }),
                     },
                 },

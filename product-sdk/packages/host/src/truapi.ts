@@ -26,10 +26,11 @@ import { createLogger } from "@parity/product-sdk-logger";
 
 import {
     type HostError,
-    type HostErrorPayload,
+    type HostWireError,
     HostCallFailedError,
     HostUnavailableError,
     formatHostError,
+    toHostErrorPayload,
 } from "./errors.js";
 import { type Result, err, ok } from "./result.js";
 import { getClient, subscribeWithInterrupt } from "./transport.js";
@@ -47,6 +48,12 @@ const log = createLogger("host");
  * implement external interfaces (e.g. polkadot-api's `JsonRpcProvider`) whose
  * method signatures can't carry a {@link Result}, so they keep the
  * throw convention. The flat public operations use {@link mapHostResult} instead.
+ *
+ * truapi ≥0.4 wraps every generated method's error channel in the framework
+ * `CallError` envelope ({@link HostWireError}); `formatHostError` unwraps it, so
+ * a `Domain` failure throws with the domain error's message (as in 0.3.x) and
+ * the framework variants throw with `"Denied"` / `"HostFailure: reason"`-style
+ * messages. The raw (still-wrapped) error is preserved as `cause`.
  */
 export function unwrapHostResult<T, E>(result: ResultAsync<T, E>, label: string): Promise<T> {
     return result.match(
@@ -63,15 +70,22 @@ export function unwrapHostResult<T, E>(result: ResultAsync<T, E>, label: string)
  * {@link HostCallFailedError} on the `err` channel. This is the non-throwing
  * boundary the flat public host operations (`requestPermission`, `deriveEntropy`,
  * `requestResourceAllocation`, …) return through.
+ *
+ * The err channel carries truapi ≥0.4's `CallError` envelope
+ * ({@link HostWireError}); `toHostErrorPayload` centrally unwraps it — `Domain`
+ * folds the real domain error into the {@link HostCallFailedError} payload
+ * (exactly as 0.3.x did), while the framework variants (`Denied` /
+ * `Unsupported` / `MalformedFrame` / `HostFailure`) become payloads whose
+ * rendered message carries the framework tag (+ reason).
  */
 export function mapHostResult<T, U>(
-    result: ResultAsync<T, HostErrorPayload>,
+    result: ResultAsync<T, HostWireError>,
     map: (value: T) => U,
     label: string,
 ): Promise<Result<U, HostError>> {
     return result.match(
         (value) => ok(map(value)),
-        (error) => err(new HostCallFailedError(label, error)),
+        (error) => err(new HostCallFailedError(label, toHostErrorPayload(error))),
     );
 }
 

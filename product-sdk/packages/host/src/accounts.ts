@@ -27,8 +27,8 @@ import { AccountId, type PolkadotSigner } from "polkadot-api";
 
 import type {
     ContextualAlias as WireAlias,
+    HexString,
     HostAccountConnectionStatusSubscribeItem,
-    HostAccountCreateProofResponse as WireRingVRFProof,
     HostRequestLoginResponse,
     LegacyAccount as WireLegacyAccount,
     ProductAccount as WireProductAccount,
@@ -42,22 +42,21 @@ import type {
     VersionedHostGetLegacyAccountsError,
     VersionedHostGetUserIdError,
     VersionedHostRequestLoginError,
-    scale,
 } from "@parity/truapi";
+import type { CallErrorValue } from "@parity/truapi/scale";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
 import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
 /**
- * Ring VRF request shapes, re-exported from `@parity/truapi`:
- * - `RingLocation` — where the ring lives (`{ chainId, junctions }`; junctions
- *   address the ring via `PalletInstance` / `CollectionId` steps).
- * - `ProductProofContext` — the product-scoped proof context
- *   (`{ productId, suffix }`), hashed by the host into the 32-byte context a
- *   proof or alias is bound to.
+ * Ring location for Ring VRF proofs (`{ chainId, junctions }`, RFC-0004): the
+ * hosting chain's genesis hash plus a junction path (`PalletInstance` /
+ * `CollectionId`) addressing the ring within it. `ProductProofContext` is the
+ * `{ productId, suffix }` context a proof/alias is scoped to. Re-exported from
+ * `@parity/truapi`.
  */
-export type { ProductProofContext, RingLocation } from "@parity/truapi";
+export type { ProductProofContext, RingLocation, RingLocationJunction } from "@parity/truapi";
 
 // The account/alias shapes come from `@parity/truapi`'s generated specs; we
 // derive the SDK-facing views from them so the field inventory tracks the
@@ -99,24 +98,10 @@ export type ProductAccount = ProductAccountId &
  *
  * Proves account membership in a ring without revealing which account.
  *
- * Derived from `@parity/truapi`'s `ContextualAlias`, with both fields decoded to bytes.
+ * Derived from `@parity/truapi`'s `ContextualAlias` (32-byte `context`,
+ * variable-length `alias`), with both fields decoded to bytes.
  */
 export type ContextualAlias = { [K in keyof WireAlias]: Uint8Array };
-
-/**
- * A Ring VRF proof plus the values needed to verify it downstream (e.g.
- * against a precompile): the alias it commits to, and the ring member index /
- * revision the proof was generated against.
- *
- * Derived from `@parity/truapi`'s `HostAccountCreateProofResponse`, with the
- * byte fields decoded.
- */
-export type RingVRFProof = Omit<WireRingVRFProof, "proof" | "contextualAlias"> & {
-    /** Raw ring VRF proof bytes. */
-    proof: Uint8Array;
-    /** Alias derived for the request's context. */
-    contextualAlias: ContextualAlias;
-};
 
 /**
  * Accounts provider handle, backed by `truApi.account.*` / `truApi.signing.*`.
@@ -124,44 +109,41 @@ export type RingVRFProof = Omit<WireRingVRFProof, "proof" | "contextualAlias"> &
  * user identity, connection status, and `PolkadotSigner` factories.
  *
  * Lookup methods return a neverthrow `ResultAsync` (use `.match(ok, err)`);
- * the signer factories return a synchronous PAPI `PolkadotSigner`. The `err`
- * channel carries truapi's canonical `CallErrorValue` envelope around the
- * per-call versioned domain error, exactly as the generated client returns it.
+ * the signer factories return a synchronous PAPI `PolkadotSigner`.
  */
 export interface AccountsProvider {
     getUserId(): ResultAsync<
         { primaryUsername: string },
-        scale.CallErrorValue<VersionedHostGetUserIdError>
+        CallErrorValue<VersionedHostGetUserIdError>
     >;
     requestLogin(
         reason?: string,
-    ): ResultAsync<HostRequestLoginResponse, scale.CallErrorValue<VersionedHostRequestLoginError>>;
+    ): ResultAsync<HostRequestLoginResponse, CallErrorValue<VersionedHostRequestLoginError>>;
     getProductAccount(
         dotNsIdentifier: string,
         derivationIndex?: number,
-    ): ResultAsync<ProductAccount, scale.CallErrorValue<VersionedHostAccountGetError>>;
+    ): ResultAsync<ProductAccount, CallErrorValue<VersionedHostAccountGetError>>;
     /**
-     * Derive the contextual alias for a proof context and ring. The host
-     * selects the member key within the ring — no per-account addressing.
+     * Derive the contextual alias for this product's proof context against the
+     * ring at `location` (RFC-0004: the host selects its member key for the
+     * ring; the context is `{ productId: dotNsIdentifier, suffix }` with the
+     * canonical 4-byte big-endian `derivationIndex` suffix).
      */
     getProductAccountAlias(
-        context: ProductProofContext,
+        dotNsIdentifier: string,
         location: RingLocation,
-    ): ResultAsync<ContextualAlias, scale.CallErrorValue<VersionedHostAccountGetAliasError>>;
+        derivationIndex?: number,
+    ): ResultAsync<ContextualAlias, CallErrorValue<VersionedHostAccountGetAliasError>>;
     getLegacyAccounts(): ResultAsync<
         HostAccount[],
-        scale.CallErrorValue<VersionedHostGetLegacyAccountsError>
+        CallErrorValue<VersionedHostGetLegacyAccountsError>
     >;
-    /**
-     * Generate a Ring VRF proof binding `message` to the product-scoped
-     * `context`. The host selects the member key within the ring; the result
-     * carries the proof plus its verification values ({@link RingVRFProof}).
-     */
     createRingVRFProof(
-        context: ProductProofContext,
+        dotNsIdentifier: string,
+        derivationIndex: number,
         location: RingLocation,
         message: Uint8Array,
-    ): ResultAsync<RingVRFProof, scale.CallErrorValue<VersionedHostAccountCreateProofError>>;
+    ): ResultAsync<Uint8Array, CallErrorValue<VersionedHostAccountCreateProofError>>;
     /**
      * Build a `PolkadotSigner` for a product account. Signing routes through the
      * host's `createTransaction` path: the host decodes the metadata and forwards
@@ -199,6 +181,23 @@ function deriveTxExtVersion(metadata: Uint8Array): number {
 
 /** Internal seam so `import.meta.vitest` can stub the metadata decode. @internal */
 const deps = { deriveTxExtVersion };
+
+/**
+ * Canonical `derivationIndex` → {@link ProductProofContext}`.suffix` mapping
+ * (RFC-0004 §"Context ↔ accountId linkability"): the index as 4 big-endian
+ * bytes, keeping a bijection between proof contexts and `ProductAccountId`
+ * derivation indices.
+ */
+function derivationIndexSuffix(derivationIndex: number): HexString {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, derivationIndex, false);
+    return toHex(bytes);
+}
+
+/** Build the RFC-0004 {@link ProductProofContext} for a product account. */
+function proofContext(dotNsIdentifier: string, derivationIndex: number): ProductProofContext {
+    return { productId: dotNsIdentifier, suffix: derivationIndexSuffix(derivationIndex) };
+}
 
 /**
  * Map a PAPI `signTx` call's signed extensions onto the host's
@@ -240,11 +239,16 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     derivationIndex,
                 }));
         },
-        getProductAccountAlias(context, location) {
-            return account.getAccountAlias({ context, ringLocation: location }).map((response) => ({
-                context: fromHex(response.context),
-                alias: fromHex(response.alias),
-            }));
+        getProductAccountAlias(dotNsIdentifier, location, derivationIndex = 0) {
+            return account
+                .getAccountAlias({
+                    context: proofContext(dotNsIdentifier, derivationIndex),
+                    ringLocation: location,
+                })
+                .map((response) => ({
+                    context: fromHex(response.context),
+                    alias: fromHex(response.alias),
+                }));
         },
         getLegacyAccounts() {
             return account.getLegacyAccounts().map((response) =>
@@ -254,22 +258,20 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 })),
             );
         },
-        createRingVRFProof(context, location, message) {
+        createRingVRFProof(dotNsIdentifier, derivationIndex, location, message) {
+            // RFC-0004 shape: the proof context replaces the old productAccountId
+            // (the host selects its member key for the ring), and the opaque
+            // message bound into the proof is now an explicit `message` field
+            // (0.3.x smuggled it through `context`). The response also carries
+            // `contextualAlias` / `ringIndex` / `ringRevision`; this wrapper
+            // keeps its stable proof-bytes-only return.
             return account
                 .createAccountProof({
-                    context,
+                    context: proofContext(dotNsIdentifier, derivationIndex),
                     ringLocation: location,
                     message: toHex(message),
                 })
-                .map((response) => ({
-                    proof: fromHex(response.proof),
-                    contextualAlias: {
-                        context: fromHex(response.contextualAlias.context),
-                        alias: fromHex(response.contextualAlias.alias),
-                    },
-                    ringIndex: response.ringIndex,
-                    ringRevision: response.ringRevision,
-                }));
+                .map((response) => fromHex(response.proof));
         },
         getProductAccountSigner(account_) {
             const productAccountId = {
@@ -388,12 +390,7 @@ if (import.meta.vitest) {
                 getLegacyAccounts: method("getLegacyAccounts", {
                     accounts: [{ publicKey: "0xbb", name: "Bob" }],
                 }),
-                createAccountProof: method("createAccountProof", {
-                    proof: "0xc0ffee",
-                    contextualAlias: { context: "0x01", alias: "0x02" },
-                    ringIndex: 3,
-                    ringRevision: 7,
-                }),
+                createAccountProof: method("createAccountProof", { proof: "0xc0ffee" }),
                 connectionStatusSubscribe: () => ({
                     subscribe: () => ({ unsubscribe: vi.fn() }),
                     [Symbol.observable as symbol]() {
@@ -437,32 +434,53 @@ if (import.meta.vitest) {
         });
     });
 
-    test("createRingVRFProof hex-encodes the message and decodes the proof response", async () => {
+    // RFC-0004 ring location used by the proof/alias tests.
+    const sampleRingLocation: RingLocation = {
+        chainId: "0x01",
+        junctions: [
+            { tag: "PalletInstance", value: 97 },
+            { tag: "CollectionId", value: "0x02" },
+        ],
+    };
+
+    test("createRingVRFProof builds the RFC-0004 proof context + message request", async () => {
         const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
         const provider = adaptAccountsProvider(client);
         const proof = await provider
-            .createRingVRFProof(
-                { productId: "app.dot", suffix: "0x00" },
-                { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
-                new Uint8Array([1, 2, 3]),
-            )
+            .createRingVRFProof("app.dot", 5, sampleRingLocation, new Uint8Array([1, 2, 3]))
             .match(
                 (p) => p,
                 () => null,
             );
-        expect(calls[0][0]).toBe("createAccountProof");
-        expect(calls[0][1]).toEqual({
-            context: { productId: "app.dot", suffix: "0x00" },
-            ringLocation: { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
-            message: toHex(new Uint8Array([1, 2, 3])),
-        });
-        expect(proof).toEqual({
-            proof: fromHex("0xc0ffee"),
-            contextualAlias: { context: fromHex("0x01"), alias: fromHex("0x02") },
-            ringIndex: 3,
-            ringRevision: 7,
-        });
+        expect(calls[0]).toEqual([
+            "createAccountProof",
+            {
+                // suffix = derivationIndex as 4 big-endian bytes (RFC-0004 canonical mapping).
+                context: { productId: "app.dot", suffix: "0x00000005" },
+                ringLocation: sampleRingLocation,
+                message: toHex(new Uint8Array([1, 2, 3])),
+            },
+        ]);
+        expect(proof).toEqual(fromHex("0xc0ffee"));
+    });
+
+    test("getProductAccountAlias sends the proof context + ring location and decodes the alias", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const alias = await provider.getProductAccountAlias("app.dot", sampleRingLocation).match(
+            (a) => a,
+            () => null,
+        );
+        expect(calls[0]).toEqual([
+            "getAccountAlias",
+            {
+                context: { productId: "app.dot", suffix: "0x00000000" },
+                ringLocation: sampleRingLocation,
+            },
+        ]);
+        expect(alias).toEqual({ context: fromHex("0x01"), alias: fromHex("0x02") });
     });
 
     test("the product signer signs bytes via signing.signRaw", async () => {

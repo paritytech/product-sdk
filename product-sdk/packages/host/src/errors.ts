@@ -11,50 +11,109 @@
  * ({@link HostErrorPayload}) rides along as {@link HostCallFailedError.payload}
  * for callers that want fine-grained tag-level handling.
  *
- * This module also owns {@link HostErrorPayload} (the wire-error shape) and
- * {@link formatHostError} (renders a payload to a message) — co-located with the
- * error classes that consume them so the host error model lives in one place.
+ * This module also owns {@link HostErrorPayload} (the domain-error payload
+ * shape), {@link HostWireError} / {@link toHostErrorPayload} (the truapi ≥0.4
+ * `CallError` envelope and its central unwrap), and {@link formatHostError}
+ * (renders a payload to a message) — co-located with the error classes that
+ * consume them so the host error model lives in one place.
  *
  * @module
  */
 import type { SdkError } from "@parity/product-sdk-errors";
-import type { scale } from "@parity/truapi";
+import type { GenericError } from "@parity/truapi";
+import type { CallErrorValue } from "@parity/truapi/scale";
 
 /**
- * What a `Domain`-tagged call error carries. Widened from truapi's per-domain
- * `Versioned*Error` types (all `{ tag: "V1", value: <domain error> }` today)
- * so one payload type covers every call.
- */
-type VersionedDomainError = { tag: string; value?: unknown };
-
-/**
- * The error a host call puts on its `Err` channel — truapi's canonical
- * {@link scale.CallErrorValue} envelope. `Denied` / `Unsupported` /
- * `MalformedFrame` / `HostFailure` are transport-level failures; `Domain`
- * wraps the actual per-domain error in a versioned envelope, which
- * {@link formatHostError} digs through when rendering.
+ * The structured error payload `@parity/truapi` surfaces on the `Err` channel of
+ * a host call, once unwrapped from the versioned wire envelope. Every host error
+ * union is built from these:
  *
- * This is the payload {@link HostCallFailedError} carries — not the error
- * type consumers branch on.
+ * - the catch-all {@link GenericError} (`{ reason }`),
+ * - a unit tagged variant (`{ tag }`), or
+ * - a tagged variant carrying a reason (`{ tag, value: { reason } }`).
+ *
+ * `GenericError` is imported from `@parity/truapi`; the `{ tag }` members are a
+ * deliberate widening of truapi's per-domain named variants (the formatter is
+ * tag-agnostic). truapi has no umbrella error union to import today — once it
+ * exports a canonical tagged-error union from codegen, replace these local
+ * members with that import so the type is protocol-sourced rather than
+ * hand-widened.
+ *
+ * This is the *payload* the host public API carries inside a
+ * {@link HostCallFailedError} on the `err` channel of its `Result` returns — not
+ * the error type consumers branch on.
  */
-export type HostErrorPayload = scale.CallErrorValue<VersionedDomainError>;
+export type HostErrorPayload =
+    | GenericError
+    | { tag: string; value?: undefined }
+    | { tag: string; value: { reason: string } };
 
-/** Narrow to a tagged-union member: `{ tag, value? }`. */
-function isTagged(value: unknown): value is { tag: string; value?: unknown } {
-    return (
-        value != null &&
-        typeof value === "object" &&
-        typeof (value as { tag?: unknown }).tag === "string"
-    );
+/** Narrow an unknown `Err`-channel value to a {@link HostErrorPayload}. */
+function isHostErrorPayload(error: unknown): error is HostErrorPayload {
+    if (error == null || typeof error !== "object") return false;
+    const obj = error as Record<string, unknown>;
+    return typeof obj.reason === "string" || typeof obj.tag === "string";
 }
 
-/** Narrow to a reason-carrying payload — truapi's `GenericError` shape. */
-function hasReason(value: unknown): value is { reason: string } {
-    return (
-        value != null &&
-        typeof value === "object" &&
-        typeof (value as { reason?: unknown }).reason === "string"
-    );
+// ─────────────────────────────────────────────────────────────────────────────
+// truapi ≥0.4 `CallError` envelope
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The error channel of every truapi ≥0.4 generated method: the framework
+ * `CallError` envelope around the *versioned* domain error. `Domain` carries
+ * the method's real domain error (inside its generated `Versioned*` wrapper,
+ * `{ tag: "V1", value }`); the other variants are framework-level failures
+ * (`Denied` / `Unsupported` / `MalformedFrame` / `HostFailure`) that in truapi
+ * 0.3.x would never have reached the `Err` channel at all.
+ */
+export type HostWireError = CallErrorValue<{ tag: string; value: unknown }>;
+
+/** Framework (non-`Domain`) tags of truapi's `CallErrorValue` envelope. */
+const CALL_ERROR_FRAMEWORK_TAGS = new Set([
+    "Denied",
+    "Unsupported",
+    "MalformedFrame",
+    "HostFailure",
+]);
+
+/** Narrow an unknown `Err`-channel value to a truapi `CallErrorValue` envelope. */
+function isCallErrorValue(error: unknown): error is CallErrorValue<unknown> {
+    if (error == null || typeof error !== "object") return false;
+    const tag = (error as { tag?: unknown }).tag;
+    if (typeof tag !== "string") return false;
+    if (tag === "Domain") return "value" in error;
+    return CALL_ERROR_FRAMEWORK_TAGS.has(tag);
+}
+
+/** Unwrap a generated `Versioned*` envelope (`{ tag: "V1", value }`) if present. */
+function unwrapVersioned(value: unknown): unknown {
+    if (value == null || typeof value !== "object") return value;
+    const envelope = value as { tag?: unknown; value?: unknown };
+    if (typeof envelope.tag === "string" && /^V\d+$/.test(envelope.tag) && "value" in envelope) {
+        return envelope.value;
+    }
+    return value;
+}
+
+/**
+ * Collapse a truapi error-channel value to the {@link HostErrorPayload} worth
+ * carrying/reporting. truapi ≥0.4 wraps every generated method's error in a
+ * `CallErrorValue` envelope ({@link HostWireError}): `Domain` unwraps to the
+ * real domain error (its `Versioned*` wrapper removed), and the framework
+ * variants pass through as payloads (they already render as `"Denied"` /
+ * `"MalformedFrame: reason"` shapes). Non-envelope values — bare 0.3.x-style
+ * domain payloads, hand-fed test errors — pass through unchanged, so
+ * {@link HostErrorPayload} stays the *domain* payload type.
+ */
+export function toHostErrorPayload(error: unknown): HostErrorPayload {
+    if (isCallErrorValue(error)) {
+        if (error.tag === "Domain") {
+            return unwrapVersioned((error as { value: unknown }).value) as HostErrorPayload;
+        }
+        return error as HostErrorPayload;
+    }
+    return unwrapVersioned(error) as HostErrorPayload;
 }
 
 /**
@@ -72,20 +131,26 @@ export function formatHostError(error: unknown): string {
     if (error instanceof Error) return error.message;
     if (typeof error === "string") return error;
 
-    if (isTagged(error)) {
-        // `Domain` carries the real error inside a versioned envelope — unwrap it.
-        if (error.tag === "Domain" && isTagged(error.value) && error.value.value !== undefined) {
-            return formatHostError(error.value.value);
-        }
-        // Tagged variant carrying a reason: { tag, value: { reason } }
-        if (hasReason(error.value)) {
-            return `${error.tag}: ${error.value.reason}`;
-        }
-        // Unit tagged variant, e.g. { tag: "Denied" } / { tag: "PermissionDenied" }
-        return error.tag;
+    // truapi ≥0.4 `CallError` envelope: `Domain` renders as the domain error it
+    // carries (never as the literal "Domain"); the framework variants fall
+    // through to the payload path below ("Denied", "MalformedFrame: reason", …).
+    if (isCallErrorValue(error) && error.tag === "Domain") {
+        return formatHostError(unwrapVersioned((error as { value: unknown }).value));
     }
-    // GenericError: { reason }
-    if (hasReason(error)) {
+    // A generated `Versioned*` envelope ({ tag: "V1", value }) renders as its inner value.
+    const unwrapped = unwrapVersioned(error);
+    if (unwrapped !== error) return formatHostError(unwrapped);
+
+    if (isHostErrorPayload(error)) {
+        if ("tag" in error) {
+            // Tagged variant carrying a reason: { tag, value: { reason } }
+            if (error.value != null && typeof error.value.reason === "string") {
+                return `${error.tag}: ${error.value.reason}`;
+            }
+            // Unit tagged variant, e.g. { tag: "Full" } / { tag: "PermissionDenied" }
+            return error.tag;
+        }
+        // GenericError: { reason }
         return error.reason;
     }
 
@@ -170,13 +235,7 @@ if (import.meta.vitest) {
         });
 
         test("HostCallFailedError renders payload and preserves it", () => {
-            const payload: HostErrorPayload = {
-                tag: "Domain",
-                value: {
-                    tag: "V1",
-                    value: { tag: "PermissionDenied", value: { reason: "user said no" } },
-                },
-            };
+            const payload = { tag: "PermissionDenied", value: { reason: "user said no" } };
             const e = new HostCallFailedError("requestPermission failed", payload);
             expect(e).toBeInstanceOf(HostError);
             expect(e.payload).toBe(payload);
@@ -184,17 +243,14 @@ if (import.meta.vitest) {
             expect(e.message).toBe("requestPermission failed: PermissionDenied: user said no");
         });
 
-        test("HostCallFailedError renders a Domain-wrapped GenericError payload", () => {
-            const e = new HostCallFailedError("submit failed", {
-                tag: "Domain",
-                value: { tag: "V1", value: { reason: "timeout" } },
-            });
+        test("HostCallFailedError renders a GenericError payload", () => {
+            const e = new HostCallFailedError("submit failed", { reason: "timeout" });
             expect(e.message).toBe("submit failed: timeout");
         });
 
         test("isHostError narrows host errors only", () => {
             expect(isHostError(new HostUnavailableError())).toBe(true);
-            expect(isHostError(new HostCallFailedError("x", { tag: "Denied" }))).toBe(true);
+            expect(isHostError(new HostCallFailedError("x", { reason: "y" }))).toBe(true);
             expect(isHostError(new Error("plain"))).toBe(false);
             expect(isHostError("string")).toBe(false);
         });
@@ -212,28 +268,66 @@ if (import.meta.vitest) {
             expect(formatHostError({ tag: "Full" })).toBe("Full");
         });
 
-        test("unwraps the CallError Domain envelope to the domain error", () => {
-            // { tag: "Domain", value: { tag: "V1", value: <domain error> } }
-            expect(
-                formatHostError({
-                    tag: "Domain",
-                    value: { tag: "V1", value: { tag: "PermissionDenied" } },
-                }),
-            ).toBe("PermissionDenied");
-            expect(
-                formatHostError({ tag: "Domain", value: { tag: "V1", value: { reason: "boom" } } }),
-            ).toBe("boom");
-            // Transport-level CallError variants render as-is.
-            expect(formatHostError({ tag: "Denied" })).toBe("Denied");
-            expect(formatHostError({ tag: "HostFailure", value: { reason: "crashed" } })).toBe(
-                "HostFailure: crashed",
-            );
-        });
-
         test("falls back for non-host-error input", () => {
             expect(formatHostError(new Error("plain"))).toBe("plain");
             expect(formatHostError("string err")).toBe("string err");
             expect(formatHostError({ message: "loose" })).toBe("loose");
+        });
+
+        test("unwraps the truapi >=0.4 CallError envelope (never prints 'Domain')", () => {
+            // Domain, carrying the generated Versioned wrapper around the domain error.
+            expect(
+                formatHostError({
+                    tag: "Domain",
+                    value: { tag: "V1", value: { tag: "NotConnected" } },
+                }),
+            ).toBe("NotConnected");
+            // Domain around a versioned reason-carrying variant.
+            expect(
+                formatHostError({
+                    tag: "Domain",
+                    value: { tag: "V1", value: { tag: "Unknown", value: { reason: "boom" } } },
+                }),
+            ).toBe("Unknown: boom");
+            // Domain around a versioned plain-string domain error (e.g. CoinPaymentError).
+            expect(
+                formatHostError({ tag: "Domain", value: { tag: "V1", value: "BalanceLow" } }),
+            ).toBe("BalanceLow");
+            // Framework variants render as tag / tag: reason.
+            expect(formatHostError({ tag: "Denied" })).toBe("Denied");
+            expect(formatHostError({ tag: "Unsupported" })).toBe("Unsupported");
+            expect(formatHostError({ tag: "MalformedFrame", value: { reason: "bad bytes" } })).toBe(
+                "MalformedFrame: bad bytes",
+            );
+            expect(formatHostError({ tag: "HostFailure", value: { reason: "panicked" } })).toBe(
+                "HostFailure: panicked",
+            );
+            // A bare Versioned envelope renders as its inner value, not "V1".
+            expect(formatHostError({ tag: "V1", value: { tag: "Rejected" } })).toBe("Rejected");
+        });
+    });
+
+    describe("toHostErrorPayload", () => {
+        test("Domain unwraps to the bare domain error", () => {
+            expect(
+                toHostErrorPayload({
+                    tag: "Domain",
+                    value: { tag: "V1", value: { tag: "Rejected" } },
+                }),
+            ).toEqual({ tag: "Rejected" });
+        });
+
+        test("framework variants pass through as payloads", () => {
+            expect(toHostErrorPayload({ tag: "Denied" })).toEqual({ tag: "Denied" });
+            expect(toHostErrorPayload({ tag: "HostFailure", value: { reason: "x" } })).toEqual({
+                tag: "HostFailure",
+                value: { reason: "x" },
+            });
+        });
+
+        test("bare 0.3.x-style payloads pass through unchanged", () => {
+            expect(toHostErrorPayload({ reason: "boom" })).toEqual({ reason: "boom" });
+            expect(toHostErrorPayload({ tag: "Full" })).toEqual({ tag: "Full" });
         });
     });
 }

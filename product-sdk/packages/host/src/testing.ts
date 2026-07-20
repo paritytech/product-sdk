@@ -187,7 +187,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 okAsync({
                     proof: signature,
                     contextualAlias: {
-                        context: toHex(new Uint8Array([1])),
+                        context: toHex(new Uint8Array(32).fill(0x01)),
                         alias: toHex(new Uint8Array([2])),
                     },
                     ringIndex: 0,

@@ -125,10 +125,13 @@ if (import.meta.vitest) {
     const ok = (response: unknown) => ({
         match: async (onOk: (v: unknown) => unknown) => onOk(response),
     });
-    /** A rejected ResultAsync stub yielding a truapi `GenericError` (`{ reason }`). */
+    /**
+     * A rejected ResultAsync stub yielding a truapi ≥0.4 error: the `CallError`
+     * `Domain` envelope around a versioned `GenericError` (`{ reason }`).
+     */
     const errResult = (reason: string) => ({
         match: async (_onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) =>
-            onErr({ reason }),
+            onErr({ tag: "Domain", value: { tag: "V1", value: { reason } } }),
     });
 
     describe("broadcastTransaction", () => {

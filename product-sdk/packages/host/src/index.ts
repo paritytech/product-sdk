@@ -63,8 +63,9 @@ export {
     HostCallFailedError,
     isHostError,
     formatHostError,
+    toHostErrorPayload,
 } from "./errors.js";
-export type { HostErrorPayload } from "./errors.js";
+export type { HostErrorPayload, HostWireError } from "./errors.js";
 
 // Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
 export { getAccountsProvider } from "./accounts.js";
@@ -75,7 +76,7 @@ export type {
     ContextualAlias,
     ProductProofContext,
     RingLocation,
-    RingVRFProof,
+    RingLocationJunction,
 } from "./accounts.js";
 
 // Higher-level permission wrappers
@@ -109,6 +110,21 @@ export type {
     PaymentTopUpSource,
 } from "@parity/truapi";
 
+// CoinPayment (RFC-0017)
+export { getCoinPaymentManager } from "./coin-payment.js";
+export type { CoinPaymentManager } from "./coin-payment.js";
+export type {
+    CoinPaymentBalance,
+    CoinPaymentCheque,
+    CoinPaymentError,
+    CoinPaymentPurseId,
+    CoinPaymentPurseInfo,
+    CoinPaymentReceivable,
+    CoinPaymentStatus,
+    CoinPaymentTransmissionChannel,
+    HostCoinPaymentListenForItem,
+} from "@parity/truapi";
+
 // Notifications
 export { getNotificationManager } from "./notifications.js";
 export type {
@@ -131,3 +147,25 @@ export type { ChainSpec, ChainProperties } from "./chain-spec.js";
 
 // Transaction broadcast lifecycle
 export { broadcastTransaction, stopTransaction } from "./chain-transaction.js";
+
+// Peer-to-peer media rooms (MoQ-over-iroh)
+export {
+    p2pStatus,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    mediaEndpoint,
+    publish as p2pPublish,
+    unpublish as p2pUnpublish,
+    roomEvents,
+} from "./p2p.js";
+export type {
+    P2pStatus,
+    P2pRoom,
+    P2pRoomOptions,
+    P2pDirections,
+    P2pEndpoint,
+    P2pRoomEvent,
+    P2pError,
+    P2pFailure,
+} from "./p2p.js";

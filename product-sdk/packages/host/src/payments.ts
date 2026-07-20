@@ -5,17 +5,18 @@
  * `truApi.payment.*`.
  *
  * Exposes balance subscription, top-up, payment requests, and payment-status
- * subscription. The flow is distinct from the CoinPayment / merchant-payments
- * surface (RFC-0017) — RFC-0006 is the user-initiated balance / top-up /
- * payment-request flow — but both operate on the same CoinPayment purses,
- * hence the shared `CoinPaymentPurseId` (omitted = the main purse).
+ * subscription. Distinct from the CoinPayment / merchant-payments surface
+ * (RFC-0017): RFC-0006 is the user-initiated balance / top-up / payment-request
+ * flow.
  *
  * @module
  */
 
 import type {
     Balance,
-    CoinPaymentPurseId,
+    // 0.5.0 folded the purse id into the CoinPayment namespace; the RFC-0006
+    // payment surface keeps the shorter local name.
+    CoinPaymentPurseId as PaymentPurseId,
     HexString,
     HostPaymentBalanceSubscribeItem,
     HostPaymentStatusSubscribeItem,
@@ -38,13 +39,13 @@ import type { HostSubscription } from "./types.js";
 export interface PaymentManager {
     subscribeBalance(
         callback: (balance: HostPaymentBalanceSubscribeItem) => void,
-        purse?: CoinPaymentPurseId,
+        purse?: PaymentPurseId,
     ): HostSubscription;
-    topUp(amount: Balance, source: PaymentTopUpSource, into?: CoinPaymentPurseId): Promise<void>;
+    topUp(amount: Balance, source: PaymentTopUpSource, into?: PaymentPurseId): Promise<void>;
     requestPayment(
         amount: Balance,
         destination: HexString,
-        from?: CoinPaymentPurseId,
+        from?: PaymentPurseId,
     ): Promise<{ id: string }>;
     subscribePaymentStatus(
         paymentId: string,
