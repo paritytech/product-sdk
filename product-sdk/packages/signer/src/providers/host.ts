@@ -951,9 +951,16 @@ if (import.meta.vitest) {
         });
 
         test("connect with productAccount soft-degrades to [] when signed out (NotConnected)", async () => {
+            // The real signed-out error truapi 0.4 puts on the err channel is the
+            // full CallErrorValue envelope: Domain → V1 → NotConnected. Verified
+            // against truapi's own `client.test.ts` (getAccount error fixture:
+            // `{ tag: "Domain", value: { tag: "V1", value: { tag: "NotConnected" } } }`).
             const mockProvider = createMockProvider({
                 shouldReject: true,
-                error: { tag: "NotConnected" },
+                error: {
+                    tag: "Domain",
+                    value: { tag: "V1", value: { tag: "NotConnected", value: undefined } },
+                },
             });
             const provider = new HostProvider({
                 maxRetries: 3,
@@ -967,6 +974,25 @@ if (import.meta.vitest) {
             expect(result.ok).toBe(true);
             if (result.ok) expect(result.value).toEqual([]);
             // And does NOT retry a signed-out state — one attempt only.
+            expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(1);
+        });
+
+        test("connect with productAccount soft-degrades on a bare NotConnected tag too", async () => {
+            // Defensive: some host builds / versions may surface the tag unwrapped.
+            const mockProvider = createMockProvider({
+                shouldReject: true,
+                error: { tag: "NotConnected" },
+            });
+            const provider = new HostProvider({
+                maxRetries: 3,
+                productAccount: { dotNsIdentifier: "my-cli.dot" },
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toEqual([]);
             expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(1);
         });
 
