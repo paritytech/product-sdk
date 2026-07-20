@@ -15,7 +15,13 @@ import {
 import { getHostLocalStorage, requestResourceAllocation } from "@parity/product-sdk-host";
 import { DevProvider } from "./providers/dev.js";
 import { HostProvider } from "./providers/host.js";
-import type { ContextualAlias, ProductAccount, RingLocation } from "./providers/host.js";
+import type {
+    ContextualAlias,
+    ProductAccount,
+    ProductProofContext,
+    RingLocation,
+    RingVRFProof,
+} from "./providers/host.js";
 import type { SignerProvider } from "./providers/types.js";
 import { withRetry } from "./retry.js";
 import type {
@@ -388,15 +394,16 @@ export class SignerManager {
     }
 
     /**
-     * Get a contextual alias for a product account via Ring VRF.
+     * Get a contextual alias for a proof context and ring via Ring VRF.
      *
      * Aliases prove account membership in a ring without revealing which
-     * account produced the alias. Only available when connected via the host
-     * provider — returns HOST_UNAVAILABLE otherwise.
+     * account produced the alias; the host selects the member key. Only
+     * available when connected via the host provider — returns
+     * HOST_UNAVAILABLE otherwise.
      */
     async getProductAccountAlias(
-        dotNsIdentifier: string,
-        derivationIndex = 0,
+        context: ProductProofContext,
+        location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
         if (this.isDestroyed) return err(new DestroyedError());
 
@@ -408,22 +415,23 @@ export class SignerManager {
                 ),
             );
         }
-        return host.getProductAccountAlias(dotNsIdentifier, derivationIndex);
+        return host.getProductAccountAlias(context, location);
     }
 
     /**
      * Create a Ring VRF proof for anonymous operations.
      *
-     * Proves that the signer is a member of the ring at the given location
-     * without revealing which member. Only available when connected via the
-     * host provider — returns HOST_UNAVAILABLE otherwise.
+     * Proves that a ring member at the given location produced the proof
+     * without revealing which member — the host selects the member key. The
+     * result carries the proof plus its verification values. Only available
+     * when connected via the host provider — returns HOST_UNAVAILABLE
+     * otherwise.
      */
     async createRingVRFProof(
-        dotNsIdentifier: string,
-        derivationIndex: number,
+        context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
-    ): Promise<Result<Uint8Array, SignerError>> {
+    ): Promise<Result<RingVRFProof, SignerError>> {
         if (this.isDestroyed) return err(new DestroyedError());
 
         const host = this.getHostProvider();
@@ -432,7 +440,7 @@ export class SignerManager {
                 new HostUnavailableError("Ring VRF proofs require a host provider connection"),
             );
         }
-        return host.createRingVRFProof(dotNsIdentifier, derivationIndex, location, message);
+        return host.createRingVRFProof(context, location, message);
     }
 
     /**

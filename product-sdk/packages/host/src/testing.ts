@@ -183,7 +183,16 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
             getAccountAlias: () =>
                 okAsync({ context: toHex(new Uint8Array([1])), alias: toHex(new Uint8Array([2])) }),
             getLegacyAccounts: () => okAsync({ accounts: legacyAccounts }),
-            createAccountProof: () => okAsync({ proof: signature }),
+            createAccountProof: () =>
+                okAsync({
+                    proof: signature,
+                    contextualAlias: {
+                        context: toHex(new Uint8Array([1])),
+                        alias: toHex(new Uint8Array([2])),
+                    },
+                    ringIndex: 0,
+                    ringRevision: 0,
+                }),
             connectionStatusSubscribe: () => inertObservable(),
         },
         signing: {

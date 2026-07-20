@@ -13,5 +13,7 @@ export type {
     HostProviderOptions,
     ProductAccount,
     ContextualAlias,
+    ProductProofContext,
     RingLocation,
+    RingVRFProof,
 } from "./host.js";

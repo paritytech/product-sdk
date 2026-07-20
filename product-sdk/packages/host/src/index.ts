@@ -73,7 +73,9 @@ export type {
     HostAccount,
     ProductAccount,
     ContextualAlias,
+    ProductProofContext,
     RingLocation,
+    RingVRFProof,
 } from "./accounts.js";
 
 // Higher-level permission wrappers

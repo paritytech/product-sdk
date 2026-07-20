@@ -125,14 +125,47 @@ export interface ContextualAlias {
 }
 
 /**
- * Location of a Ring VRF ring on-chain.
+ * Location of a Ring VRF ring on-chain: the hosting chain's genesis hash plus
+ * the junction path addressing the ring within it.
  *
  * Matches the product-sdk's `RingLocation` codec shape.
  */
 export interface RingLocation {
-    genesisHash: string;
-    ringRootHash: string;
-    hints?: { palletInstance?: number } | undefined;
+    /** Genesis hash of the chain hosting the ring. */
+    chainId: string;
+    /** Path addressing the ring within the chain. */
+    junctions: Array<
+        { tag: "PalletInstance"; value: number } | { tag: "CollectionId"; value: string }
+    >;
+}
+
+/**
+ * A product-scoped proof context, hashed by the host into the 32-byte context
+ * a proof or alias is bound to.
+ *
+ * Matches the product-sdk's `ProductProofContext` codec shape.
+ */
+export interface ProductProofContext {
+    /** dotNS product identifier (e.g. "my-product.dot") scoping the context. */
+    productId: string;
+    /** Hex-encoded suffix distinguishing contexts within the product. */
+    suffix: string;
+}
+
+/**
+ * A Ring VRF proof plus the values needed to verify it downstream.
+ *
+ * Matches the product-sdk's decoded proof shape.
+ */
+export interface RingVRFProof {
+    /** Raw ring VRF proof bytes. */
+    proof: Uint8Array;
+    /** Alias derived for the request's context. */
+    contextualAlias: ContextualAlias;
+    /** Index of the selected member key within the ring. */
+    ringIndex: number;
+    /** Ring revision the proof was generated against. */
+    ringRevision: number;
 }
 
 // Minimal types matching product-sdk's actual API shape.
@@ -159,16 +192,15 @@ export interface AccountsProvider {
     ) => NeverthrowResultAsync<RawAccount, unknown>;
     getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
     getProductAccountAlias: (
-        dotNsIdentifier: string,
-        derivationIndex?: number,
+        context: ProductProofContext,
+        location: RingLocation,
     ) => NeverthrowResultAsync<ContextualAlias, unknown>;
     getUserId: () => NeverthrowResultAsync<{ primaryUsername: string }, unknown>;
     createRingVRFProof: (
-        dotNsIdentifier: string,
-        derivationIndex: number,
-        location: unknown,
+        context: ProductProofContext,
+        location: RingLocation,
         message: Uint8Array,
-    ) => NeverthrowResultAsync<Uint8Array, unknown>;
+    ) => NeverthrowResultAsync<RingVRFProof, unknown>;
     subscribeAccountConnectionStatus: (
         callback: (status: string) => void,
     ) => { unsubscribe: () => void } | (() => void);
@@ -369,8 +401,8 @@ export class HostProvider implements SignerProvider {
      * Requires a prior successful `connect()` call.
      */
     async getProductAccountAlias(
-        dotNsIdentifier: string,
-        derivationIndex = 0,
+        context: ProductProofContext,
+        location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
         if (!this.accountsProvider) {
             return err(new HostUnavailableError("Host provider is not connected"));
@@ -378,7 +410,7 @@ export class HostProvider implements SignerProvider {
 
         try {
             const alias = (await this.accountsProvider
-                .getProductAccountAlias(dotNsIdentifier, derivationIndex)
+                .getProductAccountAlias(context, location)
                 .match(
                     (result) => result,
                     (error) => {
@@ -437,24 +469,24 @@ export class HostProvider implements SignerProvider {
     /**
      * Create a Ring VRF proof for anonymous operations.
      *
-     * Proves that the signer is a member of the ring at the given location
-     * without revealing which member. Used for privacy-preserving protocols.
+     * Proves that a member of the ring at the given location produced the
+     * proof without revealing which member — the host selects the member key.
+     * Returns the proof plus its verification values ({@link RingVRFProof}).
      *
      * Requires a prior successful `connect()` call.
      */
     async createRingVRFProof(
-        dotNsIdentifier: string,
-        derivationIndex: number,
+        context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
-    ): Promise<Result<Uint8Array, SignerError>> {
+    ): Promise<Result<RingVRFProof, SignerError>> {
         if (!this.accountsProvider) {
             return err(new HostUnavailableError("Host provider is not connected"));
         }
 
         try {
             const proof = (await this.accountsProvider
-                .createRingVRFProof(dotNsIdentifier, derivationIndex, location, message)
+                .createRingVRFProof(context, location, message)
                 .match(
                     (result) => result,
                     (error) => {
@@ -462,7 +494,7 @@ export class HostProvider implements SignerProvider {
                             `Host rejected Ring VRF proof request: ${formatError(error)}`,
                         );
                     },
-                )) as Uint8Array;
+                )) as RingVRFProof;
 
             return ok(proof);
         } catch (cause) {
@@ -781,7 +813,15 @@ if (import.meta.vitest) {
                     if (shouldReject) {
                         return onErr(options.error ?? "Unknown");
                     }
-                    return onOk(new Uint8Array(128).fill(0x03));
+                    return onOk({
+                        proof: new Uint8Array(128).fill(0x03),
+                        contextualAlias: {
+                            context: new Uint8Array(32).fill(0x01),
+                            alias: new Uint8Array(64).fill(0x02),
+                        },
+                        ringIndex: 0,
+                        ringRevision: 0,
+                    });
                 },
             }),
             subscribeAccountConnectionStatus: vi.fn().mockReturnValue(() => {}),
