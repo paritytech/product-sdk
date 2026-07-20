@@ -41,9 +41,17 @@ export class HostUnavailableError extends SignerError {
 
 /** The host rejected the account or signing request. */
 export class HostRejectedError extends SignerError {
-    constructor(message = "Host rejected the request") {
+    /**
+     * True when the rejection reflects an expected, non-transient state (e.g.
+     * the user is signed out / `NotConnected`) rather than a fault. Callers use
+     * this to degrade to read-only instead of erroring and retrying.
+     */
+    readonly nonTransient: boolean;
+
+    constructor(message = "Host rejected the request", nonTransient = false) {
         super(message);
         this.name = "HostRejectedError";
+        this.nonTransient = nonTransient;
     }
 }
 
