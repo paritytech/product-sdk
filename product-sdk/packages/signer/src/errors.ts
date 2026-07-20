@@ -66,6 +66,30 @@ export class SigningFailedError extends SignerError {
     }
 }
 
+/**
+ * The wallet session's allowance for a resource has expired (or is no longer
+ * granted), so the sign request was rejected by the chain instead of reaching
+ * the wallet. Re-pair the wallet / re-request the allowance to recover.
+ *
+ * Deliberately **thrown**, not returned as an `Err`: it surfaces at PAPI's
+ * `PolkadotSigner.signTx` / `signBytes` boundary, whose contract is a
+ * rejecting Promise.
+ */
+export class AllowanceExpiredError extends SignerError {
+    /** The resource whose allowance lapsed. */
+    readonly resource: "statementStore" | "bulletin";
+
+    constructor(resource: "statementStore" | "bulletin", cause?: unknown, message?: string) {
+        super(
+            message ??
+                `Wallet session allowance for "${resource}" has expired — re-pair the wallet.`,
+            { cause },
+        );
+        this.name = "AllowanceExpiredError";
+        this.resource = resource;
+    }
+}
+
 /** No accounts available from the provider. */
 export class NoAccountsError extends SignerError {
     readonly provider: ProviderType;
@@ -171,6 +195,23 @@ if (import.meta.vitest) {
         test("SigningFailedError with custom message", () => {
             const e = new SigningFailedError("oops", "custom msg");
             expect(e.message).toBe("custom msg");
+        });
+
+        test("AllowanceExpiredError carries resource and cause", () => {
+            const cause = new Error("Submit failed, no allowance set for account");
+            const e = new AllowanceExpiredError("statementStore", cause);
+            expect(e).toBeInstanceOf(SignerError);
+            expect(e.name).toBe("AllowanceExpiredError");
+            expect(e.resource).toBe("statementStore");
+            expect(e.cause).toBe(cause);
+            expect(e.message).toContain("statementStore");
+            expect(e.message).toContain("expired");
+        });
+
+        test("AllowanceExpiredError with custom message", () => {
+            const e = new AllowanceExpiredError("bulletin", undefined, "custom msg");
+            expect(e.message).toBe("custom msg");
+            expect(e.resource).toBe("bulletin");
         });
 
         test("NoAccountsError", () => {

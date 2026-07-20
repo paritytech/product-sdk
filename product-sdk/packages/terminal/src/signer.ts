@@ -41,11 +41,59 @@
  * ```
  */
 import type { UserSession } from "@novasamatech/host-papp";
+import { NoAllowanceError } from "@novasamatech/statement-store";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
+import { AllowanceExpiredError } from "@parity/product-sdk-signer";
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { TerminalAdapter } from "./adapter.js";
+
+/**
+ * Detect the statement-store `NoAllowanceError` — the chain-side rejection a
+ * sign request hits when the session's statement-store allowance has lapsed.
+ *
+ * Walks the `cause` chain: host-papp may wrap the underlying submit failure
+ * before it reaches the `createTransaction`/`signRaw` error channel. Besides
+ * `instanceof`, matches by constructor name (a duplicated copy of
+ * `@novasamatech/statement-store` in the module graph defeats `instanceof`)
+ * and by the fixed message statement-store mints — the only signal left once
+ * the error crossed a serialization boundary (`NoAllowanceError` never sets
+ * `this.name`, so name-matching would never fire).
+ */
+function isNoAllowanceError(error: unknown): boolean {
+    // Bounded walk — cause chains are short; the cap guards against cycles.
+    for (let current = error, depth = 0; current != null && depth < 8; depth++) {
+        if (current instanceof NoAllowanceError) return true;
+        if (current instanceof Error) {
+            if (
+                current.constructor.name === "NoAllowanceError" ||
+                current.message.includes("no allowance set")
+            ) {
+                return true;
+            }
+            current = current.cause;
+        } else {
+            break;
+        }
+    }
+    return false;
+}
+
+/**
+ * Map a sign failure to the typed {@link AllowanceExpiredError} when its cause
+ * is the statement-store `NoAllowanceError`; `null` otherwise. Single decision
+ * point for both sign paths — `signTx` (via `session.createTransaction`) and
+ * `signBytes` (via `session.signRaw`) both submit through the statement store,
+ * so the lapsed resource is always `"statementStore"`.
+ *
+ * The caller *throws* the returned error (PAPI's `PolkadotSigner` contract is
+ * a rejecting Promise), making allowance expiry a typed, catchable condition
+ * rather than a generic `Error`.
+ */
+function toAllowanceExpiredError(error: unknown): AllowanceExpiredError | null {
+    return isNoAllowanceError(error) ? new AllowanceExpiredError("statementStore", error) : null;
+}
 
 /**
  * Identifies which sub-account of a paired session should sign.
@@ -153,6 +201,8 @@ async function requestSignedTransaction(
 ): Promise<Uint8Array> {
     const result = await session.createTransaction(request);
     if (result.isErr()) {
+        const expired = toAllowanceExpiredError(result.error);
+        if (expired) throw expired;
         throw new Error(`Mobile transaction signing rejected: ${result.error.message}`);
     }
     // host-papp returns the fully signed extrinsic bytes.
@@ -204,6 +254,8 @@ function makeRawBytesSignCallback(session: UserSession, productAccountId: [strin
         });
 
         if (result.isErr()) {
+            const expired = toAllowanceExpiredError(result.error);
+            if (expired) throw expired;
             throw new Error(`Mobile signing rejected: ${result.error.message}`);
         }
 
@@ -613,6 +665,69 @@ if (import.meta.vitest) {
                 "Mobile transaction signing rejected: user declined",
             );
         });
+
+        test("throws AllowanceExpiredError when the failure is a NoAllowanceError", async () => {
+            const underlying = new NoAllowanceError();
+            const session = makeSession({
+                createTransaction: async () => err(underlying),
+            });
+
+            await expect(requestSignedTransaction(session, request)).rejects.toBeInstanceOf(
+                AllowanceExpiredError,
+            );
+            await expect(requestSignedTransaction(session, request)).rejects.toMatchObject({
+                name: "AllowanceExpiredError",
+                resource: "statementStore",
+                cause: underlying,
+            });
+        });
+
+        test("throws AllowanceExpiredError for a wire-serialized failure (message match only)", async () => {
+            // After a serialization boundary the NoAllowanceError prototype
+            // and constructor name are gone — the fixed message upstream
+            // mints is the only remaining signal. This pins statement-store's
+            // exact wording: if upstream rephrases it, this test fails
+            // instead of the classification silently downgrading to the
+            // generic rejection.
+            // Pin upstream's wording first: if statement-store rephrases the
+            // message, this assertion fails loudly.
+            expect(new NoAllowanceError().message).toBe(
+                "Submit failed, no allowance set for account",
+            );
+
+            const serialized = new Error("Submit failed, no allowance set for account");
+            const session = makeSession({
+                createTransaction: async () => err(serialized),
+            });
+
+            await expect(requestSignedTransaction(session, request)).rejects.toBeInstanceOf(
+                AllowanceExpiredError,
+            );
+        });
+
+        test("throws AllowanceExpiredError when the NoAllowanceError is wrapped as a cause", async () => {
+            // host-papp may wrap the chain-side submit failure before it hits
+            // the createTransaction error channel — the cause chain must be
+            // walked, not just the top-level error.
+            const wrapped = new Error("submitRequest failed", { cause: new NoAllowanceError() });
+            const session = makeSession({
+                createTransaction: async () => err(wrapped),
+            });
+
+            await expect(requestSignedTransaction(session, request)).rejects.toBeInstanceOf(
+                AllowanceExpiredError,
+            );
+        });
+
+        test("a non-allowance Error still surfaces as the generic rejection", async () => {
+            const session = makeSession({
+                createTransaction: async () => err(new Error("transport exploded")),
+            });
+
+            await expect(requestSignedTransaction(session, request)).rejects.toThrow(
+                "Mobile transaction signing rejected: transport exploded",
+            );
+        });
     });
 
     describe("makeRawBytesSignCallback", () => {
@@ -648,6 +763,33 @@ if (import.meta.vitest) {
             const out = await callback(new Uint8Array([0]));
 
             expect(out).toBe(sig);
+        });
+
+        test("throws AllowanceExpiredError when the failure is a NoAllowanceError", async () => {
+            const underlying = new NoAllowanceError();
+            const session = makeSession({
+                signRaw: async () => err(underlying),
+            });
+
+            const callback = makeRawBytesSignCallback(session, ["my-app", 0]);
+            await expect(callback(new Uint8Array([1]))).rejects.toBeInstanceOf(
+                AllowanceExpiredError,
+            );
+            await expect(callback(new Uint8Array([1]))).rejects.toMatchObject({
+                resource: "statementStore",
+                cause: underlying,
+            });
+        });
+
+        test("a non-allowance failure still surfaces as the generic rejection", async () => {
+            const session = makeSession({
+                signRaw: async () => err(new Error("user declined")),
+            });
+
+            const callback = makeRawBytesSignCallback(session, ["my-app", 0]);
+            await expect(callback(new Uint8Array([1]))).rejects.toThrow(
+                "Mobile signing rejected: user declined",
+            );
         });
     });
 

@@ -785,6 +785,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-signer':
+        specifier: workspace:*
+        version: link:../signer
       '@polkadot-api/substrate-bindings':
         specifier: 'catalog:'
         version: 0.20.3

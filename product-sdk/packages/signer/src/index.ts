@@ -38,6 +38,7 @@ export {
     HostRejectedError,
     HostDisconnectedError,
     SigningFailedError,
+    AllowanceExpiredError,
     NoAccountsError,
     TimeoutError,
     AccountNotFoundError,
