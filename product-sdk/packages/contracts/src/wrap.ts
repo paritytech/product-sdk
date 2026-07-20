@@ -1,5 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import { isValidSs58 } from "@parity/product-sdk-address";
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok, unwrapErr, unwrapOk } from "@parity/result";
 import { submitAndWatch } from "@parity/product-sdk-tx";
@@ -22,6 +23,7 @@ import {
 import {
     type ContractError,
     ContractDryRunFailedError,
+    ContractInvalidOriginError,
     ContractRevertedError,
     ContractSignerMissingError,
     type ContractRevertInfo,
@@ -108,6 +110,19 @@ function resolveSigner(
     override?: PolkadotSigner,
 ): PolkadotSigner | undefined {
     return override ?? defaults.signerManager?.getSigner() ?? defaults.signer;
+}
+
+/**
+ * Validate a resolved origin *before* it reaches PAPI's `AccountId` codec,
+ * which otherwise fails deep inside the encode stack with a bare
+ * `Invalid checksum` and no hint that the origin was the wrong format.
+ * Returns the typed error (with an H160-specific hint — the recurring
+ * consumer mistake is passing the account's `0x…` H160) or `null` when the
+ * origin is a well-formed SS58 address. Validation only, no auto-conversion —
+ * see {@link ContractInvalidOriginError}.
+ */
+function validateOrigin(origin: SS58String): ContractInvalidOriginError | null {
+    return isValidSs58(origin) ? null : new ContractInvalidOriginError(origin);
 }
 
 /**
@@ -337,6 +352,11 @@ export function wrapContract(
                         args,
                     );
                     const origin = resolveOrigin(defaults, overrides?.origin, true)!;
+                    // QueryResult has no error channel, so an invalid origin
+                    // is thrown here (the one deliberate asymmetry with
+                    // .tx()/.prepare(), which return it as err(...)).
+                    const originError = validateOrigin(origin);
+                    if (originError) throw originError;
                     const value = overrides?.value ?? 0n;
 
                     const calldata = hexToBytes(encodeCalldata(abi, methodName, positionalArgs));
@@ -404,6 +424,8 @@ export function wrapContract(
                     const origin =
                         resolveOrigin(defaults, overrides?.origin) ??
                         (ss58Address(signer.publicKey) as SS58String);
+                    const originError = validateOrigin(origin);
+                    if (originError) return err(originError);
 
                     const built = await buildReviveCall(
                         runtime,
@@ -439,6 +461,8 @@ export function wrapContract(
                         args,
                     );
                     const origin = resolveOrigin(defaults, overrides?.origin, true)!;
+                    const originError = validateOrigin(origin);
+                    if (originError) return err(originError);
                     return buildReviveCall(
                         runtime,
                         dest,
@@ -1764,6 +1788,166 @@ if (import.meta.vitest) {
         test("empty payload produces a bare ContractRevertedWithPayload with no extras", () => {
             const info = decodeRevert([], new Uint8Array(0));
             expect(info).toEqual({ type: "ContractRevertedWithPayload", data: "0x" });
+        });
+    });
+
+    describe("wrapContract — origin validation", () => {
+        // Regression suite for the "bare Invalid checksum" footgun: a
+        // non-SS58 origin (typically the account's H160) must be rejected
+        // with a typed, self-explanatory error BEFORE any dry-run happens —
+        // never forwarded into PAPI's AccountId codec. `.query()` throws
+        // (QueryResult has no error channel); `.tx()`/`.prepare()` return
+        // err(ContractInvalidOriginError).
+        const abi: AbiEntry[] = [
+            {
+                type: "function",
+                name: "getCount",
+                inputs: [],
+                outputs: [{ name: "", type: "uint32" }],
+                stateMutability: "view",
+            },
+        ];
+        const ADDRESS = "0x0102030405060708090a0b0c0d0e0f1011121314";
+        const H160_ORIGIN = "0x9621dde636de098b43efb0fa9b61facfe328f99d";
+        const fakeSigner = {
+            publicKey: new Uint8Array(32),
+        } as unknown as PolkadotSigner;
+
+        function guardedRuntime(): ContractRuntime {
+            return {
+                api: {
+                    tx: {
+                        Revive: {
+                            call: () => {
+                                throw new Error(
+                                    "Revive.call must NOT be invoked for an invalid origin",
+                                );
+                            },
+                        },
+                    },
+                } as unknown as ContractRuntime["api"],
+                dryRunCall: () => {
+                    throw new Error("dryRunCall must NOT be invoked for an invalid origin");
+                },
+            };
+        }
+
+        test("query() throws ContractInvalidOriginError for an H160 origin, with the conversion hint", async () => {
+            const wrapped = wrapContract(guardedRuntime(), ADDRESS, abi, {
+                origin: H160_ORIGIN as SS58String,
+            });
+
+            const call = (
+                wrapped as unknown as { getCount: { query: () => Promise<unknown> } }
+            ).getCount.query();
+            await expect(call).rejects.toBeInstanceOf(ContractInvalidOriginError);
+            await expect(call).rejects.toMatchObject({
+                name: "ContractInvalidOriginError",
+                origin: H160_ORIGIN,
+            });
+            await expect(call).rejects.toThrow(/h160ToSs58/);
+        });
+
+        test("query() throws for a garbage per-call origin override", async () => {
+            const wrapped = wrapContract(guardedRuntime(), ADDRESS, abi, {
+                origin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
+            });
+
+            await expect(
+                (
+                    wrapped as unknown as {
+                        getCount: { query: (opts: { origin: string }) => Promise<unknown> };
+                    }
+                ).getCount.query({ origin: "not-an-address" }),
+            ).rejects.toBeInstanceOf(ContractInvalidOriginError);
+        });
+
+        test("tx() returns err(ContractInvalidOriginError) for an H160 origin", async () => {
+            const wrapped = wrapContract(guardedRuntime(), ADDRESS, abi, {
+                signer: fakeSigner,
+                origin: H160_ORIGIN as SS58String,
+            });
+
+            const error = unwrapErr(
+                await (
+                    wrapped as unknown as {
+                        getCount: { tx: () => Promise<Result<unknown, unknown>> };
+                    }
+                ).getCount.tx(),
+            );
+            expect(error).toBeInstanceOf(ContractInvalidOriginError);
+            expect(error).toMatchObject({ origin: H160_ORIGIN });
+            expect((error as ContractInvalidOriginError).message).toContain("h160ToSs58");
+        });
+
+        test("prepare() returns err(ContractInvalidOriginError) for an H160 origin", async () => {
+            const wrapped = wrapContract(guardedRuntime(), ADDRESS, abi, {
+                origin: H160_ORIGIN as SS58String,
+            });
+
+            const error = unwrapErr(
+                await (
+                    wrapped as unknown as {
+                        getCount: { prepare: () => Promise<Result<unknown, unknown>> };
+                    }
+                ).getCount.prepare(),
+            );
+            expect(error).toBeInstanceOf(ContractInvalidOriginError);
+            expect(error).toMatchObject({ origin: H160_ORIGIN });
+        });
+
+        test("a valid SS58 origin still flows through to the dry-run", async () => {
+            let capturedOrigin: string | undefined;
+            const runtime: ContractRuntime = {
+                api: {} as unknown as ContractRuntime["api"],
+                dryRunCall: async (origin) => {
+                    capturedOrigin = origin;
+                    return {
+                        weight_consumed: { ref_time: 0n, proof_size: 0n },
+                        weight_required: { ref_time: 0n, proof_size: 0n },
+                        storage_deposit: { type: "Refund", value: 0n },
+                        max_storage_deposit: { type: "Refund", value: 0n },
+                        gas_consumed: 0n,
+                        result: { success: true, value: { flags: 0, data: new Uint8Array(32) } },
+                    };
+                },
+            };
+            const alice = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+            const wrapped = wrapContract(runtime, ADDRESS, abi, { origin: alice });
+
+            const result = await (
+                wrapped as unknown as {
+                    getCount: { query: () => Promise<{ success: boolean }> };
+                }
+            ).getCount.query();
+
+            expect(result.success).toBe(true);
+            expect(capturedOrigin).toBe(alice);
+        });
+
+        test("the query fallback origin passes validation (no-wallet path keeps working)", async () => {
+            let invoked = false;
+            const runtime: ContractRuntime = {
+                api: {} as unknown as ContractRuntime["api"],
+                dryRunCall: async () => {
+                    invoked = true;
+                    return {
+                        weight_consumed: { ref_time: 0n, proof_size: 0n },
+                        weight_required: { ref_time: 0n, proof_size: 0n },
+                        storage_deposit: { type: "Refund", value: 0n },
+                        max_storage_deposit: { type: "Refund", value: 0n },
+                        gas_consumed: 0n,
+                        result: { success: true, value: { flags: 0, data: new Uint8Array(32) } },
+                    };
+                },
+            };
+            // No origin configured anywhere — resolveOrigin falls back to
+            // QUERY_FALLBACK_ORIGIN, which must be considered valid.
+            const wrapped = wrapContract(runtime, ADDRESS, abi, {});
+            await (
+                wrapped as unknown as { getCount: { query: () => Promise<unknown> } }
+            ).getCount.query();
+            expect(invoked).toBe(true);
         });
     });
 

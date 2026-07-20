@@ -21,6 +21,7 @@ export {
     createContractRuntime,
     createContractRuntimeFromClient,
     ensureContractAccountMapped,
+    isContractAccountMapped,
 } from "./runtime.js";
 // pallet-revive's keyless account, used as the read-only query origin when no
 // wallet is connected. Exported so other products can reuse the same origin
@@ -43,6 +44,7 @@ export {
     ContractError,
     ContractSignerMissingError,
     ContractNotFoundError,
+    ContractInvalidOriginError,
     ContractLiveAddressResolutionError,
     ContractDryRunFailedError,
     ContractRevertedError,

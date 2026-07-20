@@ -1,5 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import { isValidH160 } from "@parity/product-sdk-address";
 import type { SdkError } from "@parity/product-sdk-errors";
 import type { HexString } from "polkadot-api";
 
@@ -37,6 +38,33 @@ export class ContractNotFoundError extends ContractError {
         super(`Contract "${library}" not found in cdm.json`);
         this.name = "ContractNotFoundError";
         this.library = library;
+    }
+}
+
+/**
+ * A dry-run / transaction origin was not a valid SS58 address.
+ *
+ * Raised *before* the origin reaches PAPI's `AccountId` codec, which would
+ * otherwise fail deep inside the encode stack with a bare `Invalid checksum`
+ * and no hint that the origin was the wrong format. The most common mistake
+ * is passing the account's H160 (`0x…`): pallet-revive derives the H160
+ * `msg.sender` *from* the SS58 origin, so the origin itself must be SS58 —
+ * the message calls that case out with a `h160ToSs58` pointer.
+ *
+ * Deliberately a validation error, not an auto-conversion: silently converting
+ * an H160 here would hide which account the caller believes is calling.
+ */
+export class ContractInvalidOriginError extends ContractError {
+    /** The rejected origin value. */
+    readonly origin: string;
+
+    constructor(origin: string) {
+        const h160Hint = isValidH160(origin)
+            ? " (looks like an H160 — convert it with h160ToSs58 from @parity/product-sdk-address first)"
+            : "";
+        super(`Contract call origin must be an SS58 address, got "${origin}"${h160Hint}`);
+        this.name = "ContractInvalidOriginError";
+        this.origin = origin;
     }
 }
 
@@ -152,11 +180,31 @@ if (import.meta.vitest) {
         test("instanceof catches all contract errors", () => {
             expect(new ContractSignerMissingError()).toBeInstanceOf(ContractError);
             expect(new ContractNotFoundError("@a/b")).toBeInstanceOf(ContractError);
+            expect(new ContractInvalidOriginError("0xabc")).toBeInstanceOf(ContractError);
             expect(new ContractLiveAddressResolutionError("test")).toBeInstanceOf(ContractError);
             expect(new ContractDryRunFailedError("foo", "x")).toBeInstanceOf(ContractError);
             expect(new ContractRevertedError("foo", "0x" as HexString)).toBeInstanceOf(
                 ContractError,
             );
+        });
+    });
+
+    describe("ContractInvalidOriginError", () => {
+        test("captures the rejected origin", () => {
+            const err = new ContractInvalidOriginError("not-an-address");
+            expect(err.name).toBe("ContractInvalidOriginError");
+            expect(err.origin).toBe("not-an-address");
+            expect(err.message).toContain("SS58");
+            expect(err.message).toContain("not-an-address");
+            expect(err.message).not.toContain("h160ToSs58");
+        });
+
+        test("adds the h160ToSs58 hint when the origin looks like an H160", () => {
+            const h160 = "0x9621dde636de098b43efb0fa9b61facfe328f99d";
+            const err = new ContractInvalidOriginError(h160);
+            expect(err.origin).toBe(h160);
+            expect(err.message).toContain("looks like an H160");
+            expect(err.message).toContain("h160ToSs58");
         });
     });
 
