@@ -7,7 +7,7 @@ import type { PolkadotSigner } from "polkadot-api";
 import { Enum } from "polkadot-api";
 
 import { CloudStorageAuthorizationError, ProductCloudStorageError } from "./errors.js";
-import type { AuthorizationStatus, CloudStorageApi } from "./types.js";
+import type { AuthorizationStatus, BulletinAllowanceStatus, CloudStorageApi } from "./types.js";
 
 const log = createLogger("cloudStorage");
 
@@ -97,6 +97,76 @@ export async function checkAuthorization(
     });
 
     return ok(status);
+}
+
+/**
+ * Read an account's Bulletin authorization AND evaluate its liveness against
+ * the current chain height.
+ *
+ * One extra `System.Number` read on top of {@link checkAuthorization}: the
+ * result carries the raw quota plus the derived `remainingBlocks` and
+ * `usable` fields, so callers don't have to fetch the current block and
+ * compare against `expiration` themselves. Typical use is a slot account's
+ * pre-flight "can I store to Bulletin right now?" check.
+ *
+ * @param api         - Typed Cloud Storage API instance.
+ * @param slotAddress - SS58-encoded account address to check (usually the
+ *   product's allowance slot account).
+ * @returns A {@link Result}: `ok(BulletinAllowanceStatus)`, or
+ *   `err(CloudStorageAuthorizationError)` if either on-chain read fails.
+ *
+ * @example
+ * ```ts
+ * import { getBulletinAllowanceStatus } from "@parity/product-sdk-cloud-storage";
+ *
+ * const r = await getBulletinAllowanceStatus(api, slotAddress);
+ * if (!r.ok) return console.error("allowance check failed:", r.error.message);
+ * if (!r.value.usable) {
+ *     console.error("Bulletin allowance expired — re-request the allocation");
+ * }
+ * ```
+ *
+ * @see {@link checkAuthorization} for the raw quota read without the block comparison.
+ */
+export async function getBulletinAllowanceStatus(
+    api: CloudStorageApi,
+    slotAddress: string,
+): Promise<Result<BulletinAllowanceStatus, CloudStorageAuthorizationError>> {
+    let statusResult: Result<AuthorizationStatus, CloudStorageAuthorizationError>;
+    let currentBlock: number;
+    try {
+        // The two reads are independent — run them in parallel.
+        // checkAuthorization never rejects (its failures come back as err),
+        // so a rejection here can only be the block read. Same single-cast
+        // pattern as checkAuthorization — CloudStorageApi is upstream-typed
+        // as TypedApi<any>, so member access is loose by design.
+        [statusResult, currentBlock] = await Promise.all([
+            checkAuthorization(api, slotAddress),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (api as any).query.System.Number.getValue().then(Number),
+        ]);
+    } catch (error) {
+        // Same no-log policy as checkAuthorization: the error carries the
+        // address and cause; the caller decides whether to report it.
+        return err(new CloudStorageAuthorizationError(slotAddress, error));
+    }
+    if (!statusResult.ok) return statusResult;
+    const status = statusResult.value;
+
+    const result: BulletinAllowanceStatus = {
+        ...status,
+        remainingBlocks: Math.max(0, status.expiration - currentBlock),
+        usable: status.authorized && currentBlock < status.expiration,
+    };
+
+    log.debug("getBulletinAllowanceStatus", {
+        address: slotAddress,
+        currentBlock,
+        remainingBlocks: result.remainingBlocks,
+        usable: result.usable,
+    });
+
+    return ok(result);
 }
 
 /**
@@ -424,6 +494,129 @@ if (import.meta.vitest) {
             const arg = getValue.mock.calls[0][0];
             expect(arg.type).toBe("Account");
             expect(arg.value).toBe("5GrwvaEF...");
+        });
+    });
+
+    describe("getBulletinAllowanceStatus", () => {
+        function createMockApiWithBlock(authResult: unknown, currentBlock: unknown) {
+            return {
+                query: {
+                    TransactionStorage: {
+                        Authorizations: {
+                            getValue: vi.fn().mockResolvedValue(authResult),
+                        },
+                    },
+                    System: {
+                        Number: {
+                            getValue: vi.fn().mockResolvedValue(currentBlock),
+                        },
+                    },
+                },
+            } as unknown as CloudStorageApi;
+        }
+
+        const activeAuth = {
+            extent: {
+                transactions: 3,
+                transactions_allowance: 10,
+                bytes: 250_000n,
+                bytes_permanent: 0n,
+                bytes_allowance: 1_000_000n,
+            },
+            expiration: 1_000,
+        };
+
+        test("usable authorization: derives remainingBlocks from the current height", async () => {
+            const api = createMockApiWithBlock(activeAuth, 400);
+            const status = unwrapOk(await getBulletinAllowanceStatus(api, "5GrwvaEF..."));
+
+            expect(status.authorized).toBe(true);
+            expect(status.remainingTransactions).toBe(7);
+            expect(status.remainingBytes).toBe(750_000n);
+            expect(status.expiration).toBe(1_000);
+            expect(status.remainingBlocks).toBe(600);
+            expect(status.usable).toBe(true);
+        });
+
+        test("expired authorization: remainingBlocks clamps to 0 and usable is false", async () => {
+            const api = createMockApiWithBlock(activeAuth, 1_500);
+            const status = unwrapOk(await getBulletinAllowanceStatus(api, "5GrwvaEF..."));
+
+            expect(status.authorized).toBe(true); // the entry still exists on-chain
+            expect(status.remainingBlocks).toBe(0);
+            expect(status.usable).toBe(false);
+        });
+
+        test("authorization expiring at exactly the current block is not usable", async () => {
+            const api = createMockApiWithBlock(activeAuth, 1_000);
+            const status = unwrapOk(await getBulletinAllowanceStatus(api, "5GrwvaEF..."));
+
+            expect(status.remainingBlocks).toBe(0);
+            expect(status.usable).toBe(false);
+        });
+
+        test("no authorization entry: not authorized, not usable", async () => {
+            const api = createMockApiWithBlock(undefined, 400);
+            const status = unwrapOk(await getBulletinAllowanceStatus(api, "5GrwvaEF..."));
+
+            expect(status.authorized).toBe(false);
+            expect(status.remainingBlocks).toBe(0);
+            expect(status.usable).toBe(false);
+        });
+
+        test("coerces a bigint block number from PAPI", async () => {
+            const api = createMockApiWithBlock(activeAuth, 400n);
+            const status = unwrapOk(await getBulletinAllowanceStatus(api, "5GrwvaEF..."));
+
+            expect(status.remainingBlocks).toBe(600);
+            expect(status.usable).toBe(true);
+        });
+
+        test("propagates err from the inner checkAuthorization", async () => {
+            const api = {
+                query: {
+                    TransactionStorage: {
+                        Authorizations: {
+                            getValue: vi.fn().mockRejectedValue(new Error("RPC connection lost")),
+                        },
+                    },
+                    System: {
+                        Number: { getValue: vi.fn().mockResolvedValue(400) },
+                    },
+                },
+            } as unknown as CloudStorageApi;
+
+            const result = await getBulletinAllowanceStatus(api, "5GrwvaEF...");
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(CloudStorageAuthorizationError);
+                expect((result.error.cause as Error).message).toBe("RPC connection lost");
+            }
+        });
+
+        test("returns err(CloudStorageAuthorizationError) when the block read fails", async () => {
+            const api = {
+                query: {
+                    TransactionStorage: {
+                        Authorizations: {
+                            getValue: vi.fn().mockResolvedValue(activeAuth),
+                        },
+                    },
+                    System: {
+                        Number: {
+                            getValue: vi.fn().mockRejectedValue(new Error("DisjointError")),
+                        },
+                    },
+                },
+            } as unknown as CloudStorageApi;
+
+            const result = await getBulletinAllowanceStatus(api, "5GrwvaEF...");
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(CloudStorageAuthorizationError);
+                expect(result.error.address).toBe("5GrwvaEF...");
+                expect((result.error.cause as Error).message).toBe("DisjointError");
+            }
         });
     });
 

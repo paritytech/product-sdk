@@ -19,7 +19,11 @@ export { CloudStorageClient } from "./client.js";
 export type { CreateCloudStorageClientOptions } from "./client.js";
 export { CloudStorageNetworks } from "./networks.js";
 export type { CloudStorageEnvironment, CloudStorageNetwork } from "./networks.js";
-export { authorizeAccount, checkAuthorization } from "./authorization.js";
+export {
+    authorizeAccount,
+    checkAuthorization,
+    getBulletinAllowanceStatus,
+} from "./authorization.js";
 export type { AuthorizeAccountOptions } from "./authorization.js";
 export { createLazySigner } from "./lazy-signer.js";
 export { executeQuery, queryBytes, queryJson } from "./query.js";
@@ -51,6 +55,7 @@ export {
 // Types
 export type {
     AuthorizationStatus,
+    BulletinAllowanceStatus,
     CloudStorageApi,
     Environment,
     QueryOptions,
