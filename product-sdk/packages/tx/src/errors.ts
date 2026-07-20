@@ -45,6 +45,36 @@ export class TxDispatchError extends TxError {
     }
 }
 
+/**
+ * The transaction failed *before* inclusion — a validity or submission failure
+ * such as `InvalidTransaction::Payment` (the submitter cannot pay fees or is
+ * not authorized on a feeless-but-authorized chain).
+ *
+ * These failures carry no `dispatchError` (that field only exists for a
+ * transaction that was included and then failed to dispatch), so they are
+ * reported as a distinct type instead of a {@link TxDispatchError} with a
+ * placeholder string. The raw failure payload is preserved on
+ * {@link TxValidityError.reason} for programmatic inspection.
+ */
+export class TxValidityError extends TxError {
+    /**
+     * Raw underlying failure payload: the decoded validity error from
+     * polkadot-api's `InvalidTxError` (e.g. `{ type: "Invalid", value:
+     * { type: "Payment" } }`), or the failed tx event when the node reported
+     * failure without any payload.
+     */
+    readonly reason: unknown;
+    /** Human-readable error string (e.g., "Invalid.Payment"). */
+    readonly formatted: string;
+
+    constructor(reason: unknown, formatted: string) {
+        super(`Transaction failed before inclusion: ${formatted}`);
+        this.name = "TxValidityError";
+        this.reason = reason;
+        this.formatted = formatted;
+    }
+}
+
 /** The user rejected the signing request in their wallet. */
 export class TxSigningRejectedError extends TxError {
     constructor() {
@@ -61,6 +91,11 @@ export class TxSigningRejectedError extends TxError {
  *
  * This walks the chain to build a string like `"Revive.ContractReverted"`.
  *
+ * A failed result with a *missing* `dispatchError` is a pre-inclusion validity
+ * or submission failure (e.g. `InvalidTransaction::Payment`) — `dispatchError`
+ * only exists for a transaction that was included and then failed — and is
+ * described as such rather than collapsed to `"unknown error"`.
+ *
  * @param result - A transaction result with `ok` and optional `dispatchError`.
  * @returns A human-readable error string, or `""` if the result is ok, or `"unknown error"` if
  *   the dispatch error cannot be decoded.
@@ -70,7 +105,9 @@ export function formatDispatchError(result: { ok: boolean; dispatchError?: unkno
 
     try {
         const err = result.dispatchError as { type?: string; value?: unknown } | undefined;
-        if (!err) return "unknown error";
+        if (!err) {
+            return "failed before inclusion (validity/submission failure, no dispatch error)";
+        }
 
         if (err.type === "Module" && err.value && typeof err.value === "object") {
             const palletErr = err.value as { type?: string; value?: unknown };
@@ -89,6 +126,37 @@ export function formatDispatchError(result: { ok: boolean; dispatchError?: unkno
     } catch {
         return "unknown error";
     }
+}
+
+/**
+ * Extract a human-readable error from a *transaction validity* failure payload —
+ * the decoded `TransactionValidityError` that polkadot-api attaches to an
+ * `InvalidTxError` (its `.error` property) when a transaction is rejected
+ * before inclusion.
+ *
+ * Validity payloads are nested tagged enums:
+ *   `{ type: "Invalid", value: { type: "Payment" } }` → `"Invalid.Payment"`.
+ *
+ * Kept separate from {@link formatDispatchError} on purpose: dispatch errors
+ * only nest under `Module`, and walking every non-Module `type`/`value` chain
+ * there would change established formats (e.g. `"Token"`).
+ *
+ * @param reason - The raw validity payload (any shape is tolerated).
+ * @returns The joined `type` chain, or `"unknown validity error"` when the
+ *   payload carries no recognizable tags.
+ */
+export function formatValidityError(reason: unknown): string {
+    const parts: string[] = [];
+    let current = reason;
+    while (
+        current != null &&
+        typeof current === "object" &&
+        typeof (current as { type?: unknown }).type === "string"
+    ) {
+        parts.push((current as { type: string }).type);
+        current = (current as { value?: unknown }).value;
+    }
+    return parts.length > 0 ? parts.join(".") : "unknown validity error";
 }
 
 /** Error specific to batch transaction construction (e.g., empty calls array). */
@@ -279,6 +347,18 @@ if (import.meta.vitest) {
             expect(err.message).toContain("Balances.InsufficientBalance");
         });
 
+        test("TxValidityError", () => {
+            const raw = { type: "Invalid", value: { type: "Payment" } };
+            const err = new TxValidityError(raw, "Invalid.Payment");
+            expect(err).toBeInstanceOf(TxError);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.name).toBe("TxValidityError");
+            expect(err.reason).toBe(raw);
+            expect(err.formatted).toBe("Invalid.Payment");
+            expect(err.message).toContain("before inclusion");
+            expect(err.message).toContain("Invalid.Payment");
+        });
+
         test("TxSigningRejectedError", () => {
             const err = new TxSigningRejectedError();
             expect(err).toBeInstanceOf(TxError);
@@ -329,12 +409,54 @@ if (import.meta.vitest) {
             expect(formatDispatchError(result)).toBe("BadOrigin");
         });
 
-        test("returns unknown error when dispatchError is missing", () => {
-            expect(formatDispatchError({ ok: false })).toBe("unknown error");
+        test("describes pre-inclusion failure when dispatchError is missing", () => {
+            expect(formatDispatchError({ ok: false })).toBe(
+                "failed before inclusion (validity/submission failure, no dispatch error)",
+            );
+        });
+
+        test("does not walk nested values of non-Module errors (established format)", () => {
+            // Only Module errors nest for formatting purposes; a nested
+            // non-Module payload keeps its top-level tag (e.g. "Token", not
+            // "Token.FundsUnavailable"). Validity payloads go through
+            // formatValidityError instead.
+            const result = {
+                ok: false,
+                dispatchError: { type: "Token", value: { type: "FundsUnavailable" } },
+            };
+            expect(formatDispatchError(result)).toBe("Token");
         });
 
         test("returns unknown error when dispatchError has no type", () => {
             expect(formatDispatchError({ ok: false, dispatchError: {} })).toBe("unknown error");
+        });
+    });
+
+    describe("formatValidityError", () => {
+        test("walks the type chain of a validity payload", () => {
+            expect(formatValidityError({ type: "Invalid", value: { type: "Payment" } })).toBe(
+                "Invalid.Payment",
+            );
+        });
+
+        test("handles a single-level payload", () => {
+            expect(formatValidityError({ type: "Invalid" })).toBe("Invalid");
+        });
+
+        test("walks deeper chains", () => {
+            expect(
+                formatValidityError({
+                    type: "Invalid",
+                    value: { type: "Custom", value: { type: "Inner" } },
+                }),
+            ).toBe("Invalid.Custom.Inner");
+        });
+
+        test("falls back for unrecognizable payloads", () => {
+            expect(formatValidityError(undefined)).toBe("unknown validity error");
+            expect(formatValidityError(null)).toBe("unknown validity error");
+            expect(formatValidityError("oops")).toBe("unknown validity error");
+            expect(formatValidityError({ reason: "no tags" })).toBe("unknown validity error");
         });
     });
 

@@ -29,9 +29,11 @@ export {
     TxDispatchError,
     TxDryRunError,
     TxSigningRejectedError,
+    TxValidityError,
     TxBatchError,
     formatDispatchError,
     formatDryRunError,
+    formatValidityError,
     isSigningRejection,
 } from "./errors.js";
 export type {

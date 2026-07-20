@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, normalizeError, ok } from "@parity/result";
-import type { PolkadotSigner } from "polkadot-api";
+import { InvalidTxError, type PolkadotSigner } from "polkadot-api";
 
 import {
     TxDispatchError,
     TxError,
     TxSigningRejectedError,
     TxTimeoutError,
+    TxValidityError,
     formatDispatchError,
+    formatValidityError,
     isSigningRejection,
 } from "./errors.js";
 import type { SubmitOptions, SubmittableTransaction, TxEvent, TxResult } from "./types.js";
@@ -46,6 +48,33 @@ function buildTxResult(
 }
 
 /**
+ * Detect polkadot-api's `InvalidTxError` — how a *pre-inclusion* validity
+ * failure (e.g. `InvalidTransaction::Payment`) reaches the subscription's
+ * error channel. Its `.error` carries the decoded `TransactionValidityError`.
+ * `instanceof` can miss across duplicated polkadot-api copies in the module
+ * graph, so also match by the `name` its constructor sets.
+ */
+function isInvalidTxError(error: unknown): error is InvalidTxError {
+    return (
+        error instanceof InvalidTxError ||
+        (error instanceof Error && error.name === "InvalidTxError" && "error" in error)
+    );
+}
+
+/**
+ * Classify an `ok: false` tx event: with a `dispatchError` it's an on-chain
+ * dispatch failure; without one the failure happened *before* inclusion
+ * (validity/submission) — `dispatchError` only exists for an
+ * included-and-failed transaction, so nothing more specific is available on
+ * the event itself.
+ */
+function classifyFailure(event: { dispatchError?: unknown }, formatted: string): TxError {
+    return event.dispatchError == null
+        ? new TxValidityError(event, "validity/submission failure (no dispatch error)")
+        : new TxDispatchError(event.dispatchError, formatted);
+}
+
+/**
  * Submit a transaction and watch its lifecycle through signing, broadcasting,
  * block inclusion, and (optionally) finalization.
  *
@@ -57,8 +86,9 @@ function buildTxResult(
  * @returns A {@link Result}: `ok(TxResult)` once included/finalized, or `err(TxError)` on failure.
  *   The `err` channel carries a typed `TxError` — a `TxTimeoutError` (target state not reached
  *   within `timeoutMs`), `TxDispatchError` (on-chain dispatch failed, e.g. insufficient balance or
- *   contract revert), `TxSigningRejectedError` (user rejected signing), or a base `TxError`
- *   wrapping any other failure.
+ *   contract revert), `TxValidityError` (pre-inclusion validity/submission failure, e.g.
+ *   `InvalidTransaction::Payment` — no dispatch error exists for these), `TxSigningRejectedError`
+ *   (user rejected signing), or a base `TxError` wrapping any other failure.
  */
 export async function submitAndWatch(
     tx: SubmittableTransaction,
@@ -129,7 +159,7 @@ export async function submitAndWatch(
                                     formatted,
                                     block: event.block,
                                 });
-                                settleErr(new TxDispatchError(event.dispatchError, formatted));
+                                settleErr(classifyFailure(event, formatted));
                                 return;
                             }
 
@@ -180,7 +210,7 @@ export async function submitAndWatch(
                                         { formatted, block: event.block },
                                     );
                                 } else {
-                                    settleErr(new TxDispatchError(event.dispatchError, formatted));
+                                    settleErr(classifyFailure(event, formatted));
                                 }
                                 subscription?.unsubscribe();
                                 return;
@@ -203,7 +233,15 @@ export async function submitAndWatch(
                 error: (subErr: Error) => {
                     log.error("Transaction subscription error", { error: subErr.message });
 
-                    if (isSigningRejection(subErr)) {
+                    if (isInvalidTxError(subErr)) {
+                        // Pre-inclusion validity failure: PAPI rejects the
+                        // subscription with an InvalidTxError whose `.error`
+                        // holds the decoded reason (e.g. Invalid.Payment) —
+                        // surface it typed instead of as an opaque TxError.
+                        settleErr(
+                            new TxValidityError(subErr.error, formatValidityError(subErr.error)),
+                        );
+                    } else if (isSigningRejection(subErr)) {
                         settleErr(new TxSigningRejectedError());
                     } else {
                         settleErr(subErr);
@@ -334,6 +372,61 @@ if (import.meta.vitest) {
             const result = await submitAndWatch(tx, mockSigner, { waitFor: "finalized" });
             expect(result.ok).toBe(false);
             if (!result.ok) expect(result.error).toBeInstanceOf(TxDispatchError);
+        });
+
+        test("returns err(TxValidityError) when PAPI rejects with InvalidTxError (pre-inclusion)", async () => {
+            // The real pre-inclusion path: PAPI errors the subscription with
+            // an InvalidTxError carrying the decoded TransactionValidityError.
+            const payload = { type: "Invalid", value: { type: "Payment" } };
+            const tx = createMockTx((h) => {
+                h.error(new InvalidTxError(payload));
+            });
+            const result = await submitAndWatch(tx, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxValidityError);
+                const validityError = result.error as TxValidityError;
+                expect(validityError.reason).toBe(payload);
+                expect(validityError.formatted).toBe("Invalid.Payment");
+                expect(validityError.message).toBe(
+                    "Transaction failed before inclusion: Invalid.Payment",
+                );
+            }
+        });
+
+        test("returns err(TxValidityError) on best-block failure without dispatchError", async () => {
+            const failedEvent = { ...bestBlockFail, dispatchError: undefined } as TxEvent;
+            const tx = createMockTx((h) => {
+                h.next(signedEvent);
+                h.next(failedEvent);
+            });
+            const result = await submitAndWatch(tx, mockSigner);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxValidityError);
+                expect(result.error).not.toBeInstanceOf(TxDispatchError);
+                const validityError = result.error as TxValidityError;
+                expect(validityError.reason).toBe(failedEvent);
+                // Pin the exact message: a placeholder `formatted` here must
+                // not double up with the class's own prefix.
+                expect(validityError.message).toBe(
+                    "Transaction failed before inclusion: validity/submission failure (no dispatch error)",
+                );
+            }
+        });
+
+        test("returns err(TxValidityError) on finalized failure without dispatchError", async () => {
+            const failedEvent = { ...finalizedFail, dispatchError: undefined } as TxEvent;
+            const tx = createMockTx((h) => {
+                h.next(signedEvent);
+                h.next(failedEvent);
+            });
+            const result = await submitAndWatch(tx, mockSigner, { waitFor: "finalized" });
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(TxValidityError);
+                expect((result.error as TxValidityError).reason).toBe(failedEvent);
+            }
         });
 
         test("returns err(TxTimeoutError) after timeout", async () => {
