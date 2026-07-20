@@ -76,6 +76,13 @@ jobs:
       - name: Build packages
         run: pnpm build
 
+      # Strict typecheck of every package's src + tests. Runs after build so it
+      # sees each package's current `.d.ts` (workspace deps resolve to dist) and
+      # the generated descriptors. Catches errors vitest's transform and the
+      # per-package tsup build both skip (tests aren't emitted).
+      - name: Typecheck
+        run: pnpm typecheck
+
   test:
     name: "product-sdk: Test"
     runs-on: parity-default

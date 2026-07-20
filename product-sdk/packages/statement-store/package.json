@@ -23,7 +23,8 @@
     "scripts": {
         "build": "tsup",
         "clean": "rm -rf dist",
-        "test": "vitest run"
+        "test": "vitest run",
+        "typecheck": "tsc -p tsconfig.typecheck.json"
     },
     "dependencies": {
         "@polkadot-api/substrate-client": "catalog:",
