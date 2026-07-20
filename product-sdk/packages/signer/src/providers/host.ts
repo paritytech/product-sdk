@@ -346,7 +346,9 @@ export class HostProvider implements SignerProvider {
             const raw = cause instanceof Error ? cause.cause : cause;
             const nonTransient = isNonTransientHostError(raw);
             if (nonTransient) {
-                log.debug("product account unavailable (signed out)", { error: message });
+                log.debug("product account unavailable (expected, non-transient)", {
+                    error: message,
+                });
             } else {
                 log.error("failed to get product account", { error: message });
             }
@@ -563,7 +565,7 @@ export class HostProvider implements SignerProvider {
                 const error = accountResult.error;
                 if (error instanceof HostRejectedError && error.nonTransient) {
                     log.warn(
-                        "product account unavailable (signed out); resolving with empty accounts",
+                        "product account unavailable (signed out or unregistered); resolving with empty accounts",
                         { dotNsIdentifier: this.productAccount.dotNsIdentifier },
                     );
                     signerAccounts = [];
@@ -703,7 +705,14 @@ export class HostProvider implements SignerProvider {
  * degrades to read-only (empty accounts) instead of erroring and retrying —
  * it's the user not being signed in, which no amount of retrying will fix.
  */
-const NON_TRANSIENT_HOST_TAGS: ReadonlySet<string> = new Set(["NotConnected"]);
+const NON_TRANSIENT_HOST_TAGS: ReadonlySet<string> = new Set([
+    // User is signed out.
+    "NotConnected",
+    // The product's dotNS identifier isn't registered/valid for this user —
+    // the same condition the `dappName` branch already soft-degrades for.
+    // Retrying can't fix either; both resolve to read-only.
+    "DomainNotValid",
+]);
 
 /**
  * Does a host error represent a non-transient, expected condition (e.g. the
@@ -1450,6 +1459,16 @@ if (import.meta.vitest) {
             expect(isNonTransientHostError({ tag: "NotConnected" })).toBe(true);
         });
 
+        test("matches DomainNotValid (unregistered dotNS identifier)", () => {
+            expect(isNonTransientHostError({ tag: "DomainNotValid" })).toBe(true);
+            expect(
+                isNonTransientHostError({
+                    tag: "Domain",
+                    value: { tag: "V1", value: { tag: "DomainNotValid" } },
+                }),
+            ).toBe(true);
+        });
+
         test("matches NotConnected nested inside a versioned envelope", () => {
             expect(isNonTransientHostError({ tag: "v1", value: { tag: "NotConnected" } })).toBe(
                 true,
@@ -1464,6 +1483,9 @@ if (import.meta.vitest) {
 
         test("does not match transient / other errors", () => {
             expect(isNonTransientHostError({ tag: "PermissionDenied" })).toBe(false);
+            // Deliberate: `Rejected` (user declined the prompt) is NOT non-transient
+            // — a re-prompt can succeed, so it should still surface/retry.
+            expect(isNonTransientHostError({ tag: "Rejected" })).toBe(false);
             expect(isNonTransientHostError({ tag: "v1", value: { reason: "flaky" } })).toBe(false);
             expect(isNonTransientHostError({ reason: "boom" })).toBe(false);
             expect(isNonTransientHostError("NotConnected")).toBe(false); // bare string, not tagged
