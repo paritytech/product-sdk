@@ -69,6 +69,19 @@ export interface RequestResourceAllocationOptions {
      * requested resource is a cached slot-table variant, then `Increase`.
      */
     onExisting?: OnExistingAllowancePolicy;
+    /**
+     * Product id the allocation is scoped to. Sent on the wire as
+     * `callingProductId` and used as the slot-cache namespace. Defaults to
+     * `adapter.appId`.
+     *
+     * Pass this when the product id the app signs as differs from the
+     * terminal's storage `appId` — the wallet derives every per-product
+     * artifact (including the on-chain account PGAS is minted to and
+     * auto-mapped for) from this id, so allocating under the wrong id lands
+     * the allowance on the wrong account. Mirrors the explicit `productId`
+     * that {@link getBulletinSigner} already takes.
+     */
+    productId?: string;
 }
 
 /**
@@ -93,26 +106,22 @@ export async function requestResourceAllocation(
     resources: AllocatableResource[],
     options: RequestResourceAllocationOptions = {},
 ): Promise<ApAllocationOutcome[]> {
-    return withCacheLock(adapter.appId, adapter.storageDir, async () => {
-        const cache = await loadCache(adapter.appId, adapter.storageDir);
+    const productId = options.productId ?? adapter.appId;
+    return withCacheLock(productId, adapter.storageDir, async () => {
+        const cache = await loadCache(productId, adapter.storageDir);
         const onExisting = options.onExisting ?? pickOnExistingPolicy(cache, resources);
         log.debug("requestResourceAllocation", {
-            productId: adapter.appId,
+            productId,
             resources: resources.map((r) => r.tag),
             onExisting,
             autoPolicy: options.onExisting === undefined,
         });
 
-        const outcomes = await sendResourceAllocation(
-            session,
-            adapter.appId,
-            resources,
-            onExisting,
-        );
+        const outcomes = await sendResourceAllocation(session, productId, resources, onExisting);
 
         const next = mergeOutcomes(cache, resources, outcomes);
         if (next !== cache) {
-            await saveCache(adapter.appId, next, adapter.storageDir);
+            await saveCache(productId, next, adapter.storageDir);
         }
 
         return outcomes;
@@ -150,15 +159,20 @@ export async function sendResourceAllocation(
 
 /**
  * Read a cached allowance entry without going over the wire. Returns
- * `null` if nothing's cached for `(adapter.appId, resource)`. For
- * `SmartContractAllowance`, the same `dest` must be passed — entries
- * are keyed per-dest.
+ * `null` if nothing's cached for `(productId, resource)`, where
+ * `productId` defaults to `adapter.appId`. For `SmartContractAllowance`,
+ * the same `dest` must be passed — entries are keyed per-dest.
+ *
+ * @param productId Slot-cache namespace to read. Defaults to
+ *   `adapter.appId`; pass the same id the allocation was requested under
+ *   (see {@link RequestResourceAllocationOptions.productId}).
  */
 export async function getCachedAllocation(
     adapter: TerminalAdapter,
     resource: AllocatableResource,
+    productId?: string,
 ): Promise<CachedAllocation | null> {
-    const cache = await loadCache(adapter.appId, adapter.storageDir);
+    const cache = await loadCache(productId ?? adapter.appId, adapter.storageDir);
     return readCacheEntry(cache, resource);
 }
 
@@ -166,6 +180,10 @@ export async function getCachedAllocation(
  * Cache hit → return signer. Cache miss → call
  * {@link requestResourceAllocation} for `[resource]`, then build the signer.
  * Throws on `Rejected` / `NotAvailable`.
+ *
+ * @param productId Product id the allocation is scoped to (wire
+ *   `callingProductId` + slot-cache namespace). Defaults to `adapter.appId`
+ *   (see {@link RequestResourceAllocationOptions.productId}).
  *
  * @example
  * ```ts
@@ -179,17 +197,19 @@ export async function ensureSlotAccountSigner(
     session: UserSession,
     adapter: TerminalAdapter,
     resource: AllocatableResource,
+    productId?: string,
 ): Promise<PolkadotSigner> {
+    const resolvedProductId = productId ?? adapter.appId;
     // The cache-hit check and the allocation path must share the same
     // critical section: otherwise two concurrent calls for the same
     // resource both see an empty cache, then both serialize through the
     // lock but each issues its own wallet prompt and burns a slot.
-    return withCacheLock(adapter.appId, adapter.storageDir, async () => {
+    return withCacheLock(resolvedProductId, adapter.storageDir, async () => {
         // Single loadCache for the whole critical section — we hold the
         // lock, so no other writer can change disk under us. The fast
         // cache-hit path and the slow allocate-then-build path both
         // reuse this in-memory `cache` reference.
-        const cache = await loadCache(adapter.appId, adapter.storageDir);
+        const cache = await loadCache(resolvedProductId, adapter.storageDir);
         const hit = readCacheEntry(cache, resource);
         if (hit) return buildSignerFromEntry(hit);
 
@@ -202,13 +222,13 @@ export async function ensureSlotAccountSigner(
         const onExisting = pickOnExistingPolicy(cache, [resource]);
         const outcomes = await sendResourceAllocation(
             session,
-            adapter.appId,
+            resolvedProductId,
             [resource],
             onExisting,
         );
         const next = mergeOutcomes(cache, [resource], outcomes);
         if (next !== cache) {
-            await saveCache(adapter.appId, next, adapter.storageDir);
+            await saveCache(resolvedProductId, next, adapter.storageDir);
         }
 
         const outcome = outcomes[0];
@@ -315,7 +335,7 @@ if (import.meta.vitest) {
             expect(outcomes).toEqual(stubbed);
         });
 
-        test("uses adapter.appId as callingProductId", async () => {
+        test("uses adapter.appId as callingProductId by default", async () => {
             const captured: RequestCapture[] = [];
             const session = makeSession({
                 requestResourceAllocation: async (req) => {
@@ -327,6 +347,22 @@ if (import.meta.vitest) {
             await requestResourceAllocation(session, fakeAdapter("alt-product.dot"), []);
 
             expect(captured[0].callingProductId).toBe("alt-product.dot");
+        });
+
+        test("options.productId overrides adapter.appId as callingProductId", async () => {
+            const captured: RequestCapture[] = [];
+            const session = makeSession({
+                requestResourceAllocation: async (req) => {
+                    captured.push(req);
+                    return ok([]) as StubReturn;
+                },
+            });
+
+            await requestResourceAllocation(session, fakeAdapter("my-cli"), [], {
+                productId: "my-product.dot",
+            });
+
+            expect(captured[0].callingProductId).toBe("my-product.dot");
         });
 
         test("auto-picks Ignore for an empty resources array", async () => {
@@ -681,6 +717,33 @@ if (import.meta.vitest) {
             ).not.toBeNull();
         });
 
+        test("options.productId scopes the cache namespace, not adapter.appId", async () => {
+            const session = makeSession({
+                requestResourceAllocation: async () => bulletinAllocated(new Uint8Array([1, 2, 3])),
+            });
+
+            const adapter = fakeAdapter("my-cli");
+            await requestResourceAllocation(
+                session,
+                adapter,
+                [{ tag: "BulletInAllowance", value: undefined }],
+                { productId: "my-product.dot" },
+            );
+
+            // Cached under the product id...
+            expect(
+                await getCachedAllocation(
+                    adapter,
+                    { tag: "BulletInAllowance", value: undefined },
+                    "my-product.dot",
+                ),
+            ).not.toBeNull();
+            // ...not under the adapter's appId.
+            expect(
+                await getCachedAllocation(adapter, { tag: "BulletInAllowance", value: undefined }),
+            ).toBeNull();
+        });
+
         test("two appIds maintain independent caches in the same storageDir", async () => {
             const session = makeSession({
                 requestResourceAllocation: async () => bulletinAllocated(new Uint8Array([1, 2, 3])),
@@ -865,6 +928,41 @@ if (import.meta.vitest) {
                     value: undefined,
                 }),
             ).rejects.toThrow(/mobile timed out/);
+        });
+
+        test("explicit productId scopes the wire id and the cache namespace", async () => {
+            const captured: RequestCapture[] = [];
+            const session = makeSession({
+                requestResourceAllocation: async (req) => {
+                    captured.push(req);
+                    return bulletinAllocatedResponse();
+                },
+            });
+            const adapter = fakeAdapter("my-cli");
+
+            const signer = await ensureSlotAccountSigner(
+                session,
+                adapter,
+                { tag: "BulletInAllowance", value: undefined },
+                "my-product.dot",
+            );
+            expect(signer.publicKey).toBeInstanceOf(Uint8Array);
+            expect(captured[0].callingProductId).toBe("my-product.dot");
+
+            // Cached under the product id, so a second call with the same
+            // productId is a hit (no extra wire round-trip)...
+            await ensureSlotAccountSigner(
+                session,
+                adapter,
+                { tag: "BulletInAllowance", value: undefined },
+                "my-product.dot",
+            );
+            expect(captured).toHaveLength(1);
+
+            // ...while the default (appId) namespace stays empty.
+            expect(
+                await getCachedAllocation(adapter, { tag: "BulletInAllowance", value: undefined }),
+            ).toBeNull();
         });
 
         test("populates the cache so a later call is a hit", async () => {

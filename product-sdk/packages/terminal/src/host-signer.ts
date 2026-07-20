@@ -71,10 +71,15 @@ export function buildSignerFromEntry(entry: CachedAllocation): PolkadotSigner {
 
 /**
  * `PolkadotSigner` backed by the cached slot account key. Returns `null`
- * when nothing's cached for `(adapter.appId, resource)`. Throws for SC
- * and AutoSigning (no slot account key — see module docstring).
+ * when nothing's cached for `(productId, resource)`, where `productId`
+ * defaults to `adapter.appId`. Throws for SC and AutoSigning (no slot
+ * account key — see module docstring).
  *
  * Signs locally with sr25519 — no wallet round-trip on the hot path.
+ *
+ * @param productId Slot-cache namespace to read. Defaults to
+ *   `adapter.appId`; pass the same id the allocation was requested under
+ *   when the product id differs from the terminal's storage `appId`.
  *
  * @example
  * ```ts
@@ -87,8 +92,9 @@ export function buildSignerFromEntry(entry: CachedAllocation): PolkadotSigner {
 export async function createSlotAccountSigner(
     adapter: TerminalAdapter,
     resource: AllocatableResource,
+    productId?: string,
 ): Promise<PolkadotSigner | null> {
-    const cache = await loadCache(adapter.appId, adapter.storageDir);
+    const cache = await loadCache(productId ?? adapter.appId, adapter.storageDir);
     const entry = readCacheEntry(cache, resource);
     if (!entry) return null;
     return buildSignerFromEntry(entry);
@@ -306,6 +312,37 @@ if (import.meta.vitest) {
                     value: undefined,
                 }),
             ).rejects.toThrow(/AutoSigning does not carry a slot account key/);
+        });
+
+        test("explicit productId reads that cache namespace instead of adapter.appId", async () => {
+            const { hex, publicKey } = knownSecret();
+            // Key cached under the product id, not the adapter's appId.
+            await saveCache(
+                "my-product.dot",
+                {
+                    version: 1,
+                    entries: {
+                        BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: hex },
+                    },
+                },
+                storageDir,
+            );
+
+            const adapter = fakeAdapter("my-cli");
+            // Default (appId) namespace has nothing cached.
+            expect(
+                await createSlotAccountSigner(adapter, {
+                    tag: "BulletInAllowance",
+                    value: undefined,
+                }),
+            ).toBeNull();
+            // The productId override finds the key.
+            const signer = await createSlotAccountSigner(
+                adapter,
+                { tag: "BulletInAllowance", value: undefined },
+                "my-product.dot",
+            );
+            expect(signer?.publicKey).toEqual(publicKey);
         });
 
         test("different appIds yield different signers from disjoint caches", async () => {
