@@ -1,10 +1,12 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { ss58ToH160 } from "@parity/product-sdk-address";
-import type { Result } from "@parity/result";
+import { type Result, err, ok } from "@parity/result";
 import type { SubmittableTransaction, TxError, TxResult, Weight } from "@parity/product-sdk-tx";
 import { ensureAccountMapped } from "@parity/product-sdk-tx";
 import type { HexString, PolkadotClient, PolkadotSigner, SS58String } from "polkadot-api";
+
+import { ContractError } from "./errors.js";
 
 /**
  * Result of a `Revive.call` extrinsic — present on the typed API as
@@ -270,11 +272,45 @@ export async function ensureContractAccountMapped(
 ): Promise<Result<TxResult | null, TxError>> {
     const checker = {
         addressIsMapped: async (addr: string): Promise<boolean> => {
-            const h160 = ss58ToH160(addr) as HexString;
-            return (await runtime.api.query.Revive.OriginalAccount.getValue(h160)) !== undefined;
+            const mapped = await isContractAccountMapped(runtime, addr as SS58String);
+            // ensureAccountMapped expects a throwing probe; it catches and
+            // wraps this in a TxAccountMappingError with the cause attached.
+            if (!mapped.ok) throw mapped.error;
+            return mapped.value;
         },
     };
     return ensureAccountMapped(address, signer, checker, runtime.api, options);
+}
+
+/**
+ * Read-only probe: is `address` mapped on `pallet-revive`?
+ *
+ * The read half of {@link ensureContractAccountMapped}: checks
+ * `Revive.OriginalAccount` for the H160 derived from `address` without
+ * needing a signer, so it can never submit a transaction or prompt a wallet.
+ * Use it for readiness checks ("can this account make contract calls right
+ * now?") from paths that must stay side-effect free.
+ *
+ * @param runtime - The contract runtime (typically `createContractRuntime(...)`).
+ * @param address - The SS58 address to check.
+ * @returns A {@link Result}: `ok(true)` when the mapping exists, `ok(false)` when it
+ *   doesn't, or `err(ContractError)` when the address can't be converted or the
+ *   storage query fails (underlying error attached as `cause`).
+ */
+export async function isContractAccountMapped(
+    runtime: ContractRuntime,
+    address: SS58String,
+): Promise<Result<boolean, ContractError>> {
+    try {
+        const h160 = ss58ToH160(address) as HexString;
+        const mapped =
+            (await runtime.api.query.Revive.OriginalAccount.getValue(h160)) !== undefined;
+        return ok(mapped);
+    } catch (cause) {
+        return err(
+            new ContractError(`Failed to check pallet-revive mapping for ${address}`, { cause }),
+        );
+    }
 }
 
 if (import.meta.vitest) {
@@ -345,6 +381,79 @@ if (import.meta.vitest) {
             expect(passedAddress.startsWith("0x")).toBe(true);
             expect(passedAddress.length).toBe(2 + 40);
             expect(mapAccount).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("isContractAccountMapped", () => {
+        const aliceSs58 = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
+
+        function makeReadRuntime(getValue: ReturnType<typeof vi.fn>): ContractRuntime {
+            return {
+                api: {
+                    query: {
+                        Revive: {
+                            OriginalAccount: { getValue },
+                        },
+                    },
+                } as unknown as ReviveTypedApi,
+                dryRunCall: () => {
+                    throw new Error("dryRunCall is unrelated to the mapping read");
+                },
+            };
+        }
+
+        test("returns ok(true) when the mapping exists", async () => {
+            const getValue = vi.fn(async () => "5mappedSs58" as SS58String);
+            const result = await isContractAccountMapped(makeReadRuntime(getValue), aliceSs58);
+
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toBe(true);
+        });
+
+        test("returns ok(false) when no mapping exists", async () => {
+            const getValue = vi.fn(async () => undefined);
+            const result = await isContractAccountMapped(makeReadRuntime(getValue), aliceSs58);
+
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toBe(false);
+        });
+
+        test("queries by the derived H160, not the SS58 address", async () => {
+            const getValue = vi.fn(async (_h160: string) => undefined);
+            await isContractAccountMapped(makeReadRuntime(getValue), aliceSs58);
+
+            expect(getValue).toHaveBeenCalledTimes(1);
+            const passedAddress = getValue.mock.calls[0][0];
+            expect(passedAddress.startsWith("0x")).toBe(true);
+            expect(passedAddress.length).toBe(2 + 40);
+        });
+
+        test("returns err(ContractError) with cause when the storage query fails", async () => {
+            const underlying = new Error("RPC connection lost");
+            const getValue = vi.fn(async () => {
+                throw underlying;
+            });
+            const result = await isContractAccountMapped(makeReadRuntime(getValue), aliceSs58);
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(ContractError);
+                expect(result.error.cause).toBe(underlying);
+                expect(result.error.message).toContain(aliceSs58);
+            }
+        });
+
+        test("returns err(ContractError) for an address that is not valid SS58", async () => {
+            const getValue = vi.fn(async () => undefined);
+            const result = await isContractAccountMapped(
+                makeReadRuntime(getValue),
+                "not-an-address" as SS58String,
+            );
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(ContractError);
+            // The failure happens at H160 derivation — the chain is never hit.
+            expect(getValue).not.toHaveBeenCalled();
         });
     });
 
