@@ -156,7 +156,11 @@ export async function getBulletinAllowanceStatus(
     const result: BulletinAllowanceStatus = {
         ...status,
         remainingBlocks: Math.max(0, status.expiration - currentBlock),
-        usable: status.authorized && currentBlock < status.expiration,
+        usable:
+            status.authorized &&
+            currentBlock < status.expiration &&
+            status.remainingTransactions > 0 &&
+            status.remainingBytes > 0n,
     };
 
     log.debug("getBulletinAllowanceStatus", {
@@ -552,6 +556,46 @@ if (import.meta.vitest) {
             const status = unwrapOk(await getBulletinAllowanceStatus(api, "5GrwvaEF..."));
 
             expect(status.remainingBlocks).toBe(0);
+            expect(status.usable).toBe(false);
+        });
+
+        test("not usable when unexpired but transaction quota is exhausted", async () => {
+            const exhaustedTx = {
+                extent: {
+                    transactions: 10,
+                    transactions_allowance: 10, // remainingTransactions === 0
+                    bytes: 250_000n,
+                    bytes_permanent: 0n,
+                    bytes_allowance: 1_000_000n,
+                },
+                expiration: 1_000,
+            };
+            const api = createMockApiWithBlock(exhaustedTx, 400);
+            const status = unwrapOk(await getBulletinAllowanceStatus(api, "5GrwvaEF..."));
+
+            expect(status.authorized).toBe(true);
+            expect(status.remainingBlocks).toBe(600); // not expired
+            expect(status.remainingTransactions).toBe(0);
+            expect(status.usable).toBe(false);
+        });
+
+        test("not usable when unexpired but byte quota is exhausted", async () => {
+            const exhaustedBytes = {
+                extent: {
+                    transactions: 3,
+                    transactions_allowance: 10,
+                    bytes: 1_000_000n,
+                    bytes_permanent: 0n,
+                    bytes_allowance: 1_000_000n, // remainingBytes === 0n
+                },
+                expiration: 1_000,
+            };
+            const api = createMockApiWithBlock(exhaustedBytes, 400);
+            const status = unwrapOk(await getBulletinAllowanceStatus(api, "5GrwvaEF..."));
+
+            expect(status.authorized).toBe(true);
+            expect(status.remainingBlocks).toBe(600); // not expired
+            expect(status.remainingBytes).toBe(0n);
             expect(status.usable).toBe(false);
         });
 
