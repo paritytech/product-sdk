@@ -401,12 +401,10 @@ export class HostProvider implements SignerProvider {
 
             return ok(alias);
         } catch (cause) {
-            log.error("failed to get product account alias", { cause });
-            return err(
-                new HostRejectedError(
-                    cause instanceof Error ? cause.message : "Failed to get product account alias",
-                ),
-            );
+            const message =
+                cause instanceof Error ? cause.message : "Failed to get product account alias";
+            log.error("failed to get product account alias", { error: message });
+            return err(new HostRejectedError(message));
         }
     }
 
@@ -438,12 +436,9 @@ export class HostProvider implements SignerProvider {
 
             return ok(result);
         } catch (cause) {
-            log.error("failed to get user id", { cause });
-            return err(
-                new HostRejectedError(
-                    cause instanceof Error ? cause.message : "Failed to get user id",
-                ),
-            );
+            const message = cause instanceof Error ? cause.message : "Failed to get user id";
+            log.error("failed to get user id", { error: message });
+            return err(new HostRejectedError(message));
         }
     }
 
@@ -479,12 +474,10 @@ export class HostProvider implements SignerProvider {
 
             return ok(proof);
         } catch (cause) {
-            log.error("failed to create Ring VRF proof", { cause });
-            return err(
-                new HostRejectedError(
-                    cause instanceof Error ? cause.message : "Failed to create Ring VRF proof",
-                ),
-            );
+            const message =
+                cause instanceof Error ? cause.message : "Failed to create Ring VRF proof";
+            log.error("failed to create Ring VRF proof", { error: message });
+            return err(new HostRejectedError(message));
         }
     }
 
