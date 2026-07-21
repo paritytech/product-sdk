@@ -21,7 +21,7 @@ export type { ProductAccountRef } from "./signer.js";
 // allowance has lapsed (chain-side NoAllowanceError). Authored in
 // @parity/product-sdk-signer — the SDK's signer error taxonomy — and
 // re-exported here so terminal consumers can catch it without a second import.
-export { AllowanceExpiredError, SignerError } from "@parity/product-sdk-signer";
+export { AllowanceExpiredError, SignerError } from "@parity/product-sdk-signer/errors";
 
 // Allowance service — `adapter.allowance` lives on every TerminalAdapter (inherited
 // from host-papp's PappAdapter). These helpers default the session id to the only

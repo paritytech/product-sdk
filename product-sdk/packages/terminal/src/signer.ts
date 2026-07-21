@@ -44,7 +44,7 @@ import type { UserSession } from "@novasamatech/host-papp";
 import { NoAllowanceError } from "@novasamatech/statement-store";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
-import { AllowanceExpiredError } from "@parity/product-sdk-signer";
+import { AllowanceExpiredError } from "@parity/product-sdk-signer/errors";
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { TerminalAdapter } from "./adapter.js";

@@ -15,6 +15,10 @@
         "./testing": {
             "import": "./dist/testing.js",
             "types": "./dist/testing.d.ts"
+        },
+        "./errors": {
+            "import": "./dist/errors.js",
+            "types": "./dist/errors.d.ts"
         }
     },
     "files": ["dist", "src"],
