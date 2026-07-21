@@ -19,7 +19,8 @@ import {
 
 import type { HostSubscription } from "./types.js";
 
-interface TransportSubscription extends HostSubscription {
+/** A {@link HostSubscription} carrying the transport-assigned subscription id. */
+export interface TransportSubscription extends HostSubscription {
     readonly subscriptionId: string;
 }
 

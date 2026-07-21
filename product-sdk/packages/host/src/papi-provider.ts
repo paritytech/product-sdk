@@ -49,7 +49,7 @@ import type {
 import { createLogger } from "@parity/product-sdk-logger";
 
 import { formatHostError } from "./errors.js";
-import { subscribeWithInterrupt } from "./transport.js";
+import { subscribeWithInterrupt, type TransportSubscription } from "./transport.js";
 
 const log = createLogger("host:papi");
 
@@ -192,8 +192,7 @@ export function createHostPapiProvider(
     const chain = client.chain;
 
     return (onMessage: (message: JsonRpcMessage) => void): JsonRpcConnection => {
-        type FollowSubscription = ReturnType<typeof subscribeWithInterrupt>;
-        const activeFollows = new Map<string, FollowSubscription>();
+        const activeFollows = new Map<string, TransportSubscription>();
         const activeBroadcasts = new Set<string>();
 
         function sendJsonRpcResponse(id: JsonRpcRequest["id"], result: unknown): void {
@@ -227,7 +226,7 @@ export function createHostPapiProvider(
                     // chicken-and-egg. (Releasing before forwarding the Stop is just
                     // cleanup; the consumer's synchronous refollow gets a fresh wire
                     // subscription either way.)
-                    const ref: { handle?: FollowSubscription } = {};
+                    const ref: { handle?: TransportSubscription } = {};
                     const pendingItems: RemoteChainHeadFollowItem[] = [];
                     const forwardItem = (
                         followSubscriptionId: string,
