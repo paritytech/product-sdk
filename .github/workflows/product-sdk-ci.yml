@@ -34,7 +34,31 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Require pending changesets outside release PRs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          pr_title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")
+          if [[ "$pr_title" == "chore(release):"* ]]; then
+            exit 0
+          fi
+
+          base_sha=$(jq -r '.pull_request.base.sha' "$GITHUB_EVENT_PATH")
+          ready_changesets=$(
+            git diff --relative --name-only "$base_sha"...HEAD -- .changeset \
+              | grep -E '^\.changeset/[^/]+\.md$' \
+              | grep -v '^\.changeset/README\.md$' \
+              || true
+          )
+
+          if [[ -n "$ready_changesets" ]]; then
+            echo "Changesets must stay in pending-changesets/ until a chore(release): PR promotes them:"
+            echo "$ready_changesets"
+            exit 1
+          fi
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
         with:

@@ -14,6 +14,10 @@ changeset file under `.changeset/`.
 2. On the PR that closes the work, move the changeset into `.changeset/`.
 3. Merging that PR to `main` is what triggers the release.
 
+CI enforces this split: only PRs whose titles start with `chore(release):`
+may change files in `.changeset/`. All other PRs must keep their changesets
+in `pending-changesets/`.
+
 ## When does a PR need a changeset?
 
 **Rule of thumb:** if your PR will change the published artifact for any
