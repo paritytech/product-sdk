@@ -6,11 +6,9 @@
  * This is a backport of `@novasamatech/host-api-wrapper`'s
  * `createPapiProvider` (`dist/papiProvider.js`) into product-sdk, with the
  * call layer swapped from the novasama `hostApi` to the
- * `@parity/truapi` client. The JSON-RPC ↔ chainHead bridge — request dispatch,
- * the `chainHead_v1_followEvent` notification synthesis, the synthetic
- * follow-subscription ids, and the operation/broadcast bookkeeping — is carried
- * over from the upstream module; only the per-method transport calls and their
- * error/response unwrapping are re-pointed at `truApi.chain.*`.
+ * `@parity/truapi` client. The JSON-RPC ↔ chainHead bridge handles request
+ * dispatch, `chainHead_v1_followEvent` notification synthesis, and operation /
+ * broadcast bookkeeping over the structured `truApi.chain.*` methods.
  *
  * **Why a bridge at all.** PAPI speaks the JSON-RPC `chainHead`/`chainSpec`/
  * `transaction` API; the host exposes the same operations as structured,
@@ -52,7 +50,6 @@ import { createLogger } from "@parity/product-sdk-logger";
 
 import { formatHostError } from "./errors.js";
 import { subscribeWithInterrupt } from "./transport.js";
-import type { HostSubscription } from "./types.js";
 
 const log = createLogger("host:papi");
 
@@ -195,11 +192,9 @@ export function createHostPapiProvider(
     const chain = client.chain;
 
     return (onMessage: (message: JsonRpcMessage) => void): JsonRpcConnection => {
-        const activeFollows = new Map<string, HostSubscription>();
+        type FollowSubscription = ReturnType<typeof subscribeWithInterrupt>;
+        const activeFollows = new Map<string, FollowSubscription>();
         const activeBroadcasts = new Set<string>();
-        let nextSubId = 0;
-
-        const getNextSubId = () => `follow_${nextSubId++}`;
 
         function sendJsonRpcResponse(id: JsonRpcRequest["id"], result: unknown): void {
             onMessage({ jsonrpc: "2.0", id, result } as JsonRpcMessage);
@@ -227,31 +222,55 @@ export function createHostPapiProvider(
             switch (method) {
                 case "chainHead_v1_follow": {
                     const [withRuntime] = params as [boolean];
-                    const syntheticSubId = getNextSubId();
                     // The Stop branch unsubscribes its own host subscription, but the
                     // handle is this call's return value — the ref breaks that
                     // chicken-and-egg. (Releasing before forwarding the Stop is just
                     // cleanup; the consumer's synchronous refollow gets a fresh wire
                     // subscription either way.)
-                    const ref: { handle?: HostSubscription } = {};
+                    const ref: { handle?: FollowSubscription } = {};
+                    const pendingItems: RemoteChainHeadFollowItem[] = [];
+                    const forwardItem = (
+                        followSubscriptionId: string,
+                        item: RemoteChainHeadFollowItem,
+                    ) => {
+                        if (item.tag === "Stop" && activeFollows.delete(followSubscriptionId)) {
+                            ref.handle?.unsubscribe();
+                        }
+                        sendFollowEvent(followSubscriptionId, convertFollowEventToJsonRpc(item));
+                    };
                     ref.handle = subscribeWithInterrupt(
                         chain.followHeadSubscribe({ request: { genesisHash, withRuntime } }),
                         (item) => {
-                            if (item.tag === "Stop" && activeFollows.delete(syntheticSubId)) {
-                                ref.handle?.unsubscribe();
+                            const followSubscriptionId = ref.handle?.subscriptionId;
+                            if (!followSubscriptionId) {
+                                pendingItems.push(item);
+                                return;
                             }
-                            sendFollowEvent(syntheticSubId, convertFollowEventToJsonRpc(item));
+                            forwardItem(followSubscriptionId, item);
                         },
                     );
+                    const followSubscriptionId = ref.handle.subscriptionId;
+                    if (!followSubscriptionId) {
+                        ref.handle.unsubscribe();
+                        sendJsonRpcError(
+                            id,
+                            JSON_RPC_INTERNAL_ERROR,
+                            "Host follow subscription did not start",
+                        );
+                        break;
+                    }
                     // A transport interrupt/close ends the stream without a Stop
                     // item; synthesize one so the consumer refollows.
                     ref.handle.onInterrupt(() => {
-                        if (activeFollows.delete(syntheticSubId)) {
-                            sendFollowEvent(syntheticSubId, { event: "stop" });
+                        if (activeFollows.delete(followSubscriptionId)) {
+                            sendFollowEvent(followSubscriptionId, { event: "stop" });
                         }
                     });
-                    activeFollows.set(syntheticSubId, ref.handle);
-                    sendJsonRpcResponse(id, syntheticSubId);
+                    activeFollows.set(followSubscriptionId, ref.handle);
+                    sendJsonRpcResponse(id, followSubscriptionId);
+                    for (const item of pendingItems) {
+                        forwardItem(followSubscriptionId, item);
+                    }
                     break;
                 }
                 case "chainHead_v1_unfollow": {
@@ -475,11 +494,15 @@ if (import.meta.vitest) {
         errors?: Record<string, unknown>;
         /** Unsubscribe spy used by the follow subscription (defaults to a fresh `vi.fn()`). */
         unsubscribe?: () => void;
+        /** Item emitted synchronously while the transport subscription starts. */
+        initialItem?: unknown;
         captureObserver?: (observer: {
             next: (i: unknown) => void;
             error: (e: unknown) => void;
             complete: () => void;
         }) => void;
+        /** Transport request id assigned to the follow subscription. */
+        subscriptionId?: string;
     }) {
         const okMatch = (value: unknown) => ({
             match: (ok: (v: unknown) => unknown, _err: (e: unknown) => unknown) => ok(value),
@@ -501,7 +524,13 @@ if (import.meta.vitest) {
                         complete: () => void;
                     }) => {
                         opts.captureObserver?.(observer);
-                        return { unsubscribe: opts.unsubscribe ?? vi.fn() };
+                        if (opts.initialItem !== undefined) {
+                            observer.next(opts.initialItem);
+                        }
+                        return {
+                            subscriptionId: opts.subscriptionId ?? "p:41",
+                            unsubscribe: opts.unsubscribe ?? vi.fn(),
+                        };
                     },
                     [Symbol.observable as symbol]() {
                         return this;
@@ -530,11 +559,14 @@ if (import.meta.vitest) {
         } as unknown as TrUApiClient;
     }
 
-    test("follow returns a synthetic id and forwards translated events", () => {
+    test("follow preserves the transport id for events and follow-up requests", () => {
         let observer:
             | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
             | undefined;
+        const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({
+            subscriptionId: "p:17",
+            onCall: (method, args) => calls.push([method, args]),
             captureObserver: (o) => {
                 observer = o;
             },
@@ -545,8 +577,7 @@ if (import.meta.vitest) {
         const conn = provider((m) => messages.push(m));
 
         conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
-        // The follow response carries the synthetic subscription id.
-        expect(messages[0]).toEqual({ jsonrpc: "2.0", id: 1, result: "follow_0" });
+        expect(messages[0]).toEqual({ jsonrpc: "2.0", id: 1, result: "p:17" });
 
         // A typed BestBlockChanged item becomes a chainHead_v1_followEvent.
         observer?.next({ tag: "BestBlockChanged", value: { bestBlockHash: "0xbeef" } });
@@ -554,10 +585,48 @@ if (import.meta.vitest) {
             jsonrpc: "2.0",
             method: "chainHead_v1_followEvent",
             params: {
-                subscription: "follow_0",
+                subscription: "p:17",
                 result: { event: "bestBlockChanged", bestBlockHash: "0xbeef" },
             },
         });
+
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_header",
+            params: ["p:17", "0xbeef"],
+        });
+        expect(calls).toContainEqual([
+            "getHeadHeader",
+            {
+                genesisHash: "0xfeed",
+                followSubscriptionId: "p:17",
+                hash: "0xbeef",
+            },
+        ]);
+    });
+
+    test("follow buffers an item emitted while the transport subscription starts", () => {
+        const client = makeFakeClient({
+            subscriptionId: "p:18",
+            initialItem: { tag: "BestBlockChanged", value: { bestBlockHash: "0xbeef" } },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
+
+        expect(messages).toEqual([
+            { jsonrpc: "2.0", id: 1, result: "p:18" },
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: {
+                    subscription: "p:18",
+                    result: { event: "bestBlockChanged", bestBlockHash: "0xbeef" },
+                },
+            },
+        ]);
     });
 
     test("chainSpec_v1_properties parses the JSON-encoded properties string", () => {
@@ -628,7 +697,7 @@ if (import.meta.vitest) {
         expect(messages[1]).toEqual({
             jsonrpc: "2.0",
             method: "chainHead_v1_followEvent",
-            params: { subscription: "follow_0", result: { event: "stop" } },
+            params: { subscription: "p:41", result: { event: "stop" } },
         });
     });
 

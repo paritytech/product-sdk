@@ -29,9 +29,9 @@ export interface HostProviderOptions {
      * not set, so `connect()` can still surface a usable account on hosts
      * that don't enumerate legacy accounts.
      *
-     * The value is treated as a dotNS identifier (`.dot` is appended if
-     * missing) and routed through `getProductAccount(dappName, 0)`. If the
-     * host rejects the derivation (e.g. the identifier isn't registered),
+     * The value is treated as a product identifier (`.dot` is appended to
+     * non-local names) and routed through `getProductAccount(dappName, 0)`. If
+     * the host rejects the derivation (e.g. the identifier isn't registered),
      * `connect()` resolves with an empty accounts list rather than
      * throwing — consumers can still drive the explicit signing paths
      * (`signMessageWithDotNsIdentity`, `getLegacyAccountSigner`).
@@ -95,6 +95,11 @@ export interface HostProviderOptions {
          */
         requestName?: boolean;
     };
+}
+
+function productIdentifierFromDappName(dappName: string): string {
+    const isLocalHost = /^(?:localhost|127\.0\.0\.1|[^:]+\.localhost)(?::\d+)?$/i.test(dappName);
+    return dappName.endsWith(".dot") || isLocalHost ? dappName : `${dappName}.dot`;
 }
 
 /**
@@ -578,11 +583,9 @@ export class HostProvider implements SignerProvider {
             if (!accountResult.ok) return accountResult;
             signerAccounts = [accountResult.value];
         } else if (this.dappName) {
-            // `.dot` is appended if missing so `"my-app"` and `"my-app.dot"`
-            // resolve to the same identifier on the host side.
-            const dotNsIdentifier = this.dappName.endsWith(".dot")
-                ? this.dappName
-                : `${this.dappName}.dot`;
+            // Local hosts are already complete product identifiers (including
+            // their port). DotNS product names get the canonical `.dot` suffix.
+            const dotNsIdentifier = productIdentifierFromDappName(this.dappName);
             const accountResult = await this.fetchProductSignerAccount(
                 provider,
                 dotNsIdentifier,
@@ -951,6 +954,23 @@ if (import.meta.vitest) {
 
             expect(result.ok).toBe(true);
             expect(mockProvider.getProductAccount).toHaveBeenCalledWith("my-cli.dot", 0);
+        });
+
+        test("connect preserves a local host dappName", async () => {
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0x78), name: undefined }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                dappName: "localhost:3000",
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+            });
+
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            expect(mockProvider.getProductAccount).toHaveBeenCalledWith("localhost:3000", 0);
         });
 
         test("connect succeeds when the default ChainSubmit permission request fails", async () => {
