@@ -490,11 +490,12 @@ export class HostProvider implements SignerProvider {
         try {
             provider = await this.loadAccountsProvider();
         } catch (cause) {
-            log.warn("host accounts provider unavailable", { cause });
+            const detail = cause instanceof Error ? cause.message : String(cause);
+            log.warn("host accounts provider unavailable", { error: detail });
             return err(
                 new HostUnavailableError(
                     cause instanceof Error
-                        ? `host accounts provider failed: ${cause.message}`
+                        ? `host accounts provider failed: ${detail}`
                         : "host accounts provider is unavailable",
                 ),
             );
@@ -629,7 +630,9 @@ export class HostProvider implements SignerProvider {
                 });
                 log.debug("ChainSubmit permission result", { granted });
             } catch (cause) {
-                log.warn("failed to request ChainSubmit permission", { cause });
+                log.warn("failed to request ChainSubmit permission", {
+                    error: cause instanceof Error ? cause.message : String(cause),
+                });
             }
         }
 
@@ -678,7 +681,9 @@ export class HostProvider implements SignerProvider {
                     },
                 );
             } catch (cause) {
-                log.debug("getUserId threw; product account name stays null", { cause });
+                log.debug("getUserId threw; product account name stays null", {
+                    error: cause instanceof Error ? cause.message : String(cause),
+                });
                 return null;
             }
         };
