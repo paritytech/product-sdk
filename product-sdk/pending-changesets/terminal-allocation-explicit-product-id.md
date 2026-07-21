@@ -17,3 +17,11 @@ auto-mapped on the wrong on-chain account, and brings the allocation side in
 line with the signer/read side (`createSessionSignerForAccount`,
 `getBulletinSigner`), which already takes an explicit `productId`. Consumers
 can delete their `{ ...adapter, appId: productId }` spread workarounds.
+
+> **Warning:** thread the **same** `productId` through **all four** allocation
+> APIs — `requestResourceAllocation`, `getCachedAllocation`,
+> `ensureSlotAccountSigner`, and `createSlotAccountSigner`. Deleting the
+> `{ ...adapter, appId }` spread without passing `productId` everywhere silently
+> reintroduces the wrong-account PGAS mint (allowance minted / auto-mapped on
+> the account derived from `adapter.appId` instead of your product's account),
+> which is exactly the footgun this change closes.
