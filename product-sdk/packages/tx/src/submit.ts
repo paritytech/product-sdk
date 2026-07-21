@@ -61,17 +61,15 @@ function isInvalidTxError(error: unknown): error is InvalidTxError {
     );
 }
 
-/**
- * Classify an `ok: false` tx event: with a `dispatchError` it's an on-chain
- * dispatch failure; without one the failure happened *before* inclusion
- * (validity/submission) — `dispatchError` only exists for an
- * included-and-failed transaction, so nothing more specific is available on
- * the event itself.
- */
 function classifyFailure(event: { dispatchError?: unknown }, formatted: string): TxError {
-    return event.dispatchError == null
-        ? new TxValidityError(event, "validity/submission failure (no dispatch error)")
-        : new TxDispatchError(event.dispatchError, formatted);
+    // Only called on included events (best-block / finalized). A missing
+    // dispatchError here is an anomalous included failure we couldn't decode —
+    // NOT a pre-inclusion validity error (those arrive via InvalidTxError on the
+    // subscription error channel and are surfaced as TxValidityError).
+    return new TxDispatchError(
+        event.dispatchError,
+        event.dispatchError == null ? "no decodable dispatch error" : formatted,
+    );
 }
 
 /**
@@ -394,7 +392,7 @@ if (import.meta.vitest) {
             }
         });
 
-        test("returns err(TxValidityError) on best-block failure without dispatchError", async () => {
+        test("returns err(TxDispatchError) on best-block failure without dispatchError", async () => {
             const failedEvent = { ...bestBlockFail, dispatchError: undefined } as TxEvent;
             const tx = createMockTx((h) => {
                 h.next(signedEvent);
@@ -403,19 +401,16 @@ if (import.meta.vitest) {
             const result = await submitAndWatch(tx, mockSigner);
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toBeInstanceOf(TxValidityError);
-                expect(result.error).not.toBeInstanceOf(TxDispatchError);
-                const validityError = result.error as TxValidityError;
-                expect(validityError.reason).toBe(failedEvent);
+                expect(result.error).toBeInstanceOf(TxDispatchError);
                 // Pin the exact message: a placeholder `formatted` here must
                 // not double up with the class's own prefix.
-                expect(validityError.message).toBe(
-                    "Transaction failed before inclusion: validity/submission failure (no dispatch error)",
+                expect(result.error.message).toBe(
+                    "Transaction dispatch failed: no decodable dispatch error",
                 );
             }
         });
 
-        test("returns err(TxValidityError) on finalized failure without dispatchError", async () => {
+        test("returns err(TxDispatchError) on finalized failure without dispatchError", async () => {
             const failedEvent = { ...finalizedFail, dispatchError: undefined } as TxEvent;
             const tx = createMockTx((h) => {
                 h.next(signedEvent);
@@ -424,8 +419,10 @@ if (import.meta.vitest) {
             const result = await submitAndWatch(tx, mockSigner, { waitFor: "finalized" });
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toBeInstanceOf(TxValidityError);
-                expect((result.error as TxValidityError).reason).toBe(failedEvent);
+                expect(result.error).toBeInstanceOf(TxDispatchError);
+                expect(result.error.message).toBe(
+                    "Transaction dispatch failed: no decodable dispatch error",
+                );
             }
         });
 

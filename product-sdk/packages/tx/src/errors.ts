@@ -59,9 +59,9 @@ export class TxDispatchError extends TxError {
 export class TxValidityError extends TxError {
     /**
      * Raw underlying failure payload: the decoded validity error from
-     * polkadot-api's `InvalidTxError` (e.g. `{ type: "Invalid", value:
-     * { type: "Payment" } }`), or the failed tx event when the node reported
-     * failure without any payload.
+     * polkadot-api's `InvalidTxError`
+     * (e.g. `{ type: "Invalid", value: { type: "Payment" } }`), or the failed
+     * tx event when the node reported failure without any payload.
      */
     readonly reason: unknown;
     /** Human-readable error string (e.g., "Invalid.Payment"). */
