@@ -38,7 +38,13 @@ export interface AuthorizationStatus {
 export interface BulletinAllowanceStatus extends AuthorizationStatus {
     /** Blocks until expiry; 0 if expired or not authorized. */
     remainingBlocks: number;
-    /** `authorized && currentBlock < expiration` — the chain's only hard gate. */
+    /**
+     * Usable *right now*: `authorized`, not expired (`currentBlock < expiration`),
+     * and with quota left (`remainingTransactions > 0 && remainingBytes > 0n`).
+     * Expiry is not the only hard gate — the chain also rejects a store once the
+     * transaction or byte quota is exhausted. Callers must still size-check
+     * `remainingBytes` against their actual payload.
+     */
     usable: boolean;
 }
 
