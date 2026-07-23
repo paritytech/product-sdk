@@ -109,7 +109,7 @@ setDefaults(defaults: ContractDefaults): void
 ```typescript
 manager.setDefaults({
     signerManager: newSignerManager,
-    origin: "0x...",
+    origin: "5GrwvaEF...", // SS58 — an H160 throws ContractInvalidOriginError
 });
 ```
 
@@ -233,6 +233,60 @@ declare module "@parity/product-sdk-contracts" {
 
 ---
 
+## Account mapping
+
+A `pallet-revive` contract call fails with `AccountNotMapped` if the caller's
+account has no H160 mapping yet. Two helpers, both taking a
+`ContractRuntime` (from `createContractRuntime` / `createContractRuntimeFromClient`):
+
+### isContractAccountMapped
+
+Read-only probe — no signer, never submits a transaction or prompts a wallet.
+Use it for readiness checks from side-effect-free paths.
+
+```typescript
+function isContractAccountMapped(
+    runtime: ContractRuntime,
+    address: SS58String,
+): Promise<Result<boolean, ContractError>>
+```
+
+Returns `ok(true)` when the mapping exists, `ok(false)` when it doesn't, or
+`err(ContractError)` when the address can't be converted or the storage query
+fails (underlying error attached as `cause`).
+
+```typescript
+const mapped = await isContractAccountMapped(runtime, account.address);
+if (mapped.ok && !mapped.value) {
+    // account needs mapping before it can call contracts
+}
+```
+
+### ensureContractAccountMapped
+
+The write half: submits the mapping extrinsic only when `isContractAccountMapped`
+reports the account is unmapped.
+
+```typescript
+function ensureContractAccountMapped(
+    runtime: ContractRuntime,
+    address: SS58String,
+    signer: PolkadotSigner,
+    options?: { timeoutMs?: number; onStatus?: (s: string) => void },
+): Promise<Result<TxResult | null, TxError>>
+```
+
+Returns `ok(TxResult)` from the mapping extrinsic, `ok(null)` if already mapped,
+or `err(TxError)` on failure.
+
+```typescript
+const result = await ensureContractAccountMapped(runtime, account.address, signer);
+if (!result.ok) throw result.error;
+// now safe to call contract.<method>.tx({ signer })
+```
+
+---
+
 ## Error Classes
 
 ### ContractError
@@ -270,6 +324,28 @@ class ContractLiveAddressResolutionError extends ContractError {
     readonly library: string | undefined;
     readonly detail: unknown;
     constructor(message: string, options?: { library?: string; detail?: unknown; cause?: unknown })
+}
+```
+
+### ContractInvalidOriginError
+
+Thrown when an `origin` (or `defaultOrigin`) passed to `query()`, `tx()`,
+`prepare()`, or a manager/contract factory is not a valid SS58 address.
+Raised *before* the value reaches PAPI's `AccountId` codec (which would
+otherwise fail deep in the encode stack with a bare `Invalid checksum`).
+
+The most common trigger is passing the account's **H160** (`0x…`):
+pallet-revive derives the H160 `msg.sender` *from* the SS58 origin, so the
+origin itself must be SS58. When the rejected value looks like an H160, the
+message includes an `h160ToSs58` pointer. This is a validation error, not a
+silent auto-conversion — converting here would hide which account the caller
+believes is calling.
+
+```typescript
+class ContractInvalidOriginError extends ContractError {
+    /** The rejected origin value. */
+    readonly origin: string;
+    constructor(origin: string)
 }
 ```
 
@@ -333,7 +409,11 @@ interface ContractDef {
 
 ```typescript
 interface QueryOptions {
-    origin?: HexString;
+    /** Caller for the dry-run. Must be SS58 — an H160 throws ContractInvalidOriginError. */
+    origin?: SS58String;
+    value?: bigint;
+    /** Block to target: "best" (default) | "finalized" | block hash. */
+    at?: ContractDryRunAt;
 }
 ```
 
@@ -370,7 +450,8 @@ interface TxResult {
 ```typescript
 interface ContractDefaults {
     signerManager?: SignerManager;
-    origin?: HexString;
+    /** Must be SS58 — an H160 throws ContractInvalidOriginError. */
+    origin?: SS58String;
     signer?: PolkadotSigner;
 }
 ```
@@ -380,7 +461,8 @@ interface ContractDefaults {
 ```typescript
 interface ContractManagerOptions {
     signerManager?: SignerManager;
-    defaultOrigin?: HexString;
+    /** Must be SS58 — an H160 throws ContractInvalidOriginError. */
+    defaultOrigin?: SS58String;
     defaultSigner?: PolkadotSigner;
 }
 ```
@@ -405,7 +487,8 @@ interface LiveContractResolutionOptions {
 ```typescript
 interface ContractOptions {
     signerManager?: SignerManager;
-    defaultOrigin?: HexString;
+    /** Must be SS58 — an H160 throws ContractInvalidOriginError. */
+    defaultOrigin?: SS58String;
     defaultSigner?: PolkadotSigner;
 }
 ```

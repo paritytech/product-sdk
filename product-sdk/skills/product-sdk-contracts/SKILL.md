@@ -97,11 +97,18 @@ With options:
 
 ```typescript
 const result = await counter.getCount.query({
-    origin: "0x...",       // Override caller address
-    at: "finalized",       // Pin the dry-run to finalized state
-                           // (runtime default is "best"; pass "best" | "finalized" | block hash)
+    origin: "5GrwvaEF...",  // Override caller — must be an SS58 address (see below)
+    at: "finalized",        // Pin the dry-run to finalized state
+                            // (runtime default is "best"; pass "best" | "finalized" | block hash)
 });
 ```
+
+**`origin` must be SS58, not H160.** pallet-revive derives the H160 `msg.sender`
+*from* the SS58 origin, so `origin` (on `query()`, `tx()`, `prepare()`, and
+`ContractDefaults`/`defaultOrigin`) is validated as SS58 before it reaches the
+codec. Passing an H160 (`0x…`) throws `ContractInvalidOriginError` — convert it
+first with `h160ToSs58` from `@parity/product-sdk-address`. This is a validation
+error, not a silent auto-conversion, so it never hides which account you meant.
 
 **Reverts.** `query()` does NOT throw on a contract revert — it returns
 `{ success: false, value, gasRequired }`. Two failure shapes are possible:
@@ -114,6 +121,13 @@ const result = await counter.getCount.query({
   `reason` is the decoded `Error(string)` message or a mapped `Panic` description;
   `decoded` carries the viem-decoded `{ errorName, args }` for ABI-defined custom
   errors. Discriminate on `value.type` to tell the two failure paths apart.
+
+**`AccountNotMapped`** on `value` means the origin has no `pallet-revive`
+mapping yet. To check ahead of time without a signer or a wallet prompt, use the
+read-only probe `isContractAccountMapped(runtime, ss58Address)` — it returns a
+`Result<boolean, ContractError>`. To create the mapping when it's missing, call
+`ensureContractAccountMapped(runtime, ss58Address, signer)` (submits the mapping
+extrinsic only if needed). See [Contracts API](references/contracts-api.md#account-mapping).
 
 ### tx() — State-Changing Transactions
 
@@ -307,6 +321,10 @@ The typed-API factory `createContractRuntime(typedApi, { at })` is also exported
 7. **Using `manager.getSigner()` (legacy account) on chains with unknown signed extensions** — `signerManager.connect()` exposes legacy accounts, whose signer routes through PJS. On chains like Paseo Next v2 that ship `AsPgas`, PJS throws `PJS does not support this signed-extension: AsPgas` at signing time. Use `signerManager.getProductAccount(<appOrigin>, 0)` and `productAccount.getSigner()` instead — that path goes through `host_create_transaction` and preserves arbitrary extensions.
 
 8. **Assuming `.query()` reads finalized state** — Dry-runs default to **best-block**, matching `.tx()`'s submission resolution. A `.query()` right after a `.tx()` will read what the just-landed transaction wrote, even before finalization. Pass `{ at: "finalized" }` (per-call) or set the runtime default to `"finalized"` if your product needs canonical lagged reads.
+
+9. **Passing an H160 as `origin`** — `origin` (and `defaultOrigin`) must be an **SS58** address. Passing the account's H160 (`0x…`) throws `ContractInvalidOriginError` — pallet-revive derives the H160 `msg.sender` from the SS58 origin, so convert first with `h160ToSs58` from `@parity/product-sdk-address`. It's validated, not auto-converted, so the mistake surfaces immediately instead of a bare `Invalid checksum` deep in the codec.
+
+10. **Not checking `pallet-revive` mapping before a `tx()`** — A contract call from an unmapped account fails with `AccountNotMapped`. Probe first with `isContractAccountMapped(runtime, address)` (read-only, no signer/prompt) or create the mapping with `ensureContractAccountMapped(runtime, address, signer)`.
 
 ## Reference Files
 
