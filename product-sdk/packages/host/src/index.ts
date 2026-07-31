@@ -70,6 +70,7 @@ export type { HostErrorPayload } from "./errors.js";
 export { getAccountsProvider } from "./accounts.js";
 export type {
     AccountsProvider,
+    DerivationIndex,
     HostAccount,
     ProductAccount,
     ContextualAlias,

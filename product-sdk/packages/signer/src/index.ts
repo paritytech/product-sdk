@@ -60,6 +60,7 @@ export type {
     HostProviderOptions,
     ProductAccount,
     ContextualAlias,
+    DerivationIndex,
     ProductProofContext,
     RingLocation,
     RingVRFProof,

@@ -27,6 +27,7 @@ import { AccountId, type PolkadotSigner } from "polkadot-api";
 
 import type {
     ContextualAlias as WireAlias,
+    DerivationIndex,
     HostAccountConnectionStatusSubscribeItem,
     HostAccountCreateProofResponse as WireRingVRFProof,
     HostRequestLoginResponse,
@@ -54,16 +55,22 @@ import type { HostSubscription } from "./types.js";
  * - `RingLocation` — where the ring lives (`{ chainId, junctions }`; junctions
  *   address the ring via `PalletInstance` / `CollectionId` steps).
  * - `ProductProofContext` — the product-scoped proof context
- *   (`{ productId, suffix }`), hashed by the host into the 32-byte context a
+ *   (`{ productId, suffix }`), expanded by the host into the 32-byte context a
  *   proof or alias is bound to.
+ * - `DerivationIndex` — the tagged selector `ProductProofContext.suffix`
+ *   carries: `{ tag: "Left", value: number }` for a plain index, or
+ *   `{ tag: "Right", value: HexString }` for a raw 32-byte index.
  */
-export type { ProductProofContext, RingLocation } from "@parity/truapi";
+export type { DerivationIndex, ProductProofContext, RingLocation } from "@parity/truapi";
 
 // The account/alias shapes come from `@parity/truapi`'s generated specs; we
 // derive the SDK-facing views from them so the field inventory tracks the
-// protocol automatically, and override only the byte fields the adapter
-// decodes (the wire types carry `0x`-prefixed `HexString`s, whereas these
-// surface decoded `Uint8Array`s). Same pattern as `@parity/product-sdk-statement-store`.
+// protocol automatically, and override only the fields the adapter re-encodes:
+// byte fields decoded from `0x`-prefixed `HexString`s to `Uint8Array`s, and
+// the tagged derivation-index selector kept as a plain `number` (wrapped back
+// into `Left` at the wire boundary). Shapes re-exported verbatim (e.g.
+// `ProductProofContext`) track the wire as-is. Same pattern as
+// `@parity/product-sdk-statement-store`.
 
 /**
  * One of the user's existing wallet accounts, surfaced through the host and
@@ -86,10 +93,14 @@ export type HostAccount = Omit<WireLegacyAccount, "publicKey"> & {
  *
  * Combines `@parity/truapi`'s `ProductAccountId` (the `{ dotNsIdentifier,
  * derivationIndex }` lookup key) with the `ProductAccount` payload, with
- * `publicKey` decoded to bytes.
+ * `publicKey` decoded to bytes and `derivationIndex` kept as the plain
+ * numeric index (the adapter wraps it into the wire's tagged
+ * {@link DerivationIndex} selector).
  */
-export type ProductAccount = ProductAccountId &
+export type ProductAccount = Omit<ProductAccountId, "derivationIndex"> &
     Omit<WireProductAccount, "publicKey"> & {
+        /** Plain account index within the product subtree. */
+        derivationIndex: number;
         /** Raw public key bytes. */
         publicKey: Uint8Array;
     };
@@ -217,6 +228,14 @@ function toHostExtensions(
     }));
 }
 
+/** Build the wire `ProductAccountId`, wrapping the plain index as a `Left` selector. */
+function toWireProductAccountId(
+    dotNsIdentifier: string,
+    derivationIndex: number,
+): ProductAccountId {
+    return { dotNsIdentifier, derivationIndex: { tag: "Left", value: derivationIndex } };
+}
+
 /** Build an {@link AccountsProvider} over a TruAPI client's `account` / `signing` domains. */
 function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
     const account = client.account;
@@ -233,7 +252,9 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
         },
         getProductAccount(dotNsIdentifier, derivationIndex = 0) {
             return account
-                .getAccount({ productAccountId: { dotNsIdentifier, derivationIndex } })
+                .getAccount({
+                    productAccountId: toWireProductAccountId(dotNsIdentifier, derivationIndex),
+                })
                 .map((response) => ({
                     publicKey: fromHex(response.account.publicKey),
                     dotNsIdentifier,
@@ -272,10 +293,10 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 }));
         },
         getProductAccountSigner(account_) {
-            const productAccountId = {
-                dotNsIdentifier: account_.dotNsIdentifier,
-                derivationIndex: account_.derivationIndex,
-            };
+            const productAccountId = toWireProductAccountId(
+                account_.dotNsIdentifier,
+                account_.derivationIndex,
+            );
 
             return {
                 publicKey: account_.publicKey,
@@ -428,7 +449,12 @@ if (import.meta.vitest) {
         );
         expect(calls[0]).toEqual([
             "getAccount",
-            { productAccountId: { dotNsIdentifier: "app.dot", derivationIndex: 2 } },
+            {
+                productAccountId: {
+                    dotNsIdentifier: "app.dot",
+                    derivationIndex: { tag: "Left", value: 2 },
+                },
+            },
         ]);
         expect(account).toEqual({
             publicKey: fromHex("0xaa"),
@@ -443,7 +469,7 @@ if (import.meta.vitest) {
         const provider = adaptAccountsProvider(client);
         const proof = await provider
             .createRingVRFProof(
-                { productId: "app.dot", suffix: "0x00" },
+                { productId: "app.dot", suffix: { tag: "Left", value: 0 } },
                 { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
                 new Uint8Array([1, 2, 3]),
             )
@@ -453,7 +479,7 @@ if (import.meta.vitest) {
             );
         expect(calls[0][0]).toBe("createAccountProof");
         expect(calls[0][1]).toEqual({
-            context: { productId: "app.dot", suffix: "0x00" },
+            context: { productId: "app.dot", suffix: { tag: "Left", value: 0 } },
             ringLocation: { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
             message: toHex(new Uint8Array([1, 2, 3])),
         });
@@ -478,7 +504,7 @@ if (import.meta.vitest) {
         expect(calls.at(-1)).toEqual([
             "signRaw",
             {
-                account: { dotNsIdentifier: "app.dot", derivationIndex: 0 },
+                account: { dotNsIdentifier: "app.dot", derivationIndex: { tag: "Left", value: 0 } },
                 payload: { tag: "Bytes", value: { bytes: toHex(new Uint8Array([9, 9])) } },
             },
         ]);
@@ -565,7 +591,7 @@ if (import.meta.vitest) {
         expect(calls.at(-1)).toEqual([
             "createTransaction",
             {
-                signer: { dotNsIdentifier: "app.dot", derivationIndex: 0 },
+                signer: { dotNsIdentifier: "app.dot", derivationIndex: { tag: "Left", value: 0 } },
                 genesisHash: toHex(new Uint8Array([0x01, 0x02])),
                 callData: toHex(new Uint8Array([0xca, 0x11])),
                 extensions: expectedHostExtensions,

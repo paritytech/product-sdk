@@ -3,6 +3,7 @@
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
+    type ProductProofContext,
     type RemotePermission,
     requestPermission,
 } from "@parity/product-sdk-host";
@@ -145,17 +146,12 @@ export interface RingLocation {
 }
 
 /**
- * A product-scoped proof context, hashed by the host into the 32-byte context
- * a proof or alias is bound to.
- *
- * Matches the product-sdk's `ProductProofContext` codec shape.
+ * A product-scoped proof context (`{ productId, suffix }`) and the tagged
+ * `DerivationIndex` selector its `suffix` carries. Re-exported from
+ * `@parity/product-sdk-host` — host is a hard dependency, so the wire shapes
+ * come from one place rather than a structural copy that could drift.
  */
-export interface ProductProofContext {
-    /** dotNS product identifier (e.g. "my-product.dot") scoping the context. */
-    productId: string;
-    /** Hex-encoded suffix distinguishing contexts within the product. */
-    suffix: string;
-}
+export type { DerivationIndex, ProductProofContext } from "@parity/product-sdk-host";
 
 /**
  * A Ring VRF proof plus the values needed to verify it downstream.

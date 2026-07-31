@@ -193,6 +193,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                     ringIndex: 0,
                     ringRevision: 0,
                 }),
+            signVrf: () => okAsync({ preOutput: publicKey, proof: signature }),
             connectionStatusSubscribe: () => inertObservable(),
         },
         signing: {

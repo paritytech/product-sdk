@@ -97,7 +97,7 @@ function adaptPaymentManager(client: TrUApiClient): PaymentManager {
  * const payments = await getPaymentManager();
  * if (payments) {
  *   const sub = payments.subscribeBalance((b) => { ... });
- *   await payments.topUp(1_000_000n, { tag: "ProductAccount", value: { derivationIndex: 0 } });
+ *   await payments.topUp(1_000_000n, { tag: "ProductAccount", value: { derivationIndex: { tag: "Left", value: 0 } } });
  *   const { id } = await payments.requestPayment(500n, "0x…");
  *   sub.unsubscribe();
  * }
