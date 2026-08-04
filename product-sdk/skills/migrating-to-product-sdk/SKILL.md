@@ -28,6 +28,19 @@ content:
 - `product-sdk-contracts` — `ContractManager`, `createContract`
 - `product-sdk-statement-store` — pub/sub
 
+## Target transport
+
+The host transport is `@parity/truapi`, since `9f145ce` (#186, host 0.12.0).
+
+- `host`, `signer` and `statement-store` have no `@novasamatech/*` dependency.
+  `-terminal` is the only published package that still does.
+- `getTruApi()` / `getPreimageManager()` still exist in
+  `packages/host/src/truapi.ts`, now backed by the truAPI client. Other
+  packages use that file's facades, not `@parity/truapi` directly.
+- The `@novasamatech/*` names in the trigger list and greps below are **legacy
+  markers to find in the target repo**, not part of the target stack. Check G11
+  before calling a leftover lockfile entry a finding.
+
 ## When this skill applies
 
 Invoke when any of:
