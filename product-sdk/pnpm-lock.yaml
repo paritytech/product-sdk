@@ -10,8 +10,8 @@ catalogs:
       specifier: ^0.11.0
       version: 0.11.0
     '@parity/truapi':
-      specifier: ^0.6.0
-      version: 0.6.0
+      specifier: ^0.7.0
+      version: 0.7.0
     '@playwright/test':
       specifier: ^1.60.0
       version: 1.60.0
@@ -535,7 +535,7 @@ importers:
         version: link:../result
       '@parity/truapi':
         specifier: 'catalog:'
-        version: 0.6.0
+        version: 0.7.0
       '@polkadot-api/json-rpc-provider':
         specifier: ^0.2.0
         version: 0.2.0
@@ -1648,8 +1648,8 @@ packages:
       '@playwright/test':
         optional: true
 
-  '@parity/truapi@0.6.0':
-    resolution: {integrity: sha512-fhjnlyuZbS4QSYD+G037APq23/YpkkkAmkYUj4F7EXxhl5G3X5cGh1ieBRkPPHOkKIUjoDiQPbJRQgqiSbqbGQ==}
+  '@parity/truapi@0.7.0':
+    resolution: {integrity: sha512-xBGZP7/l74I0WGUnHgoFNYah+20I3JgykJ5pNUVsw3mQzNoCHuZSVJW6sUq7fzLvRF4wM2glPTPxUOiFKgfE9A==}
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -3877,7 +3877,7 @@ snapshots:
     optionalDependencies:
       '@playwright/test': 1.60.0
 
-  '@parity/truapi@0.6.0':
+  '@parity/truapi@0.7.0':
     dependencies:
       '@noble/hashes': 2.2.0
       neverthrow: 8.2.0
