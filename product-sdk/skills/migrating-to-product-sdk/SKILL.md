@@ -162,6 +162,19 @@ Include at minimum:
 - `papiVersion`: resolved version from lockfile
 - `tests`: detected test runner + count
 
+### Exit: nothing to migrate
+
+If discovery finds none of the trigger patterns, the repo is already migrated. Say
+so and give the 15-area table as evidence. Do not write a spec for work that does not
+exist.
+
+Then check whether a **version bump** is needed, because "already migrated" is not
+"up to date" — compare the `@parity/product-sdk*` versions in the manifest against
+the published latest (`npm view @parity/product-sdk version`). If the repo is behind,
+report that as the actionable next step. A bump is a dependency change, not a
+migration, and needs no spec. G11 still applies on that path: a bump is exactly when
+a stale transitive `@novasamatech/*` entry surfaces.
+
 When the discovery report is complete, immediately proceed to Phase 2.
 
 ## Phase 2 — Decision matrix
@@ -306,7 +319,9 @@ files affected (with paths), owning SDK skill, notes.
 ### Dependencies and overrides
 - Add: [list with versions]
 - Remove (direct): [list]
-- Remains transitive: @novasamatech/host-api-wrapper (via @parity/product-sdk-host; was @novasamatech/product-sdk pre-#110)
+- Remains transitive: run `pnpm why` / `yarn why` on each @novasamatech/* entry left in the
+  lockfile and record the owner. Owned by @parity/product-sdk-terminal (directly or via a
+  CLI that pins it): expected, leave it. Any other owner: a finding, file it — see G11
 - pnpm.overrides (required):
     "@polkadot-api/json-rpc-provider": "^0.2.0"          # always; SDK monorepo root has this
     "@polkadot-api/json-rpc-provider-proxy": "^0.4.0"    # add if legacy 0.2.8 proxy is being hoisted
@@ -430,11 +445,11 @@ This skill ends here. Do not attempt to execute the plan yourself.
 
 ## Gotcha catalog
 
-Eleven trap doors observed across three reference migrations. Full
+Twelve trap doors observed across four reference migrations. Full
 catalog with cause/symptom/fix per gotcha: see `references/gotchas.md`.
 
 Apply the fix when the symptom appears; reference the gotcha number
-(G1–G11) from the spec when applicable. The most frequently relevant
+(G1–G12) from the spec when applicable. The most frequently relevant
 are: G1 (JSON-RPC overrides, **always** required), G7 (`cloudStorage: false`
 when Cloud Storage out of scope), G10 (descriptors bump).
 
