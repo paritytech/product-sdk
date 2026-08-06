@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { CustomRendererNode } from "@parity/truapi";
+import type { CustomRendererNode, ObservableSource } from "@parity/truapi";
 import type { ReactNode } from "react";
 
 import { createRenderer } from "./renderer.js";
@@ -25,6 +25,11 @@ export type ChatCustomMessageRenderer = (
     render: (node: CustomRendererNode) => void,
 ) => VoidFunction;
 
+/** Product callback that streams renderer trees for one custom chat message. */
+export type ChatCustomMessageRenderingRequestHandler = (
+    request: ChatCustomMessageRendererParams,
+) => ObservableSource<CustomRendererNode>;
+
 /**
  * Register a React-based renderer for custom chat messages.
  *
@@ -45,6 +50,37 @@ export function registerChatMessageRenderer<Payload>(
 
         return () => {
             renderer.unmount();
+        };
+    };
+}
+
+/** Select a registered renderer using the custom message's product-defined type. */
+export function matchChatCustomRenderers(
+    renderers: Readonly<Record<string, ChatCustomMessageRenderer>>,
+): ChatCustomMessageRenderingRequestHandler {
+    return (request) => {
+        const renderer = renderers[request.messageType];
+        if (!renderer) {
+            throw new Error(
+                `No custom chat renderer registered for message type "${request.messageType}"`,
+            );
+        }
+
+        return {
+            subscribe(observer) {
+                let active = true;
+                const dispose = renderer(request, (node) => {
+                    if (active) observer.next?.(node);
+                });
+
+                return {
+                    unsubscribe() {
+                        if (!active) return;
+                        active = false;
+                        dispose();
+                    },
+                };
+            },
         };
     };
 }

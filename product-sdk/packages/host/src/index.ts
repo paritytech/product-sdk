@@ -99,6 +99,9 @@ export type {
     ChatRoom,
     ChatRoomRegistrationResult,
     ChatBotRegistrationResult,
+    ChatCustomMessageRenderingRequest,
+    ChatCustomMessageRenderingRequestHandler,
+    ChatCustomMessageRenderingRegistration,
 } from "./chat.js";
 
 // Payments (RFC-0006)

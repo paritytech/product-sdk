@@ -16,5 +16,9 @@ export { createRenderer } from "./renderer.js";
 export type {
     ChatCustomMessageRenderer,
     ChatCustomMessageRendererParams,
+    ChatCustomMessageRenderingRequestHandler,
 } from "./rendererChatMessage.js";
-export { registerChatMessageRenderer } from "./rendererChatMessage.js";
+export {
+    matchChatCustomRenderers,
+    registerChatMessageRenderer,
+} from "./rendererChatMessage.js";
