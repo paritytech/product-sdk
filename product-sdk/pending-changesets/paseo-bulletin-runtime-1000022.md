@@ -1,5 +1,7 @@
 ---
 "@parity/product-sdk-descriptors": minor
+"@parity/product-sdk-chain-client": minor
+"@parity/product-sdk-cloud-storage": minor
 "@parity/product-sdk": minor
 ---
 
