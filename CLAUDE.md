@@ -38,9 +38,10 @@ For e2e on a single demo: `pnpm --filter "@parity/product-sdk-tx-demo" test:e2e`
 
 ## Changesets
 
-Every PR that changes a published artifact needs a changeset. See [`product-sdk/RELEASES.md#when-does-a-pr-need-a-changeset`](./product-sdk/RELEASES.md#when-does-a-pr-need-a-changeset) for the exact criteria. Two important quirks:
+Every PR that changes a published artifact needs a changeset. See [`product-sdk/RELEASES.md#when-does-a-pr-need-a-changeset`](./product-sdk/RELEASES.md#when-does-a-pr-need-a-changeset) for the exact criteria. Three important quirks:
 
-- Park work-in-progress changesets in `pending-changesets/`, not `.changeset/` — anything under `.changeset/` ships on the next merge to `main`, even if the PR that created it is unfinished.
+- Park your changeset in `pending-changesets/`, not `.changeset/` — anything under `.changeset/` ships on the next merge to `main`, even if the PR that created it is unfinished. Leave it there; your PR never moves it.
+- **A separate `chore(release):` PR promotes the ready changesets into `.changeset/` and cuts the release wave.** Feature PRs don't promote. CI enforces this with the `product-sdk: Changeset location` check.
 - When any constituent gets a `minor` bump, **also list `@parity/product-sdk` as `minor`** in the same changeset. Otherwise the umbrella cascades only at patch level.
 
 ## PR workflow
