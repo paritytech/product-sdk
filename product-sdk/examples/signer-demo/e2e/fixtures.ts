@@ -14,7 +14,7 @@ const PRODUCT_URL = "http://localhost:5210";
 
 /**
  * Override via `PASEO_AH_RPC` in CI/local if the default RPC has outages — but
- * the override must serve **paseo v2** (genesis `0x173cea9d…`). Any mirror still
+ * the override must serve **paseo v2** (genesis `0xbf0488db…`). Any mirror still
  * pointing at v1 paseo will hash-mismatch the spread `PASEO_ASSET_HUB.genesisHash`
  * and break the chain-handshake (manifesting as `Tracking stopped` / `BadProof`).
  */
