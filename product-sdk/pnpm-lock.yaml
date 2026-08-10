@@ -802,7 +802,7 @@ importers:
         version: 0.0.30
       nanoid:
         specifier: ^5.1.7
-        version: 5.1.9
+        version: 5.1.16
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -2608,8 +2608,8 @@ packages:
     engines: {node: ^18 || >=20}
     hasBin: true
 
-  nanoid@5.1.9:
-    resolution: {integrity: sha512-ZUvP7KeBLe3OZ1ypw6dI/TzYJuvHP77IM4Ry73waSQTLn8/g8rpdjfyVAh7t1/+FjBtG4lCP42MEbDxOsRpBMw==}
+  nanoid@5.1.16:
+    resolution: {integrity: sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ==}
     engines: {node: ^18 || >=20}
     hasBin: true
 
@@ -4837,7 +4837,7 @@ snapshots:
 
   nanoid@5.1.11: {}
 
-  nanoid@5.1.9: {}
+  nanoid@5.1.16: {}
 
   nanoid@6.0.0: {}
 
