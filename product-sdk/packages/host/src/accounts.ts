@@ -114,7 +114,7 @@ export type ProductAccount = Omit<ProductAccountId, "derivationIndex"> &
  * defaulting to 0. A {@link ProductAccount} satisfies this, so an account from
  * {@link AccountsProvider.getProductAccount} can be passed straight back in.
  */
-export type ProductAccountRef = Omit<ProductAccountId, "derivationIndex"> & {
+export type ProductAccountLookup = Omit<ProductAccountId, "derivationIndex"> & {
     /** Plain account index within the product subtree. Defaults to 0. */
     derivationIndex?: number;
 };
@@ -222,7 +222,7 @@ export interface AccountsProvider {
      * Hosts predating the call reject it through the error channel.
      */
     signVrf(
-        account: ProductAccountRef,
+        account: ProductAccountLookup,
         transcriptLabel: Uint8Array,
         items: VrfTranscriptItem[],
     ): ResultAsync<VrfSignature, scale.CallErrorValue<VersionedHostAccountSignVrfError>>;
@@ -290,7 +290,7 @@ function toHostExtensions(
 function toWireProductAccountId({
     dotNsIdentifier,
     derivationIndex = 0,
-}: ProductAccountRef): ProductAccountId {
+}: ProductAccountLookup): ProductAccountId {
     return { dotNsIdentifier, derivationIndex: { tag: "Left", value: derivationIndex } };
 }
 
