@@ -98,66 +98,9 @@ export function normalizeDotNsName(name: string): string {
     return normalized;
 }
 
-/**
- * Resolve a DotNS name to an address.
- *
- * @deprecated Not implemented — throws at runtime. Use
- *   `wallet.signMessageWithDotNsIdentity({ peopleChain, username })` (which
- *   internally calls {@link resolvePeopleUsernameOwner}) for the supported
- *   People-chain username flow.
- *
- * @param name - DotNS name (e.g., "alice.dot")
- * @returns Resolved record or null if not found
- */
-export async function resolveDotNs(name: string): Promise<DotNsRecord | null> {
-    const normalized = normalizeDotNsName(name);
-
-    if (!isValidDotNsName(normalized)) {
-        log.warn("Invalid DotNS name", { name });
-        return null;
-    }
-
-    log.debug("Resolving DotNS name", { name: normalized });
-
-    // TODO: Implement via PAPI query to DotNS pallet
-    throw new Error(
-        "resolveDotNs() is not yet implemented. " +
-            "This is a skeleton for the Product SDK structure.",
-    );
-}
-
-/**
- * Reverse resolve an address to a DotNS name.
- *
- * @deprecated Not implemented — throws at runtime. Reverse lookup will land
- *   alongside future identity work; for now resolve forward via
- *   `wallet.signMessageWithDotNsIdentity`.
- *
- * @param address - SS58 address
- * @returns Primary name or null if none set
- */
-export async function reverseDotNs(address: string): Promise<string | null> {
-    log.debug("Reverse resolving address", { address });
-
-    // TODO: Implement via PAPI query to DotNS pallet
-    throw new Error(
-        "reverseDotNs() is not yet implemented. " +
-            "This is a skeleton for the Product SDK structure.",
-    );
-}
-
-/**
- * Check if a DotNS name is available for registration.
- *
- * @deprecated Not implemented — depends on {@link resolveDotNs} which throws.
- *
- * @param name - Name to check
- * @returns True if available
- */
-export async function isDotNsAvailable(name: string): Promise<boolean> {
-    const record = await resolveDotNs(name).catch(() => null);
-    return record === null;
-}
+// `resolveDotNs` / `reverseDotNs` / `isDotNsAvailable` now live in
+// `./dotns-registry.ts` (real `Result`-returning registry calls), replacing the
+// throwing skeletons that used to sit here. See that module + the design doc.
 
 /**
  * Resolve a People / People Lite username to its owning `AccountId32`.

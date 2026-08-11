@@ -7,17 +7,30 @@
  * and Ring VRF anonymous aliases.
  */
 
-// DotNS utilities
+// DotNS utilities (pure helpers + People-chain username path)
 export {
     isValidDotNsName,
     normalizeDotNsName,
-    resolveDotNs,
-    reverseDotNs,
-    isDotNsAvailable,
     accountIdHexToBytes,
     resolvePeopleUsernameOwner,
 } from "./dotns.js";
 export type { PeopleUsernameChain, PeopleUsernameQueryApi } from "./dotns.js";
+
+// DotNS registry reads + writes (Revive contract)
+export {
+    resolveDotNs,
+    reverseDotNs,
+    isDotNsAvailable,
+    registerDotNs,
+    setDotNsRecord,
+} from "./dotns-registry.js";
+export type {
+    DotNsClientOptions,
+    RegisterDotNsArgs,
+    SetRecordArgs,
+} from "./dotns-registry.js";
+export { DotNsError } from "./dotns-errors.js";
+export type { DotNsErrorReason } from "./dotns-errors.js";
 
 // Context alias utilities
 export {
