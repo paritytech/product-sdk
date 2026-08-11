@@ -137,7 +137,9 @@ export interface ContextualAlias {
  * Location of a Ring VRF ring on-chain: the hosting chain's genesis hash plus
  * the junction path addressing the ring within it.
  *
- * Matches the product-sdk's `RingLocation` codec shape.
+ * Structurally matches `RingLocation` from `@parity/truapi`, re-exported by
+ * `@parity/product-sdk-host`. Declared locally with `string` in place of the
+ * branded hex types so callers can pass plain strings.
  */
 export interface RingLocation {
     /** Genesis hash of the chain hosting the ring. */
