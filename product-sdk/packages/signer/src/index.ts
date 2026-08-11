@@ -59,9 +59,12 @@ export { HostProvider } from "./providers/host.js";
 export type {
     HostProviderOptions,
     ProductAccount,
+    ProductAccountLookup,
     ContextualAlias,
     DerivationIndex,
     ProductProofContext,
     RingLocation,
     RingVRFProof,
+    VrfSignature,
+    VrfTranscriptItem,
 } from "./providers/host.js";
