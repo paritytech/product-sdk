@@ -73,6 +73,7 @@ export type {
     DerivationIndex,
     HostAccount,
     ProductAccount,
+    ProductAccountRef,
     ContextualAlias,
     ProductProofContext,
     RingLocation,

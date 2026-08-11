@@ -106,6 +106,18 @@ export type ProductAccount = Omit<ProductAccountId, "derivationIndex"> &
     };
 
 /**
+ * How callers address a product account: the app identifier plus an optional
+ * index within its subtree, defaulting to 0.
+ *
+ * A {@link ProductAccount} satisfies this, so an account returned by
+ * {@link AccountsProvider.getProductAccount} can be passed straight back in.
+ */
+export type ProductAccountRef = Omit<ProductAccountId, "derivationIndex"> & {
+    /** Plain account index within the product subtree. Defaults to 0. */
+    derivationIndex?: number;
+};
+
+/**
  * A contextual alias obtained from Ring VRF.
  *
  * Proves account membership in a ring without revealing which account.
@@ -228,11 +240,17 @@ function toHostExtensions(
     }));
 }
 
-/** Build the wire `ProductAccountId`, wrapping the plain index as a `Left` selector. */
-function toWireProductAccountId(
-    dotNsIdentifier: string,
-    derivationIndex: number,
-): ProductAccountId {
+/**
+ * Build the wire `ProductAccountId` from a {@link ProductAccountRef}: default the
+ * index to 0 and wrap it as a `Left` selector.
+ *
+ * The parameter is destructured rather than spread so that a full
+ * {@link ProductAccount} can be passed in without its `publicKey` reaching the wire.
+ */
+function toWireProductAccountId({
+    dotNsIdentifier,
+    derivationIndex = 0,
+}: ProductAccountRef): ProductAccountId {
     return { dotNsIdentifier, derivationIndex: { tag: "Left", value: derivationIndex } };
 }
 
@@ -253,7 +271,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
         getProductAccount(dotNsIdentifier, derivationIndex = 0) {
             return account
                 .getAccount({
-                    productAccountId: toWireProductAccountId(dotNsIdentifier, derivationIndex),
+                    productAccountId: toWireProductAccountId({ dotNsIdentifier, derivationIndex }),
                 })
                 .map((response) => ({
                     publicKey: fromHex(response.account.publicKey),
@@ -293,10 +311,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 }));
         },
         getProductAccountSigner(account_) {
-            const productAccountId = toWireProductAccountId(
-                account_.dotNsIdentifier,
-                account_.derivationIndex,
-            );
+            const productAccountId = toWireProductAccountId(account_);
 
             return {
                 publicKey: account_.publicKey,
@@ -461,6 +476,27 @@ if (import.meta.vitest) {
             dotNsIdentifier: "app.dot",
             derivationIndex: 2,
         });
+    });
+
+    test("getProductAccount defaults the derivation index in both the request and the result", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const account = await provider.getProductAccount("app.dot").match(
+            (a) => a,
+            () => null,
+        );
+        expect(calls[0]).toEqual([
+            "getAccount",
+            {
+                productAccountId: {
+                    dotNsIdentifier: "app.dot",
+                    derivationIndex: { tag: "Left", value: 0 },
+                },
+            },
+        ]);
+        // The resolved index must reach the caller too, not just the wire.
+        expect(account?.derivationIndex).toBe(0);
     });
 
     test("createRingVRFProof hex-encodes the message and decodes the proof response", async () => {
