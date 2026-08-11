@@ -10,21 +10,26 @@
  * `createContract(...).<method>.query(...)`. See the sdk-team design doc
  * (`docs/product-sdk/dotns-registry-support.md`).
  *
- * **Reads are wired; writes are not.** `resolveDotNs` / `reverseDotNs` /
- * `isDotNsAvailable` call chain. `registerDotNs` / `setDotNsRecord` still throw
- * `DotNsError("NotWired")`: registration is a commit → wait → reveal-and-pay
- * flow that warrants its own PR. `TODO(dotns-abi)` marks the write sites.
+ * Reads (`resolveDotNs` / `reverseDotNs` / `isDotNsAvailable`) query chain.
+ * Writes return prepared calls the caller submits with their own signer:
+ * `setDotNsRecord` (one `setAddress` call) and `prepareDotNsRegistration` (the
+ * commit + register calls plus the timing window — registration is a two-tx
+ * commit-reveal-and-pay flow, so it can't be a single call).
  *
  * Note: this deployment has no name-expiry concept (the registrar exposes no
  * expiry getter), so `DotNsRecord.expiresAt` is always omitted.
  */
 import { err, ok, type Result } from "@parity/result";
-import { type AbiEntry, createContract } from "@parity/product-sdk-contracts";
+import { type AbiEntry, type BatchableCall, createContract } from "@parity/product-sdk-contracts";
 import type { ContractRuntime } from "@parity/product-sdk-contracts";
+import { bytesToHex, randomBytes } from "@parity/product-sdk-crypto";
 import { createLogger } from "@parity/product-sdk-logger";
 import {
+    DOTNS_POP_RULES_ABI,
+    DOTNS_REGISTRAR_CONTROLLER_ABI,
     DOTNS_REGISTRY_ABI,
     DOTNS_RESOLVER_ABI,
+    DOTNS_RESOLVER_WRITE_ABI,
     DOTNS_REVERSE_RESOLVER_ABI,
     PASEO_ASSETHUB_DOTNS,
 } from "./dotns-abis.js";
@@ -47,23 +52,31 @@ export interface DotNsClientOptions {
     registryAddress?: HexString;
     /** `DotnsReverseResolver` address. Defaults to the Paseo Asset Hub deployment. */
     reverseResolverAddress?: HexString;
+    /** `DotnsResolver` address (writes: setDotNsRecord). Defaults to Paseo AH. */
+    resolverAddress?: HexString;
+    /** `DotnsRegistrarController` address (registration). Defaults to Paseo AH. */
+    registrarControllerAddress?: HexString;
+    /** `PopRules` address (registration price). Defaults to Paseo AH. */
+    popRulesAddress?: HexString;
 }
 
-/** Arguments for {@link registerDotNs}. */
+/** Arguments for {@link prepareDotNsRegistration}. */
 export interface RegisterDotNsArgs {
+    /** The name to register, e.g. `"alice.dot"` (or bare `"alice"`). */
     name: string;
+    /** The account that will own the registered name. */
     owner: string;
+    /** Reserved-name registration (default `false`). */
+    reserved?: boolean;
 }
 
 /** Arguments for {@link setDotNsRecord}. */
 export interface SetRecordArgs {
+    /** The name whose resolver record is being set. */
     name: string;
+    /** The address the name should resolve to. */
     address: string;
 }
-
-const WRITES_NOT_WIRED =
-    "DotNS writes (register / setRecord) are not wired yet — registration is a " +
-    "commit-reveal-pay flow tracked as a follow-up. See dotns-registry.ts.";
 
 function contractOf(runtime: ContractRuntime, address: HexString, abi: AbiEntry[]) {
     // biome-ignore lint/suspicious/noExplicitAny: createContract is generic over a
@@ -175,21 +188,128 @@ export async function isDotNsAvailable(
     return ok(resolved.value === null);
 }
 
-// ── Writes (not wired — follow-up PR) ────────────────────────────────
+// ── Writes ───────────────────────────────────────────────────────────
 //
-// Registration is a commit → wait(minCommitmentAge) → register{value} flow on
-// DotnsRegistrarController; setting records is owner-gated on the resolver.
-// Kept as typed throwing entry points so the surface is complete and callers
-// see a clear error rather than a missing export.
+// Writes return prepared calls (`BatchableCall`) the caller submits with their
+// own signer via `@parity/product-sdk-tx` — the surface stays signer-free, like
+// the reads. Registration is a two-transaction commit-reveal, so it can't be a
+// single call; `prepareDotNsRegistration` returns both plus the timing window.
 
-/** Build a registration transaction for a DotNS name. NOT wired yet. */
-export function registerDotNs(_args: RegisterDotNsArgs, _opts: DotNsClientOptions): never {
-    // TODO(dotns-abi): DotnsRegistrarController makeCommitment → commit → register.
-    throw new DotNsError("NotWired", WRITES_NOT_WIRED);
+/**
+ * Prepare a `setAddress` call binding a name to a resolved address. The caller
+ * must own the node; submit the returned call with the owner's signer.
+ */
+export async function setDotNsRecord(
+    args: SetRecordArgs,
+    opts: DotNsClientOptions,
+): Promise<Result<BatchableCall, DotNsError>> {
+    const normalized = normalizeDotNsName(args.name);
+    if (!isValidDotNsName(normalized)) {
+        return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
+    }
+    const node = namehash(normalized);
+    const resolverAddr = opts.resolverAddress ?? PASEO_ASSETHUB_DOTNS.resolver;
+    try {
+        const resolver = contractOf(
+            opts.runtime,
+            resolverAddr as HexString,
+            DOTNS_RESOLVER_WRITE_ABI,
+        );
+        const prepared = await resolver.setAddress.prepare(node, args.address);
+        if (!prepared.ok) {
+            return err(new DotNsError("RegistryCall", "resolver.setAddress prepare failed"));
+        }
+        return ok(prepared.value as BatchableCall);
+    } catch (cause) {
+        return err(new DotNsError("RegistryCall", "DotNS setRecord failed", { cause }));
+    }
 }
 
-/** Build a transaction that sets a DotNS name's resolved record. NOT wired yet. */
-export function setDotNsRecord(_args: SetRecordArgs, _opts: DotNsClientOptions): never {
-    // TODO(dotns-abi): DotnsResolver.setAddress(node, address), owner-gated.
-    throw new DotNsError("NotWired", WRITES_NOT_WIRED);
+/** The prepared pieces of a DotNS registration. */
+export interface DotNsRegistration {
+    /** The random secret bound into both commit and register — reuse verbatim. */
+    secret: HexString;
+    /** The commitment hash (also encoded inside `commitCall`). */
+    commitment: HexString;
+    /** Submit first, with the owner's signer. */
+    commitCall: BatchableCall;
+    /** Submit after `minCommitmentAge` (and before `maxCommitmentAge`) elapses. */
+    registerCall: BatchableCall;
+    /** Seconds to wait after `commit` before `register` is accepted. */
+    minCommitmentAge: bigint;
+    /** Seconds after which the commitment expires and `register` is rejected. */
+    maxCommitmentAge: bigint;
+    /** The registration price (the `register` call's payable value). */
+    price: bigint;
+}
+
+/**
+ * Prepare a DotNS registration: the commit + register calls, the shared secret,
+ * and the timing window. Registration is commit-reveal —
+ *
+ *   1. submit `commitCall`
+ *   2. wait `minCommitmentAge` (register before `maxCommitmentAge`)
+ *   3. submit `registerCall` (its payable value is already set to `price`)
+ *
+ * The `register` price comes from `PopRules.price(label)`.
+ */
+export async function prepareDotNsRegistration(
+    args: RegisterDotNsArgs,
+    opts: DotNsClientOptions,
+): Promise<Result<DotNsRegistration, DotNsError>> {
+    const normalized = normalizeDotNsName(args.name);
+    if (!isValidDotNsName(normalized)) {
+        return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
+    }
+    // The registrar takes the bare label (no ".dot" suffix).
+    const label = normalized.slice(0, -4);
+    const controllerAddr =
+        opts.registrarControllerAddress ?? PASEO_ASSETHUB_DOTNS.registrarController;
+    const popRulesAddr = opts.popRulesAddress ?? PASEO_ASSETHUB_DOTNS.popRules;
+    const secret = `0x${bytesToHex(randomBytes(32))}` as HexString;
+    const registration = { label, owner: args.owner, secret, reserved: args.reserved ?? false };
+
+    try {
+        const controller = contractOf(
+            opts.runtime,
+            controllerAddr as HexString,
+            DOTNS_REGISTRAR_CONTROLLER_ABI,
+        );
+        const popRules = contractOf(opts.runtime, popRulesAddr as HexString, DOTNS_POP_RULES_ABI);
+
+        const [commitmentRes, priceRes, minRes, maxRes] = await Promise.all([
+            controller.makeCommitment.query(registration),
+            popRules.price.query(label),
+            controller.minCommitmentAge.query(),
+            controller.maxCommitmentAge.query(),
+        ]);
+        if (!commitmentRes.success) {
+            return err(new DotNsError("RegistryCall", "makeCommitment failed"));
+        }
+        if (!priceRes.success) {
+            return err(new DotNsError("RegistryCall", "PopRules.price failed"));
+        }
+        const commitment = commitmentRes.value as HexString;
+        const price = BigInt(priceRes.value as string | number | bigint);
+
+        const [commitPrep, registerPrep] = await Promise.all([
+            controller.commit.prepare(commitment),
+            controller.register.prepare(registration, { value: price }),
+        ]);
+        if (!commitPrep.ok || !registerPrep.ok) {
+            return err(new DotNsError("RegistryCall", "commit / register prepare failed"));
+        }
+
+        return ok({
+            secret,
+            commitment,
+            commitCall: commitPrep.value as BatchableCall,
+            registerCall: registerPrep.value as BatchableCall,
+            minCommitmentAge: BigInt(minRes.success ? (minRes.value as string | number) : 0),
+            maxCommitmentAge: BigInt(maxRes.success ? (maxRes.value as string | number) : 0),
+            price,
+        });
+    } catch (cause) {
+        return err(new DotNsError("RegistryCall", "DotNS registration prepare failed", { cause }));
+    }
 }

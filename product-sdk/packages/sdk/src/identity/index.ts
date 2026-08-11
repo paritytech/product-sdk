@@ -21,13 +21,14 @@ export {
     resolveDotNs,
     reverseDotNs,
     isDotNsAvailable,
-    registerDotNs,
     setDotNsRecord,
+    prepareDotNsRegistration,
 } from "./dotns-registry.js";
 export type {
     DotNsClientOptions,
     RegisterDotNsArgs,
     SetRecordArgs,
+    DotNsRegistration,
 } from "./dotns-registry.js";
 export { DotNsError } from "./dotns-errors.js";
 export type { DotNsErrorReason } from "./dotns-errors.js";
