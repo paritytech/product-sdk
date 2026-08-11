@@ -30,24 +30,6 @@ export interface ContextAliasInfo {
     context: string;
 }
 
-/** Ring VRF alias info */
-export interface AnonymousAliasInfo {
-    /** Anonymous alias identifier */
-    alias: string;
-    /** Ring location for proof generation */
-    ringLocation: RingLocation;
-    /** Context used for alias derivation */
-    context: string;
-}
-
-/** Ring location for VRF proofs */
-export interface RingLocation {
-    /** Ring index */
-    ringIndex: number;
-    /** Member index within ring */
-    memberIndex: number;
-}
-
 /** Identity verification result */
 export interface VerificationResult {
     /** Whether identity is verified */

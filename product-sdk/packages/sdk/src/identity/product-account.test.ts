@@ -10,6 +10,7 @@
 import { ss58Decode, ss58Encode } from "@parity/product-sdk-address";
 import { blake2b256 } from "@parity/product-sdk-crypto";
 import { describe, expect, it } from "vitest";
+import * as identity from "./index.js";
 import { deriveContextAlias, verifyContextAlias } from "./product-account.js";
 
 const ALICE = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
@@ -98,5 +99,31 @@ describe("verifyContextAlias", () => {
 
         expect(reencoded).not.toBe(alias.address);
         expect(verifyContextAlias(reencoded, ALICE, CONTEXT)).toBe(true);
+    });
+});
+
+describe("the identity export surface", () => {
+    // These threw on every call, so no working consumer could exist. Deleting
+    // turns a guaranteed runtime throw into a compile error.
+    it("no longer exports the unimplemented ring helpers", () => {
+        for (const name of ["deriveAnonymousAlias", "createRingProof", "verifyRingProof"]) {
+            expect(name in identity).toBe(false);
+        }
+    });
+
+    it("still exports the DotNS helpers and the deprecated context-alias pair", () => {
+        for (const name of [
+            "resolveDotNs",
+            "reverseDotNs",
+            "isDotNsAvailable",
+            "resolvePeopleUsernameOwner",
+            "isValidDotNsName",
+            "normalizeDotNsName",
+            "accountIdHexToBytes",
+            "deriveContextAlias",
+            "verifyContextAlias",
+        ]) {
+            expect(name in identity).toBe(true);
+        }
     });
 });
