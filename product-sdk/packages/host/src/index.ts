@@ -78,6 +78,8 @@ export type {
     ProductProofContext,
     RingLocation,
     RingVRFProof,
+    VrfSignature,
+    VrfTranscriptItem,
 } from "./accounts.js";
 
 // Higher-level permission wrappers
