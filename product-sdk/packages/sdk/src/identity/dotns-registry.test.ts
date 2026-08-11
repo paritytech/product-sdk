@@ -1,18 +1,17 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+//
+// These tests cover the parts that don't need a chain: input validation, the
+// error model, and the (still-unwired) write contract. The on-chain read path
+// (createContract → dryRunCall → viem decode) is exercised against a live /
+// forked Asset Hub, not here — replicating the contracts package's viem
+// round-trip fake in the sdk package isn't worth the duplication.
 import { describe, expect, test } from "vitest";
 import type { ContractRuntime } from "@parity/product-sdk-contracts";
 import { DotNsError } from "./dotns-errors.js";
-import {
-    isDotNsAvailable,
-    registerDotNs,
-    resolveDotNs,
-    reverseDotNs,
-    setDotNsRecord,
-} from "./dotns-registry.js";
+import { registerDotNs, resolveDotNs, setDotNsRecord } from "./dotns-registry.js";
 
-// The runtime is never actually reached yet (calls short-circuit to NotWired),
-// so a bare stub satisfies the type.
+// Never reached on the validation path (resolveDotNs rejects before touching it).
 const opts = { runtime: {} as ContractRuntime };
 
 describe("dotns registry surface", () => {
@@ -25,36 +24,22 @@ describe("dotns registry surface", () => {
         }
     });
 
-    test("resolveDotNs returns NotWired for a valid name (ABI pending)", async () => {
-        const r = await resolveDotNs("alice.dot", opts);
-        expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.error.reason).toBe("NotWired");
+    test("DotNsError implements the SdkError marker", () => {
+        const e = new DotNsError("RegistryCall", "boom");
+        expect(e.isSdkError).toBe(true);
+        expect(e.source).toBe("dotns");
+        expect(e.reason).toBe("RegistryCall");
     });
 
-    test("reverseDotNs returns NotWired (ABI pending)", async () => {
-        const r = await reverseDotNs("5GrwvaEF...", opts);
-        expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.error.reason).toBe("NotWired");
-    });
-
-    test("isDotNsAvailable propagates the underlying error", async () => {
-        const r = await isDotNsAvailable("alice.dot", opts);
-        expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.error.reason).toBe("NotWired");
-    });
-
-    test("DotNsError implements the SdkError marker", async () => {
-        const r = await resolveDotNs("alice.dot", opts);
-        if (!r.ok) {
-            expect(r.error.isSdkError).toBe(true);
-            expect(r.error.source).toBe("dotns");
-        }
-    });
-
-    test("write helpers throw a typed NotWired error until the ABI lands", () => {
+    test("write helpers throw a typed NotWired error (follow-up PR)", () => {
         expect(() => registerDotNs({ name: "alice.dot", owner: "5x" }, opts)).toThrow(DotNsError);
         expect(() => setDotNsRecord({ name: "alice.dot", address: "5y" }, opts)).toThrow(
             DotNsError,
         );
+        try {
+            registerDotNs({ name: "alice.dot", owner: "5x" }, opts);
+        } catch (e) {
+            expect((e as DotNsError).reason).toBe("NotWired");
+        }
     });
 });

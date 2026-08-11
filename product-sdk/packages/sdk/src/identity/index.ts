@@ -31,6 +31,7 @@ export type {
 } from "./dotns-registry.js";
 export { DotNsError } from "./dotns-errors.js";
 export type { DotNsErrorReason } from "./dotns-errors.js";
+export { namehash, DOT_NODE } from "./dotns-namehash.js";
 
 // Context alias utilities
 export {

@@ -3,43 +3,50 @@
 /**
  * DotNS registry reads and writes.
  *
- * The DotNS registry is a Revive contract; reads are `dryRunCall`s and writes
- * are submittable transactions the caller signs via `@parity/product-sdk-tx`.
- * See `docs/product-sdk/dotns-registry-support.md` (sdk-team) for the design.
+ * DotNS is an ENS-style system on Asset Hub: a `DotnsRegistry` maps a node
+ * (namehash) to a resolver + owner, a `DotnsResolver` maps a node to an
+ * address, and a `DotnsReverseResolver` maps an account back to its name. All
+ * are Revive contracts, reached via `@parity/product-sdk-contracts`'
+ * `createContract(...).<method>.query(...)`. See the sdk-team design doc
+ * (`docs/product-sdk/dotns-registry-support.md`).
  *
- * **Implementation status.** The surface, validation, error model, and client
- * options are real. The on-chain contract calls are NOT wired yet: the deployed
- * registry contract's ABI (its resolve / reverse / register method names and
- * argument shapes) is unconfirmed — the `CDM_REGISTRY_ABI` in
- * `@parity/product-sdk-contracts` is a *contract-deployment* registry
- * (`getAddress`/`getAddressAtVersion`), NOT DotNS name resolution. Every call
- * below returns `err(DotNsError("NotWired", …))` until the ABI lands; the
- * `TODO(dotns-abi)` markers are the exact swap-in points.
+ * **Reads are wired; writes are not.** `resolveDotNs` / `reverseDotNs` /
+ * `isDotNsAvailable` call chain. `registerDotNs` / `setDotNsRecord` still throw
+ * `DotNsError("NotWired")`: registration is a commit → wait → reveal-and-pay
+ * flow that warrants its own PR. `TODO(dotns-abi)` marks the write sites.
+ *
+ * Note: this deployment has no name-expiry concept (the registrar exposes no
+ * expiry getter), so `DotNsRecord.expiresAt` is always omitted.
  */
-import { err, type Result } from "@parity/result";
+import { err, ok, type Result } from "@parity/result";
+import { type AbiEntry, createContract } from "@parity/product-sdk-contracts";
 import type { ContractRuntime } from "@parity/product-sdk-contracts";
 import { createLogger } from "@parity/product-sdk-logger";
+import {
+    DOTNS_REGISTRY_ABI,
+    DOTNS_RESOLVER_ABI,
+    DOTNS_REVERSE_RESOLVER_ABI,
+    PASEO_ASSETHUB_DOTNS,
+} from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
 import { isValidDotNsName, normalizeDotNsName } from "./dotns.js";
+import { namehash } from "./dotns-namehash.js";
 import type { DotNsRecord } from "./types.js";
 
 const log = createLogger("identity:dotns");
 
 type HexString = `0x${string}`;
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 /** Shared inputs for a DotNS registry call. */
 export interface DotNsClientOptions {
-    /**
-     * A contract runtime for the chain hosting the DotNS registry. The read
-     * path issues a `dryRunCall` against it; the write path builds calldata for
-     * it. Reuse an existing runtime where possible.
-     */
+    /** A contract runtime for the chain hosting DotNS (Asset Hub). */
     runtime: ContractRuntime;
-    /**
-     * The registry contract address. When omitted, resolved from the product's
-     * `cdm.json` `registry` field (once ABI wiring lands — see module note).
-     */
+    /** `DotnsRegistry` address. Defaults to the Paseo Asset Hub deployment. */
     registryAddress?: HexString;
+    /** `DotnsReverseResolver` address. Defaults to the Paseo Asset Hub deployment. */
+    reverseResolverAddress?: HexString;
 }
 
 /** Arguments for {@link registerDotNs}. */
@@ -54,15 +61,29 @@ export interface SetRecordArgs {
     address: string;
 }
 
-const NOT_WIRED =
-    "DotNS registry calls are not wired to the on-chain contract yet " +
-    "(the registry ABI is unconfirmed). See dotns-registry.ts / the design doc.";
+const WRITES_NOT_WIRED =
+    "DotNS writes (register / setRecord) are not wired yet — registration is a " +
+    "commit-reveal-pay flow tracked as a follow-up. See dotns-registry.ts.";
+
+function contractOf(runtime: ContractRuntime, address: HexString, abi: AbiEntry[]) {
+    // biome-ignore lint/suspicious/noExplicitAny: createContract is generic over a
+    // typed ABI def; our minimal literal ABIs are called by name via .query().
+    return createContract(runtime, address, abi as any) as any;
+}
+
+function isZero(addr: unknown): boolean {
+    return typeof addr === "string" && addr.toLowerCase() === ZERO_ADDRESS;
+}
 
 /**
- * Resolve a DotNS name to its registry record.
+ * Resolve a DotNS name to its record (resolved address + owner).
  *
- * @returns `ok(record)`, `ok(null)` when the name is unregistered, or
- *   `err(DotNsError)` on invalid input / registry failure.
+ * Path: `namehash(name)` → `registry.resolver(node)` → `resolver.addressOf(node)`,
+ * with `registry.owner(node)` for the owner. `expiresAt` is omitted (no on-chain
+ * expiry on this deployment).
+ *
+ * @returns `ok(record)`, `ok(null)` when the name has no resolver / resolves to
+ *   the zero address (unregistered), or `err(DotNsError)`.
  */
 export async function resolveDotNs(
     name: string,
@@ -72,31 +93,78 @@ export async function resolveDotNs(
     if (!isValidDotNsName(normalized)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${name}"`));
     }
-    log.debug("resolveDotNs", { name: normalized, registry: opts.registryAddress });
-    // TODO(dotns-abi): encode a resolve(name) call, dryRunCall via opts.runtime
-    //   against the registry address, decode into DotNsRecord | null.
-    return err(new DotNsError("NotWired", NOT_WIRED));
+    const node = namehash(normalized);
+    const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
+    log.debug("resolveDotNs", { name: normalized, node, registry: registryAddr });
+
+    try {
+        const registry = contractOf(opts.runtime, registryAddr as HexString, DOTNS_REGISTRY_ABI);
+
+        const resolverRes = await registry.resolver.query(node);
+        if (!resolverRes.success) {
+            return err(new DotNsError("RegistryCall", "registry.resolver call failed"));
+        }
+        const resolverAddr = resolverRes.value as string;
+        // No resolver set → the name isn't resolvable.
+        if (isZero(resolverAddr)) return ok(null);
+
+        const resolver = contractOf(opts.runtime, resolverAddr as HexString, DOTNS_RESOLVER_ABI);
+        const [addrRes, ownerRes] = await Promise.all([
+            resolver.addressOf.query(node),
+            registry.owner.query(node),
+        ]);
+        if (!addrRes.success) {
+            return err(new DotNsError("RegistryCall", "resolver.addressOf call failed"));
+        }
+        const address = addrRes.value as string;
+        // Resolver present but no address record → treat as unregistered.
+        if (isZero(address)) return ok(null);
+
+        const owner = ownerRes.success ? (ownerRes.value as string) : address;
+        return ok({ address, name: normalized, owner });
+    } catch (cause) {
+        return err(
+            new DotNsError("RegistryCall", `DotNS resolve failed for "${normalized}"`, { cause }),
+        );
+    }
 }
 
 /**
  * Reverse-resolve an account to its primary DotNS name.
  *
- * @returns `ok(name)`, `ok(null)` when no primary name is set, or `err`.
+ * Single call: `reverseResolver.nameOf(account)`. `ok(null)` when no primary
+ * name is set (empty string on-chain).
  */
 export async function reverseDotNs(
     address: string,
     opts: DotNsClientOptions,
 ): Promise<Result<string | null, DotNsError>> {
-    log.debug("reverseDotNs", { address, registry: opts.registryAddress });
-    // TODO(dotns-abi): encode a reverse(account) call, dryRunCall, decode to name | null.
-    return err(new DotNsError("NotWired", NOT_WIRED));
+    const reverseAddr = opts.reverseResolverAddress ?? PASEO_ASSETHUB_DOTNS.reverseResolver;
+    log.debug("reverseDotNs", { address, reverseResolver: reverseAddr });
+    try {
+        const reverse = contractOf(
+            opts.runtime,
+            reverseAddr as HexString,
+            DOTNS_REVERSE_RESOLVER_ABI,
+        );
+        const res = await reverse.nameOf.query(address);
+        if (!res.success) {
+            return err(new DotNsError("RegistryCall", "reverseResolver.nameOf call failed"));
+        }
+        const name = res.value as string;
+        return ok(name && name.length > 0 ? name : null);
+    } catch (cause) {
+        return err(
+            new DotNsError("RegistryCall", `DotNS reverse failed for "${address}"`, { cause }),
+        );
+    }
 }
 
 /**
  * Whether a DotNS name is unregistered (available to claim).
  *
- * Thin convenience over {@link resolveDotNs}: `ok(true)` iff resolve returns
- * `ok(null)`. Registry failures propagate as `err`.
+ * `ok(true)` iff {@link resolveDotNs} returns `ok(null)`. Registry failures
+ * propagate as `err`.
  */
 export async function isDotNsAvailable(
     name: string,
@@ -104,24 +172,24 @@ export async function isDotNsAvailable(
 ): Promise<Result<boolean, DotNsError>> {
     const resolved = await resolveDotNs(name, opts);
     if (!resolved.ok) return resolved;
-    return { ok: true, value: resolved.value === null };
+    return ok(resolved.value === null);
 }
 
-// ── Writes ───────────────────────────────────────────────────────────
+// ── Writes (not wired — follow-up PR) ────────────────────────────────
 //
-// Writes return the calldata/submittable the caller signs + submits via
-// @parity/product-sdk-tx. Left unimplemented pending the ABI; kept as typed
-// throwing entry points so the surface is complete and callers see a clear
-// error rather than a missing export.
+// Registration is a commit → wait(minCommitmentAge) → register{value} flow on
+// DotnsRegistrarController; setting records is owner-gated on the resolver.
+// Kept as typed throwing entry points so the surface is complete and callers
+// see a clear error rather than a missing export.
 
-/** Build a registration transaction for a DotNS name. */
+/** Build a registration transaction for a DotNS name. NOT wired yet. */
 export function registerDotNs(_args: RegisterDotNsArgs, _opts: DotNsClientOptions): never {
-    // TODO(dotns-abi): encode register(name, owner) calldata; return a submittable.
-    throw new DotNsError("NotWired", NOT_WIRED);
+    // TODO(dotns-abi): DotnsRegistrarController makeCommitment → commit → register.
+    throw new DotNsError("NotWired", WRITES_NOT_WIRED);
 }
 
-/** Build a transaction that sets a DotNS name's resolved record. */
+/** Build a transaction that sets a DotNS name's resolved record. NOT wired yet. */
 export function setDotNsRecord(_args: SetRecordArgs, _opts: DotNsClientOptions): never {
-    // TODO(dotns-abi): encode setRecord(name, address) calldata; return a submittable.
-    throw new DotNsError("NotWired", NOT_WIRED);
+    // TODO(dotns-abi): DotnsResolver.setAddress(node, address), owner-gated.
+    throw new DotNsError("NotWired", WRITES_NOT_WIRED);
 }
