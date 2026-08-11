@@ -360,6 +360,26 @@ if (import.meta.vitest) {
             expect(userId?.primaryUsername).toBe("carol.dot");
         });
 
+        test("signVrf round-trips through the real adapter", async () => {
+            // The fake is the only way a product can test a VRF flow: there is no
+            // dev-provider implementation and the e2e test host does not expose the
+            // call. So the fake's wire shape has to stay decodable by the adapter.
+            createFakeHost();
+            const accounts = await getAccountsProvider();
+            const signature = await accounts
+                ?.signVrf({ dotNsIdentifier: "app.dot" }, new Uint8Array([1]), [
+                    { label: new Uint8Array([2]), value: new Uint8Array([3]) },
+                ])
+                .match(
+                    (s) => s,
+                    () => null,
+                );
+            expect(signature?.preOutput).toBeInstanceOf(Uint8Array);
+            expect(signature?.proof).toBeInstanceOf(Uint8Array);
+            expect(signature?.preOutput).toHaveLength(32);
+            expect(signature?.proof).toHaveLength(64);
+        });
+
         test("statement store resolves", async () => {
             createFakeHost();
             expect(await getStatementStore()).not.toBeNull();
