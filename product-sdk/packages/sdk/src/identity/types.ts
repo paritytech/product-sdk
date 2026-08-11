@@ -18,7 +18,12 @@ export interface DotNsRecord {
     expiresAt?: number;
 }
 
-/** Context alias info: a deterministic, context-bound alias derived from a parent account */
+/**
+ * Context alias info: a deterministic, context-bound alias derived from a parent account
+ *
+ * @deprecated Returned by `deriveContextAlias`, whose addresses no key can spend.
+ *   Removal: `@parity/product-sdk` 0.23.0.
+ */
 export interface ContextAliasInfo {
     /** Alias SS58 address */
     address: string;
