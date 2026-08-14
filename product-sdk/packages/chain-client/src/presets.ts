@@ -222,7 +222,9 @@ function validateDescriptorGenesis(
  * When called with no argument, the environment is derived from the host via
  * chain discovery. This is the recommended mode inside a
  * container. The zero-arg form is typed with the "paseo" shape, and runtime
- * descriptors always match the host's actual network.
+ * descriptors always match the host's actual network. It needs a host that
+ * serves discovery: outside a container, or on a host that predates it, the
+ * zero-arg form throws and the environment has to be passed explicitly.
  *
  * An explicit environment that disagrees with the host's network throws
  * {@link EnvironmentMismatchError}. A bundled descriptor whose genesis hash
@@ -230,6 +232,17 @@ function validateDescriptorGenesis(
  * predate discovery skip validation entirely.
  *
  * @example
+ * Let the host decide, the recommended path inside a container:
+ * ```ts
+ * import { getChainAPI } from "@parity/product-sdk-chain-client";
+ *
+ * const client = await getChainAPI();
+ * const account = await client.assetHub.query.System.Account.getValue(addr);
+ * client.destroy();
+ * ```
+ *
+ * @example
+ * Pin the environment explicitly:
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
  *

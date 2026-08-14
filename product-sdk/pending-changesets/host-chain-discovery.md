@@ -11,6 +11,8 @@ and returns `null` on hosts predating discovery. `getChainAPI()` can now be
 called with no argument to derive the environment from the host by matching
 the discovered asset hub genesis against the bundled descriptors; an explicit
 environment is validated the same way, failing with the new `EnvironmentMismatchError` /
-`GenesisMismatchError` instead of an opaque unsupported-genesis error. Legacy
-hosts keep exactly the previous behavior. `@parity/truapi` is bumped to
-`^0.9.0`, the release that ships the `chain.getChainInfo` binding.
+`GenesisMismatchError` instead of an opaque unsupported-genesis error. Calls
+that pass an environment keep exactly the previous behavior on legacy hosts;
+the zero-arg form needs discovery, so it throws there and outside a container.
+`@parity/truapi` is bumped to `^0.9.0`, the release that ships the
+`chain.getChainInfo` binding.

@@ -15,7 +15,13 @@ description: >
 ```typescript
 import { getChainAPI } from "@parity/product-sdk-chain-client";
 
-const client = await getChainAPI("paseo");
+// Inside a container, omit the environment: the host reports which chains it
+// serves and the matching descriptors are loaded for you.
+const client = await getChainAPI();
+
+// Pin it explicitly when you need a specific environment, or when the host
+// predates chain discovery (where the zero-arg form throws).
+const paseo = await getChainAPI("paseo");
 
 // Query balance
 const account = await client.assetHub.query.System.Account.getValue(
@@ -48,7 +54,7 @@ client.destroy();
 
 | | `getChainAPI` (Preset) | `createChainClient` (BYOD) |
 |---|---|---|
-| **When** | Known environments (paseo, polkadot, kusama) | Custom chains or a subset of chains |
+| **When** | Known environments (paseo, devnet; polkadot and kusama reserved), or whatever the host reports when called with no argument | Custom chains or a subset of chains |
 | **Descriptors** | Built-in, lazy-loaded | You import and provide them |
 | **Chains** | Always assetHub + bulletin + individuality | Any combination you choose |
 | **Bundle size** | Slightly larger (~6.3 MB for all 3 chains) | Minimal (only what you import) |
@@ -127,6 +133,14 @@ const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 | **devnet** (public Paseo testnet) | Yes | Yes | Yes |
 | polkadot (mainnet) | Planned | Planned | Planned |
 | kusama (canary) | Planned | Planned | Planned |
+
+Call `getChainAPI()` with no argument to derive the environment from the host instead of
+hard-coding it. The host reports a genesis hash per chain role (`AssetHub`, `Bulletin`,
+`People`) and the environment is the bundle whose asset hub genesis matches, so a host on
+its own network id still resolves correctly. An explicit environment is cross-checked the
+same way: it throws `EnvironmentMismatchError` when it is not the network the host runs,
+and `GenesisMismatchError` when a bundled descriptor's genesis disagrees with the host
+(a stale descriptor bundle, for example after a testnet reset).
 
 > **`"paseo"` is not the public Paseo testnet.** It targets the Paseo Next v2 chain
 > instances (`*-next-*.polkadot.io`). For the community-run products devnet on the
