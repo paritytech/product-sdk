@@ -18,6 +18,7 @@ import { HostProvider } from "./providers/host.js";
 import type {
     ContextualAlias,
     ProductAccount,
+    ProductAccountId,
     ProductProofContext,
     RingLocation,
     RingVRFProof,
@@ -397,11 +398,13 @@ export class SignerManager {
      * Get a contextual alias for a proof context and ring via Ring VRF.
      *
      * Aliases prove account membership in a ring without revealing which
-     * account produced the alias; the host selects the member key. Only
-     * available when connected via the host provider — returns
-     * HOST_UNAVAILABLE otherwise.
+     * account produced the alias. Derived from the registered key named by
+     * `keyHandle` (see the host package's `registerRingVrfKey`). Only
+     * available when connected via the host provider, otherwise returns
+     * HOST_UNAVAILABLE.
      */
     async getProductAccountAlias(
+        keyHandle: ProductAccountId,
         context: ProductProofContext,
         location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
@@ -415,19 +418,21 @@ export class SignerManager {
                 ),
             );
         }
-        return host.getProductAccountAlias(context, location);
+        return host.getProductAccountAlias(keyHandle, context, location);
     }
 
     /**
      * Create a Ring VRF proof for anonymous operations.
      *
-     * Proves that a ring member at the given location produced the proof
-     * without revealing which member — the host selects the member key. The
-     * result carries the proof plus its verification values. Only available
-     * when connected via the host provider — returns HOST_UNAVAILABLE
-     * otherwise.
+     * Proves that the ring member named by `keyHandle` produced the proof
+     * without revealing which member. The key must be registered first via
+     * the host package's `registerRingVrfKey`, which `SignerManager` does
+     * not wrap. The result carries the proof plus its verification values.
+     * Only available when connected via the host provider, otherwise
+     * returns HOST_UNAVAILABLE.
      */
     async createRingVRFProof(
+        keyHandle: ProductAccountId,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -440,7 +445,7 @@ export class SignerManager {
                 new HostUnavailableError("Ring VRF proofs require a host provider connection"),
             );
         }
-        return host.createRingVRFProof(context, location, message);
+        return host.createRingVRFProof(keyHandle, context, location, message);
     }
 
     /**

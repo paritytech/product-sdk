@@ -3,6 +3,7 @@
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
+    type ProductAccountId,
     type ProductProofContext,
     type RemotePermission,
     requestPermission,
@@ -146,12 +147,16 @@ export interface RingLocation {
 }
 
 /**
- * A product-scoped proof context (`{ productId, suffix }`) and the tagged
- * `DerivationIndex` selector its `suffix` carries. Re-exported from
- * `@parity/product-sdk-host` — host is a hard dependency, so the wire shapes
- * come from one place rather than a structural copy that could drift.
+ * Proof-related wire shapes, re-exported from `@parity/product-sdk-host` so
+ * they come from one place instead of a structural copy that could drift.
+ * `ProductAccountId` is the `{ dotNsIdentifier, derivationIndex }` handle
+ * naming a registered ring-VRF key.
  */
-export type { DerivationIndex, ProductProofContext } from "@parity/product-sdk-host";
+export type {
+    DerivationIndex,
+    ProductAccountId,
+    ProductProofContext,
+} from "@parity/product-sdk-host";
 
 /**
  * A Ring VRF proof plus the values needed to verify it downstream.
@@ -193,11 +198,13 @@ export interface AccountsProvider {
     ) => NeverthrowResultAsync<RawAccount, unknown>;
     getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
     getProductAccountAlias: (
+        keyHandle: ProductAccountId,
         context: ProductProofContext,
         location: RingLocation,
     ) => NeverthrowResultAsync<ContextualAlias, unknown>;
     getUserId: () => NeverthrowResultAsync<{ primaryUsername: string }, unknown>;
     createRingVRFProof: (
+        keyHandle: ProductAccountId,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -410,11 +417,13 @@ export class HostProvider implements SignerProvider {
      * Get a contextual alias for a product account via Ring VRF.
      *
      * Aliases prove account membership in a ring without revealing which
-     * account produced the alias.
+     * account produced the alias. Derived from the registered key named by
+     * `keyHandle` (see the host package's `registerRingVrfKey`).
      *
      * Requires a prior successful `connect()` call.
      */
     async getProductAccountAlias(
+        keyHandle: ProductAccountId,
         context: ProductProofContext,
         location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
@@ -424,7 +433,7 @@ export class HostProvider implements SignerProvider {
 
         try {
             const alias = (await this.accountsProvider
-                .getProductAccountAlias(context, location)
+                .getProductAccountAlias(keyHandle, context, location)
                 .match(
                     (result) => result,
                     (error) => {
@@ -478,13 +487,15 @@ export class HostProvider implements SignerProvider {
     /**
      * Create a Ring VRF proof for anonymous operations.
      *
-     * Proves that a member of the ring at the given location produced the
-     * proof without revealing which member — the host selects the member key.
-     * Returns the proof plus its verification values ({@link RingVRFProof}).
+     * Proves that the ring member named by `keyHandle` produced the proof
+     * without revealing which member. The key must be registered first via
+     * the host package's `registerRingVrfKey`. Returns the proof plus its
+     * verification values ({@link RingVRFProof}).
      *
      * Requires a prior successful `connect()` call.
      */
     async createRingVRFProof(
+        keyHandle: ProductAccountId,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -495,7 +506,7 @@ export class HostProvider implements SignerProvider {
 
         try {
             const proof = (await this.accountsProvider
-                .createRingVRFProof(context, location, message)
+                .createRingVRFProof(keyHandle, context, location, message)
                 .match(
                     (result) => result,
                     (error) => {
