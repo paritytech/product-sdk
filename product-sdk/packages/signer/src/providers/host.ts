@@ -5,6 +5,7 @@ import {
     getAccountsProvider,
     type ProductAccountLookup,
     type RegisteredRingVrfKey,
+    type RingLocation,
     type RingVrfKeyDisclosure,
     type RingVrfKeyHandle,
     type ProductProofContext,
@@ -137,23 +138,6 @@ export interface ContextualAlias {
 }
 
 /**
- * Location of a Ring VRF ring on-chain: the hosting chain's genesis hash plus
- * the junction path addressing the ring within it.
- *
- * Structurally matches `RingLocation` from `@parity/truapi`, re-exported by
- * `@parity/product-sdk-host`. Declared locally with `string` in place of the
- * branded hex types so callers can pass plain strings.
- */
-export interface RingLocation {
-    /** Genesis hash of the chain hosting the ring. */
-    chainId: string;
-    /** Path addressing the ring within the chain. */
-    junctions: Array<
-        { tag: "PalletInstance"; value: number } | { tag: "CollectionId"; value: string }
-    >;
-}
-
-/**
  * Ring VRF key-management and request shapes re-exported from
  * `@parity/product-sdk-host`. Host is a hard dependency, so these come from one
  * place rather than structural copies that could drift.
@@ -164,6 +148,7 @@ export type {
     ProductProofContext,
     RegisteredRingVrfKey,
     RingVrfKeyDisclosure,
+    RingLocation,
     RingVrfKeyHandle,
     VrfSignature,
     VrfTranscriptItem,
