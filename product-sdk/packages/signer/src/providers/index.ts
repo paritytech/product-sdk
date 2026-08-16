@@ -15,6 +15,9 @@ export type {
     ContextualAlias,
     DerivationIndex,
     ProductProofContext,
+    RegisteredRingVrfKey,
+    RingVrfKeyDisclosure,
+    RingVrfKeyHandle,
     RingLocation,
     RingVRFProof,
 } from "./host.js";

@@ -180,6 +180,9 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
             getUserId: () => okAsync({ primaryUsername }),
             requestLogin: () => okAsync("Success"),
             getAccount: () => okAsync({ account: { publicKey } }),
+            registerRingVrfKey: () => okAsync(publicKey),
+            listRingVrfKeys: () => okAsync([]),
+            ringVrfSign: () => okAsync(signature),
             getAccountAlias: () =>
                 okAsync({ context: toHex(new Uint8Array([1])), alias: toHex(new Uint8Array([2])) }),
             getLegacyAccounts: () => okAsync({ accounts: legacyAccounts }),

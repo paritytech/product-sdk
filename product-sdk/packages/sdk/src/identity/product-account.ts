@@ -36,9 +36,9 @@ const log = createLogger("identity");
  *     `@parity/product-sdk-signer`. Host-backed and actually signable.
  *   - The address offline, with no host: `deriveProductAccountPublicKey` from
  *     `@parity/product-sdk-keys`, the canonical sr25519 soft derivation.
- *   - An unlinkable per-context alias:
- *     `SignerManager.getProductAccountAlias(context, location)`, plus
- *     `createRingVRFProof` for proofs.
+ *   - An unlinkable per-context alias: select a registered ring-VRF key, then call
+ *     `SignerManager.getProductAccountAlias(keyHandle, context, location)` or
+ *     `createRingVRFProof(keyHandle, context, location, message)`.
  *   - A context-scoped identifier, never used as an account: `blake2b256` from
  *     `@parity/product-sdk/crypto`. Same bytes, without address packaging that
  *     invites the mistake.
