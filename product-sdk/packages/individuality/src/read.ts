@@ -18,12 +18,14 @@
  * ```
  */
 import { Enum } from "polkadot-api";
+import { err, normalizeError, ok, type Result } from "@parity/result";
 import { derivePersonhoodState, type PersonhoodParticipant } from "./derive.js";
 import {
     decodeAbsenceGracePolicy,
     toPersonhoodParticipant,
     type RawParticipant,
 } from "./decode.js";
+import { ProductIndividualityError } from "./errors.js";
 import type { FinalizedSnapshot, PersonhoodResult } from "./types.js";
 
 /** Options every storage read is given, so all six agree on one block. */
@@ -32,8 +34,8 @@ interface ReadAt {
     signal?: AbortSignal;
 }
 
-/** `People.AccountToAlias`, narrowed to the contextual alias the read keys on. */
-interface RawAccountAlias {
+/** `AccountToAlias`, narrowed to the contextual alias the read keys on. */
+export interface RawAccountAlias {
     ca: { alias: string };
 }
 
@@ -51,13 +53,20 @@ interface RawAccountAlias {
  * Written with method shorthand on purpose: the parameter bivariance that gives
  * is what lets the real PAPI signatures satisfy the loosened key types below.
  *
- * **Fidelity is maintained by hand, and a compile-time assertion cannot help.**
- * Inside any `packages/*` tsconfig (`moduleResolution: "NodeNext"`) the
- * descriptors resolve to `any` — their generated `index.d.ts` is ESM with
- * extensionless relative imports, which NodeNext rejects — so
- * `ChainClient<{ individuality: typeof paseo_individuality }>` is `TypedApi<any>`
- * and satisfies *any* contract vacuously. Each entry below was instead matched by
- * hand on 2026-08-17 against
+ * **Fidelity is checked at compile time, from the umbrella package.**
+ * `packages/sdk/src/individuality/contract.test.ts` asserts that a real
+ * `getChainAPI` client still satisfies this type, so a descriptor regeneration
+ * that changes an entry fails `pnpm typecheck`.
+ *
+ * The guard has to live there rather than here, which is worth recording because
+ * it is not obvious. Inside this package the same assertion is *vacuous*: it
+ * passes even against a contract demanding a pallet the chain does not have,
+ * because the descriptor types do not fully resolve through this package's
+ * dependency graph. From `packages/sdk`, which depends on both `chain-client` and
+ * this package, the identical assertion correctly rejects a bogus contract. Both
+ * halves were verified before choosing the placement.
+ *
+ * The entries were also matched by hand on 2026-08-17 against
  * `descriptors/chains/paseo-individuality/generated/dist/paseo_individuality.d.ts`:
  *
  * ```
@@ -69,7 +78,8 @@ interface RawAccountAlias {
  * LitePeople:           value { ring_vrf_key, method }        (presence is the signal)
  * ```
  *
- * Re-check them by hand after any descriptor regeneration.
+ * A descriptor regeneration that changes any of them now fails `pnpm typecheck`
+ * rather than passing silently.
  */
 export interface IndividualityChain {
     individuality: {
@@ -102,6 +112,14 @@ export interface IndividualityChain {
                 LitePeople: {
                     getValue(key: string, options: ReadAt): Promise<unknown>;
                 };
+                /**
+                 * Read as well as `People.AccountToAlias`: a Lite person's alias
+                 * lives here, and without it the alias-keyed participant lookup
+                 * never runs for them.
+                 */
+                AccountToAlias: {
+                    getValue(key: string, options: ReadAt): Promise<RawAccountAlias | undefined>;
+                };
             };
         };
     };
@@ -130,10 +148,16 @@ export interface ReadPersonhoodStateOptions {
 /**
  * Read a DotNS username's personhood state from one pinned finalized block.
  *
- * A username nobody owns resolves to `UsernameUnowned` on the success channel;
- * it is a valid answer, not an error. Throws only
- * `IndividualityDecodeError`, when the chain returns a shape the descriptor says
- * is impossible.
+ * Returns a `Result`, per the SDK-wide error model: `ok` carries the answer,
+ * `err` carries a {@link ProductIndividualityError}. Everything that can go
+ * wrong arrives on the `err` channel, not only decode failures. That includes an
+ * unreachable node, an aborted signal, and the pinned block leaving the
+ * follower's window mid-read, each normalized into the package's error type with
+ * the original cause attached.
+ *
+ * A username nobody owns is **not** a failure. It resolves to
+ * `ok({ tag: "UsernameUnowned", ... })`, because the chain was asked and
+ * answered.
  *
  * **Not an authorization oracle.** This is a client-side read in a client-side
  * library, and a backend that trusts "the SDK said `Member`" is trivially
@@ -142,9 +166,29 @@ export interface ReadPersonhoodStateOptions {
 export async function readPersonhoodState(
     chain: IndividualityChain,
     options: ReadPersonhoodStateOptions,
+): Promise<Result<PersonhoodResult, ProductIndividualityError>> {
+    try {
+        return ok(await runRead(chain, options));
+    } catch (cause) {
+        // Every failure lands here: decode errors thrown by the mappers, the
+        // early abort in runRead, and any transport rejection from a pull.
+        // normalizeError passes an existing package error through unchanged, so
+        // callers can still narrow with isErrorOf.
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** The read itself. Throws; {@link readPersonhoodState} owns the Result boundary. */
+async function runRead(
+    chain: IndividualityChain,
+    options: ReadPersonhoodStateOptions,
 ): Promise<PersonhoodResult> {
     const { username, signal } = options;
     const query = chain.individuality.query;
+
+    // A caller who already cancelled should cost no round trip at all. The block
+    // fetch below takes no options, so it cannot carry the signal itself.
+    signal?.throwIfAborted();
 
     // Pin one finalized block: every read below must agree on it.
     const block = await chain.raw.individuality.getFinalizedBlock();
@@ -162,16 +206,29 @@ export async function readPersonhoodState(
         return { tag: "UsernameUnowned", at: snapshot };
     }
 
-    const [accountParticipant, alias, litePerson, personhoodThreshold, absenceGraceRatio] =
-        await Promise.all([
-            query.Score.Participants.getValue(Enum("Account", owner), at),
-            query.People.AccountToAlias.getValue(owner, at),
-            query.PeopleLite.LitePeople.getValue(owner, at),
-            // `PersonhoodThreshold` is a u8. PAPI types both u8 and u32 as
-            // number, so a width mistake typechecks and passes tests.
-            query.Score.PersonhoodThreshold.getValue(at),
-            query.Score.AbsenceGraceRatio.getValue(at),
-        ]);
+    const [
+        accountParticipant,
+        peopleAlias,
+        liteAlias,
+        litePerson,
+        personhoodThreshold,
+        absenceGraceRatio,
+    ] = await Promise.all([
+        query.Score.Participants.getValue(Enum("Account", owner), at),
+        query.People.AccountToAlias.getValue(owner, at),
+        query.PeopleLite.AccountToAlias.getValue(owner, at),
+        query.PeopleLite.LitePeople.getValue(owner, at),
+        // `PersonhoodThreshold` is a u8. PAPI types both u8 and u32 as
+        // number, so a width mistake typechecks and passes tests.
+        query.Score.PersonhoodThreshold.getValue(at),
+        query.Score.AbsenceGraceRatio.getValue(at),
+    ]);
+
+    // Both pallets carry an `AccountToAlias` with the same value shape. The Lite
+    // signal comes from `PeopleLite`, so its alias has to be consulted too, or a
+    // Lite person's alias-keyed record is invisible. `People` wins when both hold
+    // one, since a full person's alias is the more specific answer.
+    const alias = peopleAlias ?? liteAlias;
 
     // No account-keyed record: fall back to the contextual alias key. The
     // account key is tried first because `Score.Participants` is keyed by an
@@ -202,10 +259,13 @@ export async function readPersonhoodState(
 }
 
 if (import.meta.vitest) {
-    const { describe, test, expect } = import.meta.vitest;
+    const { describe, expect, test } = import.meta.vitest;
+    const { unwrapOk, unwrapErr, isErrorOf } = await import("@parity/result");
+    const { IndividualityDecodeError } = await import("./errors.js");
 
     const ALICE = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
     const ALIAS = `0x${"ab".repeat(32)}`;
+    const LITE_ALIAS = `0x${"cd".repeat(32)}`;
     const BLOCK = { hash: `0x${"11".repeat(32)}`, number: 5_000 };
 
     const raw = (overrides: Partial<RawParticipant> = {}): RawParticipant => ({
@@ -223,24 +283,36 @@ if (import.meta.vitest) {
         accountParticipant?: RawParticipant;
         personParticipant?: RawParticipant;
         alias?: RawAccountAlias;
+        liteAlias?: RawAccountAlias;
         lite?: unknown;
         threshold?: number;
         grace?: string;
     }
 
-    /** A chain double that records the options every read was given. */
+    /**
+     * A chain double that records the key and the options every read was given.
+     *
+     * The key is recorded deliberately: without it, a read addressed with the
+     * wrong key still satisfies every other assertion here.
+     */
     function fakeChain(state: FakeState) {
-        const calls: Array<{ entry: string; at: string; signal?: AbortSignal }> = [];
-        const record = (entry: string, options: ReadAt) => {
-            calls.push({ entry, at: options.at, signal: options.signal });
+        const calls: Array<{
+            entry: string;
+            key: unknown;
+            at: string;
+            signal?: AbortSignal;
+        }> = [];
+        const record = (entry: string, key: unknown, options: ReadAt) => {
+            calls.push({ entry, key, at: options.at, signal: options.signal });
         };
+        const keyOf = (entry: string) => calls.find((c) => c.entry === entry)?.key;
         const chain: IndividualityChain = {
             individuality: {
                 query: {
                     Resources: {
                         UsernameOwnerOf: {
-                            async getValue(_key, options) {
-                                record("UsernameOwnerOf", options);
+                            async getValue(key, options) {
+                                record("UsernameOwnerOf", key, options);
                                 return state.owner;
                             },
                         },
@@ -248,7 +320,7 @@ if (import.meta.vitest) {
                     Score: {
                         Participants: {
                             async getValue(key, options) {
-                                record(`Participants:${key.type}`, options);
+                                record(`Participants:${key.type}`, key, options);
                                 return key.type === "Account"
                                     ? state.accountParticipant
                                     : state.personParticipant;
@@ -256,30 +328,36 @@ if (import.meta.vitest) {
                         },
                         PersonhoodThreshold: {
                             async getValue(options) {
-                                record("PersonhoodThreshold", options);
+                                record("PersonhoodThreshold", undefined, options);
                                 return state.threshold ?? 5;
                             },
                         },
                         AbsenceGraceRatio: {
                             async getValue(options) {
-                                record("AbsenceGraceRatio", options);
+                                record("AbsenceGraceRatio", undefined, options);
                                 return state.grace ?? "0x0108";
                             },
                         },
                     },
                     People: {
                         AccountToAlias: {
-                            async getValue(_key, options) {
-                                record("AccountToAlias", options);
+                            async getValue(key, options) {
+                                record("AccountToAlias", key, options);
                                 return state.alias;
                             },
                         },
                     },
                     PeopleLite: {
                         LitePeople: {
-                            async getValue(_key, options) {
-                                record("LitePeople", options);
+                            async getValue(key, options) {
+                                record("LitePeople", key, options);
                                 return state.lite;
+                            },
+                        },
+                        AccountToAlias: {
+                            async getValue(key, options) {
+                                record("LiteAccountToAlias", key, options);
+                                return state.liteAlias;
                             },
                         },
                     },
@@ -293,19 +371,34 @@ if (import.meta.vitest) {
                 },
             },
         };
-        return { chain, calls };
+        return { chain, calls, keyOf };
     }
 
     describe("readPersonhoodState", () => {
         test("an unowned username is a success value, and stops after one read", async () => {
             const { chain, calls } = fakeChain({ owner: undefined });
             const result = await readPersonhoodState(chain, { username: "nobody.dot" });
-            expect(result).toEqual({
+            expect(unwrapOk(result)).toEqual({
                 tag: "UsernameUnowned",
                 at: { blockHash: BLOCK.hash, blockNumber: BLOCK.number },
             });
-            // The five-read batch must not run once the username is unowned.
+            // The batch must not run once the username is unowned.
             expect(calls.map((c) => c.entry)).toEqual(["UsernameOwnerOf"]);
+        });
+
+        test("the username is UTF-8 encoded, not passed through", async () => {
+            const { chain, keyOf } = fakeChain({ owner: ALICE });
+            await readPersonhoodState(chain, { username: "alice.dot" });
+            expect(keyOf("UsernameOwnerOf")).toEqual(new TextEncoder().encode("alice.dot"));
+        });
+
+        test("every account-keyed read uses the owner, not the username", async () => {
+            const { chain, keyOf } = fakeChain({ owner: ALICE });
+            await readPersonhoodState(chain, { username: "alice.dot" });
+            expect(keyOf("Participants:Account")).toEqual(Enum("Account", ALICE));
+            expect(keyOf("AccountToAlias")).toBe(ALICE);
+            expect(keyOf("LiteAccountToAlias")).toBe(ALICE);
+            expect(keyOf("LitePeople")).toBe(ALICE);
         });
 
         test("resolves an account-keyed participant without the alias fallback", async () => {
@@ -318,20 +411,18 @@ if (import.meta.vitest) {
                 alias: { ca: { alias: ALIAS } },
             });
             const result = await readPersonhoodState(chain, { username: "alice.dot" });
-            expect(result).toMatchObject({
+            expect(unwrapOk(result)).toMatchObject({
                 tag: "Resolved",
                 accountAddress: ALICE,
                 state: { tag: "Member", activeWeeks: 4, lastAttendedGame: 42 },
             });
-            // Exactly one Participants read: the account key hit.
             expect(calls.filter((c) => c.entry.startsWith("Participants:"))).toHaveLength(1);
             expect(calls.some((c) => c.entry === "Participants:Person")).toBe(false);
         });
 
         test("the account-keyed record wins when both keys hold one", async () => {
-            // Caught by mutation testing: reversing the `??` chain changes which
-            // record wins, and nothing else here notices. Score 7 is the account
-            // record; 99 is the alias one.
+            // Reversing the ?? chain changes which record wins, and nothing else
+            // here notices. Score 7 is the account record, 99 the alias one.
             const { chain } = fakeChain({
                 owner: ALICE,
                 accountParticipant: raw({
@@ -347,32 +438,64 @@ if (import.meta.vitest) {
                 }),
             });
             const result = await readPersonhoodState(chain, { username: "alice.dot" });
-            expect(result).toMatchObject({ state: { tag: "Candidate", score: 7 } });
+            expect(unwrapOk(result)).toMatchObject({
+                state: { tag: "Candidate", score: 7 },
+            });
         });
 
         test("falls back to the alias key when no account-keyed record exists", async () => {
-            const { chain, calls } = fakeChain({
+            const { chain, calls, keyOf } = fakeChain({
                 owner: ALICE,
                 accountParticipant: undefined,
                 alias: { ca: { alias: ALIAS } },
                 personParticipant: raw({ score: 3, recognition: { type: "NotRecognized" } }),
             });
             const result = await readPersonhoodState(chain, { username: "alice.dot" });
-            expect(result).toMatchObject({
+            expect(unwrapOk(result)).toMatchObject({
                 tag: "Resolved",
                 alias: ALIAS,
                 state: { tag: "MembershipReady" },
             });
-            // Account key first, then the Person key — order matters.
+            // Account key first, then the Person key. Order matters.
             expect(
                 calls.filter((c) => c.entry.startsWith("Participants:")).map((c) => c.entry),
             ).toEqual(["Participants:Account", "Participants:Person"]);
+            // The Person key is the contextual alias, never the owner or the username.
+            expect(keyOf("Participants:Person")).toEqual(Enum("Person", ALIAS));
         });
 
-        test("skips the fallback entirely when there is no alias", async () => {
-            const { chain, calls } = fakeChain({ owner: ALICE, alias: undefined, lite: undefined });
+        test("a Lite person's alias comes from PeopleLite when People has none", async () => {
+            // Without reading PeopleLite.AccountToAlias this person reports Lite,
+            // because the alias-keyed lookup never runs.
+            const { chain, keyOf } = fakeChain({
+                owner: ALICE,
+                alias: undefined,
+                liteAlias: { ca: { alias: LITE_ALIAS } },
+                lite: { ring_vrf_key: "0x00" },
+                personParticipant: raw({ score: 4, recognition: { type: "NotRecognized" } }),
+            });
             const result = await readPersonhoodState(chain, { username: "alice.dot" });
-            expect(result).toMatchObject({
+            expect(unwrapOk(result)).toMatchObject({
+                alias: LITE_ALIAS,
+                state: { tag: "MembershipReady" },
+            });
+            expect(keyOf("Participants:Person")).toEqual(Enum("Person", LITE_ALIAS));
+        });
+
+        test("the People alias wins over the PeopleLite one", async () => {
+            const { chain } = fakeChain({
+                owner: ALICE,
+                alias: { ca: { alias: ALIAS } },
+                liteAlias: { ca: { alias: LITE_ALIAS } },
+            });
+            const result = await readPersonhoodState(chain, { username: "alice.dot" });
+            expect(unwrapOk(result)).toMatchObject({ alias: ALIAS });
+        });
+
+        test("skips the fallback entirely when neither pallet has an alias", async () => {
+            const { chain, calls } = fakeChain({ owner: ALICE, alias: undefined });
+            const result = await readPersonhoodState(chain, { username: "alice.dot" });
+            expect(unwrapOk(result)).toMatchObject({
                 tag: "Resolved",
                 alias: null,
                 state: { tag: "NotEnrolled" },
@@ -381,15 +504,15 @@ if (import.meta.vitest) {
         });
 
         test("all reads share one pinned finalized block", async () => {
-            // The whole point of the function. Two of the six values move on a
-            // session cadence, so a second block here would mix eras silently.
+            // The whole point of the function. Two of the values move on a session
+            // cadence, so a second block here would mix eras silently.
             const { chain, calls } = fakeChain({
                 owner: ALICE,
                 alias: { ca: { alias: ALIAS } },
                 personParticipant: raw(),
             });
             await readPersonhoodState(chain, { username: "alice.dot" });
-            expect(calls).toHaveLength(7); // 1 owner + 5 batch + 1 alias fallback
+            expect(calls).toHaveLength(8); // 1 owner + 6 batch + 1 alias fallback
             expect(new Set(calls.map((c) => c.at))).toEqual(new Set([BLOCK.hash]));
         });
 
@@ -400,8 +523,39 @@ if (import.meta.vitest) {
                 username: "alice.dot",
                 signal: controller.signal,
             });
-            expect(calls).toHaveLength(6);
+            expect(calls).toHaveLength(7);
             expect(calls.every((c) => c.signal === controller.signal)).toBe(true);
+        });
+
+        test("an already cancelled read costs no round trip", async () => {
+            const controller = new AbortController();
+            controller.abort();
+            const { chain, calls } = fakeChain({ owner: ALICE, accountParticipant: raw() });
+            const result = await readPersonhoodState(chain, {
+                username: "alice.dot",
+                signal: controller.signal,
+            });
+            expect(result.ok).toBe(false);
+            expect(calls).toHaveLength(0);
+        });
+
+        test("a malformed grace ratio arrives on the err channel", async () => {
+            const { chain } = fakeChain({ owner: ALICE, grace: "0xZZ" });
+            const result = await readPersonhoodState(chain, { username: "alice.dot" });
+            expect(result.ok).toBe(false);
+            expect(isErrorOf(unwrapErr(result), IndividualityDecodeError)).toBe(true);
+        });
+
+        test("a transport failure arrives on the err channel, typed", async () => {
+            const { chain } = fakeChain({ owner: ALICE });
+            chain.raw.individuality.getFinalizedBlock = async () => {
+                throw new Error("websocket closed");
+            };
+            const result = await readPersonhoodState(chain, { username: "alice.dot" });
+            expect(result.ok).toBe(false);
+            const error = unwrapErr(result);
+            expect(error.source).toBe("individuality");
+            expect((error.cause as Error).message).toBe("websocket closed");
         });
 
         // --- inherited from humanity-spa's toHumanityCardResult suite ----------
@@ -413,13 +567,13 @@ if (import.meta.vitest) {
                 alias: { ca: { alias: ALIAS } },
             });
             const result = await readPersonhoodState(chain, { username: "alice.dot" });
-            expect(result).toMatchObject({ accountAddress: ALICE, alias: ALIAS });
+            expect(unwrapOk(result)).toMatchObject({ accountAddress: ALICE, alias: ALIAS });
         });
 
         test("keeps a missing contextual alias null, never the DotNS text", async () => {
             const { chain } = fakeChain({ owner: ALICE, accountParticipant: raw() });
             const result = await readPersonhoodState(chain, { username: "alice.dot" });
-            expect(result).toMatchObject({ alias: null });
+            expect(unwrapOk(result)).toMatchObject({ alias: null });
             expect(JSON.stringify(result)).not.toContain("alice.dot");
         });
 
@@ -428,13 +582,13 @@ if (import.meta.vitest) {
                 fakeChain({ owner: ALICE, lite: { ring_vrf_key: "0x00" } }).chain,
                 { username: "alice.dot" },
             );
-            expect(lite).toMatchObject({ state: { tag: "Lite" } });
+            expect(unwrapOk(lite)).toMatchObject({ state: { tag: "Lite" } });
 
             const notEnrolled = await readPersonhoodState(
                 fakeChain({ owner: ALICE, lite: undefined }).chain,
                 { username: "alice.dot" },
             );
-            expect(notEnrolled).toMatchObject({ state: { tag: "NotEnrolled" } });
+            expect(unwrapOk(notEnrolled)).toMatchObject({ state: { tag: "NotEnrolled" } });
         });
 
         test("wires the personhood threshold and grace policy into the state", async () => {
@@ -450,7 +604,7 @@ if (import.meta.vitest) {
                 }).chain,
                 { username: "alice.dot" },
             );
-            expect(candidate).toMatchObject({
+            expect(unwrapOk(candidate)).toMatchObject({
                 state: { tag: "Candidate", score: 4, personhoodThreshold: 11 },
             });
 
@@ -459,7 +613,7 @@ if (import.meta.vitest) {
                 fakeChain({ owner: ALICE, grace: "0x0008", accountParticipant: raw() }).chain,
                 { username: "alice.dot" },
             );
-            expect(cautioned).toMatchObject({
+            expect(unwrapOk(cautioned)).toMatchObject({
                 state: { tag: "Caution", allowedMisses: 0, window: 8 },
             });
         });

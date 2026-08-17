@@ -13,14 +13,20 @@
  *
  * const chain = await getChainAPI("paseo");
  * const result = await readPersonhoodState(chain, { username: "alice.dot" });
- * if (result.tag === "Resolved" && result.state.tag === "Member") {
- *     console.log(`member for ${result.state.activeWeeks} weeks`);
+ * if (!result.ok) {
+ *     console.error(result.error);
+ * } else if (result.value.tag === "Resolved" && result.value.state.tag === "Member") {
+ *     console.log(`member for ${result.value.state.activeWeeks} weeks`);
  * }
  * ```
  *
+ * Failures arrive on the `err` channel as a `ProductIndividualityError`, per the
+ * SDK-wide error model. A username nobody owns is not a failure: it is
+ * `ok({ tag: "UsernameUnowned", ... })`.
+ *
  * The derivation is exported separately from the read, so the pure state
- * machine can be used against a snapshot you already hold — no chain client, no
- * host container.
+ * machine can be used against a snapshot you already hold, with no chain client
+ * and no host container.
  *
  * **Not an authorization oracle.** This is a client-side read in a client-side
  * library, and a backend that trusts "the SDK said `Member`" is trivially
@@ -45,7 +51,7 @@ export type { RawParticipant, RawRecognition, RawStreak } from "./decode.js";
 
 // The pinned batched read.
 export { readPersonhoodState } from "./read.js";
-export type { IndividualityChain, ReadPersonhoodStateOptions } from "./read.js";
+export type { IndividualityChain, RawAccountAlias, ReadPersonhoodStateOptions } from "./read.js";
 
 // Errors. `UsernameUnowned` is not one of them — it travels on the success
 // channel as a `PersonhoodResult`.

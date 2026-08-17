@@ -2,9 +2,10 @@
 name: product-sdk-individuality
 description: >
   Use when reading a person's personhood or membership standing on the individuality chain
-  from a DotNS username. Covers readPersonhoodState, the seven-state PersonhoodState union,
-  why UsernameUnowned is a success value, using the pure derivation without a chain client,
-  and the decode helpers for raw Score.Participants values.
+  from a DotNS username. Covers readPersonhoodState and its Result return, the seven-state
+  PersonhoodState union, why UsernameUnowned is a success value rather than an error, using
+  the pure derivation without a chain client, and the decode helpers for raw
+  Score.Participants values.
 ---
 
 # Product SDK Individuality
@@ -15,7 +16,9 @@ Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/pro
 
 > **NOT AN AUTHORIZATION ORACLE.** This is a client-side read in a client-side library. A backend that trusts "the SDK said `Member`" is trivially spoofed. Anything gating value must verify on chain itself.
 
-> **`UsernameUnowned` IS A SUCCESS VALUE**, not an error. The chain was asked and answered that nobody owns that username. Only `IndividualityDecodeError` is thrown, and only when the chain returns a shape the descriptor says is impossible.
+> **RETURNS A `Result`**, per the SDK-wide error model. `ok` carries the answer, `err` carries a `ProductIndividualityError`. Nothing throws.
+
+> **`UsernameUnowned` IS A SUCCESS VALUE**, not an error. The chain was asked and answered that nobody owns that username, so it arrives as `ok({ tag: "UsernameUnowned", ... })`.
 
 > **ALL READS SHARE ONE FINALIZED BLOCK.** Two of the six underlying values move on a session cadence, so mixing blocks would silently mix eras. The block used is reported back on every result.
 
@@ -28,12 +31,16 @@ import { readPersonhoodState } from "@parity/product-sdk-individuality";
 const chain = await getChainAPI("paseo");
 const result = await readPersonhoodState(chain, { username: "alice.dot" });
 
-if (result.tag === "UsernameUnowned") {
-  console.log(`nobody owns that username as of block ${result.at.blockNumber}`);
+if (!result.ok) {
+  // Unreachable node, aborted signal, or the chain returned an impossible shape.
+  console.error(result.error);
+} else if (result.value.tag === "UsernameUnowned") {
+  console.log(`nobody owns that username as of block ${result.value.at.blockNumber}`);
 } else {
-  console.log(result.accountAddress, result.state.tag);
-  if (result.state.tag === "Member") {
-    console.log(`member for ${result.state.activeWeeks} weeks`);
+  const { accountAddress, state } = result.value;
+  console.log(accountAddress, state.tag);
+  if (state.tag === "Member") {
+    console.log(`member for ${state.activeWeeks} weeks`);
   }
 }
 ```
@@ -42,7 +49,7 @@ This package does **not** resolve a chain. It takes an already-connected client,
 
 ## The Seven States
 
-`result.state` is a closed union discriminated by `tag`.
+`result.value.state` is a closed union discriminated by `tag`.
 
 | `tag` | Means | Payload |
 |---|---|---|
@@ -74,7 +81,9 @@ type PersonhoodResult =
     };
 ```
 
-`at` is on both arms, so you can cache against it or compare two results and know which is newer.
+`at` is on both arms, so you can cache against it or compare two results and know which is newer. The whole union sits inside `result.value`.
+
+The alias is read from **both** `People.AccountToAlias` and `PeopleLite.AccountToAlias`, preferring the former. A Lite person's alias lives in the second, and without it the alias-keyed participant lookup would never run for them.
 
 ## Cancellation
 
@@ -86,7 +95,7 @@ const result = await readPersonhoodState(chain, {
 });
 ```
 
-The signal is forwarded into every underlying pull. **No deadline is applied** — if you need one, wrap the call yourself.
+The signal is checked before the first call and then forwarded into every underlying pull, so an already cancelled read costs no round trip. A cancellation arrives on the `err` channel like any other failure. **No deadline is applied**, so wrap the call yourself if you need one.
 
 ## Using the Derivation Without a Chain
 
@@ -109,31 +118,42 @@ const state = derivePersonhoodState({
 
 ## Chain Data Gotchas
 
-Two traps that the compiler cannot catch, both verified against the committed metadata:
+Two traps the compiler cannot catch, both verified against the committed metadata:
 
-- **`Score.PersonhoodThreshold` is a `u8`.** PAPI types both `u8` and `u32` as `number`, so a width mistake typechecks *and* passes tests.
-- **`Score.AbsenceGraceRatio` byte order is `(allowed_misses, window)`.** The metadata tuple is anonymous, so the order comes from the pallet's doc comment, not the type. Use `decodeAbsenceGracePolicy` rather than parsing the hex yourself.
+- **`Score.PersonhoodThreshold` is a `u8`.** PAPI types both `u8` and `u32` as `number`, so a width mistake typechecks *and* passes tests. Nothing guards this one, so read it at the right width.
+- **`Score.AbsenceGraceRatio` byte order is `(allowed_misses, window)`.** The metadata tuple is anonymous, so the order comes from the pallet's doc comment, not the type. Use `decodeAbsenceGracePolicy` rather than parsing the hex yourself: it enforces the runtime's own invariants (`window <= 8` and `allowedMisses < window`), so a swapped order fails loudly instead of silently disabling `Caution` for everyone.
 
 Unknown `streak` or `recognition` variants throw `IndividualityDecodeError` rather than mapping to something plausible — the pallet is under active development, and a variant added by a runtime upgrade should fail loudly.
 
 ## Error Handling
 
 ```ts
+import { isErrorOf } from "@parity/result";
 import {
-  ProductIndividualityError,     // package base
+  ProductIndividualityError,     // package base, carries any other failure as `cause`
   IndividualityDecodeError,      // the chain returned an impossible shape
 } from "@parity/product-sdk-individuality";
+
+if (!result.ok) {
+  if (isErrorOf(result.error, IndividualityDecodeError)) {
+    // The chain and the committed metadata disagree.
+  } else {
+    // Transport, cancellation, or the pinned block aged out. `cause` has the original.
+    console.error(result.error.cause);
+  }
+}
 ```
 
 Both implement the cross-package `SdkError` marker, so `isSdkError(e)` from `@parity/product-sdk-errors` recognizes them. Error messages are fixed strings and never interpolate chain data.
 
 ## Common Mistakes
 
-1. **Treating `UsernameUnowned` as an error** — it is a valid answer on the success channel.
-2. **Comparing `score` to `personhoodThreshold` to decide membership** — the chain owns `reachedPersonhood`; both numbers are reported, never compared. Someone sitting exactly on the threshold is still `Candidate`.
-3. **Reading `Caution.misses` as misses already taken** — it is a *projection* of what the window would hold after one more absence.
-4. **Assuming `window === 0` behaves like other windows** — it means no grace at all, so the next absence suspends regardless of the count. `Caution` there can carry a `misses` value *below* `allowedMisses`.
-5. **Using this to gate value server-side** — see the first callout.
-6. **Normalizing the username first** — it is UTF-8 encoded as-is. Pass the exact byte string the chain stores, `.dot` suffix included.
-7. **Expecting `alias` to be the DotNS text** — it is the contextual People alias, or `null`. Never the username.
-8. **Reading the six values at different blocks** if you roll your own read — the threshold and grace ratio are session-updated, so an unpinned batch can mix eras and look valid.
+1. **Forgetting to check `result.ok` first** — the answer is inside `result.value`, and a `result.tag` check on the outer object is always undefined.
+2. **Treating `UsernameUnowned` as an error** — it is a valid answer on the ok channel.
+3. **Comparing `score` to `personhoodThreshold` to decide membership** — the chain owns `reachedPersonhood`; both numbers are reported, never compared. Someone sitting exactly on the threshold is still `Candidate`.
+4. **Reading `Caution.misses` as misses already taken** — it is a *projection* of what the window would hold after one more absence.
+5. **Assuming `window === 0` behaves like other windows** — it means no grace at all, so the next absence suspends regardless of the count. `Caution` there can carry a `misses` value *below* `allowedMisses`.
+6. **Using this to gate value server-side** — see the first callout.
+7. **Normalizing the username first** — it is UTF-8 encoded as-is. Pass the exact byte string the chain stores, `.dot` suffix included.
+8. **Expecting `alias` to be the DotNS text** — it is the contextual People alias, or `null`. Never the username.
+9. **Reading the six values at different blocks** if you roll your own read — the threshold and grace ratio are session-updated, so an unpinned batch can mix eras and look valid.

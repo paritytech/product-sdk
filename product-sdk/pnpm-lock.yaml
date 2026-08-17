@@ -564,6 +564,9 @@ importers:
       '@parity/product-sdk-errors':
         specifier: workspace:*
         version: link:../errors
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
       polkadot-api:
         specifier: 'catalog:'
         version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)

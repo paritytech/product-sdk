@@ -3,14 +3,21 @@
 /**
  * Errors raised by `@parity/product-sdk-individuality`.
  *
- * Only one failure family exists here: the chain returned something the
- * descriptor says is impossible. Everything a caller can legitimately hit —
- * including a username nobody owns — travels on the success channel as a
- * `PersonhoodResult`, so catching an error from this package means the chain
- * and the committed metadata disagree.
+ * `readPersonhoodState` returns a `Result`, so these arrive on the `err`
+ * channel rather than as throws. Two kinds reach it:
  *
- * Catch with `instanceof ProductIndividualityError`, or across the whole SDK
- * family with `isSdkError(e)` from `@parity/product-sdk-errors`.
+ * - {@link IndividualityDecodeError}, when the chain returns a shape the
+ *   descriptor says is impossible.
+ * - {@link ProductIndividualityError} itself, carrying any other failure as its
+ *   `cause`: an unreachable node, an aborted signal, or the pinned block leaving
+ *   the follower's window mid-read.
+ *
+ * A username nobody owns is neither. It is a successful answer and travels on
+ * the `ok` channel as a `PersonhoodResult`.
+ *
+ * Narrow with `isErrorOf(e, IndividualityDecodeError)` from `@parity/result`, or
+ * recognise any SDK error with `isSdkError(e)` from
+ * `@parity/product-sdk-errors`.
  */
 import type { SdkError } from "@parity/product-sdk-errors";
 

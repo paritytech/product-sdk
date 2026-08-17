@@ -24,6 +24,7 @@
     },
     "dependencies": {
         "@parity/product-sdk-errors": "workspace:*",
+        "@parity/result": "workspace:*",
         "polkadot-api": "catalog:"
     },
     "devDependencies": {

@@ -24,6 +24,9 @@ import { IndividualityDecodeError } from "./errors.js";
 import type { PersonhoodParticipant } from "./derive.js";
 import type { AbsenceGracePolicy } from "./types.js";
 
+/** The attendance history is one byte, so the runtime caps the grace window at 8. */
+const GRACE_WINDOW_MAX = 8;
+
 /** `Score.AbsenceGraceRatio` serialized as `SizedHex<2>`: `0x` + four hex digits. */
 const GRACE_RATIO_PATTERN = /^0x[0-9a-fA-F]{4}$/;
 
@@ -40,10 +43,27 @@ export function decodeAbsenceGracePolicy(value: string): AbsenceGracePolicy {
     }
     // Byte order is (allowed_misses, window). The metadata tuple is anonymous,
     // so the order comes from the pallet doc comment, not the type.
-    return {
-        allowedMisses: Number.parseInt(value.slice(2, 4), 16),
-        window: Number.parseInt(value.slice(4, 6), 16),
-    };
+    const allowedMisses = Number.parseInt(value.slice(2, 4), 16);
+    const window = Number.parseInt(value.slice(4, 6), 16);
+
+    // The runtime guarantees `window <= 8` and `allowed_misses < window` for every
+    // grace tier, so both checks below reject impossible chain data rather than
+    // trusting it. They exist because the byte order above is unverifiable from
+    // the type: were the halves ever swapped, the decode would still succeed and
+    // return plausible numbers, and since the projection can return at most
+    // `window`, `misses > allowedMisses` would become unreachable and `Caution`
+    // would silently never fire. That turns the one trap this file cannot see
+    // into a loud failure.
+    if (window > GRACE_WINDOW_MAX) {
+        throw new IndividualityDecodeError("absence grace window exceeds the attendance history");
+    }
+    // `window === 0` is the legitimate no-grace tier and carries no useful
+    // allowance, so it is exempt from the ordering rule.
+    if (window !== 0 && allowedMisses >= window) {
+        throw new IndividualityDecodeError("absence grace policy violates allowed_misses < window");
+    }
+
+    return { allowedMisses, window };
 }
 
 /** The raw `streak` enum as PAPI decodes it: `Enum<{ Attended: u32; Absent: u32 }>`. */
@@ -169,6 +189,23 @@ if (import.meta.vitest) {
             ["0506", "missing 0x prefix"],
         ])("throws on %s (%s)", (value) => {
             expect(() => decodeAbsenceGracePolicy(value)).toThrow(IndividualityDecodeError);
+        });
+
+        test("rejects a window wider than the attendance history", () => {
+            // Impossible chain data: the runtime caps the window at 8.
+            expect(() => decodeAbsenceGracePolicy("0x01c8")).toThrow(IndividualityDecodeError);
+        });
+
+        test("rejects allowedMisses >= window, which is what a swapped byte order looks like", () => {
+            // 0x0801 read in the wrong order: 8 allowed misses over a window of 1.
+            // Without this check the decode succeeds and Caution never fires again.
+            expect(() => decodeAbsenceGracePolicy("0x0801")).toThrow(IndividualityDecodeError);
+            expect(() => decodeAbsenceGracePolicy("0x0808")).toThrow(IndividualityDecodeError);
+        });
+
+        test("still allows the no-grace tier, where the allowance is meaningless", () => {
+            expect(decodeAbsenceGracePolicy("0x0000")).toEqual({ allowedMisses: 0, window: 0 });
+            expect(decodeAbsenceGracePolicy("0x0500")).toEqual({ allowedMisses: 5, window: 0 });
         });
 
         test("the two bytes are not interchangeable", () => {
