@@ -69,6 +69,19 @@ export interface FinalizedSnapshot {
 }
 
 /**
+ * The absence-grace policy currently in force, decoded from
+ * `Score.AbsenceGraceRatio`.
+ *
+ * `window` is a count of recent games; `allowedMisses` is how many of them may
+ * be absences before the next one suspends. A `window` of `0` means no grace at
+ * all.
+ */
+export interface AbsenceGracePolicy {
+    allowedMisses: number;
+    window: number;
+}
+
+/**
  * The outcome of a personhood read.
  *
  * `UsernameUnowned` is a first-class success value: the chain was queried and

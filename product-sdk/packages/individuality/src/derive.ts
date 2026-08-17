@@ -12,7 +12,7 @@
  * permanent, and `Caution` is a *projection* of the next absence rather than a
  * count of past ones. See the package skill for the plain-language version.
  */
-import type { PersonhoodState } from "./types.js";
+import type { AbsenceGracePolicy, PersonhoodState } from "./types.js";
 
 /** Attendance history is one byte, so a window wider than 8 games is capped. */
 const HISTORY_BITS = 8;
@@ -42,8 +42,13 @@ export interface PersonhoodParticipant {
 export interface PersonhoodSnapshot {
     isLitePerson: boolean;
     participant: PersonhoodParticipant | null;
+    /**
+     * `Score.PersonhoodThreshold`. **This is a `u8` on chain**, but PAPI types
+     * both `u8` and `u32` as `number`, so a width mistake here typechecks and
+     * passes tests. Verified against the metadata blob on 2026-08-16.
+     */
     personhoodThreshold: number;
-    policy: { allowedMisses: number; window: number };
+    policy: AbsenceGracePolicy;
 }
 
 /** Count set bits without allocating (Kernighan). */
