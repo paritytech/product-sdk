@@ -559,6 +559,37 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@25.9.1)
 
+  packages/individuality:
+    dependencies:
+      '@parity/product-sdk-chain-client':
+        specifier: workspace:*
+        version: link:../chain-client
+      '@parity/product-sdk-descriptors':
+        specifier: workspace:*
+        version: link:../descriptors
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
+      '@parity/product-sdk-logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
+      polkadot-api:
+        specifier: 'catalog:'
+        version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
+    devDependencies:
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/keys:
     dependencies:
       '@parity/product-sdk-address':

@@ -1,0 +1,39 @@
+{
+    "name": "@parity/product-sdk-individuality",
+    "description": "Read the personhood state of a DotNS username from the individuality chain, as of one pinned finalized block",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": ["dist"],
+    "sideEffects": false,
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "build": "tsup",
+        "clean": "rm -rf dist",
+        "test": "vitest run",
+        "typecheck": "tsc -p tsconfig.typecheck.json"
+    },
+    "dependencies": {
+        "@parity/product-sdk-chain-client": "workspace:*",
+        "@parity/product-sdk-descriptors": "workspace:*",
+        "@parity/product-sdk-errors": "workspace:*",
+        "@parity/product-sdk-logger": "workspace:*",
+        "@parity/result": "workspace:*",
+        "polkadot-api": "catalog:"
+    },
+    "devDependencies": {
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    },
+    "license": "Apache-2.0"
+}
