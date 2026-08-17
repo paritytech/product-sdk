@@ -37,13 +37,14 @@
 export type {
     AbsenceGracePolicy,
     FinalizedSnapshot,
+    PersonhoodInputs,
+    PersonhoodParticipant,
     PersonhoodResult,
     PersonhoodState,
 } from "./types.js";
 
 // The pure derivation — the artifact issue #291 consumes.
 export { derivePersonhoodState } from "./derive.js";
-export type { PersonhoodParticipant, PersonhoodSnapshot } from "./derive.js";
 
 // Raw storage values to domain shapes, for callers doing their own reads.
 export { decodeAbsenceGracePolicy, toPersonhoodParticipant } from "./decode.js";

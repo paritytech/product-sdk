@@ -82,6 +82,41 @@ export interface AbsenceGracePolicy {
 }
 
 /**
+ * A participant's game record, as read from `Score.Participants` and decoded.
+ *
+ * `attendanceHistory` is a rolling byte: bit 0 is the most recent game, `1`
+ * means attended and `0` means absent.
+ */
+export interface PersonhoodParticipant {
+    score: number;
+    streak: { tag: "Attended" | "Absent"; count: number };
+    attendanceHistory: number;
+    reachedPersonhood: boolean;
+    recognition: "ExternallyRecognized" | "NotRecognized" | "Suspended" | "Recognized";
+    lastAttendedGame: number | null;
+}
+
+/**
+ * Everything {@link PersonhoodState} is derived from, resolved for one account at
+ * one block.
+ *
+ * Named inputs rather than a snapshot on purpose: {@link FinalizedSnapshot} is
+ * the block this was read at, and two exported types called Snapshot meaning
+ * different things is a trap.
+ */
+export interface PersonhoodInputs {
+    isLitePerson: boolean;
+    participant: PersonhoodParticipant | null;
+    /**
+     * `Score.PersonhoodThreshold`. **This is a `u8` on chain**, but PAPI types
+     * both `u8` and `u32` as `number`, so a width mistake here typechecks and
+     * passes tests. Verified against the metadata blob on 2026-08-16.
+     */
+    personhoodThreshold: number;
+    policy: AbsenceGracePolicy;
+}
+
+/**
  * The outcome of a personhood read.
  *
  * `UsernameUnowned` is a first-class success value: the chain was queried and

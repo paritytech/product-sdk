@@ -19,14 +19,14 @@
  */
 import { Enum } from "polkadot-api";
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { derivePersonhoodState, type PersonhoodParticipant } from "./derive.js";
+import { derivePersonhoodState } from "./derive.js";
 import {
     decodeAbsenceGracePolicy,
     toPersonhoodParticipant,
     type RawParticipant,
 } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
-import type { FinalizedSnapshot, PersonhoodResult } from "./types.js";
+import type { FinalizedSnapshot, PersonhoodParticipant, PersonhoodResult } from "./types.js";
 
 /** Options every storage read is given, so all six agree on one block. */
 interface ReadAt {

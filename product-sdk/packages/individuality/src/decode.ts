@@ -13,7 +13,7 @@
  * 2. **`Score.PersonhoodThreshold` is a `u8`.** PAPI maps both `u8` and `u32` to
  *    `number`, so a width mistake typechecks *and* passes tests. It is read
  *    straight through rather than decoded here, so the note lives on
- *    `PersonhoodSnapshot.personhoodThreshold` in `derive.ts` and at the read
+ *    `PersonhoodInputs.personhoodThreshold` in `types.ts` and at the read
  *    site — but it belongs to the same class of trap as the one above.
  *
  * Unknown enum variants throw {@link IndividualityDecodeError} rather than
@@ -21,8 +21,7 @@
  * variant added by a runtime upgrade must fail loudly.
  */
 import { IndividualityDecodeError } from "./errors.js";
-import type { PersonhoodParticipant } from "./derive.js";
-import type { AbsenceGracePolicy } from "./types.js";
+import type { AbsenceGracePolicy, PersonhoodParticipant } from "./types.js";
 
 /** The attendance history is one byte, so the runtime caps the grace window at 8. */
 const GRACE_WINDOW_MAX = 8;
