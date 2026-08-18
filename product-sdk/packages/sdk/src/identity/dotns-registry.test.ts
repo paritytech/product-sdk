@@ -10,6 +10,7 @@ import {
     QUERY_FALLBACK_ORIGIN,
 } from "@parity/product-sdk-contracts";
 import { createFakeContractRuntime, fakeDryRunResult } from "@parity/product-sdk-contracts/testing";
+import { ss58ToH160 } from "@parity/product-sdk-address";
 import { describe, expect, test } from "vitest";
 import {
     DOTNS_POP_RULES_ABI,
@@ -19,6 +20,7 @@ import {
     DOTNS_RESOLVER_WRITE_ABI,
     DOTNS_REVERSE_RESOLVER_ABI,
     PASEO_ASSETHUB_DOTNS,
+    POP_STATUS,
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
 import {
@@ -320,5 +322,147 @@ describe("origin", () => {
         );
         expect(runtime.calls.length).toBeGreaterThan(0);
         expect(runtime.calls.every((c) => c.origin === SIGNER)).toBe(true);
+    });
+});
+
+describe("prepareDotNsRegistration", () => {
+    /** PopRules metadata: eligible NoStatus owner unless overridden. */
+    const quote = (over: Partial<Record<string, unknown>> = {}) => ({
+        price: 1000n,
+        status: POP_STATUS.NoStatus,
+        userStatus: POP_STATUS.NoStatus,
+        message: "Available to all",
+        ...over,
+    });
+
+    const happy = (over: Record<string, unknown> = {}) =>
+        runtimeWith({
+            makeCommitment: `0x${"ab".repeat(32)}`,
+            priceWithoutCheck: quote(),
+            transferFloor: 0n,
+            minCommitmentAge: 60n,
+            maxCommitmentAge: 86400n,
+            ...over,
+        });
+
+    const REG = { name: "alice.dot", owner: OWNER };
+    const withSigner = (runtime: ReturnType<typeof runtimeWith>) => ({ runtime, origin: SIGNER });
+
+    test("does not dry-run register up front", async () => {
+        // register consumes the commitment, so preparing it before commitCall
+        // lands reverts with CommitmentNotFound.
+        const runtime = happy();
+        const r = await prepareDotNsRegistration(REG, withSigner(runtime));
+        expect(r.ok).toBe(true);
+        expect(runtime.calls.map((c) => c.functionName)).not.toContain("register");
+        expect(runtime.calls.map((c) => c.functionName)).toContain("commit");
+    });
+
+    test("returns a thunk that builds the register call later", async () => {
+        const runtime = happy();
+        const r = await prepareDotNsRegistration(REG, withSigner(runtime));
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        runtime.reset();
+        const later = await r.value.prepareRegisterCall();
+        expect(later.ok).toBe(true);
+        expect(runtime.calls.map((c) => c.functionName)).toContain("register");
+    });
+
+    test("prices from priceWithoutCheck, not from price", async () => {
+        const runtime = happy();
+        await prepareDotNsRegistration(REG, withSigner(runtime));
+        const names = runtime.calls.map((c) => c.functionName);
+        expect(names).toContain("priceWithoutCheck");
+        expect(names).not.toContain("price");
+    });
+
+    test("a governance-reserved label fails before the commit is prepared", async () => {
+        const runtime = happy({
+            priceWithoutCheck: quote({
+                status: POP_STATUS.Reserved,
+                message: "Reserved for Governance",
+            }),
+        });
+        const r = await prepareDotNsRegistration(REG, withSigner(runtime));
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("NameReserved");
+        expect(runtime.calls.map((c) => c.functionName)).not.toContain("commit");
+    });
+
+    test("an owner below the required tier fails before the commit is prepared", async () => {
+        const runtime = happy({
+            priceWithoutCheck: quote({
+                status: POP_STATUS.PopFull,
+                userStatus: POP_STATUS.NoStatus,
+                message: "Requires Full personhood verification",
+            }),
+        });
+        const r = await prepareDotNsRegistration(REG, withSigner(runtime));
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("OwnerStatusInsufficient");
+        expect(runtime.calls.map((c) => c.functionName)).not.toContain("commit");
+    });
+
+    test("a verified owner meeting the tier is accepted", async () => {
+        const runtime = happy({
+            priceWithoutCheck: quote({
+                status: POP_STATUS.PopFull,
+                userStatus: POP_STATUS.PopFull,
+                price: 0n,
+            }),
+        });
+        const r = await prepareDotNsRegistration(REG, withSigner(runtime));
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.value.price).toBe(0n);
+    });
+
+    test("the direct path skips the friction read", async () => {
+        // SIGNER derives to a different H160 than OWNER, so force the direct
+        // case by registering to the payer's own address.
+        const payer = ss58ToH160(SIGNER);
+        const runtime = happy();
+        await prepareDotNsRegistration({ name: "alice.dot", owner: payer }, withSigner(runtime));
+        expect(runtime.calls.map((c) => c.functionName)).not.toContain("transferFloor");
+    });
+
+    test("a cross-payer registration charges the friction floor when it is higher", async () => {
+        const runtime = happy({ priceWithoutCheck: quote({ price: 10n }), transferFloor: 5000n });
+        const r = await prepareDotNsRegistration(REG, withSigner(runtime));
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.value.price).toBe(5000n);
+    });
+
+    test("the register value is re-quoted, not the stale prepare-time price", async () => {
+        let current = 1000n;
+        const runtime = createFakeContractRuntime({
+            abi: ALL_ABIS,
+            onQuery: ({ functionName }) => {
+                if (functionName === "makeCommitment") return `0x${"ab".repeat(32)}`;
+                if (functionName === "priceWithoutCheck") return quote({ price: current });
+                if (functionName === "transferFloor") return 0n;
+                if (functionName === "minCommitmentAge") return 60n;
+                if (functionName === "maxCommitmentAge") return 86400n;
+                return undefined;
+            },
+        });
+        const r = await prepareDotNsRegistration(REG, withSigner(runtime));
+        expect(r.ok && r.value.price).toBe(1000n);
+        if (!r.ok) return;
+
+        current = 7777n; // price moves during the mandatory wait
+        runtime.reset();
+        await r.value.prepareRegisterCall();
+        const register = runtime.calls.find((c) => c.functionName === "register");
+        expect(register?.value).toBe(7777n);
+    });
+
+    test("a failing commitment-window read is an error, not a zero window", async () => {
+        const runtime = happy({
+            minCommitmentAge: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
+        });
+        const r = await prepareDotNsRegistration(REG, withSigner(runtime));
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
     });
 });

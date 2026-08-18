@@ -28,6 +28,7 @@ import {
 } from "@parity/product-sdk-contracts";
 import type { ContractRuntime } from "@parity/product-sdk-contracts";
 import { bytesToHex, randomBytes } from "@parity/product-sdk-crypto";
+import { ss58ToH160 } from "@parity/product-sdk-address";
 import { createLogger } from "@parity/product-sdk-logger";
 import type { SS58String } from "polkadot-api";
 import {
@@ -38,6 +39,7 @@ import {
     DOTNS_RESOLVER_WRITE_ABI,
     DOTNS_REVERSE_RESOLVER_ABI,
     PASEO_ASSETHUB_DOTNS,
+    POP_STATUS,
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
 import { isValidDotNsName, normalizeDotNsName } from "./dotns.js";
@@ -325,31 +327,85 @@ export async function setDotNsRecord(
 
 /** The prepared pieces of a DotNS registration. */
 export interface DotNsRegistration {
-    /** The random secret bound into both commit and register — reuse verbatim. */
+    /** The random secret bound into both commit and register. */
     secret: HexString;
     /** The commitment hash (also encoded inside `commitCall`). */
     commitment: HexString;
     /** Submit first, with the owner's signer. */
     commitCall: BatchableCall;
-    /** Submit after `minCommitmentAge` (and before `maxCommitmentAge`) elapses. */
-    registerCall: BatchableCall;
     /** Seconds to wait after `commit` before `register` is accepted. */
     minCommitmentAge: bigint;
     /** Seconds after which the commitment expires and `register` is rejected. */
     maxCommitmentAge: bigint;
-    /** The registration price (the `register` call's payable value). */
+    /** Quote at prepare time, for display. The submitted value is re-read below. */
     price: bigint;
+    /**
+     * Build the register call, once `minCommitmentAge` has elapsed.
+     *
+     * Deferred rather than returned up front: `register` consumes the
+     * commitment, so dry-running it before `commitCall` lands reverts with
+     * `CommitmentNotFound` and no call could be built at all. Deferring also
+     * prices and sizes it against the state it will actually execute in.
+     */
+    prepareRegisterCall: () => Promise<Result<BatchableCall, DotNsError>>;
+}
+
+/** What `register` will charge, and whether it will accept the owner at all. */
+async function quoteRegistration(
+    popRules: ReturnType<typeof contractOf>,
+    label: string,
+    owner: string,
+    payer: string,
+    origin: SS58String,
+): Promise<Result<bigint, DotNsError>> {
+    // `price(label)` is not what register charges: it skips every eligibility
+    // rule and ignores the owner. The owner-aware variant reports the same
+    // classification register applies, without reverting on it.
+    const quote = await popRules.priceWithoutCheck.query(label, owner, { origin });
+    if (!quote.success) {
+        return err(new DotNsError("RegistryCall", "PopRules.priceWithoutCheck failed"));
+    }
+    const { price, status, userStatus, message } = quote.value as {
+        price: bigint;
+        status: number;
+        userStatus: number;
+        message: string;
+    };
+    if (status === POP_STATUS.Reserved) {
+        return err(new DotNsError("NameReserved", `"${label}" is reserved: ${message}`));
+    }
+    if (userStatus < status) {
+        return err(
+            new DotNsError(
+                "OwnerStatusInsufficient",
+                `"${label}" requires personhood tier ${status}, owner has ${userStatus}: ${message}`,
+            ),
+        );
+    }
+
+    // Cross-payer registrations add a friction floor; register charges the
+    // larger of the two.
+    if (sameAddress(payer, owner)) return ok(BigInt(price));
+    const floor = await popRules.transferFloor.query(label, payer, owner, { origin });
+    if (!floor.success) {
+        return err(new DotNsError("RegistryCall", "PopRules.transferFloor failed"));
+    }
+    const friction = BigInt(floor.value as string | number | bigint);
+    const base = BigInt(price);
+    return ok(base > friction ? base : friction);
 }
 
 /**
- * Prepare a DotNS registration: the commit + register calls, the shared secret,
- * and the timing window. Registration is commit-reveal —
+ * Prepare a DotNS registration: the commit call, the shared secret, the timing
+ * window, and a thunk that builds the register call afterwards.
  *
  *   1. submit `commitCall`
- *   2. wait `minCommitmentAge` (register before `maxCommitmentAge`)
- *   3. submit `registerCall` (its payable value is already set to `price`)
+ *   2. wait `minCommitmentAge`, and register before `maxCommitmentAge`
+ *   3. `await prepareRegisterCall()`, then submit what it returns
  *
- * The `register` price comes from `PopRules.price(label)`.
+ * Eligibility is checked here, before the caller pays for the commit: a
+ * governance-reserved label, or an owner below the tier the label requires,
+ * fails now rather than on the second transaction.
  */
 export async function prepareDotNsRegistration(
     args: RegisterDotNsArgs,
@@ -359,8 +415,6 @@ export async function prepareDotNsRegistration(
     if (!isValidDotNsName(normalized)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
     }
-    // register/commit are dry-run before the batch is built; the fallback
-    // account is not the payer and would misprice and misreport them.
     const origin = opts.origin;
     if (!origin) {
         return err(
@@ -374,6 +428,9 @@ export async function prepareDotNsRegistration(
     const popRulesAddr = opts.popRulesAddress ?? PASEO_ASSETHUB_DOTNS.popRules;
     const secret = `0x${bytesToHex(randomBytes(32))}` as HexString;
     const registration = { label, owner: args.owner, secret, reserved: args.reserved ?? false };
+    // register compares msg.sender against the owner; msg.sender is derived
+    // from the SS58 origin, so derive it the same way to predict the branch.
+    const payer = ss58ToH160(origin);
 
     try {
         const controller = contractOf(
@@ -383,37 +440,49 @@ export async function prepareDotNsRegistration(
         );
         const popRules = contractOf(opts.runtime, popRulesAddr as HexString, DOTNS_POP_RULES_ABI);
 
-        const [commitmentRes, priceRes, minRes, maxRes] = await Promise.all([
+        const [commitmentRes, quote, minRes, maxRes] = await Promise.all([
             controller.makeCommitment.query(registration, { origin }),
-            popRules.price.query(label, { origin }),
+            quoteRegistration(popRules, label, args.owner, payer, origin),
             controller.minCommitmentAge.query({ origin }),
             controller.maxCommitmentAge.query({ origin }),
         ]);
         if (!commitmentRes.success) {
             return err(new DotNsError("RegistryCall", "makeCommitment failed"));
         }
-        if (!priceRes.success) {
-            return err(new DotNsError("RegistryCall", "PopRules.price failed"));
+        if (!quote.ok) return quote;
+        if (!minRes.success || !maxRes.success) {
+            return err(new DotNsError("RegistryCall", "commitment window read failed"));
         }
         const commitment = commitmentRes.value as HexString;
-        const price = BigInt(priceRes.value as string | number | bigint);
 
-        const [commitPrep, registerPrep] = await Promise.all([
-            controller.commit.prepare(commitment, { origin }),
-            controller.register.prepare(registration, { value: price, origin }),
-        ]);
-        if (!commitPrep.ok || !registerPrep.ok) {
-            return err(new DotNsError("RegistryCall", "commit / register prepare failed"));
+        const commitPrep = await controller.commit.prepare(commitment, { origin });
+        if (!commitPrep.ok) {
+            return err(new DotNsError("RegistryCall", "controller.commit prepare failed"));
         }
 
         return ok({
             secret,
             commitment,
             commitCall: commitPrep.value as BatchableCall,
-            registerCall: registerPrep.value as BatchableCall,
-            minCommitmentAge: BigInt(minRes.success ? (minRes.value as string | number) : 0),
-            maxCommitmentAge: BigInt(maxRes.success ? (maxRes.value as string | number) : 0),
-            price,
+            minCommitmentAge: BigInt(minRes.value as string | number),
+            maxCommitmentAge: BigInt(maxRes.value as string | number),
+            price: quote.value,
+            prepareRegisterCall: async () => {
+                // Re-quoted, not reused: the price and the owner's tier can both
+                // move during the mandatory wait.
+                const current = await quoteRegistration(popRules, label, args.owner, payer, origin);
+                if (!current.ok) return current;
+                const prep = await controller.register.prepare(registration, {
+                    value: current.value,
+                    origin,
+                });
+                if (!prep.ok) {
+                    return err(
+                        new DotNsError("RegistryCall", "controller.register prepare failed"),
+                    );
+                }
+                return ok(prep.value as BatchableCall);
+            },
         });
     } catch (cause) {
         return err(new DotNsError("RegistryCall", "DotNS registration prepare failed", { cause }));

@@ -149,7 +149,16 @@ export const DOTNS_REGISTRAR_CONTROLLER_ABI: AbiEntry[] = [
     },
 ];
 
-/** `PopRules` — registration price for a label (payable value for `register`). */
+/**
+ * `PopRules` — registration pricing.
+ *
+ * `price` is the label-only cost and runs no eligibility rules, so it is not
+ * what `register` charges. `register` uses the owner-aware variants and adds
+ * `transferFloor` when the payer is not the owner:
+ * `max(priceWithoutCheck(label, owner).price, transferFloor(label, payer, owner))`.
+ *
+ * `PopStatus` encodes as `uint8`: 0 NoStatus, 1 PopLite, 2 PopFull, 3 Reserved.
+ */
 export const DOTNS_POP_RULES_ABI: AbiEntry[] = [
     {
         type: "function",
@@ -158,7 +167,42 @@ export const DOTNS_POP_RULES_ABI: AbiEntry[] = [
         outputs: [{ name: "cost", type: "uint256" }],
         stateMutability: "view",
     },
+    {
+        type: "function",
+        name: "priceWithoutCheck",
+        inputs: [
+            { name: "name", type: "string" },
+            { name: "userAddress", type: "address" },
+        ],
+        outputs: [
+            {
+                name: "metadata",
+                type: "tuple",
+                components: [
+                    { name: "price", type: "uint256" },
+                    { name: "status", type: "uint8" },
+                    { name: "userStatus", type: "uint8" },
+                    { name: "message", type: "string" },
+                ],
+            },
+        ],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "transferFloor",
+        inputs: [
+            { name: "name", type: "string" },
+            { name: "from", type: "address" },
+            { name: "to", type: "address" },
+        ],
+        outputs: [{ name: "floor", type: "uint256" }],
+        stateMutability: "view",
+    },
 ];
+
+/** `IPopRules.PopStatus`. Ordering is meaningful: a user meets a tier when `userStatus >= status`. */
+export const POP_STATUS = { NoStatus: 0, PopLite: 1, PopFull: 2, Reserved: 3 } as const;
 
 /**
  * Default deployed addresses on Paseo Asset Hub (chain id 420420417).
