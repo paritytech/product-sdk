@@ -10,6 +10,7 @@
 // DotNS utilities (pure helpers + People-chain username path)
 export {
     isValidDotNsName,
+    isResolvableDotNsName,
     normalizeDotNsName,
     accountIdHexToBytes,
     resolvePeopleUsernameOwner,

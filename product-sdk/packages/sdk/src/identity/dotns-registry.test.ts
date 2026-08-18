@@ -466,3 +466,123 @@ describe("prepareDotNsRegistration", () => {
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
     });
 });
+
+describe("error causes", () => {
+    // The contracts package surfaces a dispatch payload on a failed query and a
+    // typed ContractError from a failed prepare, so callers can tell "not the
+    // owner" from "node missing" from "RPC down". Collapsing both to a bare
+    // string loses that, which is what these pin.
+    const FAILURE = { type: "ContractTrapped" } as const;
+
+    test("a failed read carries the dispatch payload", async () => {
+        const runtime = runtimeWith({ owner: fakeDryRunResult({ failure: FAILURE }) });
+        const r = await resolveDotNs("alice.dot", { runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.cause).toEqual(FAILURE);
+    });
+
+    test("a reverting write carries the ContractError, with its decoded reason", async () => {
+        const runtime = runtimeWith({
+            resolver: FORWARD_RESOLVER,
+            setAddress: fakeDryRunResult({ revert: "Unauthorised" }),
+        });
+        const r = await setDotNsRecord(
+            { name: "alice.dot", address: TARGET },
+            { runtime, origin: SIGNER },
+        );
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+            expect(r.error.cause).toBeDefined();
+            expect(JSON.stringify(r.error.cause)).toContain("Unauthorised");
+        }
+    });
+
+    test("a failed availability read carries its payload", async () => {
+        const runtime = runtimeWith({ available: fakeDryRunResult({ failure: FAILURE }) });
+        const r = await isDotNsAvailable("alice.dot", { runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.cause).toEqual(FAILURE);
+    });
+
+    test("a failed pricing read carries its payload", async () => {
+        const runtime = runtimeWith({
+            makeCommitment: `0x${"ab".repeat(32)}`,
+            priceWithoutCheck: fakeDryRunResult({ failure: FAILURE }),
+            minCommitmentAge: 60n,
+            maxCommitmentAge: 86400n,
+        });
+        const r = await prepareDotNsRegistration(
+            { name: "alice.dot", owner: OWNER },
+            { runtime, origin: SIGNER },
+        );
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.cause).toEqual(FAILURE);
+    });
+});
+
+describe("subnames", () => {
+    test("a subname resolves", async () => {
+        const runtime = runtimeWith({
+            owner: OWNER,
+            resolver: FORWARD_RESOLVER,
+            addressOf: TARGET,
+        });
+        const r = await resolveDotNs("bob.alice.dot", { runtime });
+        expect(r).toEqual({
+            ok: true,
+            value: { address: TARGET, name: "bob.alice.dot", owner: OWNER },
+        });
+    });
+
+    test("a subname hashes to a different node than its parent", async () => {
+        const sub = runtimeWith({ owner: OWNER, resolver: ZERO });
+        await resolveDotNs("bob.alice.dot", { runtime: sub });
+        const parent = runtimeWith({ owner: OWNER, resolver: ZERO });
+        await resolveDotNs("alice.dot", { runtime: parent });
+        expect(sub.calls[0]?.args?.[0]).not.toBe(parent.calls[0]?.args?.[0]);
+    });
+
+    test("a record can be set on a subname", async () => {
+        const runtime = runtimeWith({ resolver: FORWARD_RESOLVER });
+        const r = await setDotNsRecord(
+            { name: "bob.alice.dot", address: TARGET },
+            { runtime, origin: SIGNER },
+        );
+        expect(r.ok).toBe(true);
+    });
+
+    test("registration still refuses a subname, since the registrar only mints single labels", async () => {
+        const runtime = runtimeWith({});
+        const r = await prepareDotNsRegistration(
+            { name: "bob.alice.dot", owner: OWNER },
+            { runtime, origin: SIGNER },
+        );
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("InvalidName");
+    });
+
+    test("availability still refuses a subname", async () => {
+        const runtime = runtimeWith({ available: true });
+        const r = await isDotNsAvailable("bob.alice.dot", { runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("InvalidName");
+    });
+
+    test("a malformed label anywhere in the path is rejected as InvalidName", async () => {
+        // Asserting the reason, not just !ok: an empty fake runtime makes the
+        // call fail anyway, so `ok === false` alone would pass for any input.
+        const runtime = runtimeWith({});
+        for (const bad of ["a.alice.dot", "bob..alice.dot", "-bob.alice.dot", "bob.al ice.dot"]) {
+            const r = await resolveDotNs(bad, { runtime });
+            expect(r.ok, bad).toBe(false);
+            if (!r.ok) expect(r.error.reason, bad).toBe("InvalidName");
+        }
+        expect(runtime.calls, "rejected before any contract call").toHaveLength(0);
+    });
+
+    test("an uppercase subname is normalized rather than rejected", async () => {
+        const runtime = runtimeWith({ owner: OWNER, resolver: ZERO });
+        const r = await resolveDotNs("BOB.Alice.DOT", { runtime });
+        expect(r).toEqual({ ok: true, value: { name: "bob.alice.dot", owner: OWNER } });
+    });
+});

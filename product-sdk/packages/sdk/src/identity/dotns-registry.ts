@@ -42,7 +42,7 @@ import {
     POP_STATUS,
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
-import { isValidDotNsName, normalizeDotNsName } from "./dotns.js";
+import { isResolvableDotNsName, isValidDotNsName, normalizeDotNsName } from "./dotns.js";
 import { namehash } from "./dotns-namehash.js";
 import type { DotNsRecord } from "./types.js";
 
@@ -135,7 +135,7 @@ export async function resolveDotNs(
     opts: DotNsClientOptions,
 ): Promise<Result<DotNsRecord | null, DotNsError>> {
     const normalized = normalizeDotNsName(name);
-    if (!isValidDotNsName(normalized)) {
+    if (!isResolvableDotNsName(normalized)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${name}"`));
     }
     const node = namehash(normalized);
@@ -152,10 +152,18 @@ export async function resolveDotNs(
             registry.resolver.query(node, { origin }),
         ]);
         if (!ownerRes.success) {
-            return err(new DotNsError("RegistryCall", "registry.owner call failed"));
+            return err(
+                new DotNsError("RegistryCall", "registry.owner call failed", {
+                    cause: ownerRes.value,
+                }),
+            );
         }
         if (!resolverRes.success) {
-            return err(new DotNsError("RegistryCall", "registry.resolver call failed"));
+            return err(
+                new DotNsError("RegistryCall", "registry.resolver call failed", {
+                    cause: resolverRes.value,
+                }),
+            );
         }
 
         // Existence check: the getter falls back to the registrar's ERC-721
@@ -173,7 +181,11 @@ export async function resolveDotNs(
         const resolver = contractOf(opts.runtime, resolverAddr as HexString, DOTNS_RESOLVER_ABI);
         const addrRes = await resolver.addressOf.query(node, { origin });
         if (!addrRes.success) {
-            return err(new DotNsError("RegistryCall", "resolver.addressOf call failed"));
+            return err(
+                new DotNsError("RegistryCall", "resolver.addressOf call failed", {
+                    cause: addrRes.value,
+                }),
+            );
         }
         const address = addrRes.value as string;
         // A forward resolver holding an empty record is still no forward record.
@@ -207,7 +219,11 @@ export async function reverseDotNs(
         );
         const res = await reverse.nameOf.query(address, { origin: readOrigin(opts) });
         if (!res.success) {
-            return err(new DotNsError("RegistryCall", "reverseResolver.nameOf call failed"));
+            return err(
+                new DotNsError("RegistryCall", "reverseResolver.nameOf call failed", {
+                    cause: res.value,
+                }),
+            );
         }
         const name = res.value as string;
         return ok(name && name.length > 0 ? name : null);
@@ -248,7 +264,11 @@ export async function isDotNsAvailable(
         );
         const res = await controller.available.query(label, { origin: readOrigin(opts) });
         if (!res.success) {
-            return err(new DotNsError("RegistryCall", "registrarController.available call failed"));
+            return err(
+                new DotNsError("RegistryCall", "registrarController.available call failed", {
+                    cause: res.value,
+                }),
+            );
         }
         return ok(res.value as boolean);
     } catch (cause) {
@@ -280,7 +300,7 @@ export async function setDotNsRecord(
     opts: DotNsClientOptions,
 ): Promise<Result<BatchableCall[], DotNsError>> {
     const normalized = normalizeDotNsName(args.name);
-    if (!isValidDotNsName(normalized)) {
+    if (!isResolvableDotNsName(normalized)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
     }
     // Both calls are owner-gated, so a dry-run from the fallback account would
@@ -296,14 +316,22 @@ export async function setDotNsRecord(
         const registry = contractOf(opts.runtime, registryAddr as HexString, DOTNS_REGISTRY_ABI);
         const currentRes = await registry.resolver.query(node, { origin });
         if (!currentRes.success) {
-            return err(new DotNsError("RegistryCall", "registry.resolver call failed"));
+            return err(
+                new DotNsError("RegistryCall", "registry.resolver call failed", {
+                    cause: currentRes.value,
+                }),
+            );
         }
 
         const calls: BatchableCall[] = [];
         if (!sameAddress(currentRes.value, resolverAddr)) {
             const pointer = await registry.setResolver.prepare(node, resolverAddr, { origin });
             if (!pointer.ok) {
-                return err(new DotNsError("RegistryCall", "registry.setResolver prepare failed"));
+                return err(
+                    new DotNsError("RegistryCall", "registry.setResolver prepare failed", {
+                        cause: pointer.error,
+                    }),
+                );
             }
             calls.push(pointer.value as BatchableCall);
         }
@@ -315,7 +343,11 @@ export async function setDotNsRecord(
         );
         const prepared = await resolver.setAddress.prepare(node, args.address, { origin });
         if (!prepared.ok) {
-            return err(new DotNsError("RegistryCall", "resolver.setAddress prepare failed"));
+            return err(
+                new DotNsError("RegistryCall", "resolver.setAddress prepare failed", {
+                    cause: prepared.error,
+                }),
+            );
         }
         calls.push(prepared.value as BatchableCall);
 
@@ -363,7 +395,11 @@ async function quoteRegistration(
     // classification register applies, without reverting on it.
     const quote = await popRules.priceWithoutCheck.query(label, owner, { origin });
     if (!quote.success) {
-        return err(new DotNsError("RegistryCall", "PopRules.priceWithoutCheck failed"));
+        return err(
+            new DotNsError("RegistryCall", "PopRules.priceWithoutCheck failed", {
+                cause: quote.value,
+            }),
+        );
     }
     const { price, status, userStatus, message } = quote.value as {
         price: bigint;
@@ -388,7 +424,11 @@ async function quoteRegistration(
     if (sameAddress(payer, owner)) return ok(BigInt(price));
     const floor = await popRules.transferFloor.query(label, payer, owner, { origin });
     if (!floor.success) {
-        return err(new DotNsError("RegistryCall", "PopRules.transferFloor failed"));
+        return err(
+            new DotNsError("RegistryCall", "PopRules.transferFloor failed", {
+                cause: floor.value,
+            }),
+        );
     }
     const friction = BigInt(floor.value as string | number | bigint);
     const base = BigInt(price);
@@ -447,17 +487,29 @@ export async function prepareDotNsRegistration(
             controller.maxCommitmentAge.query({ origin }),
         ]);
         if (!commitmentRes.success) {
-            return err(new DotNsError("RegistryCall", "makeCommitment failed"));
+            return err(
+                new DotNsError("RegistryCall", "makeCommitment failed", {
+                    cause: commitmentRes.value,
+                }),
+            );
         }
         if (!quote.ok) return quote;
         if (!minRes.success || !maxRes.success) {
-            return err(new DotNsError("RegistryCall", "commitment window read failed"));
+            return err(
+                new DotNsError("RegistryCall", "commitment window read failed", {
+                    cause: minRes.success ? maxRes.value : minRes.value,
+                }),
+            );
         }
         const commitment = commitmentRes.value as HexString;
 
         const commitPrep = await controller.commit.prepare(commitment, { origin });
         if (!commitPrep.ok) {
-            return err(new DotNsError("RegistryCall", "controller.commit prepare failed"));
+            return err(
+                new DotNsError("RegistryCall", "controller.commit prepare failed", {
+                    cause: commitPrep.error,
+                }),
+            );
         }
 
         return ok({
@@ -478,7 +530,9 @@ export async function prepareDotNsRegistration(
                 });
                 if (!prep.ok) {
                     return err(
-                        new DotNsError("RegistryCall", "controller.register prepare failed"),
+                        new DotNsError("RegistryCall", "controller.register prepare failed", {
+                            cause: prep.error,
+                        }),
                     );
                 }
                 return ok(prep.value as BatchableCall);

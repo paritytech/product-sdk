@@ -77,11 +77,33 @@ export type PeopleUsernameQueryApi = {
  * @returns True if valid DotNS name
  */
 export function isValidDotNsName(name: string): boolean {
-    // Basic validation: alphanumeric, hyphens, ends with .dot
     if (!name.endsWith(".dot")) return false;
-    const label = name.slice(0, -4);
+    return isValidLabel(name.slice(0, -4));
+}
+
+/**
+ * One canonical DNS label, matching the on-chain rule.
+ *
+ * `StringUtils.isSingleLabel` allows lowercase ASCII, digits and non-edge
+ * hyphens up to 63 characters, and the registrar additionally requires 3.
+ */
+function isValidLabel(label: string): boolean {
     if (label.length < 3 || label.length > 63) return false;
     return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(label);
+}
+
+/**
+ * Whether a name can be resolved: one or more valid labels under `.dot`.
+ *
+ * Broader than {@link isValidDotNsName} on purpose. The registrar only mints
+ * single labels, so registration keeps the stricter rule, but the registry
+ * supports subnodes and `namehash` hashes them, so `bob.alice.dot` is
+ * resolvable even though it is not registrable.
+ */
+export function isResolvableDotNsName(name: string): boolean {
+    if (!name.endsWith(".dot")) return false;
+    const labels = name.slice(0, -4).split(".");
+    return labels.length > 0 && labels.every(isValidLabel);
 }
 
 /**
