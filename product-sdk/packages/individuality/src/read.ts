@@ -558,6 +558,26 @@ if (import.meta.vitest) {
             expect((error.cause as Error).message).toBe("websocket closed");
         });
 
+        test("a rejection inside the parallel batch arrives on the err channel, typed", async () => {
+            // The test above fails before the batch is reached; this one fails
+            // inside it. The alias makes the fallback reachable, so asserting it
+            // never ran proves no partial state is published.
+            const { chain, calls } = fakeChain({
+                owner: ALICE,
+                alias: { ca: { alias: ALIAS } },
+                personParticipant: raw(),
+            });
+            chain.individuality.query.Score.AbsenceGraceRatio.getValue = async () => {
+                throw new Error("storage read failed");
+            };
+            const result = await readPersonhoodState(chain, { username: "alice.dot" });
+            expect(result.ok).toBe(false);
+            const error = unwrapErr(result);
+            expect(error.source).toBe("individuality");
+            expect((error.cause as Error).message).toBe("storage read failed");
+            expect(calls.some((c) => c.entry === "Participants:Person")).toBe(false);
+        });
+
         // --- inherited from humanity-spa's toHumanityCardResult suite ----------
 
         test("keys the result by the username-owner account and contextual alias", async () => {
