@@ -140,6 +140,8 @@ function recognitionTag(type: string): PersonhoodParticipant["recognition"] {
  * `undefined` so the domain type has one absent value, not two.
  */
 export function toPersonhoodParticipant(raw: RawParticipant): PersonhoodParticipant {
+    // Deliberate: unknown enum variants are detectable and validated, while the
+    // numerics are descriptor-typed with no wrong value this layer could catch.
     return {
         score: raw.score,
         streak: { tag: streakTag(raw.streak.type), count: raw.streak.value },
