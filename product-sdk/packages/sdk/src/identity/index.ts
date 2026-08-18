@@ -3,8 +3,12 @@
 /**
  * @parity/product-sdk/identity
  *
- * Identity utilities: DotNS name resolution, context-alias derivation,
- * and Ring VRF anonymous aliases.
+ * Identity utilities: DotNS name resolution, plus the deprecated context-alias
+ * helpers.
+ *
+ * For real Ring VRF aliases and proofs, use `SignerManager`'s
+ * `getProductAccountAlias` and `createRingVRFProof` from
+ * `@parity/product-sdk-signer`.
  */
 
 // DotNS utilities
@@ -19,21 +23,13 @@ export {
 } from "./dotns.js";
 export type { PeopleUsernameChain, PeopleUsernameQueryApi } from "./dotns.js";
 
-// Context alias utilities
-export {
-    deriveContextAlias,
-    verifyContextAlias,
-    deriveAnonymousAlias,
-    createRingProof,
-    verifyRingProof,
-} from "./product-account.js";
+// Context alias utilities (deprecated)
+export { deriveContextAlias, verifyContextAlias } from "./product-account.js";
 
 // Types
 export type {
     DotNsRecord,
     ContextAliasInfo,
-    AnonymousAliasInfo,
-    RingLocation,
     VerificationResult,
     OnChainIdentity,
 } from "./types.js";

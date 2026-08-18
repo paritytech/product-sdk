@@ -1,8 +1,10 @@
 # Pending Changesets
 
 A staging area for changesets that document changes which **aren't ready
-to publish yet**. Move them into `.changeset/` only on the PR that
-closes out the work they describe.
+to publish yet**. Your PR parks its changeset here and leaves it here.
+**A separate `chore(release):` PR moves them into `.changeset/` and cuts
+the release wave.** The `product-sdk: Changeset location` CI check fails
+any PR that adds a file to `.changeset/` without moving it out of here.
 
 ## Why this directory exists separately from `.changeset/`
 
@@ -63,15 +65,18 @@ review. Examples that worked well in past waves:
 - `host-request-resource-allocation.md`
 - `terminal-papi-native-signer.md`
 
-**Promoting to release on the closing PR:**
+**Promoting to release (release PR only):**
 
 ```bash
-mv pending-changesets/<name>.md .changeset/<name>.md
+git mv pending-changesets/<name>.md .changeset/<name>.md
 ```
 
-Stage that move in the same PR that closes the underlying work. When
-the PR merges to `main`, the release workflow picks up the changeset
-and publishes the wave.
+Do this on a dedicated `chore(release): <version>` PR branched off
+`main`, not on the PR that closes the underlying work. Keep the filename
+identical — the CI check pairs the file leaving here with the file
+arriving in `.changeset/` by name, so a rename during the move fails.
+When the release PR merges to `main`, the release workflow picks up the
+changesets and publishes the wave.
 
 **Check what the next release will look like:**
 

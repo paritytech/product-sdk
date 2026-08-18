@@ -1,0 +1,115 @@
+name: "product-sdk: Changeset location"
+
+# Guards the pending-changesets/ staging convention.
+# See product-sdk/pending-changesets/README.md.
+#
+# A changeset directly under `.changeset/` ships on the next push to `main`, so
+# one parked there by an in-flight PR goes out when any unrelated PR merges.
+#
+# A subdirectory of `.changeset/` never ships (@changesets/read does a
+# non-recursive readdir) but is read as a legacy v1 changeset: `changeset
+# version` throws ENOENT on the missing `sub/changes.md`, breaking every
+# release until someone deletes it -- or publishes the directory unreviewed,
+# if `changes.md` and `changes.json` are both in it.
+#
+# Deliberately NOT path-filtered on `product-sdk/**` like the other workflows:
+# a filtered workflow reports no status on PRs that don't match, which leaves a
+# required check waiting forever. This one always runs so it can be required.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: changeset-location-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: "product-sdk: Changeset location"
+    runs-on: parity-default
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # Full history so the three-dot diff against the PR base resolves.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reject unpromoted changesets and .changeset/ subdirectories
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Three-dot diff, so adding a changeset and moving it in a later
+          # commit ends up green.
+          #
+          # --no-renames turns a promotion into an add under .changeset/ plus a
+          # delete of the same basename under pending-changesets/, and the awk
+          # pass cancels the pair. What is left was authored straight into
+          # .changeset/. Parking and promoting in one PR has no base-side delete
+          # to cancel against, so it still fails: park in its own PR first.
+          #
+          # Nested adds go in a second bucket, never cancelled, because no
+          # promotion targets a subdirectory. Any extension counts there, since
+          # the directory is what breaks the release; README.md is exempt only
+          # at the top level. Deletes match at any depth, so promoting out of a
+          # pending-changesets/ subdirectory still counts.
+          #
+          # Both buckets are keyed on the path and print it. The top-level
+          # bucket's value is the basename the promotion lookup needs.
+          #
+          # `sort` because awk array order is unspecified and the runners use
+          # mawk, which has no asorti.
+          mapfile -t offenders < <(
+            git diff --no-renames --name-status "$BASE_SHA"...HEAD | awk '
+              $1=="A" && $2 ~ /^product-sdk\/\.changeset\/[^\/]+\.md$/ {
+                n = split($2, p, "/")
+                if (tolower(p[n]) != "readme.md") added[$2] = p[n]
+              }
+              $1=="A" && $2 ~ /^product-sdk\/\.changeset\/.+\/./ {
+                nested[$2] = 1
+              }
+              $1=="D" && $2 ~ /^product-sdk\/pending-changesets\/.+\.md$/ {
+                n = split($2, p, "/"); promoted[p[n]] = 1
+              }
+              END {
+                for (f in added) if (!(added[f] in promoted)) print f
+                for (f in nested) print f
+              }
+            ' | sort
+          )
+
+          [ ${#offenders[@]} -eq 0 ] && exit 0
+
+          # One annotation per file so it renders inline in Files changed.
+          # Depth decides cause and fix, so these globs and the nested regex
+          # above have to keep agreeing.
+          for f in "${offenders[@]}"; do
+            case "$f" in
+              product-sdk/.changeset/*/*)
+                echo "::error file=$f,line=1,title=Nothing may live in a .changeset/ subdirectory::A directory here is read as a legacy v1 changeset, which breaks or silently publishes the next release. Remove it; changesets go in product-sdk/pending-changesets/." ;;
+              *)
+                echo "::error file=$f,line=1,title=Changeset must be in pending-changesets/::A changeset directly under .changeset/ ships on the next merge to main. Run: git mv $f product-sdk/pending-changesets/$(basename "$f")" ;;
+            esac
+          done
+
+          echo
+          echo "Changesets belong in product-sdk/pending-changesets/, not .changeset/."
+          echo "A changeset directly under .changeset/ ships on the next merge to main;"
+          echo "a .changeset/ subdirectory breaks or silently publishes the next release."
+          echo
+          # sort -u because several files can share one offending directory.
+          for f in "${offenders[@]}"; do
+            case "$f" in
+              product-sdk/.changeset/*/*)
+                echo "    git rm -r $(dirname "$f")" ;;
+              *)
+                echo "    git mv $f product-sdk/pending-changesets/$(basename "$f")" ;;
+            esac
+          done | sort -u
+          echo
+          echo "A separate chore(release): PR promotes them back when the wave goes out."
+          echo "See product-sdk/pending-changesets/README.md"
+          exit 1

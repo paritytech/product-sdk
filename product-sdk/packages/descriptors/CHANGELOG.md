@@ -1,5 +1,20 @@
 # @parity/product-sdk-descriptors
 
+## 0.9.0
+
+### Minor Changes
+
+- 5ccab21: **Regenerate `paseo-bulletin` descriptors for the upcoming `v0.0.22-paseo` runtime (spec `1_000_022`).**
+
+  Metadata was extracted offline from the `polkadot-bulletin-chain` `v0.0.22-paseo` release wasm (`papi add --wasm`) ahead of its deployment to Paseo Next v2, which currently runs spec `1_000_021`. Merge/publish this once the runtime upgrade is enacted on-chain.
+
+  Runtime changes surfaced in the descriptors:
+
+  - New `DataRenewal` pallet (`pallet_bulletin_data_renewal`, pallet index 42) — new tx/query/event API surface, hence the minor bump.
+  - `renew`, `force_renew`, `enable_auto_renew` and `disable_auto_renew` **move off `TransactionStorage`** onto the new pallet. `CloudStorageClient.renew()` builds the old call via `@parity/bulletin-sdk`, so it will throw until that package is repointed at `DataRenewal.renew`.
+
+  The pinned `codeHash` is pre-set to the release blob's blake2-256 (`0xabb9c076…`, matching what on-chain `:code` will hash to after the upgrade); `genesis` is unchanged.
+
 ## 0.8.0
 
 ### Minor Changes

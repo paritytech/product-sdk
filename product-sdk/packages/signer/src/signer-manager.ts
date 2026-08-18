@@ -19,9 +19,12 @@ import type {
     ContextualAlias,
     ProductAccount,
     ProductAccountId,
+    ProductAccountLookup,
     ProductProofContext,
     RingLocation,
     RingVRFProof,
+    VrfSignature,
+    VrfTranscriptItem,
 } from "./providers/host.js";
 import type { SignerProvider } from "./providers/types.js";
 import { withRetry } from "./retry.js";
@@ -446,6 +449,30 @@ export class SignerManager {
             );
         }
         return host.createRingVRFProof(keyHandle, context, location, message);
+    }
+
+    /**
+     * Produce an sr25519 VRF signature from a product account (RFC-0023).
+     *
+     * The host replays `transcriptLabel` and `items` into a Merlin transcript
+     * and signs it with the account's key. Only available when connected via
+     * the host provider; returns HOST_UNAVAILABLE otherwise.
+     *
+     * See `AccountsProvider.signVrf` for what the caller owns: domain
+     * separation, freshness, transcript size, and the `AutoSigning` trade-off.
+     */
+    async signVrf(
+        account: ProductAccountLookup,
+        transcriptLabel: Uint8Array,
+        items: VrfTranscriptItem[],
+    ): Promise<Result<VrfSignature, SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(new HostUnavailableError("VRF signing requires a host provider connection"));
+        }
+        return host.signVrf(account, transcriptLabel, items);
     }
 
     /**
@@ -1015,6 +1042,67 @@ if (import.meta.vitest) {
                 expect(result.value.primaryUsername).toBe("alice.dot");
             }
             expect(fakeHostProvider.getUserId).toHaveBeenCalledTimes(1);
+            manager.destroy();
+        });
+    });
+
+    describe("SignerManager.signVrf", () => {
+        const account = { dotNsIdentifier: "myapp.dot", derivationIndex: 0 };
+        const label = new Uint8Array([1, 2, 3]);
+        const items = [{ label: new Uint8Array([4]), value: new Uint8Array([5]) }];
+
+        test("returns HostUnavailableError when not connected via host (dev provider)", async () => {
+            const manager = new SignerManager({ createProvider: () => mockProvider() });
+            await manager.connect("dev");
+            await flush();
+
+            const result = await manager.signVrf(account, label, items);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostUnavailableError);
+                expect(result.error.message).toMatch(/host provider/i);
+            }
+            manager.destroy();
+        });
+
+        test("returns DestroyedError after destroy()", async () => {
+            const manager = new SignerManager({ createProvider: () => mockProvider() });
+            await manager.connect("dev");
+            await flush();
+            manager.destroy();
+
+            const result = await manager.signVrf(account, label, items);
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(DestroyedError);
+        });
+
+        test("delegates to HostProvider.signVrf when connected via host", async () => {
+            const signature = {
+                preOutput: new Uint8Array(32).fill(0x04),
+                proof: new Uint8Array(64).fill(0x05),
+            };
+            const fakeHostProvider = {
+                type: "host" as const,
+                connect: vi.fn().mockResolvedValue(ok([mockAccount()])),
+                disconnect: vi.fn(),
+                onStatusChange: vi.fn().mockReturnValue(() => {}),
+                onAccountsChange: vi.fn().mockReturnValue(() => {}),
+                signVrf: vi.fn().mockResolvedValue(ok(signature)),
+            };
+
+            const manager = new SignerManager({
+                createProvider: (type) =>
+                    type === "host"
+                        ? (fakeHostProvider as unknown as SignerProvider)
+                        : mockProvider(),
+            });
+            await manager.connect("host");
+            await flush();
+
+            const result = await manager.signVrf(account, label, items);
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toEqual(signature);
+            expect(fakeHostProvider.signVrf).toHaveBeenCalledWith(account, label, items);
             manager.destroy();
         });
     });

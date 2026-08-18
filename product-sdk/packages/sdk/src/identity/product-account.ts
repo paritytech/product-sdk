@@ -1,9 +1,12 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Context alias derivation
+ * Context alias derivation (deprecated, removal in 0.23.0)
  *
  * Derives a deterministic, context-bound alias from a parent account using blake2b-256.
+ *
+ * The output is a hash, not a key, so no signing key exists for the addresses
+ * returned here. See the notes on each function for what to use instead.
  *
  * NOTE: this is NOT the canonical sr25519 product-account derivation used by
  * mobile, desktop, and dotli hosts. For that, use
@@ -13,7 +16,7 @@
 import { createLogger } from "@parity/product-sdk-logger";
 import { blake2b256 } from "@parity/product-sdk-crypto";
 import { ss58Encode, ss58Decode, deriveH160 } from "@parity/product-sdk-address";
-import type { ContextAliasInfo, AnonymousAliasInfo, RingLocation } from "./types.js";
+import type { ContextAliasInfo } from "./types.js";
 
 const log = createLogger("identity");
 
@@ -23,19 +26,27 @@ const log = createLogger("identity");
  * The alias is deterministically derived using:
  * aliasPublicKey = blake2b256(parentPublicKey || context)
  *
+ * @deprecated Returns addresses that no key can spend. The alias public key is a
+ *   blake2b-256 hash rather than a derived key, so no secret corresponds to the
+ *   SS58 address or to the H160: both can receive value and neither can ever
+ *   send it. Removal: `@parity/product-sdk` 0.23.0. Replace by intent:
+ *
+ *   - An account that holds or spends value:
+ *     `SignerManager.getProductAccount(dotNsIdentifier, index)` from
+ *     `@parity/product-sdk-signer`. Host-backed and actually signable.
+ *   - The address offline, with no host: `deriveProductAccountPublicKey` from
+ *     `@parity/product-sdk-keys`, the canonical sr25519 soft derivation.
+ *   - An unlinkable per-context alias:
+ *     `SignerManager.getProductAccountAlias(context, location)`, plus
+ *     `createRingVRFProof` for proofs.
+ *   - A context-scoped identifier, never used as an account: `blake2b256` from
+ *     `@parity/product-sdk/crypto`. Same bytes, without address packaging that
+ *     invites the mistake.
+ *
  * @param parentAddress - Parent account SS58 address
  * @param context - Context string for derivation (e.g. an app id or scope label)
  * @param ss58Prefix - SS58 prefix (default: 42)
  * @returns Context alias info
- *
- * @example
- * ```ts
- * const alias = deriveContextAlias(
- *   '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
- *   'voting-round-1'
- * );
- * console.log('Alias address:', alias.address);
- * ```
  */
 export function deriveContextAlias(
     parentAddress: string,
@@ -71,6 +82,12 @@ export function deriveContextAlias(
 /**
  * Verify that a context alias was derived from a parent account.
  *
+ * @deprecated Recomputes {@link deriveContextAlias} from two public values and
+ *   compares the result, so it confirms a derivation relationship and nothing
+ *   more. No secret enters the operation at any point, which means there is
+ *   nothing here to authenticate: a passing result does not show that anyone
+ *   controls either account. Removal: `@parity/product-sdk` 0.23.0.
+ *
  * @param aliasAddress - Context alias SS58 address
  * @param parentAddress - Claimed parent address
  * @param context - Context string used for derivation
@@ -95,70 +112,4 @@ export function verifyContextAlias(
     } catch {
         return false;
     }
-}
-
-/**
- * Derive an anonymous alias using Ring VRF
- *
- * This creates a context-specific alias that cannot be linked
- * back to the original identity without the ring proof.
- *
- * @param context - Context for alias derivation (e.g., "voting-round-1")
- * @param ringLocation - Ring location for proof generation
- * @returns Anonymous alias info
- */
-export function deriveAnonymousAlias(
-    context: string,
-    ringLocation: RingLocation,
-): AnonymousAliasInfo {
-    log.debug("Deriving anonymous alias", { context, ringLocation });
-
-    // TODO: Implement Ring VRF alias derivation
-    // This requires the Ring VRF implementation from TruAPI
-    throw new Error(
-        "deriveAnonymousAlias() is not yet implemented. " +
-            "This requires container mode with Ring VRF support.",
-    );
-}
-
-/**
- * Create a Ring VRF proof for a message
- *
- * @param message - Message to prove
- * @param ringLocation - Ring location
- * @returns Proof bytes
- */
-export async function createRingProof(
-    message: Uint8Array,
-    ringLocation: RingLocation,
-): Promise<Uint8Array> {
-    log.debug("Creating ring proof", { ringLocation });
-
-    // TODO: Implement Ring VRF proof creation via TruAPI
-    throw new Error(
-        "createRingProof() is not yet implemented. " +
-            "This requires container mode with Ring VRF support.",
-    );
-}
-
-/**
- * Verify a Ring VRF proof
- *
- * @param message - Original message
- * @param proof - Proof bytes
- * @param alias - Expected alias
- * @returns True if proof is valid
- */
-export async function verifyRingProof(
-    message: Uint8Array,
-    proof: Uint8Array,
-    alias: string,
-): Promise<boolean> {
-    log.debug("Verifying ring proof");
-
-    // TODO: Implement Ring VRF proof verification
-    throw new Error(
-        "verifyRingProof() is not yet implemented. " +
-            "This requires container mode with Ring VRF support.",
-    );
 }

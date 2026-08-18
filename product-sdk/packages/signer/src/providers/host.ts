@@ -4,9 +4,12 @@ import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
     type ProductAccountId,
+    type ProductAccountLookup,
     type ProductProofContext,
     type RemotePermission,
     requestPermission,
+    type VrfSignature,
+    type VrfTranscriptItem,
 } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 
@@ -135,7 +138,9 @@ export interface ContextualAlias {
  * Location of a Ring VRF ring on-chain: the hosting chain's genesis hash plus
  * the junction path addressing the ring within it.
  *
- * Matches the product-sdk's `RingLocation` codec shape.
+ * Structurally matches `RingLocation` from `@parity/truapi`, re-exported by
+ * `@parity/product-sdk-host`. Declared locally with `string` in place of the
+ * branded hex types so callers can pass plain strings.
  */
 export interface RingLocation {
     /** Genesis hash of the chain hosting the ring. */
@@ -147,15 +152,19 @@ export interface RingLocation {
 }
 
 /**
- * Proof-related wire shapes, re-exported from `@parity/product-sdk-host` so
- * they come from one place instead of a structural copy that could drift.
- * `ProductAccountId` is the `{ dotNsIdentifier, derivationIndex }` handle
- * naming a registered ring-VRF key.
+ * Proof-context, account-reference and VRF shapes re-exported from
+ * `@parity/product-sdk-host`. Host is a hard dependency, so these come from one
+ * place rather than a structural copy that could drift. `ProductAccountId` is
+ * the `{ dotNsIdentifier, derivationIndex }` handle naming a registered
+ * ring-VRF key.
  */
 export type {
     DerivationIndex,
     ProductAccountId,
+    ProductAccountLookup,
     ProductProofContext,
+    VrfSignature,
+    VrfTranscriptItem,
 } from "@parity/product-sdk-host";
 
 /**
@@ -209,6 +218,11 @@ export interface AccountsProvider {
         location: RingLocation,
         message: Uint8Array,
     ) => NeverthrowResultAsync<RingVRFProof, unknown>;
+    signVrf: (
+        account: ProductAccountLookup,
+        transcriptLabel: Uint8Array,
+        items: VrfTranscriptItem[],
+    ) => NeverthrowResultAsync<VrfSignature, unknown>;
     subscribeAccountConnectionStatus: (
         callback: (status: string) => void,
     ) => { unsubscribe: () => void } | (() => void);
@@ -521,6 +535,42 @@ export class HostProvider implements SignerProvider {
             const message =
                 cause instanceof Error ? cause.message : "Failed to create Ring VRF proof";
             log.error("failed to create Ring VRF proof", { error: message });
+            return err(new HostRejectedError(message));
+        }
+    }
+
+    /**
+     * Produce an sr25519 VRF signature from a product account (RFC-0023).
+     *
+     * The host replays `transcriptLabel` and `items` into a Merlin transcript
+     * and signs it. Requires a prior successful `connect()`.
+     *
+     * See `AccountsProvider.signVrf` for what the caller owns: domain
+     * separation, freshness, transcript size, and the `AutoSigning` trade-off.
+     */
+    async signVrf(
+        account: ProductAccountLookup,
+        transcriptLabel: Uint8Array,
+        items: VrfTranscriptItem[],
+    ): Promise<Result<VrfSignature, SignerError>> {
+        if (!this.accountsProvider) {
+            return err(new HostUnavailableError("Host provider is not connected"));
+        }
+
+        try {
+            const signature = (await this.accountsProvider
+                .signVrf(account, transcriptLabel, items)
+                .match(
+                    (result) => result,
+                    (error) => {
+                        throw new Error(`Host rejected VRF signing request: ${formatError(error)}`);
+                    },
+                )) as VrfSignature;
+
+            return ok(signature);
+        } catch (cause) {
+            const message = cause instanceof Error ? cause.message : "Failed to sign VRF";
+            log.error("failed to sign VRF", { error: message });
             return err(new HostRejectedError(message));
         }
     }
@@ -892,6 +942,17 @@ if (import.meta.vitest) {
                         },
                         ringIndex: 0,
                         ringRevision: 0,
+                    });
+                },
+            }),
+            signVrf: vi.fn().mockReturnValue({
+                match: async (onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) => {
+                    if (shouldReject) {
+                        return onErr(options.error ?? "Unknown");
+                    }
+                    return onOk({
+                        preOutput: new Uint8Array(32).fill(0x04),
+                        proof: new Uint8Array(64).fill(0x05),
                     });
                 },
             }),
@@ -1398,6 +1459,62 @@ if (import.meta.vitest) {
                 expect(result.value).toHaveLength(1);
                 expect(result.value[0].publicKey).toEqual(productPubkey);
             }
+        });
+    });
+
+    describe("HostProvider.signVrf", () => {
+        const account = { dotNsIdentifier: "myapp.dot", derivationIndex: 0 };
+        const label = new Uint8Array([1, 2, 3]);
+        const items = [{ label: new Uint8Array([4]), value: new Uint8Array([5]) }];
+
+        async function connectedProvider(mockProvider: ReturnType<typeof createMockProvider>) {
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            await provider.connect();
+            return provider;
+        }
+
+        test("forwards the request and returns the decoded signature", async () => {
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0xa2), name: undefined }],
+            });
+            const provider = await connectedProvider(mockProvider);
+
+            const result = await provider.signVrf(account, label, items);
+
+            expect(mockProvider.signVrf).toHaveBeenCalledWith(account, label, items);
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.value.preOutput).toEqual(new Uint8Array(32).fill(0x04));
+                expect(result.value.proof).toEqual(new Uint8Array(64).fill(0x05));
+            }
+        });
+
+        test("returns HostUnavailableError before connect", async () => {
+            const provider = new HostProvider({ maxRetries: 1 });
+            const result = await provider.signVrf(account, label, items);
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(HostUnavailableError);
+        });
+
+        test("surfaces a host rejection as HostRejectedError", async () => {
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0xa2), name: undefined }],
+            });
+            const provider = await connectedProvider(mockProvider);
+            mockProvider.signVrf.mockReturnValue({
+                match: async (_onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) =>
+                    onErr({ tag: "v1", value: { tag: "SignVrfErr::Rejected" } }),
+            });
+
+            const result = await provider.signVrf(account, label, items);
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error).toBeInstanceOf(HostRejectedError);
         });
     });
 

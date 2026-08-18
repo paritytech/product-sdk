@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@parity/host-api-test-sdk':
-      specifier: ^0.11.0
-      version: 0.11.0
+      specifier: ^0.12.1
+      version: 0.12.1
     '@parity/truapi':
       specifier: ^0.9.0
       version: 0.9.0
@@ -87,7 +87,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -118,7 +118,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -149,7 +149,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -171,7 +171,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -199,7 +199,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -237,7 +237,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -259,7 +259,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -284,7 +284,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -318,7 +318,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -559,6 +559,28 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@25.9.1)
 
+  packages/individuality:
+    dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
+      polkadot-api:
+        specifier: 'catalog:'
+        version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
+    devDependencies:
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/keys:
     dependencies:
       '@parity/product-sdk-address':
@@ -653,6 +675,9 @@ importers:
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
+      '@parity/product-sdk-individuality':
+        specifier: workspace:*
+        version: link:../individuality
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys
@@ -802,7 +827,7 @@ importers:
         version: 0.0.30
       nanoid:
         specifier: ^5.1.7
-        version: 5.1.9
+        version: 5.1.16
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -1615,11 +1640,17 @@ packages:
   '@novasamatech/host-api@0.8.9':
     resolution: {integrity: sha512-KPh81iVv3sQckq7/oyRpFF2uYBPXJD0+7cRuXO+lnWPAxQBXK1aNUQzSq+vJUHkcGRXJd0up/IlHJ4DMfQyUhQ==}
 
+  '@novasamatech/host-api@0.9.4':
+    resolution: {integrity: sha512-9yVjbyjUVfgDnNx3sJYlRW3kcpvBQv4F1LXqQZfJco/2Egcq8WM6Yplpnubfxhvj+IXl2gEEMQbX3thZms6LUQ==}
+
   '@novasamatech/host-papp@0.8.9':
     resolution: {integrity: sha512-Z1iENq/nn3e1P/4Mj0SS98yqO7tD8841G3xNGqO+O7tSnEjxDY4keS4uy4Rhx5hYIIRcUxe3xe1g/kUbJWVa+g==}
 
   '@novasamatech/scale@0.8.9':
     resolution: {integrity: sha512-/Gt0KwfdkQZGyqd7e8YApx/QPMj/WDFrFYYOW5qxNWlbDpSUmYqNX+D1LECSokXw1vqE2m+ydBmNsAwyhJCLuQ==}
+
+  '@novasamatech/scale@0.9.4':
+    resolution: {integrity: sha512-gUdY/KgWZAv5WUUeGmflo4bhTpfpbFMImtxN2VYfRarOQbbWOzKm7uelqgv8GAQUM85982wVhULPFRDA4b2qXA==}
 
   '@novasamatech/sdk-statement@0.6.0':
     resolution: {integrity: sha512-NTqM+yS45iHgy87lVSWIpFozrTfCUWb7r4ZpsDtN1eFnfixXpDKpPXDWQsvPs+nh18r/jmoMgtlTjUltrS6mYQ==}
@@ -1640,8 +1671,8 @@ packages:
       multiformats: ^13.4.1
       polkadot-api: ^2.1.2
 
-  '@parity/host-api-test-sdk@0.11.0':
-    resolution: {integrity: sha512-yefxCF7yuyCRZRAvVjPvBFnkA7HvYo3l1mlqyv2jhLwRLQ7LqkHpB1TnkH14LCW2qT7e23TzC3XKAL2ATvS3MA==}
+  '@parity/host-api-test-sdk@0.12.1':
+    resolution: {integrity: sha512-VprtVqoLhZfs8W5CcD8hu6xoJ9gPxDzSzEmsH5cTecceH7NCvcuJTKHpTq9J2mLvdy+TBmK6mMkeTyMCqZVzYw==}
     peerDependencies:
       '@playwright/test': '>=1.0.0'
     peerDependenciesMeta:
@@ -2584,6 +2615,10 @@ packages:
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
 
+  nanoevents@10.0.0:
+    resolution: {integrity: sha512-PmIJ3BNxOzgVgnS1r/Pvyj6eZx/xUV2JCPogh0brD6smDIwjRlr1KBl9yoRX323PlfaNrBDDnfCgC9SL00OjSg==}
+    engines: {node: ^22.0.0 || ^24.0.0 || >=26.0.0}
+
   nanoevents@9.1.0:
     resolution: {integrity: sha512-Jd0fILWG44a9luj8v5kED4WI+zfkkgwKyRQKItTtlPfEsh7Lznfi1kr8/iZ+XAIss4Qq5GqRB0qtWbaz9ceO/A==}
     engines: {node: ^18.0.0 || >=20.0.0}
@@ -2598,9 +2633,14 @@ packages:
     engines: {node: ^18 || >=20}
     hasBin: true
 
-  nanoid@5.1.9:
-    resolution: {integrity: sha512-ZUvP7KeBLe3OZ1ypw6dI/TzYJuvHP77IM4Ry73waSQTLn8/g8rpdjfyVAh7t1/+FjBtG4lCP42MEbDxOsRpBMw==}
+  nanoid@5.1.16:
+    resolution: {integrity: sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ==}
     engines: {node: ^18 || >=20}
+    hasBin: true
+
+  nanoid@6.0.0:
+    resolution: {integrity: sha512-mkUH+rPkwU2qPadJ0oJZOjeZ5Mxn8Q1UhevwkTRWNuUZzyia3h4rhzK39hxaHTk0o2OxB8W2SQ6A8k23ZDi1pQ==}
+    engines: {node: ^22 || ^24 || >=26}
     hasBin: true
 
   neverthrow@8.2.0:
@@ -3792,6 +3832,14 @@ snapshots:
       neverthrow: 8.2.0
       scale-ts: 1.6.1
 
+  '@novasamatech/host-api@0.9.4':
+    dependencies:
+      '@novasamatech/scale': 0.9.4
+      nanoevents: 10.0.0
+      nanoid: 6.0.0
+      neverthrow: 8.2.0
+      scale-ts: 1.6.1
+
   '@novasamatech/host-papp@0.8.9(esbuild@0.28.1)':
     dependencies:
       '@noble/ciphers': 2.2.0
@@ -3816,6 +3864,11 @@ snapshots:
       - utf-8-validate
 
   '@novasamatech/scale@0.8.9':
+    dependencies:
+      '@polkadot-api/utils': 0.4.0
+      scale-ts: 1.6.1
+
+  '@novasamatech/scale@0.9.4':
     dependencies:
       '@polkadot-api/utils': 0.4.0
       scale-ts: 1.6.1
@@ -3871,9 +3924,9 @@ snapshots:
       multiformats: 13.4.2
       polkadot-api: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
 
-  '@parity/host-api-test-sdk@0.11.0(@playwright/test@1.60.0)':
+  '@parity/host-api-test-sdk@0.12.1(@playwright/test@1.60.0)':
     dependencies:
-      '@novasamatech/host-api': 0.8.9
+      '@novasamatech/host-api': 0.9.4
     optionalDependencies:
       '@playwright/test': 1.60.0
 
@@ -4801,13 +4854,17 @@ snapshots:
       object-assign: 4.1.1
       thenify-all: 1.6.0
 
+  nanoevents@10.0.0: {}
+
   nanoevents@9.1.0: {}
 
   nanoid@3.3.12: {}
 
   nanoid@5.1.11: {}
 
-  nanoid@5.1.9: {}
+  nanoid@5.1.16: {}
+
+  nanoid@6.0.0: {}
 
   neverthrow@8.2.0:
     optionalDependencies:
