@@ -145,17 +145,29 @@ export const DOTNS_POP_RULES_ABI: AbiEntry[] = [
 ];
 
 /**
- * Default deployed addresses on Paseo Asset Hub, from
- * `dotns/deployments/paseo-assethub/420420417.json`.
+ * Default deployed addresses on Paseo Asset Hub (chain id 420420417).
  *
- * TODO(dotns-addr): a teammate cited a different StoreFactory address
- * (`0x709A027F…`) than this deployment (`0x030296…`); confirm which Paseo AH
- * deployment is live before relying on these for anything beyond dev.
+ * Verified on 2026-08-18 against the live chain, not copied from a file: every
+ * address below answers `DotnsProtocolRegistry.get(bytes32)` on
+ * `wss://paseo-asset-hub-next-rpc.polkadot.io` under its `DotnsConstants` key,
+ * and each has a `Revive.AccountInfoOf` entry. They also match
+ * `paritytech/dotns` `deployments/paseo-assethub/420420417.json` at commit
+ * `82ac5e64`.
+ *
+ * These are pinned, not resolved at runtime, so re-verify after a redeploy.
+ * The check is a `get(bytes32)` query per key against `protocolRegistry`, where
+ * the key is the name below right-padded to 32 bytes (`bytes32("registry")`).
+ *
+ * `protocolRegistry` is the contract the others register themselves with. It is
+ * not used on the resolution path today, but it is the address to go through if
+ * we ever resolve the rest dynamically (`get(bytes32 key)` with the
+ * `DotnsConstants` keys) instead of pinning them here.
  */
 export const PASEO_ASSETHUB_DOTNS = {
-    registry: "0x4Da0d37aBe96C06ab19963F31ca2DC0412057a6f",
-    reverseResolver: "0x95D57363B491CF743970c640fe419541386ac8BF",
-    resolver: "0x95645C7fD0fF38790647FE13F87Eb11c1DCc8514",
-    registrarController: "0xd09e0F1c1E6CE8Cf40df929ef4FC778629573651",
-    popRules: "0x4e8920B1E69d0cEA9b23CBFC87A17Ee6fE02d2d3",
+    registry: "0xf34054fd76BbF85f216cf9908226D5f0A72E50CA",
+    reverseResolver: "0xee3883d7eB60Ee9BCD7F3bcD8f2f05302A9Cc035",
+    resolver: "0xbd1165E549DF96F083c0A16f61590927bC187009",
+    registrarController: "0xBdaA01bD1bA67d709F2b1fF286Da0d854977EA30",
+    popRules: "0x747B456bE03aec0b42bd85C51513730FBD45DA31",
+    protocolRegistry: "0xD19e3D0C97CF501125a04A97405e3e6592fa846E",
 } as const;
