@@ -43,7 +43,7 @@ export type {
     PersonhoodState,
 } from "./types.js";
 
-// The pure derivation — the artifact issue #291 consumes.
+// The pure derivation, for a snapshot the caller already holds.
 export { derivePersonhoodState } from "./derive.js";
 
 // Raw storage values to domain shapes, for callers doing their own reads.

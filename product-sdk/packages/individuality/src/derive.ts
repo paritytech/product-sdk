@@ -4,9 +4,10 @@
  * The pure personhood derivation: chain facts in, one {@link PersonhoodState}
  * out.
  *
- * This module performs no I/O and holds no chain types. It is the artifact
- * issue #291 consumes, which is why it is exported separately from the read and
- * must never import from `read.ts`.
+ * This module performs no I/O and holds no chain types. It is exported
+ * separately from the read so callers can derive against a snapshot they
+ * already hold, with no chain client, and for that reason must never import
+ * from `read.ts`.
  *
  * A participant record always beats Lite personhood, external recognition is
  * permanent, and `Caution` is a *projection* of the next absence rather than a
@@ -99,6 +100,15 @@ export function derivePersonhoodState(snapshot: PersonhoodInputs): PersonhoodSta
                       score: participant.score,
                       personhoodThreshold: snapshot.personhoodThreshold,
                   };
+
+        default:
+            // A public export, documented as usable against a snapshot you
+            // already hold, so inputs need not have met the decoder. A
+            // never-throwing module must not fall off the end and return
+            // `undefined`. `satisfies never` keeps the exhaustiveness check a
+            // bare `default` would remove.
+            participant.recognition satisfies never;
+            return { tag: "Suspended" };
     }
 }
 
@@ -306,6 +316,21 @@ if (import.meta.vitest) {
                 window: 0,
                 lastAttendedGame: 42,
             });
+        });
+
+        test("fail-safes to Suspended on a recognition variant it does not know", () => {
+            // Callers may hand-build inputs that never met the decoder. Without
+            // the default this returns `undefined`, not a PersonhoodState.
+            expect(
+                derivePersonhoodState(
+                    snapshot({
+                        participant: participant({
+                            recognition:
+                                "Revoked" as unknown as PersonhoodParticipant["recognition"],
+                        }),
+                    }),
+                ),
+            ).toEqual({ tag: "Suspended" });
         });
 
         test("score exactly at the threshold is still Candidate", () => {
