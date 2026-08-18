@@ -66,6 +66,7 @@ export type {
     RegisteredRingVrfKey,
     RingVrfKeyDisclosure,
     RingVrfKeyHandle,
+    RingVrfPublicKey,
     RingLocation,
     RingVRFProof,
     VrfSignature,

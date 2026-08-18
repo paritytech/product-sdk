@@ -39,6 +39,6 @@ bytes would break identifier consumers silently, with no compile error.
 The DotNS half of `./identity` is unaffected (`resolveDotNs`, `reverseDotNs`, `isDotNsAvailable`,
 `resolvePeopleUsernameOwner` and the name helpers), and the subpath itself is not deprecated.
 
-`@parity/product-sdk-signer` takes a patch for one doc comment: its local `RingLocation` claimed
-to match the product-sdk shape, which was the opposite shape and is now deleted. No type or
-behaviour change.
+`@parity/product-sdk-signer` takes a patch here for the context-alias migration wording. The
+separate TrUAPI 0.9 changeset documents the `RingLocation` type break and supplies the release's
+minor bump.

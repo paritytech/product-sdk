@@ -44,6 +44,7 @@ import type {
     VersionedHostAccountGetAliasError,
     VersionedHostAccountGetError,
     VersionedHostAccountListRingVrfKeysError,
+    VersionedHostAccountRegisterRingVrfKeyError,
     VersionedHostAccountSignVrfError,
     VersionedHostGetLegacyAccountsError,
     VersionedHostGetUserIdError,
@@ -244,6 +245,19 @@ export interface AccountsProvider {
         dotNsIdentifier: string,
         derivationIndex?: number,
     ): ResultAsync<ProductAccount, scale.CallErrorValue<VersionedHostAccountGetError>>;
+    /**
+     * Register a ring-VRF key owned by the calling product.
+     *
+     * Registration returns the key's public key. Call {@link listRingVrfKeys}
+     * afterward to obtain the opaque handle required by alias and proof calls.
+     */
+    registerRingVrfKey(
+        index: DerivationIndex,
+        ring: RingLocation,
+    ): ResultAsync<
+        RingVrfPublicKey,
+        scale.CallErrorValue<VersionedHostAccountRegisterRingVrfKeyError>
+    >;
     /** List an owner's registered ring-VRF keys. */
     listRingVrfKeys(
         owner: string,
@@ -388,6 +402,9 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     dotNsIdentifier,
                     derivationIndex,
                 }));
+        },
+        registerRingVrfKey(index, ring) {
+            return account.registerRingVrfKey({ index, ring }).map(fromHex);
         },
         listRingVrfKeys(owner, disclosure = "Anonymized") {
             return account.listRingVrfKeys({ owner, disclosure }).map((keys) =>
@@ -561,6 +578,7 @@ if (import.meta.vitest) {
             account: {
                 getUserId: method("getUserId", { primaryUsername: "alice.dot" }),
                 getAccount: method("getAccount", { account: { publicKey: "0xaa" } }),
+                registerRingVrfKey: method("registerRingVrfKey", "0x0304"),
                 listRingVrfKeys: method("listRingVrfKeys", [
                     {
                         handle: {
@@ -666,6 +684,25 @@ if (import.meta.vitest) {
         ]);
         // The resolved index must reach the caller too, not just the wire.
         expect(account?.derivationIndex).toBe(0);
+    });
+
+    test("registerRingVrfKey forwards the derivation selector and decodes the public key", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const provider = adaptAccountsProvider(
+            makeFakeClient({ onCall: (method, args) => calls.push([method, args]) }),
+        );
+        const ring: RingLocation = {
+            chainId: "0x01",
+            junctions: [{ tag: "PalletInstance", value: 67 }],
+        };
+        const index: DerivationIndex = { tag: "Index", value: 2 };
+        const publicKey = await provider.registerRingVrfKey(index, ring).match(
+            (value) => value,
+            () => null,
+        );
+
+        expect(calls[0]).toEqual(["registerRingVrfKey", { index, ring }]);
+        expect(publicKey).toEqual(fromHex("0x0304"));
     });
 
     test("listRingVrfKeys selects by ring without exposing a raw index", async () => {

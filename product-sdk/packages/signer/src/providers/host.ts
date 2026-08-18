@@ -3,11 +3,13 @@
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
+    type DerivationIndex,
     type ProductAccountLookup,
     type RegisteredRingVrfKey,
     type RingLocation,
     type RingVrfKeyDisclosure,
     type RingVrfKeyHandle,
+    type RingVrfPublicKey,
     type ProductProofContext,
     type RemotePermission,
     requestPermission,
@@ -150,6 +152,7 @@ export type {
     RingVrfKeyDisclosure,
     RingLocation,
     RingVrfKeyHandle,
+    RingVrfPublicKey,
     VrfSignature,
     VrfTranscriptItem,
 } from "@parity/product-sdk-host";
@@ -193,6 +196,10 @@ export interface AccountsProvider {
         derivationIndex?: number,
     ) => NeverthrowResultAsync<RawAccount, unknown>;
     getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+    registerRingVrfKey: (
+        index: DerivationIndex,
+        ring: RingLocation,
+    ) => NeverthrowResultAsync<RingVrfPublicKey, unknown>;
     listRingVrfKeys: (
         owner: string,
         disclosure?: RingVrfKeyDisclosure,
@@ -416,6 +423,38 @@ export class HostProvider implements SignerProvider {
             throw new Error("Host provider is not connected");
         }
         return this.accountsProvider.getProductAccountSigner(account);
+    }
+
+    /**
+     * Register a ring-VRF key owned by the calling product.
+     *
+     * Call {@link listRingVrfKeys} afterward to obtain the opaque handle used
+     * by alias and proof requests.
+     */
+    async registerRingVrfKey(
+        index: DerivationIndex,
+        ring: RingLocation,
+    ): Promise<Result<RingVrfPublicKey, SignerError>> {
+        if (!this.accountsProvider) {
+            return err(new HostUnavailableError("Host provider is not connected"));
+        }
+
+        try {
+            const publicKey = (await this.accountsProvider.registerRingVrfKey(index, ring).match(
+                (result) => result,
+                (error) => {
+                    throw new Error(
+                        `Host rejected ring VRF key registration: ${formatError(error)}`,
+                    );
+                },
+            )) as RingVrfPublicKey;
+            return ok(publicKey);
+        } catch (cause) {
+            const message =
+                cause instanceof Error ? cause.message : "Failed to register ring VRF key";
+            log.error("failed to register ring VRF key", { error: message });
+            return err(new HostRejectedError(message));
+        }
     }
 
     /** List an owner's registered ring-VRF keys. */
@@ -934,6 +973,14 @@ if (import.meta.vitest) {
                 },
             }),
             getProductAccountSigner: vi.fn().mockReturnValue(mockSigner),
+            registerRingVrfKey: vi.fn().mockReturnValue({
+                match: async (onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) => {
+                    if (shouldReject) {
+                        return onErr(options.error ?? "Unknown");
+                    }
+                    return onOk(new Uint8Array([3, 4]));
+                },
+            }),
             listRingVrfKeys: vi.fn().mockReturnValue({
                 match: async (onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) => {
                     if (shouldReject) {
@@ -1512,6 +1559,14 @@ if (import.meta.vitest) {
                 productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
             });
             await provider.connect();
+
+            const index: DerivationIndex = { tag: "Index", value: 0 };
+            const registered = await provider.registerRingVrfKey(index, ring);
+            expect(registered.ok).toBe(true);
+            expect(mockProvider.registerRingVrfKey).toHaveBeenCalledWith(index, ring);
+            if (registered.ok) {
+                expect(registered.value).toEqual(new Uint8Array([3, 4]));
+            }
 
             const listed = await provider.listRingVrfKeys("people.dot", "Anonymized");
             expect(listed.ok).toBe(true);

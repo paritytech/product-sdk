@@ -18,11 +18,13 @@ import { HostProvider } from "./providers/host.js";
 import type {
     ContextualAlias,
     ProductAccount,
+    DerivationIndex,
     ProductAccountLookup,
     ProductProofContext,
     RegisteredRingVrfKey,
     RingVrfKeyDisclosure,
     RingVrfKeyHandle,
+    RingVrfPublicKey,
     RingLocation,
     RingVRFProof,
     VrfSignature,
@@ -397,6 +399,29 @@ export class SignerManager {
             );
         }
         return host.getProductAccount(dotNsIdentifier, derivationIndex);
+    }
+
+    /**
+     * Register a ring-VRF key owned by this product.
+     *
+     * Use {@link listRingVrfKeys} afterward to obtain the opaque handle needed
+     * by alias and proof requests.
+     */
+    async registerRingVrfKey(
+        index: DerivationIndex,
+        ring: RingLocation,
+    ): Promise<Result<RingVrfPublicKey, SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(
+                new HostUnavailableError(
+                    "Ring VRF key registration requires a host provider connection",
+                ),
+            );
+        }
+        return host.registerRingVrfKey(index, ring);
     }
 
     /**

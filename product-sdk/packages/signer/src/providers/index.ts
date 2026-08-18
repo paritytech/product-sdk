@@ -18,6 +18,7 @@ export type {
     RegisteredRingVrfKey,
     RingVrfKeyDisclosure,
     RingVrfKeyHandle,
+    RingVrfPublicKey,
     RingLocation,
     RingVRFProof,
 } from "./host.js";
