@@ -88,15 +88,20 @@ function isZero(addr: unknown): boolean {
     return typeof addr === "string" && addr.toLowerCase() === ZERO_ADDRESS;
 }
 
+/** Case-insensitive H160 compare: chain reads are lowercase, our table is EIP-55. */
+function sameAddress(a: unknown, b: unknown): boolean {
+    return typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
+}
+
 /**
- * Resolve a DotNS name to its record (resolved address + owner).
+ * Resolve a DotNS name. `expiresAt` is omitted (no on-chain expiry here).
  *
- * Path: `namehash(name)` → `registry.resolver(node)` → `resolver.addressOf(node)`,
- * with `registry.owner(node)` for the owner. `expiresAt` is omitted (no on-chain
- * expiry on this deployment).
+ * Three outcomes, because the registry's resolver pointer is configuration, not
+ * proof of existence:
  *
- * @returns `ok(record)`, `ok(null)` when the name has no resolver / resolves to
- *   the zero address (unregistered), or `err(DotNsError)`.
+ *   - `ok(null)` — unregistered (`registry.owner` is zero).
+ *   - `ok({ name, owner })` — registered, no forward record yet.
+ *   - `ok({ name, owner, address })` — resolves.
  */
 export async function resolveDotNs(
     name: string,
@@ -108,32 +113,44 @@ export async function resolveDotNs(
     }
     const node = namehash(normalized);
     const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
+    const reverseAddr = opts.reverseResolverAddress ?? PASEO_ASSETHUB_DOTNS.reverseResolver;
     log.debug("resolveDotNs", { name: normalized, node, registry: registryAddr });
 
     try {
         const registry = contractOf(opts.runtime, registryAddr as HexString, DOTNS_REGISTRY_ABI);
 
-        const resolverRes = await registry.resolver.query(node);
+        const [ownerRes, resolverRes] = await Promise.all([
+            registry.owner.query(node),
+            registry.resolver.query(node),
+        ]);
+        if (!ownerRes.success) {
+            return err(new DotNsError("RegistryCall", "registry.owner call failed"));
+        }
         if (!resolverRes.success) {
             return err(new DotNsError("RegistryCall", "registry.resolver call failed"));
         }
+
+        // Existence check: the getter falls back to the registrar's ERC-721
+        // holder, and returns zero for a node with no record.
+        const owner = ownerRes.value as string;
+        if (isZero(owner)) return ok(null);
+
+        // Registration parks the pointer on the reverse resolver, which has no
+        // `addressOf`, so both cases mean "no forward record" rather than "call it".
         const resolverAddr = resolverRes.value as string;
-        // No resolver set → the name isn't resolvable.
-        if (isZero(resolverAddr)) return ok(null);
+        if (isZero(resolverAddr) || sameAddress(resolverAddr, reverseAddr)) {
+            return ok({ name: normalized, owner });
+        }
 
         const resolver = contractOf(opts.runtime, resolverAddr as HexString, DOTNS_RESOLVER_ABI);
-        const [addrRes, ownerRes] = await Promise.all([
-            resolver.addressOf.query(node),
-            registry.owner.query(node),
-        ]);
+        const addrRes = await resolver.addressOf.query(node);
         if (!addrRes.success) {
             return err(new DotNsError("RegistryCall", "resolver.addressOf call failed"));
         }
         const address = addrRes.value as string;
-        // Resolver present but no address record → treat as unregistered.
-        if (isZero(address)) return ok(null);
+        // A forward resolver holding an empty record is still no forward record.
+        if (isZero(address)) return ok({ name: normalized, owner });
 
-        const owner = ownerRes.success ? (ownerRes.value as string) : address;
         return ok({ address, name: normalized, owner });
     } catch (cause) {
         return err(
@@ -174,18 +191,45 @@ export async function reverseDotNs(
 }
 
 /**
- * Whether a DotNS name is unregistered (available to claim).
+ * Whether a DotNS name is available to claim.
  *
- * `ok(true)` iff {@link resolveDotNs} returns `ok(null)`. Registry failures
- * propagate as `err`.
+ * Asks `registrarController.available(label)`, the predicate `register` itself
+ * enforces. Deliberately not inferred from resolution: a registered name has no
+ * forward record until its owner sets one, so that would report owned names as
+ * free. Validated first because `available` reverts on labels we already reject.
  */
 export async function isDotNsAvailable(
     name: string,
     opts: DotNsClientOptions,
 ): Promise<Result<boolean, DotNsError>> {
-    const resolved = await resolveDotNs(name, opts);
-    if (!resolved.ok) return resolved;
-    return ok(resolved.value === null);
+    const normalized = normalizeDotNsName(name);
+    if (!isValidDotNsName(normalized)) {
+        return err(new DotNsError("InvalidName", `Invalid DotNS name: "${name}"`));
+    }
+    // The registrar takes the bare label (no ".dot" suffix).
+    const label = normalized.slice(0, -4);
+    const controllerAddr =
+        opts.registrarControllerAddress ?? PASEO_ASSETHUB_DOTNS.registrarController;
+    log.debug("isDotNsAvailable", { name: normalized, label, controller: controllerAddr });
+
+    try {
+        const controller = contractOf(
+            opts.runtime,
+            controllerAddr as HexString,
+            DOTNS_REGISTRAR_CONTROLLER_ABI,
+        );
+        const res = await controller.available.query(label);
+        if (!res.success) {
+            return err(new DotNsError("RegistryCall", "registrarController.available call failed"));
+        }
+        return ok(res.value as boolean);
+    } catch (cause) {
+        return err(
+            new DotNsError("RegistryCall", `DotNS availability check failed for "${normalized}"`, {
+                cause,
+            }),
+        );
+    }
 }
 
 // ── Writes ───────────────────────────────────────────────────────────
@@ -196,20 +240,40 @@ export async function isDotNsAvailable(
 // single call; `prepareDotNsRegistration` returns both plus the timing window.
 
 /**
- * Prepare a `setAddress` call binding a name to a resolved address. The caller
- * must own the node; submit the returned call with the owner's signer.
+ * Prepare the calls binding a name to an address. Submit them in order with the
+ * owner's signer via `batchSubmitAndWatch`; both are owner-gated.
+ *
+ * Returns two calls when the node still points at the reverse resolver (the
+ * post-registration default): `registry.setResolver` first, or the record
+ * written by `setAddress` is real but unreadable. One call once it is pointed.
  */
 export async function setDotNsRecord(
     args: SetRecordArgs,
     opts: DotNsClientOptions,
-): Promise<Result<BatchableCall, DotNsError>> {
+): Promise<Result<BatchableCall[], DotNsError>> {
     const normalized = normalizeDotNsName(args.name);
     if (!isValidDotNsName(normalized)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
     }
     const node = namehash(normalized);
+    const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
     const resolverAddr = opts.resolverAddress ?? PASEO_ASSETHUB_DOTNS.resolver;
     try {
+        const registry = contractOf(opts.runtime, registryAddr as HexString, DOTNS_REGISTRY_ABI);
+        const currentRes = await registry.resolver.query(node);
+        if (!currentRes.success) {
+            return err(new DotNsError("RegistryCall", "registry.resolver call failed"));
+        }
+
+        const calls: BatchableCall[] = [];
+        if (!sameAddress(currentRes.value, resolverAddr)) {
+            const pointer = await registry.setResolver.prepare(node, resolverAddr);
+            if (!pointer.ok) {
+                return err(new DotNsError("RegistryCall", "registry.setResolver prepare failed"));
+            }
+            calls.push(pointer.value as BatchableCall);
+        }
+
         const resolver = contractOf(
             opts.runtime,
             resolverAddr as HexString,
@@ -219,7 +283,9 @@ export async function setDotNsRecord(
         if (!prepared.ok) {
             return err(new DotNsError("RegistryCall", "resolver.setAddress prepare failed"));
         }
-        return ok(prepared.value as BatchableCall);
+        calls.push(prepared.value as BatchableCall);
+
+        return ok(calls);
     } catch (cause) {
         return err(new DotNsError("RegistryCall", "DotNS setRecord failed", { cause }));
     }

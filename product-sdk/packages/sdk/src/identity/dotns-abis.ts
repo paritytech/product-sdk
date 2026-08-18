@@ -7,7 +7,13 @@
  */
 import type { AbiEntry } from "@parity/product-sdk-contracts";
 
-/** `DotnsRegistry` — node → resolver / owner. */
+/**
+ * `DotnsRegistry` — node → resolver / owner, plus the owner-gated pointer write.
+ *
+ * `setResolver` is needed because registration parks `records[node].resolver` on
+ * the reverse resolver, so the pointer must be moved once before any address
+ * record is readable.
+ */
 export const DOTNS_REGISTRY_ABI: AbiEntry[] = [
     {
         type: "function",
@@ -22,6 +28,16 @@ export const DOTNS_REGISTRY_ABI: AbiEntry[] = [
         inputs: [{ name: "node", type: "bytes32" }],
         outputs: [{ name: "", type: "address" }],
         stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "setResolver",
+        inputs: [
+            { name: "node", type: "bytes32" },
+            { name: "resolverAddr", type: "address" },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable",
     },
 ];
 

@@ -8,8 +8,12 @@
 
 /** DotNS name resolution result */
 export interface DotNsRecord {
-    /** Resolved SS58 address */
-    address: string;
+    /**
+     * Address the name resolves to. Absent when the name is registered but has
+     * no forward record yet, the state of every name just after registration.
+     * An unregistered name is `null` from `resolveDotNs`, not a record.
+     */
+    address?: string;
     /** Name that was resolved */
     name: string;
     /** Owner address */
