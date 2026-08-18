@@ -20,10 +20,16 @@
  * expiry getter), so `DotNsRecord.expiresAt` is always omitted.
  */
 import { err, ok, type Result } from "@parity/result";
-import { type AbiEntry, type BatchableCall, createContract } from "@parity/product-sdk-contracts";
+import {
+    type AbiEntry,
+    type BatchableCall,
+    createContract,
+    QUERY_FALLBACK_ORIGIN,
+} from "@parity/product-sdk-contracts";
 import type { ContractRuntime } from "@parity/product-sdk-contracts";
 import { bytesToHex, randomBytes } from "@parity/product-sdk-crypto";
 import { createLogger } from "@parity/product-sdk-logger";
+import type { SS58String } from "polkadot-api";
 import {
     DOTNS_POP_RULES_ABI,
     DOTNS_REGISTRAR_CONTROLLER_ABI,
@@ -48,6 +54,17 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export interface DotNsClientOptions {
     /** A contract runtime for the chain hosting DotNS (Asset Hub). */
     runtime: ContractRuntime;
+    /**
+     * SS58 account that will submit the prepared calls.
+     *
+     * Required by the write helpers, which dry-run against it: `setAddress` and
+     * `setResolver` are owner-gated, so a dry-run from anyone else reverts.
+     * Optional for reads, which fall back to the pallet-revive query account.
+     *
+     * Must be SS58, not the account's H160. pallet-revive derives `msg.sender`
+     * from it; convert with `h160ToSs58` from `@parity/product-sdk-address`.
+     */
+    origin?: SS58String;
     /** `DotnsRegistry` address. Defaults to the Paseo Asset Hub deployment. */
     registryAddress?: HexString;
     /** `DotnsReverseResolver` address. Defaults to the Paseo Asset Hub deployment. */
@@ -88,6 +105,14 @@ function isZero(addr: unknown): boolean {
     return typeof addr === "string" && addr.toLowerCase() === ZERO_ADDRESS;
 }
 
+/**
+ * Origin for a read. Passing the fallback explicitly rather than letting the
+ * contracts layer substitute it keeps each query from logging a warning.
+ */
+function readOrigin(opts: DotNsClientOptions): SS58String {
+    return opts.origin ?? QUERY_FALLBACK_ORIGIN;
+}
+
 /** Case-insensitive H160 compare: chain reads are lowercase, our table is EIP-55. */
 function sameAddress(a: unknown, b: unknown): boolean {
     return typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
@@ -114,14 +139,15 @@ export async function resolveDotNs(
     const node = namehash(normalized);
     const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
     const reverseAddr = opts.reverseResolverAddress ?? PASEO_ASSETHUB_DOTNS.reverseResolver;
+    const origin = readOrigin(opts);
     log.debug("resolveDotNs", { name: normalized, node, registry: registryAddr });
 
     try {
         const registry = contractOf(opts.runtime, registryAddr as HexString, DOTNS_REGISTRY_ABI);
 
         const [ownerRes, resolverRes] = await Promise.all([
-            registry.owner.query(node),
-            registry.resolver.query(node),
+            registry.owner.query(node, { origin }),
+            registry.resolver.query(node, { origin }),
         ]);
         if (!ownerRes.success) {
             return err(new DotNsError("RegistryCall", "registry.owner call failed"));
@@ -143,7 +169,7 @@ export async function resolveDotNs(
         }
 
         const resolver = contractOf(opts.runtime, resolverAddr as HexString, DOTNS_RESOLVER_ABI);
-        const addrRes = await resolver.addressOf.query(node);
+        const addrRes = await resolver.addressOf.query(node, { origin });
         if (!addrRes.success) {
             return err(new DotNsError("RegistryCall", "resolver.addressOf call failed"));
         }
@@ -177,7 +203,7 @@ export async function reverseDotNs(
             reverseAddr as HexString,
             DOTNS_REVERSE_RESOLVER_ABI,
         );
-        const res = await reverse.nameOf.query(address);
+        const res = await reverse.nameOf.query(address, { origin: readOrigin(opts) });
         if (!res.success) {
             return err(new DotNsError("RegistryCall", "reverseResolver.nameOf call failed"));
         }
@@ -218,7 +244,7 @@ export async function isDotNsAvailable(
             controllerAddr as HexString,
             DOTNS_REGISTRAR_CONTROLLER_ABI,
         );
-        const res = await controller.available.query(label);
+        const res = await controller.available.query(label, { origin: readOrigin(opts) });
         if (!res.success) {
             return err(new DotNsError("RegistryCall", "registrarController.available call failed"));
         }
@@ -255,19 +281,25 @@ export async function setDotNsRecord(
     if (!isValidDotNsName(normalized)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
     }
+    // Both calls are owner-gated, so a dry-run from the fallback account would
+    // revert and the error would look like a contract problem.
+    const origin = opts.origin;
+    if (!origin) {
+        return err(new DotNsError("MissingOrigin", "setDotNsRecord needs opts.origin (SS58)"));
+    }
     const node = namehash(normalized);
     const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
     const resolverAddr = opts.resolverAddress ?? PASEO_ASSETHUB_DOTNS.resolver;
     try {
         const registry = contractOf(opts.runtime, registryAddr as HexString, DOTNS_REGISTRY_ABI);
-        const currentRes = await registry.resolver.query(node);
+        const currentRes = await registry.resolver.query(node, { origin });
         if (!currentRes.success) {
             return err(new DotNsError("RegistryCall", "registry.resolver call failed"));
         }
 
         const calls: BatchableCall[] = [];
         if (!sameAddress(currentRes.value, resolverAddr)) {
-            const pointer = await registry.setResolver.prepare(node, resolverAddr);
+            const pointer = await registry.setResolver.prepare(node, resolverAddr, { origin });
             if (!pointer.ok) {
                 return err(new DotNsError("RegistryCall", "registry.setResolver prepare failed"));
             }
@@ -279,7 +311,7 @@ export async function setDotNsRecord(
             resolverAddr as HexString,
             DOTNS_RESOLVER_WRITE_ABI,
         );
-        const prepared = await resolver.setAddress.prepare(node, args.address);
+        const prepared = await resolver.setAddress.prepare(node, args.address, { origin });
         if (!prepared.ok) {
             return err(new DotNsError("RegistryCall", "resolver.setAddress prepare failed"));
         }
@@ -327,6 +359,14 @@ export async function prepareDotNsRegistration(
     if (!isValidDotNsName(normalized)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
     }
+    // register/commit are dry-run before the batch is built; the fallback
+    // account is not the payer and would misprice and misreport them.
+    const origin = opts.origin;
+    if (!origin) {
+        return err(
+            new DotNsError("MissingOrigin", "prepareDotNsRegistration needs opts.origin (SS58)"),
+        );
+    }
     // The registrar takes the bare label (no ".dot" suffix).
     const label = normalized.slice(0, -4);
     const controllerAddr =
@@ -344,10 +384,10 @@ export async function prepareDotNsRegistration(
         const popRules = contractOf(opts.runtime, popRulesAddr as HexString, DOTNS_POP_RULES_ABI);
 
         const [commitmentRes, priceRes, minRes, maxRes] = await Promise.all([
-            controller.makeCommitment.query(registration),
-            popRules.price.query(label),
-            controller.minCommitmentAge.query(),
-            controller.maxCommitmentAge.query(),
+            controller.makeCommitment.query(registration, { origin }),
+            popRules.price.query(label, { origin }),
+            controller.minCommitmentAge.query({ origin }),
+            controller.maxCommitmentAge.query({ origin }),
         ]);
         if (!commitmentRes.success) {
             return err(new DotNsError("RegistryCall", "makeCommitment failed"));
@@ -359,8 +399,8 @@ export async function prepareDotNsRegistration(
         const price = BigInt(priceRes.value as string | number | bigint);
 
         const [commitPrep, registerPrep] = await Promise.all([
-            controller.commit.prepare(commitment),
-            controller.register.prepare(registration, { value: price }),
+            controller.commit.prepare(commitment, { origin }),
+            controller.register.prepare(registration, { value: price, origin }),
         ]);
         if (!commitPrep.ok || !registerPrep.ok) {
             return err(new DotNsError("RegistryCall", "commit / register prepare failed"));

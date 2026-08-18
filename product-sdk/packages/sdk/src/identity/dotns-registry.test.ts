@@ -4,7 +4,11 @@
 // Contract paths run through `createFakeContractRuntime` from
 // `@parity/product-sdk-contracts/testing`: the real codec, no chain. What these
 // cannot cover is whether the deployed contracts behave as modelled here.
-import type { AbiEntry, ContractRuntime } from "@parity/product-sdk-contracts";
+import {
+    type AbiEntry,
+    type ContractRuntime,
+    QUERY_FALLBACK_ORIGIN,
+} from "@parity/product-sdk-contracts";
 import { createFakeContractRuntime, fakeDryRunResult } from "@parity/product-sdk-contracts/testing";
 import { describe, expect, test } from "vitest";
 import {
@@ -26,6 +30,9 @@ import {
 
 // Never reached on the validation path (the calls reject before touching it).
 const opts = { runtime: {} as ContractRuntime };
+
+/** Any SS58 account. The writes only need one to dry-run against. */
+const SIGNER = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as const;
 
 const ALL_ABIS: AbiEntry[] = [
     ...DOTNS_REGISTRY_ABI,
@@ -213,7 +220,10 @@ describe("isDotNsAvailable", () => {
 describe("setDotNsRecord", () => {
     test("moves the resolver pointer before writing the record", async () => {
         const runtime = runtimeWith({ resolver: REVERSE_RESOLVER });
-        const r = await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime });
+        const r = await setDotNsRecord(
+            { name: "alice.dot", address: TARGET },
+            { runtime, origin: SIGNER },
+        );
         expect(r.ok).toBe(true);
         if (r.ok) expect(r.value).toHaveLength(2);
         expect(runtime.calls.map((c) => c.functionName)).toEqual([
@@ -225,7 +235,10 @@ describe("setDotNsRecord", () => {
 
     test("skips the pointer move when the node already points at the resolver", async () => {
         const runtime = runtimeWith({ resolver: FORWARD_RESOLVER });
-        const r = await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime });
+        const r = await setDotNsRecord(
+            { name: "alice.dot", address: TARGET },
+            { runtime, origin: SIGNER },
+        );
         expect(r.ok).toBe(true);
         if (r.ok) expect(r.value).toHaveLength(1);
         expect(runtime.calls.map((c) => c.functionName)).not.toContain("setResolver");
@@ -233,7 +246,7 @@ describe("setDotNsRecord", () => {
 
     test("the pointer move targets the forward resolver for the right node", async () => {
         const runtime = runtimeWith({ resolver: ZERO });
-        await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime });
+        await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime, origin: SIGNER });
         const setResolver = runtime.calls.find((c) => c.functionName === "setResolver");
         expect(setResolver?.args?.[1]).toBe(FORWARD_RESOLVER);
         const setAddress = runtime.calls.find((c) => c.functionName === "setAddress");
@@ -244,8 +257,68 @@ describe("setDotNsRecord", () => {
         const runtime = runtimeWith({
             resolver: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
         });
-        const r = await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime });
+        const r = await setDotNsRecord(
+            { name: "alice.dot", address: TARGET },
+            { runtime, origin: SIGNER },
+        );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
+    });
+});
+
+describe("origin", () => {
+    test("reads pass the pallet-revive fallback rather than leaving it unset", async () => {
+        const runtime = runtimeWith({ owner: OWNER, resolver: ZERO });
+        await resolveDotNs("alice.dot", { runtime });
+        // Explicit, so the contracts layer does not warn once per query.
+        expect(runtime.calls.every((c) => c.origin === QUERY_FALLBACK_ORIGIN)).toBe(true);
+    });
+
+    test("reads use opts.origin when given", async () => {
+        const runtime = runtimeWith({ owner: OWNER, resolver: ZERO });
+        await resolveDotNs("alice.dot", { runtime, origin: SIGNER });
+        expect(runtime.calls.every((c) => c.origin === SIGNER)).toBe(true);
+    });
+
+    test("setDotNsRecord dry-runs as the caller, not the fallback account", async () => {
+        const runtime = runtimeWith({ resolver: REVERSE_RESOLVER });
+        await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime, origin: SIGNER });
+        const writes = runtime.calls.filter((c) =>
+            ["setResolver", "setAddress"].includes(c.functionName ?? ""),
+        );
+        expect(writes).toHaveLength(2);
+        expect(writes.every((c) => c.origin === SIGNER)).toBe(true);
+        expect(writes.every((c) => c.origin !== QUERY_FALLBACK_ORIGIN)).toBe(true);
+    });
+
+    test("setDotNsRecord without an origin fails before any call", async () => {
+        const runtime = runtimeWith({ resolver: REVERSE_RESOLVER });
+        const r = await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("MissingOrigin");
+        expect(runtime.calls).toHaveLength(0);
+    });
+
+    test("prepareDotNsRegistration without an origin fails before any call", async () => {
+        const runtime = runtimeWith({});
+        const r = await prepareDotNsRegistration({ name: "alice.dot", owner: OWNER }, { runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("MissingOrigin");
+        expect(runtime.calls).toHaveLength(0);
+    });
+
+    test("prepareDotNsRegistration dry-runs every call as the caller", async () => {
+        const runtime = runtimeWith({
+            makeCommitment: `0x${"ab".repeat(32)}`,
+            price: 1000n,
+            minCommitmentAge: 60n,
+            maxCommitmentAge: 86400n,
+        });
+        await prepareDotNsRegistration(
+            { name: "alice.dot", owner: OWNER },
+            { runtime, origin: SIGNER },
+        );
+        expect(runtime.calls.length).toBeGreaterThan(0);
+        expect(runtime.calls.every((c) => c.origin === SIGNER)).toBe(true);
     });
 });

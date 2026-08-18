@@ -13,6 +13,7 @@ import type { SdkError } from "@parity/product-sdk-errors";
 export type DotNsErrorReason =
     | "NotWired" // registry ABI not yet configured (implementation pending)
     | "InvalidName" // name failed isValidDotNsName
+    | "MissingOrigin" // a write was requested without the submitting account
     | "RegistryCall" // the on-chain contract call failed
     | "Decode"; // the contract returned something we couldn't decode
 
