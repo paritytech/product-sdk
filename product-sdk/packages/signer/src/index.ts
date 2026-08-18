@@ -59,7 +59,6 @@ export { HostProvider } from "./providers/host.js";
 export type {
     HostProviderOptions,
     ProductAccount,
-    ProductAccountId,
     ProductAccountLookup,
     ContextualAlias,
     DerivationIndex,

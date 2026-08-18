@@ -12,7 +12,7 @@ export { HostProvider } from "./host.js";
 export type {
     HostProviderOptions,
     ProductAccount,
-    ProductAccountId,
+    ProductAccountLookup,
     ContextualAlias,
     DerivationIndex,
     ProductProofContext,

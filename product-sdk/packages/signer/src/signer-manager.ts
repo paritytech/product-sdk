@@ -18,7 +18,6 @@ import { HostProvider } from "./providers/host.js";
 import type {
     ContextualAlias,
     ProductAccount,
-    ProductAccountId,
     ProductAccountLookup,
     ProductProofContext,
     RingLocation,
@@ -407,7 +406,7 @@ export class SignerManager {
      * HOST_UNAVAILABLE.
      */
     async getProductAccountAlias(
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         context: ProductProofContext,
         location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
@@ -435,7 +434,7 @@ export class SignerManager {
      * returns HOST_UNAVAILABLE.
      */
     async createRingVRFProof(
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,

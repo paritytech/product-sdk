@@ -52,7 +52,10 @@ const TRANSIENT_FAILURE = Symbol("transient-failure");
  * Hosts that predate the wire-id reservation never answer the probe at all,
  * so a silent host must resolve as "no discovery" instead of hanging. The
  * answer comes from host config with no chain I/O, so a short deadline is
- * enough. A timeout is cached like any other stable answer.
+ * enough. A timeout is treated as transient, never cached: a host that
+ * supports discovery but started slowly would otherwise be recorded as
+ * pre-discovery for the life of the client. The cost is that a genuinely
+ * legacy host pays the deadline again on the next call.
  */
 const PROBE_TIMEOUT_MS = 3_000;
 
@@ -66,9 +69,10 @@ const discoveryCache = new WeakMap<TrUApiClient, Map<string, Promise<HostChainDi
  * Callers treat `null` as "fall back to configured constants".
  *
  * One concurrent `getChainInfo` call is made per identifier. Identifiers
- * the host answers `NotSupported` for are absent from `chains`. Results
- * are cached per client and identifier set. Unexpected wire failures are
- * logged, return `null` and are not cached, so a later call re-probes.
+ * the host answers `NotSupported` for are absent from `chains`. Stable
+ * answers are cached per client and identifier set. Unexpected wire failures
+ * and probe timeouts are logged, return `null` and are not cached, so a later
+ * call re-probes.
  */
 export async function getHostChainInfo(
     identifiers: readonly HostChainIdentifier[],
@@ -117,8 +121,8 @@ async function fetchChainInfo(
             }),
         ]).finally(() => clearTimeout(timer));
         if (outcomes === "timeout") {
-            log.warn("getChainInfo probe timed out, treating the host as pre-discovery");
-            return null;
+            log.warn("getChainInfo probe timed out, treating the host as pre-discovery for now");
+            return TRANSIENT_FAILURE;
         }
         let network: string | undefined;
         const chains: Partial<Record<HostChainIdentifier, HexString>> = {};
@@ -243,7 +247,7 @@ if (import.meta.vitest) {
         expect(calls.count).toBe(3);
     });
 
-    test("a silent host times out to null and the timeout is cached", async () => {
+    test("a silent host times out to null and the next call re-probes", async () => {
         vi.useFakeTimers();
         try {
             const calls = { count: 0 };
@@ -258,8 +262,12 @@ if (import.meta.vitest) {
             const pending = getHostChainInfo(["AssetHub"]);
             await vi.advanceTimersByTimeAsync(3_000);
             expect(await pending).toBeNull();
-            expect(await getHostChainInfo(["AssetHub"])).toBeNull();
-            expect(calls.count).toBe(1);
+            // A host that merely started slowly must not stay classified as
+            // pre-discovery, so the timeout is never cached.
+            const retry = getHostChainInfo(["AssetHub"]);
+            await vi.advanceTimersByTimeAsync(3_000);
+            expect(await retry).toBeNull();
+            expect(calls.count).toBe(2);
         } finally {
             vi.useRealTimers();
         }

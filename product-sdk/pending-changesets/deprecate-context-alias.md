@@ -14,8 +14,8 @@ nothing surfaces until value arrives at it.
 and identity's `RingLocation`. Each function was a debug log followed by an unconditional
 `throw`, with no branch or early return, so no working consumer could exist and this break is
 compile-time only. The real ring VRF operations already live on `SignerManager` in
-`@parity/product-sdk-signer` as `getProductAccountAlias` and `createRingVRFProof`, host-backed so
-the host selects the member key within the ring. Identity's `RingLocation` was also the wrong
+`@parity/product-sdk-signer` as `getProductAccountAlias` and `createRingVRFProof`, host-backed
+against a ring-VRF key the product registers up front and then names per call. Identity's `RingLocation` was also the wrong
 shape, `{ringIndex, memberIndex}` against the protocol type `{chainId, junctions}`.
 
 **Deprecated, removal in `@parity/product-sdk` 0.23.0:** `deriveContextAlias`,
@@ -32,7 +32,7 @@ bytes would break identifier consumers silently, with no compile error.
 |---|---|
 | An account that holds or spends value | `SignerManager.getProductAccount(dotNsIdentifier, index)` from `@parity/product-sdk-signer` |
 | The address offline, with no host | `deriveProductAccountPublicKey` from `@parity/product-sdk-keys`, the canonical sr25519 soft derivation |
-| An unlinkable per-context alias | `SignerManager.getProductAccountAlias(context, location)`, plus `createRingVRFProof` for proofs |
+| An unlinkable per-context alias | `SignerManager.getProductAccountAlias(keyHandle, context, location)`, plus `createRingVRFProof` for proofs |
 | A context-scoped identifier, never used as an account | `blake2b256` from `@parity/product-sdk/crypto`: the same bytes, without address packaging |
 
 The DotNS half of `./identity` is unaffected (`resolveDotNs`, `reverseDotNs`, `isDotNsAvailable`,

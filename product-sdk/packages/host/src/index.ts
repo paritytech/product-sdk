@@ -84,7 +84,6 @@ export type {
     RingLocation,
     RingVRFProof,
     RingVrfKeyDisclosure,
-    RingVrfPublicKey,
     VrfSignature,
     VrfTranscriptItem,
 } from "./accounts.js";

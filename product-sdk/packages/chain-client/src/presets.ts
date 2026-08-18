@@ -1,12 +1,15 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import type { ChainDefinition } from "polkadot-api";
+import { createLogger } from "@parity/product-sdk-logger";
 import { getHostChainInfo } from "@parity/product-sdk-host";
 import type { HostChainDiscovery } from "@parity/product-sdk-host";
 import { createChainClient } from "./clients.js";
 import { CHAIN_IDENTIFIERS, type ENVIRONMENTS } from "./chain-names.js";
 import { EnvironmentMismatchError, GenesisMismatchError } from "./errors.js";
 import type { ChainClient } from "./types.js";
+
+const log = createLogger("chain-client");
 
 // Type-only imports — erased at compile time, zero bundle cost.
 // These give us per-chain TypedApi types without importing runtime descriptor data.
@@ -169,7 +172,19 @@ async function resolveEnvironment(
     if (discovered) {
         const candidates = env ? [env, ...PROBE_ORDER.filter((e) => e !== env)] : PROBE_ORDER;
         for (const candidate of candidates) {
-            const genesis = await assetHubGenesis[candidate]();
+            // A bundle that fails to load is just a candidate that cannot
+            // match. Every environment is probed, including ones unrelated to
+            // the host, so one broken chunk must not take down the call.
+            let genesis: string | undefined;
+            try {
+                genesis = await assetHubGenesis[candidate]();
+            } catch (error) {
+                log.warn(
+                    `Could not load the "${candidate}" asset hub descriptor while deriving the environment`,
+                    error,
+                );
+                continue;
+            }
             if (genesis?.toLowerCase() === discovered) {
                 matched = candidate;
                 break;
@@ -194,6 +209,14 @@ async function resolveEnvironment(
  * Cross-check each bundled descriptor against the host's resolved chains.
  * Identifiers the host refused are absent from the discovery result and are
  * left to the existing deferred ChainNotSupportedError path.
+ *
+ * Only the asset hub is fatal: it anchors the environment, so a mismatch there
+ * means the whole bundle is the wrong one. The other chains are re-genesised
+ * individually (paseo individuality has been, with the asset hub untouched), and
+ * failing the call would take the chains that do match down with them. Those
+ * warn here and `createChainClient` hands back an api that throws
+ * `ChainNotSupportedError` on use, which is the same treatment any chain the
+ * host cannot serve already gets.
  */
 function validateDescriptorGenesis(
     descriptors: Record<keyof typeof CHAIN_IDENTIFIERS, ChainDefinition>,
@@ -203,9 +226,11 @@ function validateDescriptorGenesis(
         const hostGenesis = discovery.chains[identifier];
         const genesis = descriptors[key as keyof typeof CHAIN_IDENTIFIERS]?.genesis;
         if (!hostGenesis || !genesis) continue;
-        if (genesis.toLowerCase() !== hostGenesis.toLowerCase()) {
-            throw new GenesisMismatchError(key, genesis, hostGenesis);
-        }
+        if (genesis.toLowerCase() === hostGenesis.toLowerCase()) continue;
+        if (key === "assetHub") throw new GenesisMismatchError(key, genesis, hostGenesis);
+        log.warn(
+            `Bundled "${key}" descriptor expects genesis ${genesis} but the host serves ${hostGenesis}; that chain will throw on use. Update @parity/product-sdk-descriptors.`,
+        );
     }
 }
 
@@ -227,9 +252,11 @@ function validateDescriptorGenesis(
  * zero-arg form throws and the environment has to be passed explicitly.
  *
  * An explicit environment that disagrees with the host's network throws
- * {@link EnvironmentMismatchError}. A bundled descriptor whose genesis hash
- * disagrees with the host throws {@link GenesisMismatchError}. Hosts that
- * predate discovery skip validation entirely.
+ * {@link EnvironmentMismatchError}. A bundled asset hub descriptor whose
+ * genesis hash disagrees with the host throws {@link GenesisMismatchError},
+ * since it anchors the environment; a mismatch on bulletin or individuality
+ * warns and leaves that one chain throwing on use. Hosts that predate
+ * discovery skip validation entirely.
  *
  * @example
  * Let the host decide, the recommended path inside a container:
@@ -435,6 +462,23 @@ if (import.meta.vitest) {
         expect(error).toBeInstanceOf(GenesisMismatchError);
         expect(error.chain).toBe("assetHub");
         expect(error.hostGenesis).toBe("0xdeadbeef");
+    });
+
+    test("a non-anchor genesis mismatch warns and keeps the other chains usable", async () => {
+        // paseo individuality has been re-genesised on its own before, with the
+        // asset hub untouched (descriptors 0.5.1). Failing the whole call would
+        // take asset hub and bulletin down with it.
+        discoveryState.discovery = {
+            network: "paseo",
+            chains: {
+                AssetHub: GENESIS.paseo_asset_hub,
+                Bulletin: GENESIS.paseo_bulletin,
+                People: "0xstale",
+            },
+        };
+        discoveryState.createChainClientCalls = [];
+        await getChainAPI("paseo");
+        expect(discoveryState.createChainClientCalls.length).toBe(1);
     });
 
     test("identifiers the host refuses skip validation", async () => {

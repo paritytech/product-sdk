@@ -3,7 +3,6 @@
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
-    type ProductAccountId,
     type ProductAccountLookup,
     type ProductProofContext,
     type RemotePermission,
@@ -154,13 +153,11 @@ export interface RingLocation {
 /**
  * Proof-context, account-reference and VRF shapes re-exported from
  * `@parity/product-sdk-host`. Host is a hard dependency, so these come from one
- * place rather than a structural copy that could drift. `ProductAccountId` is
- * the `{ dotNsIdentifier, derivationIndex }` handle naming a registered
- * ring-VRF key.
+ * place rather than a structural copy that could drift. `ProductAccountLookup`
+ * also names the registered ring-VRF key a proof or signature is made with.
  */
 export type {
     DerivationIndex,
-    ProductAccountId,
     ProductAccountLookup,
     ProductProofContext,
     VrfSignature,
@@ -207,13 +204,13 @@ export interface AccountsProvider {
     ) => NeverthrowResultAsync<RawAccount, unknown>;
     getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
     getProductAccountAlias: (
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         context: ProductProofContext,
         location: RingLocation,
     ) => NeverthrowResultAsync<ContextualAlias, unknown>;
     getUserId: () => NeverthrowResultAsync<{ primaryUsername: string }, unknown>;
     createRingVRFProof: (
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -437,7 +434,7 @@ export class HostProvider implements SignerProvider {
      * Requires a prior successful `connect()` call.
      */
     async getProductAccountAlias(
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         context: ProductProofContext,
         location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
@@ -509,7 +506,7 @@ export class HostProvider implements SignerProvider {
      * Requires a prior successful `connect()` call.
      */
     async createRingVRFProof(
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,

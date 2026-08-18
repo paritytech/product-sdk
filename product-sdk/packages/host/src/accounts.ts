@@ -37,10 +37,9 @@ import type {
     ProductAccount as WireProductAccount,
     ProductAccountId,
     ProductProofContext,
-    RegisteredRingVrfKey,
+    RegisteredRingVrfKey as WireRegisteredRingVrfKey,
     RingLocation,
     RingVrfKeyDisclosure,
-    RingVrfPublicKey,
     TrUApiClient,
     VersionedHostAccountCreateProofError,
     VersionedHostAccountGetAliasError,
@@ -71,20 +70,14 @@ import type { HostSubscription } from "./types.js";
  * - `DerivationIndex` — the tagged selector `ProductProofContext.suffix`
  *   carries: `{ tag: "Index", value: number }` for a plain index, or
  *   `{ tag: "Raw", value: HexString }` for a raw 32-byte index.
- * - `RingVrfPublicKey` — a ring-VRF member public key (`HexString`).
- * - `RegisteredRingVrfKey` — a registry entry (`{ handle, rings, publicKey? }`).
- *   `publicKey` is present only when the caller owns the key or disclosure
- *   was granted.
  * - `RingVrfKeyDisclosure` — how much of a registry entry `listRingVrfKeys`
  *   asks for (`"Anonymized" | "PublicKey"`).
  */
 export type {
     DerivationIndex,
     ProductProofContext,
-    RegisteredRingVrfKey,
     RingLocation,
     RingVrfKeyDisclosure,
-    RingVrfPublicKey,
 } from "@parity/truapi";
 
 // The account/alias shapes come from `@parity/truapi`'s generated specs; we
@@ -137,6 +130,26 @@ export type ProductAccount = Omit<ProductAccountId, "derivationIndex"> &
 export type ProductAccountLookup = Omit<ProductAccountId, "derivationIndex"> & {
     /** Plain account index within the product subtree. Defaults to 0. */
     derivationIndex?: number;
+};
+
+/**
+ * A ring-VRF key registered by a product, as returned by
+ * {@link AccountsProvider.listRingVrfKeys}.
+ *
+ * Derived from `@parity/truapi`'s `RegisteredRingVrfKey`, with `publicKey`
+ * decoded to bytes and the handle's derivation index unwrapped. A handle
+ * carrying a plain index satisfies {@link ProductAccountLookup}, so it can be
+ * passed straight back to `ringVrfSign` / `createRingVRFProof`; keys another
+ * product registered under a raw 32-byte index surface as bytes instead.
+ */
+export type RegisteredRingVrfKey = Omit<WireRegisteredRingVrfKey, "handle" | "publicKey"> & {
+    /** Handle naming the key: the owning product plus its derivation index. */
+    handle: Omit<ProductAccountId, "derivationIndex"> & {
+        /** Plain index, or the raw 32-byte index for a `Raw` registration. */
+        derivationIndex: number | Uint8Array;
+    };
+    /** Member public key bytes. Present only when owned or disclosed. */
+    publicKey?: Uint8Array;
 };
 
 /**
@@ -205,7 +218,7 @@ export interface AccountsProvider {
      * registered key named by `keyHandle` (see {@link registerRingVrfKey}).
      */
     getProductAccountAlias(
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         context: ProductProofContext,
         location: RingLocation,
     ): ResultAsync<ContextualAlias, scale.CallErrorValue<VersionedHostAccountGetAliasError>>;
@@ -220,7 +233,7 @@ export interface AccountsProvider {
      * verification values ({@link RingVRFProof}).
      */
     createRingVRFProof(
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -228,16 +241,13 @@ export interface AccountsProvider {
     /**
      * Register a ring-VRF key owned by the calling product at `index` within
      * its ring-VRF domain, declared for `ring`. Returns the member's public
-     * key. The registered key is then addressed by a `keyHandle` of
+     * key bytes. The registered key is then addressed by a `keyHandle` of
      * `{ dotNsIdentifier: <calling product>, derivationIndex: index }`.
      */
     registerRingVrfKey(
-        index: DerivationIndex,
+        index: number,
         ring: RingLocation,
-    ): ResultAsync<
-        RingVrfPublicKey,
-        scale.CallErrorValue<VersionedHostAccountRegisterRingVrfKeyError>
-    >;
+    ): ResultAsync<Uint8Array, scale.CallErrorValue<VersionedHostAccountRegisterRingVrfKeyError>>;
     /**
      * List ring-VRF keys registered by `owner` (a dotNS product identifier).
      * `disclosure` controls whether entries carry their public key.
@@ -254,7 +264,7 @@ export interface AccountsProvider {
      * `keyHandle`.
      */
     ringVrfSign(
-        keyHandle: ProductAccountId,
+        keyHandle: ProductAccountLookup,
         message: Uint8Array,
     ): ResultAsync<Uint8Array, scale.CallErrorValue<VersionedHostAccountRingVrfSignError>>;
     /**
@@ -349,6 +359,22 @@ function toWireProductAccountId({
     return { dotNsIdentifier, derivationIndex: { tag: "Index", value: derivationIndex } };
 }
 
+/** Decode a wire registry entry: bytes out of hex, `Index` handles back to plain numbers. */
+function fromWireRingVrfKey(entry: WireRegisteredRingVrfKey): RegisteredRingVrfKey {
+    const { dotNsIdentifier, derivationIndex } = entry.handle;
+    return {
+        ...entry,
+        handle: {
+            dotNsIdentifier,
+            derivationIndex:
+                derivationIndex.tag === "Index"
+                    ? derivationIndex.value
+                    : fromHex(derivationIndex.value),
+        },
+        publicKey: entry.publicKey === undefined ? undefined : fromHex(entry.publicKey),
+    };
+}
+
 /** Build an {@link AccountsProvider} over a TruAPI client's `account` / `signing` domains. */
 function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
     const account = client.account;
@@ -376,7 +402,11 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
         },
         getProductAccountAlias(keyHandle, context, location) {
             return account
-                .getAccountAlias({ keyHandle, context, ringLocation: location })
+                .getAccountAlias({
+                    keyHandle: toWireProductAccountId(keyHandle),
+                    context,
+                    ringLocation: location,
+                })
                 .map((response) => ({
                     context: fromHex(response.context),
                     alias: fromHex(response.alias),
@@ -393,7 +423,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
         createRingVRFProof(keyHandle, context, location, message) {
             return account
                 .createAccountProof({
-                    keyHandle,
+                    keyHandle: toWireProductAccountId(keyHandle),
                     context,
                     ringLocation: location,
                     message: toHex(message),
@@ -409,13 +439,22 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 }));
         },
         registerRingVrfKey(index, ring) {
-            return account.registerRingVrfKey({ index, ring });
+            return account
+                .registerRingVrfKey({ index: { tag: "Index", value: index }, ring })
+                .map(fromHex);
         },
         listRingVrfKeys(owner, disclosure) {
-            return account.listRingVrfKeys({ owner, disclosure });
+            return account
+                .listRingVrfKeys({ owner, disclosure })
+                .map((entries) => entries.map(fromWireRingVrfKey));
         },
         ringVrfSign(keyHandle, message) {
-            return account.ringVrfSign({ keyHandle, message: toHex(message) }).map(fromHex);
+            return account
+                .ringVrfSign({
+                    keyHandle: toWireProductAccountId(keyHandle),
+                    message: toHex(message),
+                })
+                .map(fromHex);
         },
         signVrf(account_, transcriptLabel, items) {
             return account
@@ -614,8 +653,9 @@ if (import.meta.vitest) {
     });
 
     // Handle naming the ring-VRF member key, shared by the createRingVRFProof
-    // and ringVrfSign tests below.
-    const sampleKeyHandle = {
+    // and ringVrfSign tests below, with the wire form the adapter must send.
+    const sampleKeyHandle = { dotNsIdentifier: "app.dot", derivationIndex: 0 };
+    const sampleWireKeyHandle = {
         dotNsIdentifier: "app.dot",
         derivationIndex: { tag: "Index" as const, value: 0 },
     };
@@ -641,7 +681,7 @@ if (import.meta.vitest) {
         expect(account?.derivationIndex).toBe(0);
     });
 
-    test("createRingVRFProof passes the keyHandle through, hex-encodes the message, and decodes the proof response", async () => {
+    test("createRingVRFProof wraps the keyHandle, hex-encodes the message, decodes the response", async () => {
         const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
         const provider = adaptAccountsProvider(client);
@@ -658,7 +698,7 @@ if (import.meta.vitest) {
             );
         expect(calls[0][0]).toBe("createAccountProof");
         expect(calls[0][1]).toEqual({
-            keyHandle: sampleKeyHandle,
+            keyHandle: sampleWireKeyHandle,
             context: { productId: "app.dot", suffix: { tag: "Index", value: 0 } },
             ringLocation: { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
             message: toHex(new Uint8Array([1, 2, 3])),
@@ -671,15 +711,15 @@ if (import.meta.vitest) {
         });
     });
 
-    test("registerRingVrfKey passes index/ring through and returns the wire public key", async () => {
+    test("registerRingVrfKey wraps the plain index and decodes the public key", async () => {
         const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
         const provider = adaptAccountsProvider(client);
         const publicKey = await provider
-            .registerRingVrfKey(
-                { tag: "Index", value: 0 },
-                { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
-            )
+            .registerRingVrfKey(0, {
+                chainId: "0x01",
+                junctions: [{ tag: "PalletInstance", value: 1 }],
+            })
             .match(
                 (pk) => pk,
                 () => null,
@@ -691,10 +731,10 @@ if (import.meta.vitest) {
                 ring: { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
             },
         ]);
-        expect(publicKey).toBe("0xf00d");
+        expect(publicKey).toEqual(fromHex("0xf00d"));
     });
 
-    test("listRingVrfKeys passes owner/disclosure through and returns the wire entries", async () => {
+    test("listRingVrfKeys decodes the entries it gets back", async () => {
         const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
         const provider = adaptAccountsProvider(client);
@@ -710,12 +750,12 @@ if (import.meta.vitest) {
             {
                 handle: sampleKeyHandle,
                 rings: [{ chainId: "0x01", junctions: [] }],
-                publicKey: "0xf00d",
+                publicKey: fromHex("0xf00d"),
             },
         ]);
     });
 
-    test("ringVrfSign hex-encodes the message and hex-decodes the signature", async () => {
+    test("ringVrfSign wraps the handle, hex-encodes the message, decodes the signature", async () => {
         const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
         const provider = adaptAccountsProvider(client);
@@ -727,7 +767,7 @@ if (import.meta.vitest) {
             );
         expect(calls[0]).toEqual([
             "ringVrfSign",
-            { keyHandle: sampleKeyHandle, message: toHex(new Uint8Array([1, 2, 3])) },
+            { keyHandle: sampleWireKeyHandle, message: toHex(new Uint8Array([1, 2, 3])) },
         ]);
         expect(signature).toEqual(fromHex("0xba5eba11"));
     });
