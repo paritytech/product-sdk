@@ -44,6 +44,7 @@ import type {
     VersionedHostAccountGetError,
     VersionedHostAccountListRingVrfKeysError,
     VersionedHostAccountRegisterRingVrfKeyError,
+    VersionedHostAccountRingVrfSignError,
     VersionedHostAccountSignVrfError,
     VersionedHostGetLegacyAccountsError,
     VersionedHostGetUserIdError,
@@ -289,6 +290,17 @@ export interface AccountsProvider {
         message: Uint8Array,
     ): ResultAsync<RingVRFProof, scale.CallErrorValue<VersionedHostAccountCreateProofError>>;
     /**
+     * Sign `message` directly with an explicitly registered ring-VRF key.
+     *
+     * Unlike {@link createRingVRFProof} this proves nothing about ring
+     * membership; it is the plain signature under the member key, for
+     * protocols that carry their own proof.
+     */
+    ringVrfSign(
+        keyHandle: RingVrfKeyHandle,
+        message: Uint8Array,
+    ): ResultAsync<Uint8Array, scale.CallErrorValue<VersionedHostAccountRingVrfSignError>>;
+    /**
      * Produce an sr25519 VRF signature from a product account (RFC-0023).
      *
      * The host builds a Merlin transcript from `transcriptLabel` and `items`,
@@ -457,6 +469,14 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     ringRevision: response.ringRevision,
                 }));
         },
+        ringVrfSign(keyHandle, message) {
+            return account
+                .ringVrfSign({
+                    keyHandle: keyHandle as unknown as ProductAccountId,
+                    message: toHex(message),
+                })
+                .map(fromHex);
+        },
         signVrf(account_, transcriptLabel, items) {
             return account
                 .signVrf({
@@ -583,6 +603,7 @@ if (import.meta.vitest) {
                 getUserId: method("getUserId", { primaryUsername: "alice.dot" }),
                 getAccount: method("getAccount", { account: { publicKey: "0xaa" } }),
                 registerRingVrfKey: method("registerRingVrfKey", "0x0304"),
+                ringVrfSign: method("ringVrfSign", "0xba5eba11"),
                 listRingVrfKeys: method("listRingVrfKeys", [
                     {
                         handle: {
@@ -759,6 +780,28 @@ if (import.meta.vitest) {
         );
         expect(calls[0]).toEqual(["getAccountAlias", { keyHandle, context, ringLocation: ring }]);
         expect(alias).toEqual({ context: fromHex("0x01"), alias: fromHex("0x02") });
+    });
+
+    test("ringVrfSign passes the selected handle and decodes the signature", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const provider = adaptAccountsProvider(
+            makeFakeClient({ onCall: (method, args) => calls.push([method, args]) }),
+        );
+        const keys = await provider.listRingVrfKeys("people.dot").match(
+            (value) => value,
+            () => [],
+        );
+        calls.length = 0;
+        const keyHandle = keys[1].handle;
+        const signature = await provider.ringVrfSign(keyHandle, new Uint8Array([1, 2, 3])).match(
+            (value) => value,
+            () => null,
+        );
+        expect(calls[0]).toEqual([
+            "ringVrfSign",
+            { keyHandle, message: toHex(new Uint8Array([1, 2, 3])) },
+        ]);
+        expect(signature).toEqual(fromHex("0xba5eba11"));
     });
 
     test("createRingVRFProof hex-encodes the message and decodes the proof response", async () => {

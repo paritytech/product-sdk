@@ -53,6 +53,10 @@ export type {
     RemotePermission,
 } from "./truapi.js";
 
+// Host chain discovery.
+export { getHostChainInfo } from "./chain-discovery.js";
+export type { HostChainDiscovery, HostChainIdentifier } from "./chain-discovery.js";
+
 // Result type + typed host errors (the throw→Result boundary)
 export { ok, err } from "./result.js";
 export type { Result } from "./result.js";
@@ -76,9 +80,9 @@ export type {
     ProductAccountLookup,
     ContextualAlias,
     ProductProofContext,
+    RegisteredRingVrfKey,
     RingLocation,
     RingVRFProof,
-    RegisteredRingVrfKey,
     RingVrfKeyDisclosure,
     RingVrfKeyHandle,
     RingVrfPublicKey,

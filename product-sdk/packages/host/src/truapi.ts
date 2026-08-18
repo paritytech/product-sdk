@@ -184,7 +184,8 @@ export async function createHostPreimageManager(): Promise<PreimageManager | nul
 // `@parity/truapi` (imported above for the local signatures):
 // - `AllocatableResource` — resource types requestable via `requestResourceAllocation`.
 //   Its `SmartContractAllowance` variant carries the tagged `DerivationIndex`
-//   selector (`{ tag: "Index", value: number }` for a plain index).
+//   selector (`{ tag: "Index", value: number }` for a plain index, `{ tag:
+//   "Raw", value: HexString }` for a raw 32-byte index).
 // - `AllocationOutcome` — per-resource outcome, the string union
 //   `"Allocated" | "Rejected" | "NotAvailable"` (RFC-10).
 // - `RemotePermission` — permission the dapp asks the host to grant via `requestPermission`.

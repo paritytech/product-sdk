@@ -487,7 +487,8 @@ export class HostProvider implements SignerProvider {
      * Get a contextual alias for a product account via Ring VRF.
      *
      * Aliases prove account membership in a ring without revealing which
-     * account produced the alias.
+     * account produced the alias. Derived from the registered key named by
+     * `keyHandle` (see the host package's `registerRingVrfKey`).
      *
      * Requires a prior successful `connect()` call.
      */
