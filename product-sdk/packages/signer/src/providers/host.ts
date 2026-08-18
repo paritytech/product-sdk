@@ -4,6 +4,11 @@ import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
     type ProductAccountLookup,
+    type RegisteredRingVrfKey,
+    type RingLocation,
+    type RingVrfKeyDisclosure,
+    type RingVrfKeyHandle,
+    type RingVrfPublicKey,
     type ProductProofContext,
     type RemotePermission,
     requestPermission,
@@ -134,32 +139,19 @@ export interface ContextualAlias {
 }
 
 /**
- * Location of a Ring VRF ring on-chain: the hosting chain's genesis hash plus
- * the junction path addressing the ring within it.
- *
- * Structurally matches `RingLocation` from `@parity/truapi`, re-exported by
- * `@parity/product-sdk-host`. Declared locally with `string` in place of the
- * branded hex types so callers can pass plain strings.
- */
-export interface RingLocation {
-    /** Genesis hash of the chain hosting the ring. */
-    chainId: string;
-    /** Path addressing the ring within the chain. */
-    junctions: Array<
-        { tag: "PalletInstance"; value: number } | { tag: "CollectionId"; value: string }
-    >;
-}
-
-/**
- * Proof-context, account-reference and VRF shapes re-exported from
+ * Ring VRF key-management and request shapes re-exported from
  * `@parity/product-sdk-host`. Host is a hard dependency, so these come from one
- * place rather than a structural copy that could drift. `ProductAccountLookup`
- * also names the registered ring-VRF key a proof or signature is made with.
+ * place rather than structural copies that could drift.
  */
 export type {
     DerivationIndex,
     ProductAccountLookup,
     ProductProofContext,
+    RegisteredRingVrfKey,
+    RingVrfKeyDisclosure,
+    RingLocation,
+    RingVrfKeyHandle,
+    RingVrfPublicKey,
     VrfSignature,
     VrfTranscriptItem,
 } from "@parity/product-sdk-host";
@@ -203,14 +195,22 @@ export interface AccountsProvider {
         derivationIndex?: number,
     ) => NeverthrowResultAsync<RawAccount, unknown>;
     getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+    registerRingVrfKey: (
+        index: number,
+        ring: RingLocation,
+    ) => NeverthrowResultAsync<RingVrfPublicKey, unknown>;
+    listRingVrfKeys: (
+        owner: string,
+        disclosure?: RingVrfKeyDisclosure,
+    ) => NeverthrowResultAsync<RegisteredRingVrfKey[], unknown>;
     getProductAccountAlias: (
-        keyHandle: ProductAccountLookup,
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
     ) => NeverthrowResultAsync<ContextualAlias, unknown>;
     getUserId: () => NeverthrowResultAsync<{ primaryUsername: string }, unknown>;
     createRingVRFProof: (
-        keyHandle: ProductAccountLookup,
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -425,6 +425,65 @@ export class HostProvider implements SignerProvider {
     }
 
     /**
+     * Register a ring-VRF key owned by the calling product.
+     *
+     * Call {@link listRingVrfKeys} afterward to obtain the opaque handle used
+     * by alias and proof requests.
+     */
+    async registerRingVrfKey(
+        index: number,
+        ring: RingLocation,
+    ): Promise<Result<RingVrfPublicKey, SignerError>> {
+        if (!this.accountsProvider) {
+            return err(new HostUnavailableError("Host provider is not connected"));
+        }
+
+        try {
+            const publicKey = (await this.accountsProvider.registerRingVrfKey(index, ring).match(
+                (result) => result,
+                (error) => {
+                    throw new Error(
+                        `Host rejected ring VRF key registration: ${formatError(error)}`,
+                    );
+                },
+            )) as RingVrfPublicKey;
+            return ok(publicKey);
+        } catch (cause) {
+            const message =
+                cause instanceof Error ? cause.message : "Failed to register ring VRF key";
+            log.error("failed to register ring VRF key", { error: message });
+            return err(new HostRejectedError(message));
+        }
+    }
+
+    /** List an owner's registered ring-VRF keys. */
+    async listRingVrfKeys(
+        owner: string,
+        disclosure: RingVrfKeyDisclosure = "Anonymized",
+    ): Promise<Result<RegisteredRingVrfKey[], SignerError>> {
+        if (!this.accountsProvider) {
+            return err(new HostUnavailableError("Host provider is not connected"));
+        }
+
+        try {
+            const keys = (await this.accountsProvider.listRingVrfKeys(owner, disclosure).match(
+                (result) => result,
+                (error) => {
+                    throw new Error(
+                        `Host rejected ring VRF key list request: ${formatError(error)}`,
+                    );
+                },
+            )) as RegisteredRingVrfKey[];
+            return ok(keys);
+        } catch (cause) {
+            const message =
+                cause instanceof Error ? cause.message : "Failed to list registered ring VRF keys";
+            log.error("failed to list registered ring VRF keys", { error: message });
+            return err(new HostRejectedError(message));
+        }
+    }
+
+    /**
      * Get a contextual alias for a product account via Ring VRF.
      *
      * Aliases prove account membership in a ring without revealing which
@@ -434,7 +493,7 @@ export class HostProvider implements SignerProvider {
      * Requires a prior successful `connect()` call.
      */
     async getProductAccountAlias(
-        keyHandle: ProductAccountLookup,
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
@@ -498,15 +557,14 @@ export class HostProvider implements SignerProvider {
     /**
      * Create a Ring VRF proof for anonymous operations.
      *
-     * Proves that the ring member named by `keyHandle` produced the proof
-     * without revealing which member. The key must be registered first via
-     * the host package's `registerRingVrfKey`. Returns the proof plus its
-     * verification values ({@link RingVRFProof}).
+     * Proves that the explicitly selected registered key belongs to the ring
+     * at the given location without revealing which member produced the proof.
+     * Returns the proof plus its verification values ({@link RingVRFProof}).
      *
      * Requires a prior successful `connect()` call.
      */
     async createRingVRFProof(
-        keyHandle: ProductAccountLookup,
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -915,6 +973,22 @@ if (import.meta.vitest) {
                 },
             }),
             getProductAccountSigner: vi.fn().mockReturnValue(mockSigner),
+            registerRingVrfKey: vi.fn().mockReturnValue({
+                match: async (onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) => {
+                    if (shouldReject) {
+                        return onErr(options.error ?? "Unknown");
+                    }
+                    return onOk(new Uint8Array([3, 4]));
+                },
+            }),
+            listRingVrfKeys: vi.fn().mockReturnValue({
+                match: async (onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) => {
+                    if (shouldReject) {
+                        return onErr(options.error ?? "Unknown");
+                    }
+                    return onOk([]);
+                },
+            }),
             getProductAccountAlias: vi.fn().mockReturnValue({
                 match: async (onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) => {
                     if (shouldReject) {
@@ -1456,6 +1530,68 @@ if (import.meta.vitest) {
                 expect(result.value).toHaveLength(1);
                 expect(result.value[0].publicKey).toEqual(productPubkey);
             }
+        });
+    });
+
+    describe("HostProvider ring VRF keys", () => {
+        test("lists a key and forwards its opaque handle to alias and proof calls", async () => {
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0xa2), name: undefined }],
+            });
+            const keyHandle = {
+                dotNsIdentifier: "people.dot",
+                derivationIndex: { tag: "Index", value: 0 },
+            } as unknown as RingVrfKeyHandle;
+            const ring: RingLocation = {
+                chainId: "0x01",
+                junctions: [{ tag: "PalletInstance", value: 67 }],
+            };
+            mockProvider.listRingVrfKeys.mockReturnValue({
+                match: async (
+                    onOk: (value: RegisteredRingVrfKey[]) => unknown,
+                    _onErr: (error: unknown) => unknown,
+                ) => onOk([{ handle: keyHandle, rings: [ring] }]),
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            await provider.connect();
+
+            const index = 0;
+            const registered = await provider.registerRingVrfKey(index, ring);
+            expect(registered.ok).toBe(true);
+            expect(mockProvider.registerRingVrfKey).toHaveBeenCalledWith(index, ring);
+            if (registered.ok) {
+                expect(registered.value).toEqual(new Uint8Array([3, 4]));
+            }
+
+            const listed = await provider.listRingVrfKeys("people.dot", "Anonymized");
+            expect(listed.ok).toBe(true);
+            expect(mockProvider.listRingVrfKeys).toHaveBeenCalledWith("people.dot", "Anonymized");
+            if (!listed.ok) return;
+
+            const context: ProductProofContext = {
+                productId: "myapp.dot",
+                suffix: { tag: "Index", value: 0 },
+            };
+            await provider.getProductAccountAlias(listed.value[0].handle, context, ring);
+            expect(mockProvider.getProductAccountAlias).toHaveBeenCalledWith(
+                keyHandle,
+                context,
+                ring,
+            );
+
+            const message = new Uint8Array([1, 2, 3]);
+            await provider.createRingVRFProof(listed.value[0].handle, context, ring, message);
+            expect(mockProvider.createRingVRFProof).toHaveBeenCalledWith(
+                keyHandle,
+                context,
+                ring,
+                message,
+            );
         });
     });
 

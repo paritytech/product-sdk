@@ -19,5 +19,5 @@ that pass an environment keep exactly the previous behavior on legacy hosts;
 the zero-arg form needs discovery, so it throws there and outside a container.
 `createFakeTruApiClient` / `createFakeHost` model `chain.getChainInfo` behind a
 new `chainInfo` option, so tests can drive discovery; omitting it models a host
-predating the call. `@parity/truapi` is bumped to `^0.9.0`, the release that
-ships the `chain.getChainInfo` binding.
+predating the call. The `chain.getChainInfo` binding this rides on ships in
+`@parity/truapi` 0.9.0, adopted separately.

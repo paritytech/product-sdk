@@ -71,7 +71,7 @@ export {
 export type { HostErrorPayload } from "./errors.js";
 
 // Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
-export { getAccountsProvider } from "./accounts.js";
+export { getAccountsProvider, findRingVrfKeyHandle } from "./accounts.js";
 export type {
     AccountsProvider,
     DerivationIndex,
@@ -84,6 +84,8 @@ export type {
     RingLocation,
     RingVRFProof,
     RingVrfKeyDisclosure,
+    RingVrfKeyHandle,
+    RingVrfPublicKey,
     VrfSignature,
     VrfTranscriptItem,
 } from "./accounts.js";
