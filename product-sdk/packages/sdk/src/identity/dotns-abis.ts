@@ -1,9 +1,9 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Minimal ABIs for the DotNS resolution contracts — only the read methods this
- * module calls. Sourced from `paritytech/dotns` (`contracts/registry`,
- * `contracts/resolvers`). Extend these subsets when wiring writes.
+ * Minimal ABIs for the DotNS contracts: the read and write methods this module
+ * calls, and nothing else. Sourced from `paritytech/dotns` (`contracts/registry`,
+ * `contracts/resolvers`, `contracts/registrars`, `contracts/pop`).
  */
 import type { AbiEntry } from "@parity/product-sdk-contracts";
 

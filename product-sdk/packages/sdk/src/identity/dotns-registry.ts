@@ -7,14 +7,14 @@
  * (namehash) to a resolver + owner, a `DotnsResolver` maps a node to an
  * address, and a `DotnsReverseResolver` maps an account back to its name. All
  * are Revive contracts, reached via `@parity/product-sdk-contracts`'
- * `createContract(...).<method>.query(...)`. See the sdk-team design doc
- * (`docs/product-sdk/dotns-registry-support.md`).
+ * `createContract(...).<method>.query(...)`. Contract source:
+ * https://github.com/paritytech/dotns
  *
  * Reads (`resolveDotNs` / `reverseDotNs` / `isDotNsAvailable`) query chain.
  * Writes return prepared calls the caller submits with their own signer:
- * `setDotNsRecord` (one `setAddress` call) and `prepareDotNsRegistration` (the
- * commit + register calls plus the timing window — registration is a two-tx
- * commit-reveal-and-pay flow, so it can't be a single call).
+ * `setDotNsRecord` (the resolver pointer, when it needs moving, plus the
+ * record) and `prepareDotNsRegistration` (the commit call plus a thunk for the
+ * register call, which cannot be built until the commitment is on chain).
  *
  * Note: this deployment has no name-expiry concept (the registrar exposes no
  * expiry getter), so `DotNsRecord.expiresAt` is always omitted.
@@ -98,8 +98,8 @@ export interface SetRecordArgs {
 }
 
 function contractOf(runtime: ContractRuntime, address: HexString, abi: AbiEntry[]) {
-    // biome-ignore lint/suspicious/noExplicitAny: createContract is generic over a
-    // typed ABI def; our minimal literal ABIs are called by name via .query().
+    // createContract is generic over a typed ABI def; these minimal literal ABIs
+    // are called by name via .query(), so the handle is untyped by construction.
     return createContract(runtime, address, abi as any) as any;
 }
 
@@ -168,12 +168,12 @@ export async function resolveDotNs(
 
         // Existence check: the getter falls back to the registrar's ERC-721
         // holder, and returns zero for a node with no record.
-        const owner = ownerRes.value as string;
+        const owner = ownerRes.value as HexString;
         if (isZero(owner)) return ok(null);
 
         // Registration parks the pointer on the reverse resolver, which has no
         // `addressOf`, so both cases mean "no forward record" rather than "call it".
-        const resolverAddr = resolverRes.value as string;
+        const resolverAddr = resolverRes.value as HexString;
         if (isZero(resolverAddr) || sameAddress(resolverAddr, reverseAddr)) {
             return ok({ name: normalized, owner });
         }
@@ -187,7 +187,7 @@ export async function resolveDotNs(
                 }),
             );
         }
-        const address = addrRes.value as string;
+        const address = addrRes.value as HexString;
         // A forward resolver holding an empty record is still no forward record.
         if (isZero(address)) return ok({ name: normalized, owner });
 

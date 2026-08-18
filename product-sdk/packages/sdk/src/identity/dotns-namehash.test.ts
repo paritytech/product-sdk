@@ -26,6 +26,16 @@ function refNamehash(name: string): string {
 }
 
 describe("dotns namehash", () => {
+    test("DOT_NODE is keccak256(zeros32 || keccak256('dot'))", () => {
+        // The only hardcoded value in the module: every node hash derives from
+        // it, and namehash(".dot") returning it is a tautology, since an empty
+        // label list skips the loop. Derive it instead.
+        const labelhash = keccak256(new TextEncoder().encode("dot"));
+        const combined = new Uint8Array(64); // leading 32 bytes are the zero root
+        combined.set(labelhash, 32);
+        expect(`0x${bytesToHex(keccak256(combined))}`).toBe(DOT_NODE);
+    });
+
     test("bare .dot hashes to the DOT_NODE constant", () => {
         expect(namehash(".dot")).toBe(DOT_NODE);
         expect(namehash("")).toBe(DOT_NODE);

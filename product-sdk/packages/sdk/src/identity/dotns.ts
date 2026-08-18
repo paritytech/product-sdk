@@ -8,7 +8,6 @@
 
 import { accountIdBytes } from "@parity/product-sdk-address";
 import { bytesToHex, hexToBytes } from "@parity/product-sdk-crypto";
-import { createLogger } from "@parity/product-sdk-logger";
 import type {
     ChainDefinition,
     PalletsTypedef,
@@ -18,9 +17,6 @@ import type {
     StorageDescriptor,
     TxDescriptor,
 } from "polkadot-api";
-import type { DotNsRecord } from "./types.js";
-
-const log = createLogger("identity");
 
 type AnyDescriptorEntry<T> = Record<string, Record<string, T>>;
 

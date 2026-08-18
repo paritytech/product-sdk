@@ -9,16 +9,26 @@
 /** DotNS name resolution result */
 export interface DotNsRecord {
     /**
-     * Address the name resolves to. Absent when the name is registered but has
-     * no forward record yet, the state of every name just after registration.
-     * An unregistered name is `null` from `resolveDotNs`, not a record.
+     * H160 the name resolves to, `0x` and 20 bytes. Not SS58: DotNS is a set of
+     * Revive contracts and both address fields come back as EVM addresses.
+     * Convert with `h160ToSs58` from `@parity/product-sdk-address` if a
+     * Substrate-shaped address is needed.
+     *
+     * Absent when the name is registered but has no forward record yet, the
+     * state of every name just after registration. An unregistered name is
+     * `null` from `resolveDotNs`, not a record.
      */
-    address?: string;
-    /** Name that was resolved */
+    address?: `0x${string}`;
+    /** Name that was resolved, normalized (lowercase, `.dot` suffix) */
     name: string;
-    /** Owner address */
-    owner: string;
-    /** Expiration timestamp (if applicable) */
+    /** H160 of the node's owner. Not SS58, same as {@link DotNsRecord.address}. */
+    owner: `0x${string}`;
+    /**
+     * Expiration timestamp, if the deployment has one.
+     *
+     * Always absent today: the Paseo Asset Hub registrar exposes no expiry
+     * getter, so nothing populates this.
+     */
     expiresAt?: number;
 }
 

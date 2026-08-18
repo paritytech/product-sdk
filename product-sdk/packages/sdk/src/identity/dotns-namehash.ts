@@ -14,21 +14,12 @@
  *
  * DOT_NODE itself = keccak256(0x00…(32) ‖ keccak256("dot")).
  */
-import { bytesToHex, keccak256 } from "@parity/product-sdk-crypto";
+import { bytesToHex, hexToBytes, keccak256 } from "@parity/product-sdk-crypto";
 
 /** The `.dot` TLD node. Mirrors `DotnsConstants.DOT_NODE`. */
 export const DOT_NODE = "0x3fce7d1364a893e213bc4212792b517ffc88f5b13b86c8ef9c8d390c3a1370ce";
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
-
-function hexToBytes32(hex: string): Uint8Array {
-    return Uint8Array.from(
-        hex
-            .slice(2)
-            .match(/.{2}/g)!
-            .map((b) => Number.parseInt(b, 16)),
-    );
-}
 
 /**
  * Compute the DotNS node hash for a name like `"alice.dot"` or
@@ -47,7 +38,8 @@ export function namehash(name: string): `0x${string}` {
     const labels = trimmed === "" ? [] : trimmed.split(".");
     // Layer from the TLD outward: labels are given left-most-first
     // (bob.alice), but must be applied right-to-left onto the parent.
-    let node = hexToBytes32(DOT_NODE);
+    // Annotated: hexToBytes yields ArrayBufferLike, keccak256 yields ArrayBuffer.
+    let node: Uint8Array = hexToBytes(DOT_NODE.slice(2));
     for (let i = labels.length - 1; i >= 0; i--) {
         const labelhash = keccak256(utf8(labels[i]));
         const combined = new Uint8Array(64);

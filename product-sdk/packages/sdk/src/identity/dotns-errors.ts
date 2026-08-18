@@ -7,11 +7,9 @@ import type { SdkError } from "@parity/product-sdk-errors";
  * cross-package {@link SdkError} marker so `isSdkError(e)` recognizes it.
  *
  * `reason` distinguishes the failure kind so callers can branch without string
- * matching. `NotWired` is temporary — see {@link DotNsError} usage in
- * `dotns-registry.ts`; it goes away once the registry ABI is wired in.
+ * matching.
  */
 export type DotNsErrorReason =
-    | "NotWired" // registry ABI not yet configured (implementation pending)
     | "InvalidName" // name failed isValidDotNsName
     | "MissingOrigin" // a write was requested without the submitting account
     | "NameReserved" // governance-held, or a base stem held by another user
