@@ -57,6 +57,8 @@ const TARGET = "0x2222222222222222222222222222222222222222";
 // See "honours the address overrides" for the opts path.
 const FORWARD_RESOLVER = PASEO_ASSETHUB_DOTNS.resolver;
 const REVERSE_RESOLVER = PASEO_ASSETHUB_DOTNS.reverseResolver;
+/** classifyName returns two values, so the fake encodes it positionally. */
+const OPEN = [POP_STATUS.NoStatus, "Available to all"];
 
 /** A runtime whose view calls answer from `answers`, keyed by function name. */
 function runtimeWith(answers: Record<string, unknown>) {
@@ -191,27 +193,35 @@ describe("resolveDotNs", () => {
 
 describe("isDotNsAvailable", () => {
     test("asks the registrar controller rather than inferring from resolution", async () => {
-        const runtime = runtimeWith({ available: true });
+        const runtime = runtimeWith({ available: true, classifyName: OPEN });
         const r = await isDotNsAvailable("alice.dot", { runtime });
         expect(r).toEqual({ ok: true, value: true });
-        expect(runtime.calls.map((c) => c.functionName)).toEqual(["available"]);
+        expect(runtime.calls.map((c) => c.functionName).sort()).toEqual([
+            "available",
+            "classifyName",
+        ]);
     });
 
     test("passes the bare label, without the .dot suffix", async () => {
-        const runtime = runtimeWith({ available: true });
+        const runtime = runtimeWith({ available: true, classifyName: OPEN });
         await isDotNsAvailable("alice.dot", { runtime });
         expect(runtime.calls[0]?.args).toEqual(["alice"]);
     });
 
     test("an owned name with no forward record is not available", async () => {
         // This shape used to report `true`, costing the caller a commit fee.
-        const runtime = runtimeWith({ available: false, owner: OWNER, resolver: ZERO });
+        const runtime = runtimeWith({
+            available: false,
+            classifyName: OPEN,
+            owner: OWNER,
+            resolver: ZERO,
+        });
         const r = await isDotNsAvailable("alice.dot", { runtime });
         expect(r).toEqual({ ok: true, value: false });
     });
 
     test("an invalid name is rejected before the controller call", async () => {
-        const runtime = runtimeWith({ available: true });
+        const runtime = runtimeWith({ available: true, classifyName: OPEN });
         const r = await isDotNsAvailable("no", { runtime });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("InvalidName");
@@ -342,6 +352,7 @@ describe("prepareDotNsRegistration", () => {
             transferFloor: 0n,
             minCommitmentAge: 60n,
             maxCommitmentAge: 86400n,
+            available: true,
             ...over,
         });
 
@@ -439,6 +450,7 @@ describe("prepareDotNsRegistration", () => {
             abi: ALL_ABIS,
             onQuery: ({ functionName }) => {
                 if (functionName === "makeCommitment") return `0x${"ab".repeat(32)}`;
+                if (functionName === "available") return true;
                 if (functionName === "priceWithoutCheck") return quote({ price: current });
                 if (functionName === "transferFloor") return 0n;
                 if (functionName === "minCommitmentAge") return 60n;
@@ -498,7 +510,10 @@ describe("error causes", () => {
     });
 
     test("a failed availability read carries its payload", async () => {
-        const runtime = runtimeWith({ available: fakeDryRunResult({ failure: FAILURE }) });
+        const runtime = runtimeWith({
+            available: fakeDryRunResult({ failure: FAILURE }),
+            classifyName: OPEN,
+        });
         const r = await isDotNsAvailable("alice.dot", { runtime });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.cause).toEqual(FAILURE);
@@ -510,6 +525,7 @@ describe("error causes", () => {
             priceWithoutCheck: fakeDryRunResult({ failure: FAILURE }),
             minCommitmentAge: 60n,
             maxCommitmentAge: 86400n,
+            available: true,
         });
         const r = await prepareDotNsRegistration(
             { name: "alice.dot", owner: OWNER },
@@ -562,7 +578,7 @@ describe("subnames", () => {
     });
 
     test("availability still refuses a subname", async () => {
-        const runtime = runtimeWith({ available: true });
+        const runtime = runtimeWith({ available: true, classifyName: OPEN });
         const r = await isDotNsAvailable("bob.alice.dot", { runtime });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("InvalidName");
@@ -584,5 +600,113 @@ describe("subnames", () => {
         const runtime = runtimeWith({ owner: OWNER, resolver: ZERO });
         const r = await resolveDotNs("BOB.Alice.DOT", { runtime });
         expect(r).toEqual({ ok: true, value: { name: "bob.alice.dot", owner: OWNER } });
+    });
+});
+
+describe("availability and registration agree", () => {
+    const OPEN_LABEL = [POP_STATUS.NoStatus, "Available to all"];
+    const GOV = [POP_STATUS.Reserved, "Reserved for Governance"];
+
+    test("a governance-reserved label is not available, even though it is unminted", async () => {
+        // available() only asks the registrar whether the token is minted, and
+        // says yes for a 3 to 5 character label that can never be claimed.
+        const runtime = runtimeWith({ available: true, classifyName: GOV });
+        const r = await isDotNsAvailable("bob.dot", { runtime });
+        expect(r).toEqual({ ok: true, value: false });
+    });
+
+    test("availability and registration now give the same verdict on a reserved label", async () => {
+        const avail = await isDotNsAvailable("bob.dot", {
+            runtime: runtimeWith({ available: true, classifyName: GOV }),
+        });
+        const reg = await prepareDotNsRegistration(
+            { name: "bob.dot", owner: OWNER },
+            {
+                runtime: runtimeWith({
+                    available: true,
+                    makeCommitment: `0x${"ab".repeat(32)}`,
+                    priceWithoutCheck: {
+                        price: 0n,
+                        status: POP_STATUS.Reserved,
+                        userStatus: POP_STATUS.NoStatus,
+                        message: "Reserved for Governance",
+                    },
+                    minCommitmentAge: 60n,
+                    maxCommitmentAge: 86400n,
+                }),
+                origin: SIGNER,
+            },
+        );
+        expect(avail.ok && avail.value).toBe(false);
+        expect(reg.ok).toBe(false);
+        if (!reg.ok) expect(reg.error.reason).toBe("NameReserved");
+    });
+
+    test("a failing classifyName is an error, not a false", async () => {
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
+        });
+        const r = await isDotNsAvailable("alice.dot", { runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
+    });
+
+    test("an unminted, unrestricted label is available", async () => {
+        const runtime = runtimeWith({ available: true, classifyName: OPEN_LABEL });
+        expect(await isDotNsAvailable("longenough.dot", { runtime })).toEqual({
+            ok: true,
+            value: true,
+        });
+    });
+});
+
+describe("registration refuses a taken name before the commit", () => {
+    const base = {
+        makeCommitment: `0x${"ab".repeat(32)}`,
+        priceWithoutCheck: {
+            price: 1000n,
+            status: POP_STATUS.NoStatus,
+            userStatus: POP_STATUS.NoStatus,
+            message: "Available to all",
+        },
+        transferFloor: 0n,
+        minCommitmentAge: 60n,
+        maxCommitmentAge: 86400n,
+    };
+
+    test("a taken name fails as NameUnavailable with no commit prepared", async () => {
+        // register runs _requireAvailableLabel first, so without this the caller
+        // pays for the commit and only then reverts with NameNotAvailable.
+        const runtime = runtimeWith({ ...base, available: false });
+        const r = await prepareDotNsRegistration(
+            { name: "alice.dot", owner: OWNER },
+            { runtime, origin: SIGNER },
+        );
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("NameUnavailable");
+        expect(runtime.calls.map((c) => c.functionName)).not.toContain("commit");
+    });
+
+    test("availability is actually consulted", async () => {
+        const runtime = runtimeWith({ ...base, available: true });
+        await prepareDotNsRegistration(
+            { name: "alice.dot", owner: OWNER },
+            { runtime, origin: SIGNER },
+        );
+        expect(runtime.calls.map((c) => c.functionName)).toContain("available");
+    });
+
+    test("a failing availability read is an error, not an assumed yes", async () => {
+        const runtime = runtimeWith({
+            ...base,
+            available: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
+        });
+        const r = await prepareDotNsRegistration(
+            { name: "alice.dot", owner: OWNER },
+            { runtime, origin: SIGNER },
+        );
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
     });
 });

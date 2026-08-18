@@ -190,6 +190,16 @@ export const DOTNS_POP_RULES_ABI: AbiEntry[] = [
     },
     {
         type: "function",
+        name: "classifyName",
+        inputs: [{ name: "name", type: "string" }],
+        outputs: [
+            { name: "requirement", type: "uint8" },
+            { name: "message", type: "string" },
+        ],
+        stateMutability: "pure",
+    },
+    {
+        type: "function",
         name: "transferFloor",
         inputs: [
             { name: "name", type: "string" },

@@ -34,6 +34,7 @@ export type {
 export { DotNsError } from "./dotns-errors.js";
 export type { DotNsErrorReason } from "./dotns-errors.js";
 export { namehash, DOT_NODE } from "./dotns-namehash.js";
+export { POP_STATUS, PASEO_ASSETHUB_DOTNS } from "./dotns-abis.js";
 
 // Context alias utilities
 export {

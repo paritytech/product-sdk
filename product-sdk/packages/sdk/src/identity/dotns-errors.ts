@@ -12,6 +12,7 @@ import type { SdkError } from "@parity/product-sdk-errors";
 export type DotNsErrorReason =
     | "InvalidName" // name failed isValidDotNsName
     | "MissingOrigin" // a write was requested without the submitting account
+    | "NameUnavailable" // already registered
     | "NameReserved" // governance-held, or a base stem held by another user
     | "OwnerStatusInsufficient" // the owner lacks the personhood tier the label requires
     | "RegistryCall" // the on-chain contract call failed

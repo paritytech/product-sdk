@@ -237,10 +237,22 @@ export async function reverseDotNs(
 /**
  * Whether a DotNS name is available to claim.
  *
- * Asks `registrarController.available(label)`, the predicate `register` itself
- * enforces. Deliberately not inferred from resolution: a registered name has no
- * forward record until its owner sets one, so that would report owned names as
- * free. Validated first because `available` reverts on labels we already reject.
+ * Two reads, because "not minted" and "claimable" are different questions:
+ *
+ *   - `registrarController.available(label)`, the predicate `register` enforces
+ *     through `_requireAvailableLabel`. Deliberately not inferred from
+ *     resolution: a registered name has no forward record until its owner sets
+ *     one, so that would report owned names as free.
+ *   - `PopRules.classifyName(label)`, which is pure and owner-independent.
+ *     Labels of 5 base characters or fewer are reserved for governance and can
+ *     never be claimed, though the registrar still reports them as unminted.
+ *
+ * `ok(true)` means the name can be registered by someone. It does not mean the
+ * caller can register it: labels of 6 to 8 characters additionally require a
+ * personhood tier, which depends on the owner and is checked by
+ * {@link prepareDotNsRegistration}.
+ *
+ * Validated first because both reads revert on labels we already reject.
  */
 export async function isDotNsAvailable(
     name: string,
@@ -262,7 +274,16 @@ export async function isDotNsAvailable(
             controllerAddr as HexString,
             DOTNS_REGISTRAR_CONTROLLER_ABI,
         );
-        const res = await controller.available.query(label, { origin: readOrigin(opts) });
+        const popRules = contractOf(
+            opts.runtime,
+            (opts.popRulesAddress ?? PASEO_ASSETHUB_DOTNS.popRules) as HexString,
+            DOTNS_POP_RULES_ABI,
+        );
+        const origin = readOrigin(opts);
+        const [res, classified] = await Promise.all([
+            controller.available.query(label, { origin }),
+            popRules.classifyName.query(label, { origin }),
+        ]);
         if (!res.success) {
             return err(
                 new DotNsError("RegistryCall", "registrarController.available call failed", {
@@ -270,7 +291,19 @@ export async function isDotNsAvailable(
                 }),
             );
         }
-        return ok(res.value as boolean);
+        if (res.value !== true) return ok(false);
+
+        // classifyName reverts on a label shape the registrar rejects, so a
+        // failure here is surfaced rather than folded into `false`.
+        if (!classified.success) {
+            return err(
+                new DotNsError("RegistryCall", "PopRules.classifyName call failed", {
+                    cause: classified.value,
+                }),
+            );
+        }
+        const { requirement } = classified.value as { requirement: number; message: string };
+        return ok(requirement !== POP_STATUS.Reserved);
     } catch (cause) {
         return err(
             new DotNsError("RegistryCall", `DotNS availability check failed for "${normalized}"`, {
@@ -480,12 +513,25 @@ export async function prepareDotNsRegistration(
         );
         const popRules = contractOf(opts.runtime, popRulesAddr as HexString, DOTNS_POP_RULES_ABI);
 
-        const [commitmentRes, quote, minRes, maxRes] = await Promise.all([
+        const [commitmentRes, availableRes, quote, minRes, maxRes] = await Promise.all([
             controller.makeCommitment.query(registration, { origin }),
+            controller.available.query(label, { origin }),
             quoteRegistration(popRules, label, args.owner, payer, origin),
             controller.minCommitmentAge.query({ origin }),
             controller.maxCommitmentAge.query({ origin }),
         ]);
+        // `register` runs _requireAvailableLabel before anything else, so a
+        // taken name costs the caller a commit fee and then reverts.
+        if (!availableRes.success) {
+            return err(
+                new DotNsError("RegistryCall", "registrarController.available call failed", {
+                    cause: availableRes.value,
+                }),
+            );
+        }
+        if (availableRes.value !== true) {
+            return err(new DotNsError("NameUnavailable", `"${label}" is already registered`));
+        }
         if (!commitmentRes.success) {
             return err(
                 new DotNsError("RegistryCall", "makeCommitment failed", {
