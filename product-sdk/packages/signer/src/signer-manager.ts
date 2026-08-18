@@ -20,6 +20,10 @@ import type {
     ProductAccount,
     ProductAccountLookup,
     ProductProofContext,
+    RegisteredRingVrfKey,
+    RingVrfKeyDisclosure,
+    RingVrfKeyHandle,
+    RingVrfPublicKey,
     RingLocation,
     RingVRFProof,
     VrfSignature,
@@ -397,14 +401,60 @@ export class SignerManager {
     }
 
     /**
-     * Get a contextual alias for a proof context and ring via Ring VRF.
+     * Register a ring-VRF key owned by this product.
+     *
+     * Use {@link listRingVrfKeys} afterward to obtain the opaque handle needed
+     * by alias and proof requests.
+     */
+    async registerRingVrfKey(
+        index: number,
+        ring: RingLocation,
+    ): Promise<Result<RingVrfPublicKey, SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(
+                new HostUnavailableError(
+                    "Ring VRF key registration requires a host provider connection",
+                ),
+            );
+        }
+        return host.registerRingVrfKey(index, ring);
+    }
+
+    /**
+     * List ring-VRF keys registered by a product.
+     *
+     * Use the returned key handles, rather than hard-coding a derivation index,
+     * when requesting aliases or proofs.
+     */
+    async listRingVrfKeys(
+        owner: string,
+        disclosure: RingVrfKeyDisclosure = "Anonymized",
+    ): Promise<Result<RegisteredRingVrfKey[], SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(
+                new HostUnavailableError(
+                    "Ring VRF key listing requires a host provider connection",
+                ),
+            );
+        }
+        return host.listRingVrfKeys(owner, disclosure);
+    }
+
+    /**
+     * Get a contextual alias for an explicitly selected ring-VRF key.
      *
      * Aliases prove account membership in a ring without revealing which
-     * account produced the alias; the host selects the member key. Only
-     * available when connected via the host provider — returns
-     * HOST_UNAVAILABLE otherwise.
+     * account produced the alias. Only available when connected via the host
+     * provider — returns HOST_UNAVAILABLE otherwise.
      */
     async getProductAccountAlias(
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
@@ -418,19 +468,20 @@ export class SignerManager {
                 ),
             );
         }
-        return host.getProductAccountAlias(context, location);
+        return host.getProductAccountAlias(keyHandle, context, location);
     }
 
     /**
      * Create a Ring VRF proof for anonymous operations.
      *
-     * Proves that a ring member at the given location produced the proof
-     * without revealing which member — the host selects the member key. The
-     * result carries the proof plus its verification values. Only available
-     * when connected via the host provider — returns HOST_UNAVAILABLE
-     * otherwise.
+     * Proves that the explicitly selected registered key belongs to the ring
+     * at the given location without revealing which member produced the proof.
+     * The result carries the proof plus its verification values. Only
+     * available when connected via the host provider — returns
+     * HOST_UNAVAILABLE otherwise.
      */
     async createRingVRFProof(
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -443,7 +494,7 @@ export class SignerManager {
                 new HostUnavailableError("Ring VRF proofs require a host provider connection"),
             );
         }
-        return host.createRingVRFProof(context, location, message);
+        return host.createRingVRFProof(keyHandle, context, location, message);
     }
 
     /**

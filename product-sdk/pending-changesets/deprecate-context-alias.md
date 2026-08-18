@@ -14,9 +14,10 @@ nothing surfaces until value arrives at it.
 and identity's `RingLocation`. Each function was a debug log followed by an unconditional
 `throw`, with no branch or early return, so no working consumer could exist and this break is
 compile-time only. The real ring VRF operations already live on `SignerManager` in
-`@parity/product-sdk-signer` as `getProductAccountAlias` and `createRingVRFProof`, host-backed so
-the host selects the member key within the ring. Identity's `RingLocation` was also the wrong
-shape, `{ringIndex, memberIndex}` against the protocol type `{chainId, junctions}`.
+`@parity/product-sdk-signer` as `getProductAccountAlias(keyHandle, context, location)` and
+`createRingVRFProof(keyHandle, context, location, message)`, host-backed and using an opaque
+registered key handle selected by ring. Identity's `RingLocation` was also the wrong shape,
+`{ringIndex, memberIndex}` against the protocol type `{chainId, junctions}`.
 
 **Deprecated, removal in `@parity/product-sdk` 0.23.0:** `deriveContextAlias`,
 `verifyContextAlias`, `ContextAliasInfo`. Their output is unchanged, so a caller using an alias as
@@ -32,12 +33,12 @@ bytes would break identifier consumers silently, with no compile error.
 |---|---|
 | An account that holds or spends value | `SignerManager.getProductAccount(dotNsIdentifier, index)` from `@parity/product-sdk-signer` |
 | The address offline, with no host | `deriveProductAccountPublicKey` from `@parity/product-sdk-keys`, the canonical sr25519 soft derivation |
-| An unlinkable per-context alias | `SignerManager.getProductAccountAlias(context, location)`, plus `createRingVRFProof` for proofs |
+| An unlinkable per-context alias | Select a registered key by ring, then call `SignerManager.getProductAccountAlias(keyHandle, context, location)` or `createRingVRFProof(keyHandle, context, location, message)` from `@parity/product-sdk-signer` |
 | A context-scoped identifier, never used as an account | `blake2b256` from `@parity/product-sdk/crypto`: the same bytes, without address packaging |
 
 The DotNS half of `./identity` is unaffected (`resolveDotNs`, `reverseDotNs`, `isDotNsAvailable`,
 `resolvePeopleUsernameOwner` and the name helpers), and the subpath itself is not deprecated.
 
-`@parity/product-sdk-signer` takes a patch for one doc comment: its local `RingLocation` claimed
-to match the product-sdk shape, which was the opposite shape and is now deleted. No type or
-behaviour change.
+`@parity/product-sdk-signer` takes a patch here for the context-alias migration wording. The
+separate TrUAPI 0.9 changeset documents the `RingLocation` type break and supplies the release's
+minor bump.
