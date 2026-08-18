@@ -7,11 +7,11 @@ settings:
 catalogs:
   default:
     '@parity/host-api-test-sdk':
-      specifier: ^0.12.0
-      version: 0.12.0
+      specifier: ^0.12.1
+      version: 0.12.1
     '@parity/truapi':
-      specifier: ^0.7.0
-      version: 0.7.0
+      specifier: ^0.9.0
+      version: 0.9.0
     '@playwright/test':
       specifier: ^1.60.0
       version: 1.60.0
@@ -87,7 +87,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -118,7 +118,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -149,7 +149,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -171,7 +171,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -199,7 +199,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -237,7 +237,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -259,7 +259,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -284,7 +284,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -318,7 +318,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -535,7 +535,7 @@ importers:
         version: link:../result
       '@parity/truapi':
         specifier: 'catalog:'
-        version: 0.7.0
+        version: 0.9.0
       '@polkadot-api/json-rpc-provider':
         specifier: ^0.2.0
         version: 0.2.0
@@ -557,6 +557,28 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)
+
+  packages/individuality:
+    dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
+      polkadot-api:
+        specifier: 'catalog:'
+        version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
+    devDependencies:
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
         version: 3.2.6(@types/node@25.9.1)
 
   packages/keys:
@@ -653,6 +675,9 @@ importers:
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
+      '@parity/product-sdk-individuality':
+        specifier: workspace:*
+        version: link:../individuality
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys
@@ -1646,16 +1671,16 @@ packages:
       multiformats: ^13.4.1
       polkadot-api: ^2.1.2
 
-  '@parity/host-api-test-sdk@0.12.0':
-    resolution: {integrity: sha512-0+F7kUA35UzweaP1S7AHl0XeMor9v8BH7Hbi8NbNsk9OGYp3uOqqYQ6Tpv/U9in8Y2tCQQLtTGnN1LuNxcqEgA==}
+  '@parity/host-api-test-sdk@0.12.1':
+    resolution: {integrity: sha512-VprtVqoLhZfs8W5CcD8hu6xoJ9gPxDzSzEmsH5cTecceH7NCvcuJTKHpTq9J2mLvdy+TBmK6mMkeTyMCqZVzYw==}
     peerDependencies:
       '@playwright/test': '>=1.0.0'
     peerDependenciesMeta:
       '@playwright/test':
         optional: true
 
-  '@parity/truapi@0.7.0':
-    resolution: {integrity: sha512-xBGZP7/l74I0WGUnHgoFNYah+20I3JgykJ5pNUVsw3mQzNoCHuZSVJW6sUq7fzLvRF4wM2glPTPxUOiFKgfE9A==}
+  '@parity/truapi@0.9.0':
+    resolution: {integrity: sha512-mndLyirfLFGYhlMKj10kMvovUk8v5h58z3f4u47yDb6bn5cmYlkf37fIsXC3rXEBGRL78yMv83O0xWrS3K2RVA==}
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -3899,13 +3924,13 @@ snapshots:
       multiformats: 13.4.2
       polkadot-api: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
 
-  '@parity/host-api-test-sdk@0.12.0(@playwright/test@1.60.0)':
+  '@parity/host-api-test-sdk@0.12.1(@playwright/test@1.60.0)':
     dependencies:
       '@novasamatech/host-api': 0.9.4
     optionalDependencies:
       '@playwright/test': 1.60.0
 
-  '@parity/truapi@0.7.0':
+  '@parity/truapi@0.9.0':
     dependencies:
       '@noble/hashes': 2.2.0
       neverthrow: 8.2.0

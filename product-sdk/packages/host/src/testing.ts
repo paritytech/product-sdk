@@ -10,17 +10,21 @@
  * makes a default `SignerManager`, `local-storage` auto-detection, and the
  * `statement-store` / `cloud-storage` host paths testable.
  *
- * Not modeled: the PAPI `chain` JSON-RPC surface behind `getHostProvider()` —
- * there's no chain-read fake, by design; the host owns RPC selection — and the
- * `chat` / `coinPayment` / `entropy` / `notifications` / `payment` /
- * `permissions` / `resourceAllocation` / `theme` domains. Touching an unmodeled
- * domain throws a descriptive error rather than failing with `undefined is not
- * a function`.
+ * Of the `chain` domain only `getChainInfo` is modeled, so host chain discovery
+ * (and `getChainAPI()` on top of it) resolves in tests; see the `chainInfo`
+ * option. Not modeled: the rest of the PAPI `chain` JSON-RPC surface behind
+ * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
+ * selection — and the `chat` / `coinPayment` / `entropy` / `notifications` /
+ * `payment` / `permissions` / `resourceAllocation` / `theme` domains. Touching
+ * an unmodeled domain throws a descriptive error rather than failing with
+ * `undefined is not a function`.
  *
  * @packageDocumentation
  */
 import type { ObservableLike, Observer, Subscription, TrUApiClient } from "@parity/truapi";
-import { okAsync } from "neverthrow";
+import { errAsync, okAsync } from "neverthrow";
+
+import type { HostChainIdentifier } from "./chain-discovery.js";
 
 import { setTruApiClient } from "./transport.js";
 
@@ -91,10 +95,17 @@ function oneShotObservable<Item>(item: Item): ObservableLike<Item> {
  * member access throws with a pointer here, instead of the bare TypeError an
  * empty stub would give. The empty-object cast is the one concession a Proxy
  * needs; every modeled domain is checked structurally.
+ *
+ * `modeled` carries the members that _are_ implemented, for a domain where the
+ * fake covers some calls but not the whole surface.
  */
-function notModeled<D extends keyof TrUApiClient>(domain: D): PublicSurface<TrUApiClient[D]> {
-    return new Proxy({} as PublicSurface<TrUApiClient[D]>, {
-        get(_target, member) {
+function notModeled<D extends keyof TrUApiClient>(
+    domain: D,
+    modeled?: Partial<PublicSurface<TrUApiClient[D]>>,
+): PublicSurface<TrUApiClient[D]> {
+    return new Proxy((modeled ?? {}) as PublicSurface<TrUApiClient[D]>, {
+        get(target, member) {
+            if (member in target) return target[member as keyof typeof target];
             // Stay quiet for inspection probes (console.log, await-resolution).
             if (typeof member === "symbol" || member === "then") return undefined;
             throw new Error(
@@ -114,6 +125,22 @@ function preimageKey(hexValue: string): `0x${string}` {
     return `0x${(h >>> 0).toString(16).padStart(8, "0")}`;
 }
 
+/**
+ * What a fake host reports through `chain.getChainInfo`: the network id it is
+ * configured for, and a genesis hash per chain role it serves.
+ *
+ * Roles left out are answered `NotSupported`, exactly as a host that does not
+ * serve them. Use the genesis hashes the descriptors expose (e.g.
+ * `paseo_asset_hub.genesis`) if the test drives `getChainAPI()`, since the
+ * environment is derived by matching the asset hub genesis against the bundle.
+ */
+export interface FakeChainInfo {
+    /** Ecosystem the fake host claims, e.g. `"paseo"`. */
+    network: string;
+    /** Genesis hash per chain role served. */
+    chains: Partial<Record<HostChainIdentifier, `0x${string}`>>;
+}
+
 /** Options for {@link createFakeTruApiClient}. */
 export interface CreateFakeTruApiClientOptions {
     /** `account.getUserId` primary username. Default `"alice.dot"`. */
@@ -130,6 +157,12 @@ export interface CreateFakeTruApiClientOptions {
     legacyAccounts?: Array<{ publicKey: Uint8Array; name: string }>;
     /** Seed the in-memory preimage store, keyed by the `0x` preimage key. */
     preimages?: Record<string, Uint8Array>;
+    /**
+     * What `chain.getChainInfo` reports. Omit to model a host predating chain
+     * discovery: the call is refused as `Unsupported`, so `getHostChainInfo`
+     * resolves `null` and `getChainAPI` needs an explicit environment.
+     */
+    chainInfo?: FakeChainInfo;
 }
 
 /**
@@ -143,6 +176,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
     const publicKey = toHex(options?.publicKey ?? new Uint8Array(32).fill(0x11));
     const signature = toHex(options?.signature ?? new Uint8Array(64).fill(0x22));
     const chainSupported = options?.chainSupported ?? true;
+    const chainInfo = options?.chainInfo;
 
     // Real in-memory KV (hex values) so getHostLocalStorage()/createLocalKvStore() round-trip.
     const kv = new Map<string, `0x${string}`>();
@@ -193,6 +227,9 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                     ringIndex: 0,
                     ringRevision: 0,
                 }),
+            registerRingVrfKey: () => okAsync(publicKey),
+            listRingVrfKeys: () => okAsync([]),
+            ringVrfSign: () => okAsync(signature),
             signVrf: () => okAsync({ preOutput: publicKey, proof: signature }),
             connectionStatusSubscribe: () => inertObservable(),
         },
@@ -226,7 +263,20 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 return okAsync(key);
             },
         },
-        chain: notModeled("chain"),
+        // Only `getChainInfo` is modeled; the rest of the domain still throws.
+        chain: notModeled("chain", {
+            getChainInfo: ({ chain }) => {
+                if (!chainInfo) return errAsync({ tag: "Unsupported" } as const);
+                const genesisHash = chainInfo.chains[chain];
+                if (!genesisHash) {
+                    return errAsync({
+                        tag: "Domain",
+                        value: { tag: "V1", value: { tag: "NotSupported" } },
+                    } as const);
+                }
+                return okAsync({ network: chainInfo.network, chain, genesisHash });
+            },
+        }),
         chat: notModeled("chat"),
         coinPayment: notModeled("coinPayment"),
         entropy: notModeled("entropy"),
@@ -317,6 +367,7 @@ if (import.meta.vitest) {
         "./container.js"
     );
     const { getAccountsProvider } = await import("./accounts.js");
+    const { getHostChainInfo } = await import("./chain-discovery.js");
     const { getPreimageManager } = await import("./truapi.js");
 
     const lookupOnce = (
@@ -358,6 +409,50 @@ if (import.meta.vitest) {
                 () => null,
             );
             expect(userId?.primaryUsername).toBe("carol.dot");
+        });
+
+        test("signVrf round-trips through the real adapter", async () => {
+            // The fake is the only way a product can test a VRF flow: there is no
+            // dev-provider implementation and the e2e test host does not expose the
+            // call. So the fake's wire shape has to stay decodable by the adapter.
+            createFakeHost();
+            const accounts = await getAccountsProvider();
+            const signature = await accounts
+                ?.signVrf({ dotNsIdentifier: "app.dot" }, new Uint8Array([1]), [
+                    { label: new Uint8Array([2]), value: new Uint8Array([3]) },
+                ])
+                .match(
+                    (s) => s,
+                    () => null,
+                );
+            expect(signature?.preOutput).toBeInstanceOf(Uint8Array);
+            expect(signature?.proof).toBeInstanceOf(Uint8Array);
+            expect(signature?.preOutput).toHaveLength(32);
+            expect(signature?.proof).toHaveLength(64);
+        });
+
+        test("chain discovery is refused by default, so a legacy host is modeled", async () => {
+            createFakeHost();
+            // Refused, not unmodeled: a bare `getChainAPI("paseo")` in a consumer
+            // test must not warn about the fake on every call.
+            expect(await getHostChainInfo(["AssetHub"])).toBeNull();
+        });
+
+        test("chainInfo drives discovery, with unserved roles left out", async () => {
+            createFakeHost({
+                chainInfo: { network: "paseo", chains: { AssetHub: "0xaa", Bulletin: "0xbb" } },
+            });
+            expect(await getHostChainInfo(["AssetHub", "Bulletin", "People"])).toEqual({
+                network: "paseo",
+                chains: { AssetHub: "0xaa", Bulletin: "0xbb" },
+            });
+        });
+
+        test("the rest of the chain domain still reports itself unmodeled", async () => {
+            const host = createFakeHost();
+            expect(() => (host.client.chain as { chainName?: unknown }).chainName).toThrow(
+                /not modeled by the fake/,
+            );
         });
 
         test("statement store resolves", async () => {

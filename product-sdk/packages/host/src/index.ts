@@ -53,6 +53,10 @@ export type {
     RemotePermission,
 } from "./truapi.js";
 
+// Host chain discovery.
+export { getHostChainInfo } from "./chain-discovery.js";
+export type { HostChainDiscovery, HostChainIdentifier } from "./chain-discovery.js";
+
 // Result type + typed host errors (the throw→Result boundary)
 export { ok, err } from "./result.js";
 export type { Result } from "./result.js";
@@ -67,16 +71,23 @@ export {
 export type { HostErrorPayload } from "./errors.js";
 
 // Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
-export { getAccountsProvider } from "./accounts.js";
+export { getAccountsProvider, findRingVrfKeyHandle } from "./accounts.js";
 export type {
     AccountsProvider,
     DerivationIndex,
     HostAccount,
     ProductAccount,
+    ProductAccountLookup,
     ContextualAlias,
     ProductProofContext,
+    RegisteredRingVrfKey,
     RingLocation,
     RingVRFProof,
+    RingVrfKeyDisclosure,
+    RingVrfKeyHandle,
+    RingVrfPublicKey,
+    VrfSignature,
+    VrfTranscriptItem,
 } from "./accounts.js";
 
 // Higher-level permission wrappers

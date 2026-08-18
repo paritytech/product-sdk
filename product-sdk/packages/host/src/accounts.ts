@@ -6,7 +6,8 @@
  * `getAccountsProvider()` returns the full accounts surface — user identity
  * (`getUserId` / `requestLogin`), the user's existing wallet accounts
  * (`getLegacyAccounts`), app-scoped product accounts (`getProductAccount` /
- * `getProductAccountAlias`), Ring VRF proofs (`createRingVRFProof`), connection
+ * `getProductAccountAlias`), Ring VRF proofs (`createRingVRFProof`), sr25519 VRF
+ * signatures over a caller-supplied Merlin transcript (`signVrf`), connection
  * status, and PAPI `PolkadotSigner` factories for both product and legacy
  * accounts.
  *
@@ -27,7 +28,6 @@ import { AccountId, type PolkadotSigner } from "polkadot-api";
 
 import type {
     ContextualAlias as WireAlias,
-    DerivationIndex,
     HostAccountConnectionStatusSubscribeItem,
     HostAccountCreateProofResponse as WireRingVRFProof,
     HostRequestLoginResponse,
@@ -35,14 +35,22 @@ import type {
     ProductAccount as WireProductAccount,
     ProductAccountId,
     ProductProofContext,
+    RegisteredRingVrfKey as WireRegisteredRingVrfKey,
     RingLocation,
+    RingVrfKeyDisclosure,
     TrUApiClient,
     VersionedHostAccountCreateProofError,
     VersionedHostAccountGetAliasError,
     VersionedHostAccountGetError,
+    VersionedHostAccountListRingVrfKeysError,
+    VersionedHostAccountRegisterRingVrfKeyError,
+    VersionedHostAccountRingVrfSignError,
+    VersionedHostAccountSignVrfError,
     VersionedHostGetLegacyAccountsError,
     VersionedHostGetUserIdError,
     VersionedHostRequestLoginError,
+    VrfSignature as WireVrfSignature,
+    VrfTranscriptItem as WireVrfTranscriptItem,
     scale,
 } from "@parity/truapi";
 
@@ -58,17 +66,22 @@ import type { HostSubscription } from "./types.js";
  *   (`{ productId, suffix }`), expanded by the host into the 32-byte context a
  *   proof or alias is bound to.
  * - `DerivationIndex` — the tagged selector `ProductProofContext.suffix`
- *   carries: `{ tag: "Left", value: number }` for a plain index, or
- *   `{ tag: "Right", value: HexString }` for a raw 32-byte index.
+ *   carries: `{ tag: "Index", value: number }` for a plain index, or
+ *   `{ tag: "Raw", value: HexString }` for a raw 32-byte index.
  */
-export type { DerivationIndex, ProductProofContext, RingLocation } from "@parity/truapi";
+export type {
+    DerivationIndex,
+    ProductProofContext,
+    RingLocation,
+    RingVrfKeyDisclosure,
+} from "@parity/truapi";
 
 // The account/alias shapes come from `@parity/truapi`'s generated specs; we
 // derive the SDK-facing views from them so the field inventory tracks the
 // protocol automatically, and override only the fields the adapter re-encodes:
 // byte fields decoded from `0x`-prefixed `HexString`s to `Uint8Array`s, and
 // the tagged derivation-index selector kept as a plain `number` (wrapped back
-// into `Left` at the wire boundary). Shapes re-exported verbatim (e.g.
+// into `Index` at the wire boundary). Shapes re-exported verbatim (e.g.
 // `ProductProofContext`) track the wire as-is. Same pattern as
 // `@parity/product-sdk-statement-store`.
 
@@ -106,6 +119,72 @@ export type ProductAccount = Omit<ProductAccountId, "derivationIndex"> &
     };
 
 /**
+ * How callers address a product account: app identifier plus an optional index,
+ * defaulting to 0. A {@link ProductAccount} satisfies this, so an account from
+ * {@link AccountsProvider.getProductAccount} can be passed straight back in.
+ */
+export type ProductAccountLookup = Omit<ProductAccountId, "derivationIndex"> & {
+    /** Plain account index within the product subtree. Defaults to 0. */
+    derivationIndex?: number;
+};
+
+declare const ringVrfKeyHandleBrand: unique symbol;
+
+/**
+ * Opaque public name of a registered ring-VRF key.
+ *
+ * Handles come from {@link AccountsProvider.listRingVrfKeys}; product code
+ * cannot construct one from a derivation index.
+ */
+export type RingVrfKeyHandle = {
+    readonly [ringVrfKeyHandleBrand]: "RingVrfKeyHandle";
+};
+
+/** Ring-VRF member public key, decoded from the wire's hex string. */
+export type RingVrfPublicKey = Uint8Array;
+
+/** Registered key metadata returned by the host. */
+export type RegisteredRingVrfKey = Omit<WireRegisteredRingVrfKey, "handle" | "publicKey"> & {
+    /** Opaque handle to pass back for alias and proof requests. */
+    handle: RingVrfKeyHandle;
+    /** Present when public-key disclosure was granted. */
+    publicKey?: RingVrfPublicKey;
+};
+
+function sameRingLocation(a: RingLocation, b: RingLocation): boolean {
+    if (
+        a.chainId.toLowerCase() !== b.chainId.toLowerCase() ||
+        a.junctions.length !== b.junctions.length
+    ) {
+        return false;
+    }
+    return a.junctions.every((junction, index) => {
+        const candidate = b.junctions[index];
+        if (junction.tag === "PalletInstance") {
+            return candidate.tag === "PalletInstance" && junction.value === candidate.value;
+        }
+        return (
+            candidate.tag === "CollectionId" &&
+            junction.value.toLowerCase() === candidate.value.toLowerCase()
+        );
+    });
+}
+
+/**
+ * Select a registered key by its declared ring and return its opaque handle.
+ *
+ * Consumers must not hard-code another product's derivation index. Registry
+ * order breaks ties when an owner declares multiple keys for the same ring.
+ */
+export function findRingVrfKeyHandle(
+    keys: RegisteredRingVrfKey[],
+    ring: RingLocation,
+): RingVrfKeyHandle | undefined {
+    return keys.find((key) => key.rings.some((candidate) => sameRingLocation(candidate, ring)))
+        ?.handle;
+}
+
+/**
  * A contextual alias obtained from Ring VRF.
  *
  * Proves account membership in a ring without revealing which account.
@@ -130,6 +209,21 @@ export type RingVRFProof = Omit<WireRingVRFProof, "proof" | "contextualAlias"> &
 };
 
 /**
+ * One `append_message(label, value)` call replayed against a VRF transcript.
+ * Merlin labels are ASCII by convention: use `utf8ToBytes("round")`.
+ *
+ * Derived from `@parity/truapi`'s `VrfTranscriptItem`, decoded to bytes.
+ */
+export type VrfTranscriptItem = { [K in keyof WireVrfTranscriptItem]: Uint8Array };
+
+/**
+ * An sr25519 VRF signature: the pre-output and its DLEQ proof.
+ *
+ * Derived from `@parity/truapi`'s `VrfSignature`, decoded to bytes.
+ */
+export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
+
+/**
  * Accounts provider handle, backed by `truApi.account.*` / `truApi.signing.*`.
  * Surfaces the user's wallet accounts, app-scoped product accounts, Ring VRF,
  * user identity, connection status, and `PolkadotSigner` factories.
@@ -152,10 +246,32 @@ export interface AccountsProvider {
         derivationIndex?: number,
     ): ResultAsync<ProductAccount, scale.CallErrorValue<VersionedHostAccountGetError>>;
     /**
-     * Derive the contextual alias for a proof context and ring. The host
-     * selects the member key within the ring — no per-account addressing.
+     * Register a ring-VRF key owned by the calling product.
+     *
+     * `index` is the plain derivation index within the product's ring-VRF
+     * domain; the adapter wraps it into the wire's tagged selector.
+     *
+     * Registration returns the key's public key. Call {@link listRingVrfKeys}
+     * afterward to obtain the opaque handle required by alias and proof calls.
      */
+    registerRingVrfKey(
+        index: number,
+        ring: RingLocation,
+    ): ResultAsync<
+        RingVrfPublicKey,
+        scale.CallErrorValue<VersionedHostAccountRegisterRingVrfKeyError>
+    >;
+    /** List an owner's registered ring-VRF keys. */
+    listRingVrfKeys(
+        owner: string,
+        disclosure?: RingVrfKeyDisclosure,
+    ): ResultAsync<
+        RegisteredRingVrfKey[],
+        scale.CallErrorValue<VersionedHostAccountListRingVrfKeysError>
+    >;
+    /** Derive a contextual alias with an explicitly registered ring-VRF key. */
     getProductAccountAlias(
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
     ): ResultAsync<ContextualAlias, scale.CallErrorValue<VersionedHostAccountGetAliasError>>;
@@ -164,15 +280,50 @@ export interface AccountsProvider {
         scale.CallErrorValue<VersionedHostGetLegacyAccountsError>
     >;
     /**
-     * Generate a Ring VRF proof binding `message` to the product-scoped
-     * `context`. The host selects the member key within the ring; the result
-     * carries the proof plus its verification values ({@link RingVRFProof}).
+     * Generate a Ring VRF proof with an explicitly registered key, binding
+     * `message` to the product-scoped `context`.
      */
     createRingVRFProof(
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
     ): ResultAsync<RingVRFProof, scale.CallErrorValue<VersionedHostAccountCreateProofError>>;
+    /**
+     * Sign `message` directly with an explicitly registered ring-VRF key.
+     *
+     * Unlike {@link createRingVRFProof} this proves nothing about ring
+     * membership; it is the plain signature under the member key, for
+     * protocols that carry their own proof.
+     */
+    ringVrfSign(
+        keyHandle: RingVrfKeyHandle,
+        message: Uint8Array,
+    ): ResultAsync<Uint8Array, scale.CallErrorValue<VersionedHostAccountRingVrfSignError>>;
+    /**
+     * Produce an sr25519 VRF signature from a product account (RFC-0023).
+     *
+     * The host builds a Merlin transcript from `transcriptLabel` and `items`,
+     * then signs it with the account's key. Unlike {@link createRingVRFProof},
+     * this names the signing account instead of proving ring membership.
+     *
+     * The caller owns four things the types cannot enforce:
+     *
+     * - Domain separation. A label borrowed from another protocol makes the
+     *   output replayable across both.
+     * - Freshness. The VRF is deterministic, so per-round values belong in
+     *   `items`.
+     * - Size. Hosts cap the transcript at 32 items and 8 KiB total.
+     * - Authorization. An `AutoSigning` allowance makes these calls silent. It
+     *   is not VRF-scoped, so it covers other signing by that account too.
+     *
+     * Hosts predating the call reject it through the error channel.
+     */
+    signVrf(
+        account: ProductAccountLookup,
+        transcriptLabel: Uint8Array,
+        items: VrfTranscriptItem[],
+    ): ResultAsync<VrfSignature, scale.CallErrorValue<VersionedHostAccountSignVrfError>>;
     /**
      * Build a `PolkadotSigner` for a product account. Signing routes through the
      * host's `createTransaction` path: the host decodes the metadata and forwards
@@ -228,12 +379,17 @@ function toHostExtensions(
     }));
 }
 
-/** Build the wire `ProductAccountId`, wrapping the plain index as a `Left` selector. */
-function toWireProductAccountId(
-    dotNsIdentifier: string,
-    derivationIndex: number,
-): ProductAccountId {
-    return { dotNsIdentifier, derivationIndex: { tag: "Left", value: derivationIndex } };
+/**
+ * Build the wire `ProductAccountId`: default the index to 0, wrap it as `Index`.
+ *
+ * Destructured rather than spread, so passing a full {@link ProductAccount}
+ * cannot leak its `publicKey` onto the wire.
+ */
+function toWireProductAccountId({
+    dotNsIdentifier,
+    derivationIndex = 0,
+}: ProductAccountLookup): ProductAccountId {
+    return { dotNsIdentifier, derivationIndex: { tag: "Index", value: derivationIndex } };
 }
 
 /** Build an {@link AccountsProvider} over a TruAPI client's `account` / `signing` domains. */
@@ -253,7 +409,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
         getProductAccount(dotNsIdentifier, derivationIndex = 0) {
             return account
                 .getAccount({
-                    productAccountId: toWireProductAccountId(dotNsIdentifier, derivationIndex),
+                    productAccountId: toWireProductAccountId({ dotNsIdentifier, derivationIndex }),
                 })
                 .map((response) => ({
                     publicKey: fromHex(response.account.publicKey),
@@ -261,11 +417,31 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     derivationIndex,
                 }));
         },
-        getProductAccountAlias(context, location) {
-            return account.getAccountAlias({ context, ringLocation: location }).map((response) => ({
-                context: fromHex(response.context),
-                alias: fromHex(response.alias),
-            }));
+        registerRingVrfKey(index, ring) {
+            return account
+                .registerRingVrfKey({ index: { tag: "Index", value: index }, ring })
+                .map(fromHex);
+        },
+        listRingVrfKeys(owner, disclosure = "Anonymized") {
+            return account.listRingVrfKeys({ owner, disclosure }).map((keys) =>
+                keys.map((key) => ({
+                    ...key,
+                    handle: key.handle as unknown as RingVrfKeyHandle,
+                    publicKey: key.publicKey === undefined ? undefined : fromHex(key.publicKey),
+                })),
+            );
+        },
+        getProductAccountAlias(keyHandle, context, location) {
+            return account
+                .getAccountAlias({
+                    keyHandle: keyHandle as unknown as ProductAccountId,
+                    context,
+                    ringLocation: location,
+                })
+                .map((response) => ({
+                    context: fromHex(response.context),
+                    alias: fromHex(response.alias),
+                }));
         },
         getLegacyAccounts() {
             return account.getLegacyAccounts().map((response) =>
@@ -275,9 +451,10 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 })),
             );
         },
-        createRingVRFProof(context, location, message) {
+        createRingVRFProof(keyHandle, context, location, message) {
             return account
                 .createAccountProof({
+                    keyHandle: keyHandle as unknown as ProductAccountId,
                     context,
                     ringLocation: location,
                     message: toHex(message),
@@ -292,11 +469,31 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     ringRevision: response.ringRevision,
                 }));
         },
+        ringVrfSign(keyHandle, message) {
+            return account
+                .ringVrfSign({
+                    keyHandle: keyHandle as unknown as ProductAccountId,
+                    message: toHex(message),
+                })
+                .map(fromHex);
+        },
+        signVrf(account_, transcriptLabel, items) {
+            return account
+                .signVrf({
+                    account: toWireProductAccountId(account_),
+                    transcriptLabel: toHex(transcriptLabel),
+                    items: items.map(({ label, value }) => ({
+                        label: toHex(label),
+                        value: toHex(value),
+                    })),
+                })
+                .map((response) => ({
+                    preOutput: fromHex(response.preOutput),
+                    proof: fromHex(response.proof),
+                }));
+        },
         getProductAccountSigner(account_) {
-            const productAccountId = toWireProductAccountId(
-                account_.dotNsIdentifier,
-                account_.derivationIndex,
-            );
+            const productAccountId = toWireProductAccountId(account_);
 
             return {
                 publicKey: account_.publicKey,
@@ -405,6 +602,35 @@ if (import.meta.vitest) {
             account: {
                 getUserId: method("getUserId", { primaryUsername: "alice.dot" }),
                 getAccount: method("getAccount", { account: { publicKey: "0xaa" } }),
+                registerRingVrfKey: method("registerRingVrfKey", "0x0304"),
+                ringVrfSign: method("ringVrfSign", "0xba5eba11"),
+                listRingVrfKeys: method("listRingVrfKeys", [
+                    {
+                        handle: {
+                            dotNsIdentifier: "people.dot",
+                            derivationIndex: { tag: "Index", value: 0 },
+                        },
+                        rings: [
+                            {
+                                chainId: "0x01",
+                                junctions: [{ tag: "PalletInstance", value: 1 }],
+                            },
+                        ],
+                    },
+                    {
+                        handle: {
+                            dotNsIdentifier: "people.dot",
+                            derivationIndex: { tag: "Index", value: 1 },
+                        },
+                        rings: [
+                            {
+                                chainId: "0x02",
+                                junctions: [{ tag: "CollectionId", value: "0xaabb" }],
+                            },
+                        ],
+                        publicKey: "0x0102",
+                    },
+                ]),
                 getAccountAlias: method("getAccountAlias", { context: "0x01", alias: "0x02" }),
                 getLegacyAccounts: method("getLegacyAccounts", {
                     accounts: [{ publicKey: "0xbb", name: "Bob" }],
@@ -415,6 +641,7 @@ if (import.meta.vitest) {
                     ringIndex: 3,
                     ringRevision: 7,
                 }),
+                signVrf: method("signVrf", { preOutput: "0xaa11", proof: "0xbb22" }),
                 connectionStatusSubscribe: () => ({
                     subscribe: () => ({ unsubscribe: vi.fn() }),
                     [Symbol.observable as symbol]() {
@@ -452,7 +679,7 @@ if (import.meta.vitest) {
             {
                 productAccountId: {
                     dotNsIdentifier: "app.dot",
-                    derivationIndex: { tag: "Left", value: 2 },
+                    derivationIndex: { tag: "Index", value: 2 },
                 },
             },
         ]);
@@ -463,13 +690,135 @@ if (import.meta.vitest) {
         });
     });
 
+    test("getProductAccount defaults the derivation index in both the request and the result", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const account = await provider.getProductAccount("app.dot").match(
+            (a) => a,
+            () => null,
+        );
+        expect(calls[0]).toEqual([
+            "getAccount",
+            {
+                productAccountId: {
+                    dotNsIdentifier: "app.dot",
+                    derivationIndex: { tag: "Index", value: 0 },
+                },
+            },
+        ]);
+        // The resolved index must reach the caller too, not just the wire.
+        expect(account?.derivationIndex).toBe(0);
+    });
+
+    test("registerRingVrfKey wraps the numeric index and decodes the public key", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const provider = adaptAccountsProvider(
+            makeFakeClient({ onCall: (method, args) => calls.push([method, args]) }),
+        );
+        const ring: RingLocation = {
+            chainId: "0x01",
+            junctions: [{ tag: "PalletInstance", value: 67 }],
+        };
+        const index = 2;
+        const publicKey = await provider.registerRingVrfKey(index, ring).match(
+            (value) => value,
+            () => null,
+        );
+
+        expect(calls[0]).toEqual([
+            "registerRingVrfKey",
+            { index: { tag: "Index", value: 2 }, ring },
+        ]);
+        expect(publicKey).toEqual(fromHex("0x0304"));
+    });
+
+    test("listRingVrfKeys selects by ring without exposing a raw index", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const provider = adaptAccountsProvider(
+            makeFakeClient({ onCall: (method, args) => calls.push([method, args]) }),
+        );
+        const keys = await provider.listRingVrfKeys("people.dot", "PublicKey").match(
+            (value) => value,
+            () => [],
+        );
+        expect(calls[0]).toEqual([
+            "listRingVrfKeys",
+            { owner: "people.dot", disclosure: "PublicKey" },
+        ]);
+        expect(keys[1].publicKey).toEqual(fromHex("0x0102"));
+        expect(
+            findRingVrfKeyHandle(keys, {
+                chainId: "0x02",
+                junctions: [{ tag: "CollectionId", value: "0xAABB" }],
+            }),
+        ).toEqual(keys[1].handle);
+    });
+
+    test("getProductAccountAlias passes the selected key handle", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const provider = adaptAccountsProvider(
+            makeFakeClient({ onCall: (method, args) => calls.push([method, args]) }),
+        );
+        const keys = await provider.listRingVrfKeys("people.dot").match(
+            (value) => value,
+            () => [],
+        );
+        calls.length = 0;
+        const keyHandle = keys[1].handle;
+        const context: ProductProofContext = {
+            productId: "app.dot",
+            suffix: { tag: "Index", value: 0 },
+        };
+        const ring: RingLocation = {
+            chainId: "0x01",
+            junctions: [{ tag: "PalletInstance", value: 1 }],
+        };
+        const alias = await provider.getProductAccountAlias(keyHandle, context, ring).match(
+            (value) => value,
+            () => null,
+        );
+        expect(calls[0]).toEqual(["getAccountAlias", { keyHandle, context, ringLocation: ring }]);
+        expect(alias).toEqual({ context: fromHex("0x01"), alias: fromHex("0x02") });
+    });
+
+    test("ringVrfSign passes the selected handle and decodes the signature", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const provider = adaptAccountsProvider(
+            makeFakeClient({ onCall: (method, args) => calls.push([method, args]) }),
+        );
+        const keys = await provider.listRingVrfKeys("people.dot").match(
+            (value) => value,
+            () => [],
+        );
+        calls.length = 0;
+        const keyHandle = keys[1].handle;
+        const signature = await provider.ringVrfSign(keyHandle, new Uint8Array([1, 2, 3])).match(
+            (value) => value,
+            () => null,
+        );
+        expect(calls[0]).toEqual([
+            "ringVrfSign",
+            { keyHandle, message: toHex(new Uint8Array([1, 2, 3])) },
+        ]);
+        expect(signature).toEqual(fromHex("0xba5eba11"));
+    });
+
     test("createRingVRFProof hex-encodes the message and decodes the proof response", async () => {
         const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
         const provider = adaptAccountsProvider(client);
+        const keyHandle = (
+            await provider.listRingVrfKeys("people.dot").match(
+                (value) => value,
+                () => [],
+            )
+        )[0].handle;
+        calls.length = 0;
         const proof = await provider
             .createRingVRFProof(
-                { productId: "app.dot", suffix: { tag: "Left", value: 0 } },
+                keyHandle,
+                { productId: "app.dot", suffix: { tag: "Index", value: 0 } },
                 { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
                 new Uint8Array([1, 2, 3]),
             )
@@ -479,7 +828,11 @@ if (import.meta.vitest) {
             );
         expect(calls[0][0]).toBe("createAccountProof");
         expect(calls[0][1]).toEqual({
-            context: { productId: "app.dot", suffix: { tag: "Left", value: 0 } },
+            keyHandle: {
+                dotNsIdentifier: "people.dot",
+                derivationIndex: { tag: "Index", value: 0 },
+            },
+            context: { productId: "app.dot", suffix: { tag: "Index", value: 0 } },
             ringLocation: { chainId: "0x01", junctions: [{ tag: "PalletInstance", value: 1 }] },
             message: toHex(new Uint8Array([1, 2, 3])),
         });
@@ -489,6 +842,68 @@ if (import.meta.vitest) {
             ringIndex: 3,
             ringRevision: 7,
         });
+    });
+
+    test("signVrf hex-encodes the transcript and decodes the signature", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const transcriptLabel = new Uint8Array([1, 2, 3]);
+        const itemLabel = new Uint8Array([4]);
+        const itemValue = new Uint8Array([5, 6]);
+        const signature = await provider
+            .signVrf({ dotNsIdentifier: "app.dot", derivationIndex: 3 }, transcriptLabel, [
+                { label: itemLabel, value: itemValue },
+            ])
+            .match(
+                (s) => s,
+                () => null,
+            );
+        expect(calls[0]).toEqual([
+            "signVrf",
+            {
+                account: {
+                    dotNsIdentifier: "app.dot",
+                    derivationIndex: { tag: "Index", value: 3 },
+                },
+                transcriptLabel: toHex(transcriptLabel),
+                items: [{ label: toHex(itemLabel), value: toHex(itemValue) }],
+            },
+        ]);
+        expect(signature).toEqual({ preOutput: fromHex("0xaa11"), proof: fromHex("0xbb22") });
+    });
+
+    test("signVrf defaults the derivation index", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        await provider.signVrf({ dotNsIdentifier: "app.dot" }, new Uint8Array([1]), []).match(
+            (s) => s,
+            () => null,
+        );
+        expect((calls[0][1] as { account: unknown }).account).toEqual({
+            dotNsIdentifier: "app.dot",
+            derivationIndex: { tag: "Index", value: 0 },
+        });
+    });
+
+    test("signVrf sends only the id fields when given a full product account", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const account: ProductAccount = {
+            dotNsIdentifier: "app.dot",
+            derivationIndex: 1,
+            publicKey: new Uint8Array(32).fill(0xaa),
+        };
+        await provider.signVrf(account, new Uint8Array([1]), []).match(
+            (s) => s,
+            () => null,
+        );
+        expect(Object.keys((calls[0][1] as { account: object }).account)).toEqual([
+            "dotNsIdentifier",
+            "derivationIndex",
+        ]);
     });
 
     test("the product signer signs bytes via signing.signRaw", async () => {
@@ -504,7 +919,10 @@ if (import.meta.vitest) {
         expect(calls.at(-1)).toEqual([
             "signRaw",
             {
-                account: { dotNsIdentifier: "app.dot", derivationIndex: { tag: "Left", value: 0 } },
+                account: {
+                    dotNsIdentifier: "app.dot",
+                    derivationIndex: { tag: "Index", value: 0 },
+                },
                 payload: { tag: "Bytes", value: { bytes: toHex(new Uint8Array([9, 9])) } },
             },
         ]);
@@ -591,7 +1009,7 @@ if (import.meta.vitest) {
         expect(calls.at(-1)).toEqual([
             "createTransaction",
             {
-                signer: { dotNsIdentifier: "app.dot", derivationIndex: { tag: "Left", value: 0 } },
+                signer: { dotNsIdentifier: "app.dot", derivationIndex: { tag: "Index", value: 0 } },
                 genesisHash: toHex(new Uint8Array([0x01, 0x02])),
                 callData: toHex(new Uint8Array([0xca, 0x11])),
                 extensions: expectedHostExtensions,
