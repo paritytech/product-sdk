@@ -3,7 +3,6 @@
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
-    type DerivationIndex,
     type ProductAccountLookup,
     type RegisteredRingVrfKey,
     type RingLocation,
@@ -197,7 +196,7 @@ export interface AccountsProvider {
     ) => NeverthrowResultAsync<RawAccount, unknown>;
     getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
     registerRingVrfKey: (
-        index: DerivationIndex,
+        index: number,
         ring: RingLocation,
     ) => NeverthrowResultAsync<RingVrfPublicKey, unknown>;
     listRingVrfKeys: (
@@ -432,7 +431,7 @@ export class HostProvider implements SignerProvider {
      * by alias and proof requests.
      */
     async registerRingVrfKey(
-        index: DerivationIndex,
+        index: number,
         ring: RingLocation,
     ): Promise<Result<RingVrfPublicKey, SignerError>> {
         if (!this.accountsProvider) {
@@ -1560,7 +1559,7 @@ if (import.meta.vitest) {
             });
             await provider.connect();
 
-            const index: DerivationIndex = { tag: "Index", value: 0 };
+            const index = 0;
             const registered = await provider.registerRingVrfKey(index, ring);
             expect(registered.ok).toBe(true);
             expect(mockProvider.registerRingVrfKey).toHaveBeenCalledWith(index, ring);

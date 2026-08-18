@@ -18,7 +18,6 @@ import { HostProvider } from "./providers/host.js";
 import type {
     ContextualAlias,
     ProductAccount,
-    DerivationIndex,
     ProductAccountLookup,
     ProductProofContext,
     RegisteredRingVrfKey,
@@ -408,7 +407,7 @@ export class SignerManager {
      * by alias and proof requests.
      */
     async registerRingVrfKey(
-        index: DerivationIndex,
+        index: number,
         ring: RingLocation,
     ): Promise<Result<RingVrfPublicKey, SignerError>> {
         if (this.isDestroyed) return err(new DestroyedError());

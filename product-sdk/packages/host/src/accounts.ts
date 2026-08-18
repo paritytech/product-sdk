@@ -28,7 +28,6 @@ import { AccountId, type PolkadotSigner } from "polkadot-api";
 
 import type {
     ContextualAlias as WireAlias,
-    DerivationIndex,
     HostAccountConnectionStatusSubscribeItem,
     HostAccountCreateProofResponse as WireRingVRFProof,
     HostRequestLoginResponse,
@@ -248,11 +247,14 @@ export interface AccountsProvider {
     /**
      * Register a ring-VRF key owned by the calling product.
      *
+     * `index` is the plain derivation index within the product's ring-VRF
+     * domain; the adapter wraps it into the wire's tagged selector.
+     *
      * Registration returns the key's public key. Call {@link listRingVrfKeys}
      * afterward to obtain the opaque handle required by alias and proof calls.
      */
     registerRingVrfKey(
-        index: DerivationIndex,
+        index: number,
         ring: RingLocation,
     ): ResultAsync<
         RingVrfPublicKey,
@@ -404,7 +406,9 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 }));
         },
         registerRingVrfKey(index, ring) {
-            return account.registerRingVrfKey({ index, ring }).map(fromHex);
+            return account
+                .registerRingVrfKey({ index: { tag: "Index", value: index }, ring })
+                .map(fromHex);
         },
         listRingVrfKeys(owner, disclosure = "Anonymized") {
             return account.listRingVrfKeys({ owner, disclosure }).map((keys) =>
@@ -686,7 +690,7 @@ if (import.meta.vitest) {
         expect(account?.derivationIndex).toBe(0);
     });
 
-    test("registerRingVrfKey forwards the derivation selector and decodes the public key", async () => {
+    test("registerRingVrfKey wraps the numeric index and decodes the public key", async () => {
         const calls: Array<[string, unknown]> = [];
         const provider = adaptAccountsProvider(
             makeFakeClient({ onCall: (method, args) => calls.push([method, args]) }),
@@ -695,13 +699,16 @@ if (import.meta.vitest) {
             chainId: "0x01",
             junctions: [{ tag: "PalletInstance", value: 67 }],
         };
-        const index: DerivationIndex = { tag: "Index", value: 2 };
+        const index = 2;
         const publicKey = await provider.registerRingVrfKey(index, ring).match(
             (value) => value,
             () => null,
         );
 
-        expect(calls[0]).toEqual(["registerRingVrfKey", { index, ring }]);
+        expect(calls[0]).toEqual([
+            "registerRingVrfKey",
+            { index: { tag: "Index", value: 2 }, ring },
+        ]);
         expect(publicKey).toEqual(fromHex("0x0304"));
     });
 
