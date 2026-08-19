@@ -43,7 +43,7 @@ import {
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
 import { isResolvableDotNsName, isValidDotNsName, normalizeDotNsName } from "./dotns.js";
-import { DOT_TLD, namehash } from "./dotns-namehash.js";
+import { DOT_TLD, namehash, stripSuffix } from "./dotns-namehash.js";
 import type { DotNsRecord } from "./types.js";
 
 const log = createLogger("identity:dotns");
@@ -134,8 +134,8 @@ export async function resolveDotNs(
     name: string,
     opts: DotNsClientOptions,
 ): Promise<Result<DotNsRecord | null, DotNsError>> {
-    const normalized = normalizeDotNsName(name);
-    if (!isResolvableDotNsName(normalized)) {
+    const normalized = normalizeDotNsName(name, DOT_TLD.suffix);
+    if (!isResolvableDotNsName(normalized, DOT_TLD.suffix)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${name}"`));
     }
     // TODO(step 4): root at the deployment's own TLD from `resolveTld`.
@@ -261,12 +261,12 @@ export async function isDotNsAvailable(
     name: string,
     opts: DotNsClientOptions,
 ): Promise<Result<boolean, DotNsError>> {
-    const normalized = normalizeDotNsName(name);
-    if (!isValidDotNsName(normalized)) {
+    const normalized = normalizeDotNsName(name, DOT_TLD.suffix);
+    if (!isValidDotNsName(normalized, DOT_TLD.suffix)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${name}"`));
     }
-    // The registrar takes the bare label (no ".dot" suffix).
-    const label = normalized.slice(0, -4);
+    // The registrar takes the bare label, without the TLD suffix.
+    const label = stripSuffix(normalized, DOT_TLD.suffix);
     const controllerAddr =
         opts.registrarControllerAddress ?? PASEO_ASSETHUB_DOTNS.registrarController;
     log.debug("isDotNsAvailable", { name: normalized, label, controller: controllerAddr });
@@ -335,8 +335,8 @@ export async function setDotNsRecord(
     args: SetRecordArgs,
     opts: DotNsClientOptions,
 ): Promise<Result<BatchableCall[], DotNsError>> {
-    const normalized = normalizeDotNsName(args.name);
-    if (!isResolvableDotNsName(normalized)) {
+    const normalized = normalizeDotNsName(args.name, DOT_TLD.suffix);
+    if (!isResolvableDotNsName(normalized, DOT_TLD.suffix)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
     }
     // Both calls are owner-gated, so a dry-run from the fallback account would
@@ -490,8 +490,8 @@ export async function prepareDotNsRegistration(
     args: RegisterDotNsArgs,
     opts: DotNsClientOptions,
 ): Promise<Result<DotNsRegistration, DotNsError>> {
-    const normalized = normalizeDotNsName(args.name);
-    if (!isValidDotNsName(normalized)) {
+    const normalized = normalizeDotNsName(args.name, DOT_TLD.suffix);
+    if (!isValidDotNsName(normalized, DOT_TLD.suffix)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
     }
     const origin = opts.origin;
@@ -500,8 +500,8 @@ export async function prepareDotNsRegistration(
             new DotNsError("MissingOrigin", "prepareDotNsRegistration needs opts.origin (SS58)"),
         );
     }
-    // The registrar takes the bare label (no ".dot" suffix).
-    const label = normalized.slice(0, -4);
+    // The registrar takes the bare label, without the TLD suffix.
+    const label = stripSuffix(normalized, DOT_TLD.suffix);
     const controllerAddr =
         opts.registrarControllerAddress ?? PASEO_ASSETHUB_DOTNS.registrarController;
     const popRulesAddr = opts.popRulesAddress ?? PASEO_ASSETHUB_DOTNS.popRules;

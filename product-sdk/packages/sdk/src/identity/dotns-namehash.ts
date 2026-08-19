@@ -101,6 +101,22 @@ export function isConsistentDotNsTld(tld: DotNsTld): boolean {
 export const DOT_TLD: DotNsTld = { suffix: ".dot", node: DOT_NODE };
 
 /**
+ * Drop `suffix` from the end of `name`, leaving the labels beneath it.
+ *
+ * Strips by the suffix's own length, which is the whole point: the same logic
+ * written as `slice(0, -4)` turns `alice.paseo` into `alice.pa`, and every
+ * lookup for that name then asks about a subname nobody registered. A name that
+ * does not carry the suffix is returned unchanged, so a foreign suffix stays
+ * visible to whatever validates next.
+ *
+ * Lives here rather than in `./dotns.js` so the one copy is reachable from this
+ * module without pulling its heavier imports in.
+ */
+export function stripSuffix(name: string, suffix: string): string {
+    return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
+}
+
+/**
  * Compute the DotNS node hash for a name like `"alice.paseo"` or
  * `"bob.alice.paseo"`, rooted at `tld`.
  *
@@ -119,7 +135,7 @@ export const DOT_TLD: DotNsTld = { suffix: ".dot", node: DOT_NODE };
  * @returns the 32-byte node as a `0x`-prefixed hex string.
  */
 export function namehash(name: string, tld: DotNsTld): `0x${string}` {
-    const trimmed = name.endsWith(tld.suffix) ? name.slice(0, -tld.suffix.length) : name;
+    const trimmed = stripSuffix(name, tld.suffix);
     // "" → the bare TLD node; otherwise split into labels.
     const labels = trimmed === "" ? [] : trimmed.split(".");
     // Layer from the TLD outward: labels are given left-most-first
