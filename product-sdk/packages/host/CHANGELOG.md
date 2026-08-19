@@ -1,5 +1,109 @@
 # @parity/product-sdk-host
 
+## 0.16.0
+
+### Minor Changes
+
+- 3655724: **Wrap `account.signVrf` (RFC-0023) in the accounts surface (#288).**
+
+  Producing an sr25519 VRF over a caller-supplied Merlin transcript previously meant
+  reaching for the raw `getTruApi()` client. `AccountsProvider` now has
+  `signVrf(account, transcriptLabel, items)`, with `HostProvider.signVrf` and
+  `SignerManager.signVrf` alongside `createRingVRFProof`. Bytes in, bytes out: the adapter
+  owns the hex encoding and the tagged derivation-index selector, and errors use the same
+  `Result` channel as every other account call.
+
+  New exported types, also re-exported from `@parity/product-sdk-signer`:
+  `VrfTranscriptItem`, `VrfSignature`, and `ProductAccountLookup`
+  (`{ dotNsIdentifier, derivationIndex? }`), which a `ProductAccount` satisfies.
+
+  **Breaking for implementors.** `signVrf` is a required member of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test doubles
+  must add it. Callers are unaffected, and the fake at `@parity/product-sdk-host/testing`
+  already implements it.
+
+  **Host-only.** There is no `DevProvider` implementation and the e2e test host does not
+  expose the call, so this returns `HOST_UNAVAILABLE` outside a host container, matching
+  `createRingVRFProof`. Use `createFakeHost()` for local tests.
+
+  The caller owns four things the types cannot enforce:
+
+  - _Domain separation_ — a label borrowed from another protocol makes the output
+    replayable across both.
+  - _Freshness_ — the VRF is deterministic, so per-round values must enter the transcript
+    as items; otherwise every call returns the same signature.
+  - _Size_ — hosts cap the transcript at 32 items and 8 KiB total and reject anything
+    larger as an unknown error. The SDK does not pre-validate.
+  - _Authorization_ — an `AutoSigning` allowance makes these calls silent. It is not
+    VRF-scoped, so granting it also authorizes other signing with that account.
+
+  Hosts predating the call reject it through the error channel rather than hanging.
+
+- 3655724: Consume TrUAPI host chain discovery. `@parity/product-sdk-host`
+  gains `getHostChainInfo()`, a cached facade over `chain.getChainInfo()` that
+  resolves chain roles (`AssetHub`, `Bulletin`, `People`, …) to genesis hashes
+  and returns `null` on hosts predating discovery. `getChainAPI()` can now be
+  called with no argument to derive the environment from the host by matching
+  the discovered asset hub genesis against the bundled descriptors; an explicit
+  environment is validated the same way, failing with the new `EnvironmentMismatchError` /
+  `GenesisMismatchError` instead of an opaque unsupported-genesis error. Only the
+  asset hub is fatal there, since it anchors the environment; a bulletin or
+  individuality descriptor that disagrees warns and leaves that one chain
+  throwing on use, as any chain the host cannot serve already does. Calls
+  that pass an environment keep exactly the previous behavior on legacy hosts;
+  the zero-arg form needs discovery, so it throws there and outside a container.
+  `createFakeTruApiClient` / `createFakeHost` model `chain.getChainInfo` behind a
+  new `chainInfo` option, so tests can drive discovery; omitting it models a host
+  predating the call. The `chain.getChainInfo` binding this rides on ships in
+  `@parity/truapi` 0.9.0, adopted separately.
+
+  The explicit form is only unchanged on legacy hosts. On a host that serves discovery,
+  `getChainAPI("paseo")` can now fail where it previously connected:
+  `EnvironmentMismatchError` when the host's asset hub genesis matches a different bundled
+  environment, and `GenesisMismatchError` when it matches none and the bundled asset hub
+  descriptor disagrees with the host. Both surface at the call rather than at the first
+  storage read, so an unchanged call site fails earlier and with a different error type.
+
+- 3655724: Add `AccountsProvider.ringVrfSign(keyHandle, message)`, the plain signature under a
+  registered ring-VRF member key for protocols that carry their own proof, as opposed to
+  `createRingVRFProof`, which proves ring membership. It takes the same opaque
+  `RingVrfKeyHandle` as the alias and proof calls, from `listRingVrfKeys` /
+  `findRingVrfKeyHandle`, and hands back the signature as bytes. `SignerManager` does not
+  wrap it; call the host package's `AccountsProvider` directly.
+
+  **Breaking for implementors.** `ringVrfSign` is a required member of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test doubles
+  must add it. Callers are unaffected, and the fake at `@parity/product-sdk-host/testing`
+  already implements it.
+
+- 3655724: **Update TrUAPI to 0.9 and require registered ring-VRF key handles.**
+
+  `AccountsProvider`, `HostProvider`, and `SignerManager` now expose
+  `registerRingVrfKey(index, ring)` and `listRingVrfKeys(owner, disclosure?)`. Registration returns
+  the decoded ring-VRF public key; listing returns `RegisteredRingVrfKey` entries with opaque
+  `RingVrfKeyHandle` values. `findRingVrfKeyHandle(keys, ring)` selects a handle by declared
+  `RingLocation`, so products do not hard-code another product's derivation index.
+
+  `getProductAccountAlias` and `createRingVRFProof` now require that handle as their first argument.
+  This is a compile-time breaking change. It matches TrUAPI 0.9, where the host no longer chooses a
+  ring member key implicitly and rejects malformed legacy requests before application dispatch.
+
+  The dependency update also adopts TrUAPI's renamed derivation-index variants: `Index` replaces
+  `Left` and `Raw` replaces `Right`. The SDK's ergonomic numeric product-account APIs are unchanged;
+  the host adapter performs the `Index` conversion at the wire boundary.
+
+  The signer package's re-exported `RingLocation` now uses TrUAPI's `` chainId: `0x${string}` ``
+  instead of a plain `string`; callers loading chain IDs from configuration must narrow or validate
+  them before assignment. Custom `HostProviderOptions.loadAccountsProvider` implementations must
+  also provide the newly required `registerRingVrfKey` and `listRingVrfKeys` methods.
+
+  `findRingVrfKeyHandle` is exported from `@parity/product-sdk-host`, not from
+  `@parity/product-sdk-signer`, which re-exports the ring-VRF types only. A product depending on
+  the signer package alone needs `@parity/product-sdk-host` as a second direct dependency for the
+  selection step. Prefer the helper over an inline comparison: it requires the junction path to
+  match in order and compares chain and collection ids case-insensitively, so a shortcut that
+  checks only `chainId` can pick a key registered for a different ring on the same chain.
+
 ## 0.15.1
 
 ### Patch Changes
