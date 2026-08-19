@@ -181,6 +181,9 @@ describe("resolveDotNs", () => {
 
     test("honours the address overrides instead of the defaults", async () => {
         // Proves the branch above keys off `opts`, not off the hardcoded table.
+        // Note the reverse-resolver override no longer decides anything here: any
+        // pointer that is not the forward resolver means "no forward record". The
+        // case is kept because it is the shape a registered name really has.
         const customRegistry = "0x3333333333333333333333333333333333333333";
         const customReverse = "0x4444444444444444444444444444444444444444";
         const runtime = runtimeWith({ owner: OWNER, resolver: customReverse });
@@ -1051,5 +1054,87 @@ describe("the deployment's TLD reaches every entry point", () => {
         const r = await resolveDotNs("dim2.dot", { runtime });
         expect(r).toEqual({ ok: true, value: { name: "dim2.dot", owner: OWNER } });
         expect(nodesFor(runtime, "owner")).toEqual([namehash("dim2.dot", DOT_TLD)]);
+    });
+});
+
+describe("the resolver pointer is an allowlist, not a denylist", () => {
+    /**
+     * `DotnsContentResolver` on Paseo Asset Hub Next V2, from walking
+     * `protocolRegistry.get(bytes32("contentResolver"))`.
+     *
+     * The live pointer for `dim2` on both networks. It is a real contract with no
+     * `addressOf`, so asking it for an address reverts — which is why a
+     * registered, owned name used to come back as `err RegistryCall`.
+     */
+    const CONTENT_RESOLVER = "0x7F74D7CD50f5a834270E2ad395a01b01891AB37d";
+    /** `DotnsPopResolver` from the same walk: a fourth resolver, equally unknown here. */
+    const POP_RESOLVER = "0xDaC984884EcA8Fc44011f1D6C49B27828390A72B";
+
+    /** A runtime where the node is owned and points at `resolverAddr`. */
+    const ownedPointingAt = (resolverAddr: string) =>
+        createFakeContractRuntime({
+            abi: ALL_ABIS,
+            onQuery: ({ functionName }) => {
+                if (functionName === "owner") return OWNER;
+                if (functionName === "resolver") return resolverAddr;
+                // Asking any of these for an address reverts, as the real ones do.
+                if (functionName === "addressOf") return fakeDryRunResult({ revert: true });
+                return undefined;
+            },
+        });
+
+    test("a resolver we do not know means no forward record, not an error", async () => {
+        // The assertion no earlier test could make: every fake until now returned
+        // one of the three pointers the code contemplated, so a fourth resolver
+        // was unreachable by construction.
+        const runtime = ownedPointingAt(CONTENT_RESOLVER);
+        const r = await resolveDotNs("dim2.dot", { runtime, tld: DOT_TLD });
+        expect(r).toEqual({ ok: true, value: { name: "dim2.dot", owner: OWNER } });
+        expect(runtime.calls.map((c) => c.functionName)).not.toContain("addressOf");
+    });
+
+    test("the same holds for the PoP resolver, and for one nobody has deployed yet", async () => {
+        for (const pointer of [POP_RESOLVER, "0x1234512345123451234512345123451234512345"]) {
+            const runtime = ownedPointingAt(pointer);
+            const r = await resolveDotNs("dim2.dot", { runtime, tld: DOT_TLD });
+            expect(r).toEqual({ ok: true, value: { name: "dim2.dot", owner: OWNER } });
+            expect(runtime.calls.map((c) => c.functionName)).not.toContain("addressOf");
+        }
+    });
+
+    test("the forward resolver is still asked, and still answers", async () => {
+        const runtime = createFakeContractRuntime({
+            abi: ALL_ABIS,
+            onQuery: ({ functionName }) => {
+                if (functionName === "owner") return OWNER;
+                if (functionName === "resolver") return DOTNS_ADDRESSES.resolver;
+                if (functionName === "addressOf") return TARGET;
+                return undefined;
+            },
+        });
+        const r = await resolveDotNs("dim2.dot", { runtime, tld: DOT_TLD });
+        expect(r).toEqual({ ok: true, value: { address: TARGET, name: "dim2.dot", owner: OWNER } });
+        expect(runtime.calls.map((c) => c.functionName)).toContain("addressOf");
+    });
+
+    test("an overridden forward resolver is the one that gets asked", async () => {
+        // The allowlist has to key off `opts`, not the hardcoded table, or an
+        // override silently turns every name into "no forward record".
+        const custom = "0x5555555555555555555555555555555555555555";
+        const runtime = createFakeContractRuntime({
+            abi: ALL_ABIS,
+            onQuery: ({ functionName }) => {
+                if (functionName === "owner") return OWNER;
+                if (functionName === "resolver") return custom;
+                if (functionName === "addressOf") return TARGET;
+                return undefined;
+            },
+        });
+        const r = await resolveDotNs("dim2.dot", {
+            runtime,
+            tld: DOT_TLD,
+            resolverAddress: custom,
+        });
+        expect(r).toEqual({ ok: true, value: { address: TARGET, name: "dim2.dot", owner: OWNER } });
     });
 });

@@ -5,7 +5,10 @@
  *
  * DotNS is an ENS-style system on Asset Hub: a `DotnsRegistry` maps a node
  * (namehash) to a resolver + owner, a `DotnsResolver` maps a node to an
- * address, and a `DotnsReverseResolver` maps an account back to its name.
+ * address, and a `DotnsReverseResolver` maps an account back to its name. All
+ * are Revive contracts, reached via `@parity/product-sdk-contracts`'
+ * `createContract(...).<method>.query(...)`. Contract source:
+ * https://github.com/paritytech/dotns
  *
  * **Names are rooted at the network's TLD, which is per deployment.** It is
  * fixed when `DotnsProtocolRegistry.initialize` runs, has no setter, and is
@@ -16,13 +19,17 @@
  * node the chain never wrote to, so the failure looks exactly like an
  * unregistered name — which is why nothing here assumes a root.
  *
+ * **A node's resolver pointer is not necessarily a forward resolver.** The
+ * deployment has several — forward, reverse, content, PoP — and only the forward
+ * one answers `addressOf`. `resolveDotNs` therefore calls it only when the
+ * pointer *is* the forward resolver, and reports every other pointer as
+ * "registered, no forward record". The content resolver is the common case for a
+ * product name.
+ *
  * A rule this module holds to throughout: **a failed read must never become a
  * plausible value.** The one deliberate exception is documented on
  * {@link resolveTld}, where a missing getter identifies a deployment whose TLD
- * could only have been `.dot`. All
- * are Revive contracts, reached via `@parity/product-sdk-contracts`'
- * `createContract(...).<method>.query(...)`. Contract source:
- * https://github.com/paritytech/dotns
+ * could only have been `.dot`.
  *
  * Reads (`resolveDotNs` / `reverseDotNs` / `isDotNsAvailable`) query chain.
  * Writes return prepared calls the caller submits with their own signer:
@@ -369,7 +376,6 @@ export async function resolveDotNs(
     }
     const node = namehash(normalized, tld);
     const registryAddr = opts.registryAddress ?? DOTNS_ADDRESSES.registry;
-    const reverseAddr = opts.reverseResolverAddress ?? DOTNS_ADDRESSES.reverseResolver;
     const origin = readOrigin(opts);
     log.debug("resolveDotNs", { name: normalized, node, registry: registryAddr });
 
@@ -400,10 +406,22 @@ export async function resolveDotNs(
         const owner = ownerRes.value as HexString;
         if (isZero(owner)) return ok(null);
 
-        // Registration parks the pointer on the reverse resolver, which has no
-        // `addressOf`, so both cases mean "no forward record" rather than "call it".
+        // Only the forward resolver answers `addressOf`, so that is the one
+        // pointer worth calling — an allowlist, not a denylist of the resolvers
+        // we happen to have met. A node can legitimately point at the reverse
+        // resolver (where registration parks it), the content resolver (a
+        // product name serving content, and the ordinary case in practice), the
+        // PoP resolver, or one deployed after this was written. None of them has
+        // an address record to give, and all of them revert if asked — which
+        // would surface as an infrastructure failure for a name that is simply
+        // registered without a forward record.
+        //
+        // `setDotNsRecord` already compares against the forward resolver this
+        // way; before this, the read and write paths disagreed about what a
+        // pointer meant.
         const resolverAddr = resolverRes.value as HexString;
-        if (isZero(resolverAddr) || sameAddress(resolverAddr, reverseAddr)) {
+        const forwardAddr = opts.resolverAddress ?? DOTNS_ADDRESSES.resolver;
+        if (!sameAddress(resolverAddr, forwardAddr)) {
             return ok({ name: normalized, owner });
         }
 
