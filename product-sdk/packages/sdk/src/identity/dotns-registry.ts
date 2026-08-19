@@ -299,6 +299,26 @@ async function readTld(
     }
 }
 
+/**
+ * Why a normalized name was refused.
+ *
+ * Two distinct answers, because they call for different things from the caller.
+ * `TldMismatch` means the name is well formed but belongs to another
+ * deployment — `alice.dot` handed to a `.paseo` network — which a product may
+ * want to offer to correct, and which the SDK must never correct silently:
+ * the two are separate registrations that may have different owners.
+ * `InvalidName` means the labels themselves are malformed, and no rewrite helps.
+ */
+function nameError(input: string, normalized: string, tld: DotNsTld): DotNsError {
+    if (!normalized.endsWith(tld.suffix)) {
+        return new DotNsError(
+            "TldMismatch",
+            `DotNS name "${input}" is not on this deployment, which uses "${tld.suffix}"`,
+        );
+    }
+    return new DotNsError("InvalidName", `Invalid DotNS name: "${input}"`);
+}
+
 /** Whether a value is a readable 32-byte node, and so usable as a cross-check. */
 function isNode(value: unknown): value is HexString {
     return typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value);
@@ -323,14 +343,18 @@ export async function resolveDotNs(
     name: string,
     opts: DotNsClientOptions,
 ): Promise<Result<DotNsRecord | null, DotNsError>> {
-    const normalized = normalizeDotNsName(name, DOT_TLD.suffix);
-    if (!isResolvableDotNsName(normalized, DOT_TLD.suffix)) {
-        return err(new DotNsError("InvalidName", `Invalid DotNS name: "${name}"`));
+    // The TLD comes first because normalization and validation both need the
+    // suffix. One read per runtime, cached; an invalid name therefore costs a
+    // chain read on the first call and none after. Do not move validation back
+    // in front of this — it cannot know what a valid name looks like yet.
+    const tldRes = await resolveTld(opts);
+    if (!tldRes.ok) return tldRes;
+    const tld = tldRes.value;
+    const normalized = normalizeDotNsName(name, tld.suffix);
+    if (!isResolvableDotNsName(normalized, tld.suffix)) {
+        return err(nameError(name, normalized, tld));
     }
-    // TODO(step 4): root at the deployment's own TLD from `resolveTld`.
-    // `DOT_TLD` here preserves today's behaviour, which is wrong on any
-    // deployment that is not `.dot` — see the TLD finding for pr-293.
-    const node = namehash(normalized, DOT_TLD);
+    const node = namehash(normalized, tld);
     const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
     const reverseAddr = opts.reverseResolverAddress ?? PASEO_ASSETHUB_DOTNS.reverseResolver;
     const origin = readOrigin(opts);
@@ -450,12 +474,15 @@ export async function isDotNsAvailable(
     name: string,
     opts: DotNsClientOptions,
 ): Promise<Result<boolean, DotNsError>> {
-    const normalized = normalizeDotNsName(name, DOT_TLD.suffix);
-    if (!isValidDotNsName(normalized, DOT_TLD.suffix)) {
-        return err(new DotNsError("InvalidName", `Invalid DotNS name: "${name}"`));
+    const tldRes = await resolveTld(opts);
+    if (!tldRes.ok) return tldRes;
+    const tld = tldRes.value;
+    const normalized = normalizeDotNsName(name, tld.suffix);
+    if (!isValidDotNsName(normalized, tld.suffix)) {
+        return err(nameError(name, normalized, tld));
     }
     // The registrar takes the bare label, without the TLD suffix.
-    const label = stripSuffix(normalized, DOT_TLD.suffix);
+    const label = stripSuffix(normalized, tld.suffix);
     const controllerAddr =
         opts.registrarControllerAddress ?? PASEO_ASSETHUB_DOTNS.registrarController;
     log.debug("isDotNsAvailable", { name: normalized, label, controller: controllerAddr });
@@ -524,9 +551,12 @@ export async function setDotNsRecord(
     args: SetRecordArgs,
     opts: DotNsClientOptions,
 ): Promise<Result<BatchableCall[], DotNsError>> {
-    const normalized = normalizeDotNsName(args.name, DOT_TLD.suffix);
-    if (!isResolvableDotNsName(normalized, DOT_TLD.suffix)) {
-        return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
+    const tldRes = await resolveTld(opts);
+    if (!tldRes.ok) return tldRes;
+    const tld = tldRes.value;
+    const normalized = normalizeDotNsName(args.name, tld.suffix);
+    if (!isResolvableDotNsName(normalized, tld.suffix)) {
+        return err(nameError(args.name, normalized, tld));
     }
     // Both calls are owner-gated, so a dry-run from the fallback account would
     // revert and the error would look like a contract problem.
@@ -534,10 +564,7 @@ export async function setDotNsRecord(
     if (!origin) {
         return err(new DotNsError("MissingOrigin", "setDotNsRecord needs opts.origin (SS58)"));
     }
-    // TODO(step 4): root at the deployment's own TLD from `resolveTld`.
-    // `DOT_TLD` here preserves today's behaviour, which is wrong on any
-    // deployment that is not `.dot` — see the TLD finding for pr-293.
-    const node = namehash(normalized, DOT_TLD);
+    const node = namehash(normalized, tld);
     const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
     const resolverAddr = opts.resolverAddress ?? PASEO_ASSETHUB_DOTNS.resolver;
     try {
@@ -679,9 +706,12 @@ export async function prepareDotNsRegistration(
     args: RegisterDotNsArgs,
     opts: DotNsClientOptions,
 ): Promise<Result<DotNsRegistration, DotNsError>> {
-    const normalized = normalizeDotNsName(args.name, DOT_TLD.suffix);
-    if (!isValidDotNsName(normalized, DOT_TLD.suffix)) {
-        return err(new DotNsError("InvalidName", `Invalid DotNS name: "${args.name}"`));
+    const tldRes = await resolveTld(opts);
+    if (!tldRes.ok) return tldRes;
+    const tld = tldRes.value;
+    const normalized = normalizeDotNsName(args.name, tld.suffix);
+    if (!isValidDotNsName(normalized, tld.suffix)) {
+        return err(nameError(args.name, normalized, tld));
     }
     const origin = opts.origin;
     if (!origin) {
@@ -690,7 +720,7 @@ export async function prepareDotNsRegistration(
         );
     }
     // The registrar takes the bare label, without the TLD suffix.
-    const label = stripSuffix(normalized, DOT_TLD.suffix);
+    const label = stripSuffix(normalized, tld.suffix);
     const controllerAddr =
         opts.registrarControllerAddress ?? PASEO_ASSETHUB_DOTNS.registrarController;
     const popRulesAddr = opts.popRulesAddress ?? PASEO_ASSETHUB_DOTNS.popRules;

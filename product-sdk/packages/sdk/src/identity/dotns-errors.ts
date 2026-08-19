@@ -12,6 +12,7 @@ import type { SdkError } from "@parity/product-sdk-errors";
 export type DotNsErrorReason =
     | "InvalidName" // name failed isValidDotNsName
     | "InvalidTld" // the deployment reported a TLD we cannot use, or the caller supplied an inconsistent one
+    | "TldMismatch" // a well-formed name, but rooted at another deployment's TLD
     | "MissingOrigin" // a write was requested without the submitting account
     | "NameUnavailable" // already registered
     | "NameReserved" // governance-held, or a base stem held by another user

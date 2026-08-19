@@ -29,15 +29,22 @@ import {
     prepareDotNsRegistration,
     resolveDotNs,
     resolveTld,
+    reverseDotNs,
     setDotNsRecord,
 } from "./dotns-registry.js";
-import { DOT_TLD, dotNsTld } from "./dotns-namehash.js";
+import { DOT_TLD, dotNsTld, namehash } from "./dotns-namehash.js";
 
 /** A second protocol-registry address, to prove the TLD cache keys on it. */
 const OTHER_REGISTRY = "0x9999999999999999999999999999999999999999" as const;
 
+// These suites pass `tld: DOT_TLD` explicitly so they exercise resolution,
+// writes and pricing rather than the TLD read — that path has its own suite in
+// `describe("resolveTld")`, and the entry-point/`.paseo` wiring has
+// `describe("the deployment's TLD reaches every entry point")`. Supplying the
+// TLD also keeps validation free of IO, which is what lets the cases below
+// assert an `InvalidName` against a runtime that would throw if touched.
 // Never reached on the validation path (the calls reject before touching it).
-const opts = { runtime: {} as ContractRuntime };
+const opts = { runtime: {} as ContractRuntime, tld: DOT_TLD };
 
 /** Any SS58 account. The writes only need one to dry-run against. */
 const SIGNER = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as const;
@@ -112,7 +119,7 @@ describe("resolveDotNs", () => {
             resolver: FORWARD_RESOLVER,
             addressOf: TARGET,
         });
-        const r = await resolveDotNs("alice.dot", { runtime });
+        const r = await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({
             ok: true,
             value: { address: TARGET, name: "alice.dot", owner: OWNER },
@@ -122,7 +129,7 @@ describe("resolveDotNs", () => {
     test("a node pointed at the reverse resolver is registered with no forward record", async () => {
         // The state of every name straight after registration.
         const runtime = runtimeWith({ owner: OWNER, resolver: REVERSE_RESOLVER });
-        const r = await resolveDotNs("alice.dot", { runtime });
+        const r = await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: { name: "alice.dot", owner: OWNER } });
         // addressOf must not be attempted against the reverse resolver.
         expect(runtime.calls.map((c) => c.functionName)).not.toContain("addressOf");
@@ -133,13 +140,13 @@ describe("resolveDotNs", () => {
             owner: OWNER,
             resolver: REVERSE_RESOLVER.toLowerCase(),
         });
-        const r = await resolveDotNs("alice.dot", { runtime });
+        const r = await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         expect(r.ok && r.value?.address).toBeUndefined();
     });
 
     test("an unset resolver pointer is also registered with no forward record", async () => {
         const runtime = runtimeWith({ owner: OWNER, resolver: ZERO });
-        const r = await resolveDotNs("alice.dot", { runtime });
+        const r = await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: { name: "alice.dot", owner: OWNER } });
     });
 
@@ -149,22 +156,24 @@ describe("resolveDotNs", () => {
             resolver: FORWARD_RESOLVER,
             addressOf: ZERO,
         });
-        const r = await resolveDotNs("alice.dot", { runtime });
+        const r = await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: { name: "alice.dot", owner: OWNER } });
     });
 
     test("a zero owner means unregistered, reported as null not as a record", async () => {
         const runtime = runtimeWith({ owner: ZERO, resolver: ZERO });
-        const r = await resolveDotNs("alice.dot", { runtime });
+        const r = await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: null });
     });
 
     test("an unregistered name and a registered one are distinguishable", async () => {
         const unregistered = await resolveDotNs("alice.dot", {
             runtime: runtimeWith({ owner: ZERO, resolver: ZERO }),
+            tld: DOT_TLD,
         });
         const registered = await resolveDotNs("alice.dot", {
             runtime: runtimeWith({ owner: OWNER, resolver: REVERSE_RESOLVER }),
+            tld: DOT_TLD,
         });
         expect(unregistered.ok && unregistered.value).toBeNull();
         expect(registered.ok && registered.value).not.toBeNull();
@@ -179,6 +188,7 @@ describe("resolveDotNs", () => {
             runtime,
             registryAddress: customRegistry,
             reverseResolverAddress: customReverse,
+            tld: DOT_TLD,
         });
         // Treated as "no forward record" because it matches the override.
         expect(r).toEqual({ ok: true, value: { name: "alice.dot", owner: OWNER } });
@@ -191,7 +201,7 @@ describe("resolveDotNs", () => {
             resolver: FORWARD_RESOLVER,
             addressOf: TARGET,
         });
-        const r = await resolveDotNs("alice.dot", { runtime });
+        const r = await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
     });
@@ -200,7 +210,7 @@ describe("resolveDotNs", () => {
 describe("isDotNsAvailable", () => {
     test("asks the registrar controller rather than inferring from resolution", async () => {
         const runtime = runtimeWith({ available: true, classifyName: OPEN });
-        const r = await isDotNsAvailable("alice.dot", { runtime });
+        const r = await isDotNsAvailable("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: true });
         expect(runtime.calls.map((c) => c.functionName).sort()).toEqual([
             "available",
@@ -210,7 +220,7 @@ describe("isDotNsAvailable", () => {
 
     test("passes the bare label, without the .dot suffix", async () => {
         const runtime = runtimeWith({ available: true, classifyName: OPEN });
-        await isDotNsAvailable("alice.dot", { runtime });
+        await isDotNsAvailable("alice.dot", { runtime, tld: DOT_TLD });
         expect(runtime.calls[0]?.args).toEqual(["alice"]);
     });
 
@@ -222,13 +232,13 @@ describe("isDotNsAvailable", () => {
             owner: OWNER,
             resolver: ZERO,
         });
-        const r = await isDotNsAvailable("alice.dot", { runtime });
+        const r = await isDotNsAvailable("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: false });
     });
 
     test("an invalid name is rejected before the controller call", async () => {
         const runtime = runtimeWith({ available: true, classifyName: OPEN });
-        const r = await isDotNsAvailable("no", { runtime });
+        const r = await isDotNsAvailable("no", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("InvalidName");
         expect(runtime.calls).toHaveLength(0);
@@ -240,7 +250,7 @@ describe("setDotNsRecord", () => {
         const runtime = runtimeWith({ resolver: REVERSE_RESOLVER });
         const r = await setDotNsRecord(
             { name: "alice.dot", address: TARGET },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(true);
         if (r.ok) expect(r.value).toHaveLength(2);
@@ -255,7 +265,7 @@ describe("setDotNsRecord", () => {
         const runtime = runtimeWith({ resolver: FORWARD_RESOLVER });
         const r = await setDotNsRecord(
             { name: "alice.dot", address: TARGET },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(true);
         if (r.ok) expect(r.value).toHaveLength(1);
@@ -264,7 +274,10 @@ describe("setDotNsRecord", () => {
 
     test("the pointer move targets the forward resolver for the right node", async () => {
         const runtime = runtimeWith({ resolver: ZERO });
-        await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime, origin: SIGNER });
+        await setDotNsRecord(
+            { name: "alice.dot", address: TARGET },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
+        );
         const setResolver = runtime.calls.find((c) => c.functionName === "setResolver");
         expect(setResolver?.args?.[1]).toBe(FORWARD_RESOLVER);
         const setAddress = runtime.calls.find((c) => c.functionName === "setAddress");
@@ -277,7 +290,7 @@ describe("setDotNsRecord", () => {
         });
         const r = await setDotNsRecord(
             { name: "alice.dot", address: TARGET },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
@@ -287,20 +300,23 @@ describe("setDotNsRecord", () => {
 describe("origin", () => {
     test("reads pass the pallet-revive fallback rather than leaving it unset", async () => {
         const runtime = runtimeWith({ owner: OWNER, resolver: ZERO });
-        await resolveDotNs("alice.dot", { runtime });
+        await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         // Explicit, so the contracts layer does not warn once per query.
         expect(runtime.calls.every((c) => c.origin === QUERY_FALLBACK_ORIGIN)).toBe(true);
     });
 
     test("reads use opts.origin when given", async () => {
         const runtime = runtimeWith({ owner: OWNER, resolver: ZERO });
-        await resolveDotNs("alice.dot", { runtime, origin: SIGNER });
+        await resolveDotNs("alice.dot", { runtime, origin: SIGNER, tld: DOT_TLD });
         expect(runtime.calls.every((c) => c.origin === SIGNER)).toBe(true);
     });
 
     test("setDotNsRecord dry-runs as the caller, not the fallback account", async () => {
         const runtime = runtimeWith({ resolver: REVERSE_RESOLVER });
-        await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime, origin: SIGNER });
+        await setDotNsRecord(
+            { name: "alice.dot", address: TARGET },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
+        );
         const writes = runtime.calls.filter((c) =>
             ["setResolver", "setAddress"].includes(c.functionName ?? ""),
         );
@@ -311,7 +327,10 @@ describe("origin", () => {
 
     test("setDotNsRecord without an origin fails before any call", async () => {
         const runtime = runtimeWith({ resolver: REVERSE_RESOLVER });
-        const r = await setDotNsRecord({ name: "alice.dot", address: TARGET }, { runtime });
+        const r = await setDotNsRecord(
+            { name: "alice.dot", address: TARGET },
+            { runtime, tld: DOT_TLD },
+        );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("MissingOrigin");
         expect(runtime.calls).toHaveLength(0);
@@ -319,7 +338,10 @@ describe("origin", () => {
 
     test("prepareDotNsRegistration without an origin fails before any call", async () => {
         const runtime = runtimeWith({});
-        const r = await prepareDotNsRegistration({ name: "alice.dot", owner: OWNER }, { runtime });
+        const r = await prepareDotNsRegistration(
+            { name: "alice.dot", owner: OWNER },
+            { runtime, tld: DOT_TLD },
+        );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("MissingOrigin");
         expect(runtime.calls).toHaveLength(0);
@@ -334,7 +356,7 @@ describe("origin", () => {
         });
         await prepareDotNsRegistration(
             { name: "alice.dot", owner: OWNER },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(runtime.calls.length).toBeGreaterThan(0);
         expect(runtime.calls.every((c) => c.origin === SIGNER)).toBe(true);
@@ -363,7 +385,11 @@ describe("prepareDotNsRegistration", () => {
         });
 
     const REG = { name: "alice.dot", owner: OWNER };
-    const withSigner = (runtime: ReturnType<typeof runtimeWith>) => ({ runtime, origin: SIGNER });
+    const withSigner = (runtime: ReturnType<typeof runtimeWith>) => ({
+        runtime,
+        origin: SIGNER,
+        tld: DOT_TLD,
+    });
 
     test("does not dry-run register up front", async () => {
         // register consumes the commitment, so preparing it before commitCall
@@ -494,7 +520,7 @@ describe("error causes", () => {
 
     test("a failed read carries the dispatch payload", async () => {
         const runtime = runtimeWith({ owner: fakeDryRunResult({ failure: FAILURE }) });
-        const r = await resolveDotNs("alice.dot", { runtime });
+        const r = await resolveDotNs("alice.dot", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.cause).toEqual(FAILURE);
     });
@@ -506,7 +532,7 @@ describe("error causes", () => {
         });
         const r = await setDotNsRecord(
             { name: "alice.dot", address: TARGET },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(false);
         if (!r.ok) {
@@ -520,7 +546,7 @@ describe("error causes", () => {
             available: fakeDryRunResult({ failure: FAILURE }),
             classifyName: OPEN,
         });
-        const r = await isDotNsAvailable("alice.dot", { runtime });
+        const r = await isDotNsAvailable("alice.dot", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.cause).toEqual(FAILURE);
     });
@@ -535,7 +561,7 @@ describe("error causes", () => {
         });
         const r = await prepareDotNsRegistration(
             { name: "alice.dot", owner: OWNER },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.cause).toEqual(FAILURE);
@@ -549,7 +575,7 @@ describe("subnames", () => {
             resolver: FORWARD_RESOLVER,
             addressOf: TARGET,
         });
-        const r = await resolveDotNs("bob.alice.dot", { runtime });
+        const r = await resolveDotNs("bob.alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({
             ok: true,
             value: { address: TARGET, name: "bob.alice.dot", owner: OWNER },
@@ -558,9 +584,9 @@ describe("subnames", () => {
 
     test("a subname hashes to a different node than its parent", async () => {
         const sub = runtimeWith({ owner: OWNER, resolver: ZERO });
-        await resolveDotNs("bob.alice.dot", { runtime: sub });
+        await resolveDotNs("bob.alice.dot", { runtime: sub, tld: DOT_TLD });
         const parent = runtimeWith({ owner: OWNER, resolver: ZERO });
-        await resolveDotNs("alice.dot", { runtime: parent });
+        await resolveDotNs("alice.dot", { runtime: parent, tld: DOT_TLD });
         expect(sub.calls[0]?.args?.[0]).not.toBe(parent.calls[0]?.args?.[0]);
     });
 
@@ -568,7 +594,7 @@ describe("subnames", () => {
         const runtime = runtimeWith({ resolver: FORWARD_RESOLVER });
         const r = await setDotNsRecord(
             { name: "bob.alice.dot", address: TARGET },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(true);
     });
@@ -577,7 +603,7 @@ describe("subnames", () => {
         const runtime = runtimeWith({});
         const r = await prepareDotNsRegistration(
             { name: "bob.alice.dot", owner: OWNER },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("InvalidName");
@@ -585,7 +611,7 @@ describe("subnames", () => {
 
     test("availability still refuses a subname", async () => {
         const runtime = runtimeWith({ available: true, classifyName: OPEN });
-        const r = await isDotNsAvailable("bob.alice.dot", { runtime });
+        const r = await isDotNsAvailable("bob.alice.dot", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("InvalidName");
     });
@@ -595,7 +621,7 @@ describe("subnames", () => {
         // call fail anyway, so `ok === false` alone would pass for any input.
         const runtime = runtimeWith({});
         for (const bad of ["a.alice.dot", "bob..alice.dot", "-bob.alice.dot", "bob.al ice.dot"]) {
-            const r = await resolveDotNs(bad, { runtime });
+            const r = await resolveDotNs(bad, { runtime, tld: DOT_TLD });
             expect(r.ok, bad).toBe(false);
             if (!r.ok) expect(r.error.reason, bad).toBe("InvalidName");
         }
@@ -604,7 +630,7 @@ describe("subnames", () => {
 
     test("an uppercase subname is normalized rather than rejected", async () => {
         const runtime = runtimeWith({ owner: OWNER, resolver: ZERO });
-        const r = await resolveDotNs("BOB.Alice.DOT", { runtime });
+        const r = await resolveDotNs("BOB.Alice.DOT", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: { name: "bob.alice.dot", owner: OWNER } });
     });
 });
@@ -617,13 +643,14 @@ describe("availability and registration agree", () => {
         // available() only asks the registrar whether the token is minted, and
         // says yes for a 3 to 5 character label that can never be claimed.
         const runtime = runtimeWith({ available: true, classifyName: GOV });
-        const r = await isDotNsAvailable("bob.dot", { runtime });
+        const r = await isDotNsAvailable("bob.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: false });
     });
 
     test("availability and registration now give the same verdict on a reserved label", async () => {
         const avail = await isDotNsAvailable("bob.dot", {
             runtime: runtimeWith({ available: true, classifyName: GOV }),
+            tld: DOT_TLD,
         });
         const reg = await prepareDotNsRegistration(
             { name: "bob.dot", owner: OWNER },
@@ -641,6 +668,7 @@ describe("availability and registration agree", () => {
                     maxCommitmentAge: 86400n,
                 }),
                 origin: SIGNER,
+                tld: DOT_TLD,
             },
         );
         expect(avail.ok && avail.value).toBe(false);
@@ -653,14 +681,14 @@ describe("availability and registration agree", () => {
             available: true,
             classifyName: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
         });
-        const r = await isDotNsAvailable("alice.dot", { runtime });
+        const r = await isDotNsAvailable("alice.dot", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
     });
 
     test("an unminted, unrestricted label is available", async () => {
         const runtime = runtimeWith({ available: true, classifyName: OPEN_LABEL });
-        expect(await isDotNsAvailable("longenough.dot", { runtime })).toEqual({
+        expect(await isDotNsAvailable("longenough.dot", { runtime, tld: DOT_TLD })).toEqual({
             ok: true,
             value: true,
         });
@@ -687,7 +715,7 @@ describe("registration refuses a taken name before the commit", () => {
         const runtime = runtimeWith({ ...base, available: false });
         const r = await prepareDotNsRegistration(
             { name: "alice.dot", owner: OWNER },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("NameUnavailable");
@@ -698,7 +726,7 @@ describe("registration refuses a taken name before the commit", () => {
         const runtime = runtimeWith({ ...base, available: true });
         await prepareDotNsRegistration(
             { name: "alice.dot", owner: OWNER },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(runtime.calls.map((c) => c.functionName)).toContain("available");
     });
@@ -710,7 +738,7 @@ describe("registration refuses a taken name before the commit", () => {
         });
         const r = await prepareDotNsRegistration(
             { name: "alice.dot", owner: OWNER },
-            { runtime, origin: SIGNER },
+            { runtime, origin: SIGNER, tld: DOT_TLD },
         );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
@@ -871,5 +899,157 @@ describe("resolveTld", () => {
         const r = await resolveTld({ runtime });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("InvalidTld");
+    });
+});
+
+describe("the deployment's TLD reaches every entry point", () => {
+    const PASEO = dotNsTld(".paseo");
+
+    /**
+     * `dim2` under the `.paseo` root, as read from `DotnsRegistry` on
+     * paseo-asset-hub-next — the node the chain actually keys that name by.
+     *
+     * Pinned from the chain rather than computed here: it is what makes these
+     * assertions evidence about the deployment instead of a restatement of
+     * `namehash`. Under the old hardcoded `.dot` root the same name hashed to
+     * 0xec7bd203… , which is owned by nobody, which is why every lookup
+     * reported "unregistered".
+     */
+    const DIM2_UNDER_PASEO = "0x4eeda1749326395729498c3df6e0cf87fe912297bbf35c4f2549c19d77f56dad";
+
+    /** A deployment whose protocol registry reports `.paseo`. */
+    function paseoRuntime(answers: Record<string, unknown> = {}) {
+        return createFakeContractRuntime({
+            abi: [...ALL_ABIS, ...DOTNS_PROTOCOL_REGISTRY_ABI],
+            onQuery: ({ functionName }) => {
+                if (functionName === "tld") return ".paseo";
+                if (functionName === "tldNode") return PASEO.node;
+                return answers[functionName ?? ""];
+            },
+        });
+    }
+
+    const nodesFor = (runtime: ReturnType<typeof paseoRuntime>, fn: string) =>
+        runtime.calls.filter((c) => c.functionName === fn).map((c) => c.args?.[0]);
+
+    test("resolveDotNs hashes under the chain's TLD, not a compiled-in one", async () => {
+        const runtime = paseoRuntime({ owner: OWNER, resolver: ZERO });
+        const r = await resolveDotNs("dim2.paseo", { runtime });
+        expect(r).toEqual({ ok: true, value: { name: "dim2.paseo", owner: OWNER } });
+        // The assertion that would have caught the original bug.
+        expect(nodesFor(runtime, "owner")).toEqual([DIM2_UNDER_PASEO]);
+        expect(namehash("dim2.paseo", PASEO)).toBe(DIM2_UNDER_PASEO);
+    });
+
+    test("a bare label picks up the deployment's suffix", async () => {
+        const runtime = paseoRuntime({ owner: OWNER, resolver: ZERO });
+        const r = await resolveDotNs("dim2", { runtime });
+        expect(r).toEqual({ ok: true, value: { name: "dim2.paseo", owner: OWNER } });
+        expect(nodesFor(runtime, "owner")).toEqual([DIM2_UNDER_PASEO]);
+    });
+
+    test("a name from another deployment is refused, not resolved under ours", async () => {
+        const runtime = paseoRuntime({ owner: OWNER, resolver: ZERO });
+        const r = await resolveDotNs("dim2.dot", { runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+            expect(r.error.reason).toBe("TldMismatch");
+            // The message has to name the deployment's TLD, or the caller cannot
+            // tell this apart from a typo.
+            expect(r.error.message).toContain(".paseo");
+        }
+        // Nothing beyond the TLD read: no registry lookup for a foreign name.
+        expect(runtime.calls.map((c) => c.functionName)).toEqual(["tld", "tldNode"]);
+    });
+
+    test("setDotNsRecord targets the same node resolveDotNs reads", async () => {
+        const runtime = paseoRuntime({ resolver: PASEO_ASSETHUB_DOTNS.resolver });
+        const r = await setDotNsRecord(
+            { name: "dim2.paseo", address: TARGET },
+            { runtime, origin: SIGNER },
+        );
+        expect(r.ok).toBe(true);
+        expect(nodesFor(runtime, "resolver")).toEqual([DIM2_UNDER_PASEO]);
+        expect(nodesFor(runtime, "setAddress")).toEqual([DIM2_UNDER_PASEO]);
+    });
+
+    test("isDotNsAvailable sends the whole label, not one truncated by four", async () => {
+        const runtime = paseoRuntime({
+            available: true,
+            // Multi-output returns are encoded positionally, as the suites above do.
+            classifyName: [POP_STATUS.PopLite, ""],
+        });
+        const r = await isDotNsAvailable("dim2.paseo", { runtime });
+        expect(r).toEqual({ ok: true, value: true });
+        // `slice(0, -4)` would send "dim2.pa" here.
+        expect(nodesFor(runtime, "available")).toEqual(["dim2"]);
+        expect(nodesFor(runtime, "classifyName")).toEqual(["dim2"]);
+    });
+
+    test("prepareDotNsRegistration sends the whole label too", async () => {
+        const runtime = paseoRuntime({
+            available: true,
+            makeCommitment: `0x${"ab".repeat(32)}`,
+            priceWithoutCheck: [1n, POP_STATUS.NoStatus, POP_STATUS.PopFull, ""],
+            transferFloor: 0n,
+            minCommitmentAge: 60n,
+            maxCommitmentAge: 86400n,
+        });
+        const r = await prepareDotNsRegistration(
+            { name: "dim2.paseo", owner: OWNER },
+            { runtime, origin: SIGNER },
+        );
+        expect(r.ok).toBe(true);
+        expect(nodesFor(runtime, "available")).toEqual(["dim2"]);
+    });
+
+    test("reverseDotNs needs no TLD, and reads none", async () => {
+        const runtime = paseoRuntime({ nameOf: "dim2.paseo" });
+        const r = await reverseDotNs(OWNER, { runtime });
+        expect(r).toEqual({ ok: true, value: "dim2.paseo" });
+        expect(runtime.calls.map((c) => c.functionName)).toEqual(["nameOf"]);
+    });
+
+    test("every entry point consults the chain when no tld is supplied", async () => {
+        // The regression guard for the whole change: if any entry point stops
+        // asking, it is back to assuming a root.
+        for (const call of [
+            (runtime: ReturnType<typeof paseoRuntime>) => resolveDotNs("dim2.paseo", { runtime }),
+            (runtime: ReturnType<typeof paseoRuntime>) =>
+                isDotNsAvailable("dim2.paseo", { runtime }),
+            (runtime: ReturnType<typeof paseoRuntime>) =>
+                setDotNsRecord(
+                    { name: "dim2.paseo", address: TARGET },
+                    { runtime, origin: SIGNER },
+                ),
+            (runtime: ReturnType<typeof paseoRuntime>) =>
+                prepareDotNsRegistration(
+                    { name: "dim2.paseo", owner: OWNER },
+                    { runtime, origin: SIGNER },
+                ),
+        ]) {
+            const runtime = paseoRuntime({ owner: OWNER, resolver: ZERO, available: true });
+            await call(runtime);
+            expect(runtime.calls.map((c) => c.functionName)).toContain("tld");
+        }
+    });
+
+    test("a legacy deployment with no tld() getter still resolves .dot names", async () => {
+        // Paseo Asset Hub Previewnet: both getters revert empty, and `dim2` is
+        // owned there under the `.dot` root. The fix must not break it.
+        const runtime = createFakeContractRuntime({
+            abi: [...ALL_ABIS, ...DOTNS_PROTOCOL_REGISTRY_ABI],
+            onQuery: ({ functionName }) => {
+                if (functionName === "tld" || functionName === "tldNode") {
+                    return fakeDryRunResult({ revert: true });
+                }
+                if (functionName === "owner") return OWNER;
+                if (functionName === "resolver") return ZERO;
+                return undefined;
+            },
+        });
+        const r = await resolveDotNs("dim2.dot", { runtime });
+        expect(r).toEqual({ ok: true, value: { name: "dim2.dot", owner: OWNER } });
+        expect(nodesFor(runtime, "owner")).toEqual([namehash("dim2.dot", DOT_TLD)]);
     });
 });
