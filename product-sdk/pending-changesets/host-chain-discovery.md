@@ -21,3 +21,10 @@ the zero-arg form needs discovery, so it throws there and outside a container.
 new `chainInfo` option, so tests can drive discovery; omitting it models a host
 predating the call. The `chain.getChainInfo` binding this rides on ships in
 `@parity/truapi` 0.9.0, adopted separately.
+
+The explicit form is only unchanged on legacy hosts. On a host that serves discovery,
+`getChainAPI("paseo")` can now fail where it previously connected:
+`EnvironmentMismatchError` when the host's asset hub genesis matches a different bundled
+environment, and `GenesisMismatchError` when it matches none and the bundled asset hub
+descriptor disagrees with the host. Both surface at the call rather than at the first
+storage read, so an unchanged call site fails earlier and with a different error type.
