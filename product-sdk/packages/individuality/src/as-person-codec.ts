@@ -169,6 +169,32 @@ interface DynamicEnum {
     value: unknown;
 }
 
+/**
+ * Width the metadata declares for `Context`, the proof context.
+ *
+ * A constant rather than a metadata lookup, and that is a deliberate trade with
+ * one thing to know: **the round-trip guard cannot check this.** PAPI's
+ * fixed-size codec validates no width, on encode or decode, so a 31-byte context
+ * encodes to a 45-byte extension, decodes back to the same 31 bytes, and passes
+ * {@link encodeChecked} while being a value the chain cannot read. That was
+ * measured against the deployed blob, not assumed.
+ *
+ * So this check is the only guard, and the constant is held honest from the other
+ * side: a test below reads the declared array length out of the deployed metadata
+ * and fails if it is ever not 32.
+ */
+const CONTEXT_BYTES = 32;
+
+/** Reject a context the chain cannot read, before it becomes wrong bytes. */
+function checkContext(context: Uint8Array): Uint8Array {
+    if (context.length !== CONTEXT_BYTES) {
+        // The length, never the value: a contextual alias is pseudonymous
+        // identity and must not reach a log line.
+        throw new AsPersonError("proof context is not 32 bytes");
+    }
+    return context;
+}
+
 /** Map a domain value onto the positional shape the chain's own codec expects. */
 function toDynamicEnum(value: AsPersonValue): DynamicEnum {
     // Field order is the metadata's, and the context goes in as hex because the
@@ -183,7 +209,7 @@ function toDynamicEnum(value: AsPersonValue): DynamicEnum {
                     value.proof,
                     value.ringIndex,
                     value.revision,
-                    `0x${bytesToHex(value.context)}`,
+                    `0x${bytesToHex(checkContext(value.context))}`,
                 ],
             };
         case "AsPersonalAliasWithAccountRevised":
@@ -194,7 +220,7 @@ function toDynamicEnum(value: AsPersonValue): DynamicEnum {
                     value.proof,
                     value.ringIndex,
                     value.revision,
-                    `0x${bytesToHex(value.context)}`,
+                    `0x${bytesToHex(checkContext(value.context))}`,
                 ],
             };
     }
@@ -317,7 +343,13 @@ if (import.meta.vitest) {
     // case rather than a synthesized one.
     const ASSET_HUB = blob("paseo_asset_hub");
 
-    const hex = (bytes: Uint8Array) => `0x${bytesToHex(bytes)}`;
+    /**
+     * Local hex formatter, deliberately not the `bytesToHex` the code above uses.
+     * A test asserting hex output should not share its formatter with the code
+     * under test, and it keeps this package's fast test loop off a sibling.
+     */
+    const hex = (bytes: Uint8Array) =>
+        `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 
     /** 32 distinct non-zero bytes, so a truncated or zeroed context is obvious. */
     const CONTEXT = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
@@ -435,6 +467,47 @@ if (import.meta.vitest) {
             expect(() =>
                 encodeAsPersonInfo(assetHub, { tag: "AsPersonalAliasWithAccount", nonce: 1 }),
             ).toThrow(AsPersonError);
+        });
+
+        test("rejects a context that is not 32 bytes", () => {
+            // encodeChecked provably cannot catch this: PAPI's fixed-size codec
+            // validates no width, so a short context round-trips cleanly into an
+            // extension one byte too short for the chain to read.
+            for (const length of [0, 31, 33, 64]) {
+                expect(() =>
+                    encodeAsPersonInfo(pipeline, {
+                        tag: "AsPersonalAliasWithProof",
+                        proof: PROOF,
+                        ringIndex: 4,
+                        revision: 5,
+                        context: new Uint8Array(length),
+                    }),
+                ).toThrow(AsPersonError);
+            }
+        });
+
+        test("the chain still declares the context as 32 bytes", () => {
+            // Holds CONTEXT_BYTES honest from the metadata side, since the
+            // round-trip guard cannot. A runtime that widens Context fails here
+            // instead of silently encoding the wrong number of bytes.
+            const unified = unifyMetadata(decAnyMetadata(PASEO));
+            const lookup = new Map(unified.lookup.map((entry) => [entry.id, entry]));
+            const asPersonInfo = lookup.get(
+                // AsPerson is a newtype over Option<AsPersonInfo>; walk in.
+                (
+                    lookup.get(
+                        (lookup.get(pipeline.slot(AS_PERSON).type)!.def as any).value[0].type,
+                    )!.def as any
+                ).value[1].fields[0].type,
+            )!;
+            const contextField = (asPersonInfo.def as any).value.find(
+                (variant: any) => variant.name === "AsPersonalAliasWithProof",
+            ).fields[3];
+            const contextType = lookup.get(contextField.type)!;
+
+            expect(contextField.typeName).toBe("Context");
+            expect((contextType.def as any).tag).toBe("array");
+            expect((contextType.def as any).value.len).toBe(32);
         });
     });
 
