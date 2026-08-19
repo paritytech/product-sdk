@@ -1,5 +1,293 @@
 # @parity/product-sdk
 
+## 0.22.0
+
+### Minor Changes
+
+- 3655724: **Wrap `account.signVrf` (RFC-0023) in the accounts surface (#288).**
+
+  Producing an sr25519 VRF over a caller-supplied Merlin transcript previously meant
+  reaching for the raw `getTruApi()` client. `AccountsProvider` now has
+  `signVrf(account, transcriptLabel, items)`, with `HostProvider.signVrf` and
+  `SignerManager.signVrf` alongside `createRingVRFProof`. Bytes in, bytes out: the adapter
+  owns the hex encoding and the tagged derivation-index selector, and errors use the same
+  `Result` channel as every other account call.
+
+  New exported types, also re-exported from `@parity/product-sdk-signer`:
+  `VrfTranscriptItem`, `VrfSignature`, and `ProductAccountLookup`
+  (`{ dotNsIdentifier, derivationIndex? }`), which a `ProductAccount` satisfies.
+
+  **Breaking for implementors.** `signVrf` is a required member of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test doubles
+  must add it. Callers are unaffected, and the fake at `@parity/product-sdk-host/testing`
+  already implements it.
+
+  **Host-only.** There is no `DevProvider` implementation and the e2e test host does not
+  expose the call, so this returns `HOST_UNAVAILABLE` outside a host container, matching
+  `createRingVRFProof`. Use `createFakeHost()` for local tests.
+
+  The caller owns four things the types cannot enforce:
+
+  - _Domain separation_ — a label borrowed from another protocol makes the output
+    replayable across both.
+  - _Freshness_ — the VRF is deterministic, so per-round values must enter the transcript
+    as items; otherwise every call returns the same signature.
+  - _Size_ — hosts cap the transcript at 32 items and 8 KiB total and reject anything
+    larger as an unknown error. The SDK does not pre-validate.
+  - _Authorization_ — an `AutoSigning` allowance makes these calls silent. It is not
+    VRF-scoped, so granting it also authorizes other signing with that account.
+
+  Hosts predating the call reject it through the error channel rather than hanging.
+
+- 3655724: **Deprecate the context-alias helpers, delete the unimplemented ring-alias stubs (#287).**
+
+  `deriveContextAlias` returns addresses that can receive value and can never spend it: the alias
+  public key is `blake2b256(parentPublicKey || context)`, a hash rather than a derived key, so no
+  secret corresponds to the SS58 address or the H160. The address encodes and validates fine, so
+  nothing surfaces until value arrives at it.
+
+  **Deleted:** `deriveAnonymousAlias`, `createRingProof`, `verifyRingProof`, `AnonymousAliasInfo`,
+  and identity's `RingLocation`. Each function was a debug log followed by an unconditional
+  `throw`, with no branch or early return, so no working consumer could exist and this break is
+  compile-time only. The real ring VRF operations already live on `SignerManager` in
+  `@parity/product-sdk-signer` as `getProductAccountAlias(keyHandle, context, location)` and
+  `createRingVRFProof(keyHandle, context, location, message)`, host-backed and using an opaque
+  registered key handle selected by ring. Identity's `RingLocation` was also the wrong shape,
+  `{ringIndex, memberIndex}` against the protocol type `{chainId, junctions}`.
+
+  **Deprecated, removal in `@parity/product-sdk` 0.23.0:** `deriveContextAlias`,
+  `verifyContextAlias`, `ContextAliasInfo`. Their output is unchanged, so a caller using an alias as
+  a plain identifier has a release to migrate. `verifyContextAlias` compares two public values with
+  no secret involved anywhere, so it confirms a derivation relationship and authenticates nothing.
+
+  The derivation output is deliberately unchanged: the same name and signature returning different
+  bytes would break identifier consumers silently, with no compile error.
+
+  ### Migration
+
+  | If you used it for                                    | Use instead                                                                                                                                                                                                      |
+  | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | An account that holds or spends value                 | `SignerManager.getProductAccount(dotNsIdentifier, index)` from `@parity/product-sdk-signer`                                                                                                                      |
+  | The address offline, with no host                     | `deriveProductAccountPublicKey` from `@parity/product-sdk-keys`, the canonical sr25519 soft derivation                                                                                                           |
+  | An unlinkable per-context alias                       | Select a registered key by ring, then call `SignerManager.getProductAccountAlias(keyHandle, context, location)` or `createRingVRFProof(keyHandle, context, location, message)` from `@parity/product-sdk-signer` |
+  | A context-scoped identifier, never used as an account | `blake2b256` from `@parity/product-sdk/crypto`: the same bytes, without address packaging                                                                                                                        |
+
+  The DotNS half of `./identity` is unaffected (`resolveDotNs`, `reverseDotNs`, `isDotNsAvailable`,
+  `resolvePeopleUsernameOwner` and the name helpers), and the subpath itself is not deprecated.
+
+  `@parity/product-sdk-signer` takes a patch here for the context-alias migration wording. The
+  separate TrUAPI 0.9 changeset documents the `RingLocation` type break and supplies the release's
+  minor bump.
+
+- 3655724: **Re-pin `paseo-individuality` and `paseo-asset-hub` after a genesis reset (#242).**
+
+  Both chains were re-genesised, not upgraded, so the bundled descriptors addressed chains that
+  no longer exist. Access is gated on
+  `featureSupported({ tag: "Chain", value: { genesisHash } })`, so a stale genesis fails at
+  connection with `ChainNotSupportedError` before any storage read. A stale `codeHash` only
+  means decoding against an old metadata snapshot; a stale genesis means addressing a chain
+  that is not there.
+
+  | Chain                 | Old genesis           | New genesis           |
+  | --------------------- | --------------------- | --------------------- |
+  | `paseo-individuality` | `0xc5af1826…65afa5`   | `0x89a63b11…48c5440f` |
+  | `paseo-asset-hub`     | `0xbf0488db…ae4ef19f` | `0x23e730eb…f94a2ca6` |
+
+  **Breaking for `paseo-individuality`: the regeneration removes typed API surface.** A green
+  `pnpm typecheck` here does not clear consumers, so check this before upgrading.
+
+  | Pallet      | Removed                                                                   | Replacement                                                     |
+  | ----------- | ------------------------------------------------------------------------- | --------------------------------------------------------------- |
+  | `Resources` | storage `FriendRequestRegistrationByAlias`, `FriendRequestAliasByAccount` | `NotificationRegistrationByAlias`, `NotificationAliasByAccount` |
+  | `Resources` | 6 `FriendRequest*` constants                                              | 4 `Notification*` constants                                     |
+  | `Game`      | storage `Nfts`, `NftCandidates`                                           | none                                                            |
+  | `Coinage`   | storage `RecyclersUnloaded`                                               | `RecyclerAliasStates`, `RecyclersArchives`                      |
+
+  `FriendRequestAllowance`, `FriendRequestSlotsPerPeriod`, `LiteFriendRequestSlotsPerPeriod` and
+  `FriendRequestPeriodDuration` map onto `Notification*` equivalents.
+  `FriendRequestGraceWindow` and `FriendRequestRetentionDuration` have no counterpart.
+
+  Added to `paseo-individuality`: pallets `RelayRandomness` and `NftCredits`, `Game` storage
+  `LiteInvites`, `Game` constant `max_received_votes`.
+
+  `paseo-asset-hub` is additive only: pallets `Scarcity` and `NftClaims`, plus `DotnsGateway`
+  constants `MaxValiditySeconds` and `MaxFutureSkewSeconds`. Safe to upgrade.
+
+  Minor rather than patch because surface is removed, which on 0.x signals a breaking change.
+  This is a firmer reason than the additive-only argument used for the 0.9.0 `paseo-bulletin`
+  bump. A re-pin that neither adds nor removes pallets stays a patch, as in 0.8.0.
+
+  If you pinned either hash yourself, read it from the descriptor (`loadDescriptors()`) instead.
+  Paseo Next is re-genesised periodically, so any copy goes stale on its own schedule.
+
+  The five other chains reported in #242 have unchanged genesis and need a separate routine
+  regeneration. #242 stays open until those land.
+
+- 3655724: Consume TrUAPI host chain discovery. `@parity/product-sdk-host`
+  gains `getHostChainInfo()`, a cached facade over `chain.getChainInfo()` that
+  resolves chain roles (`AssetHub`, `Bulletin`, `People`, …) to genesis hashes
+  and returns `null` on hosts predating discovery. `getChainAPI()` can now be
+  called with no argument to derive the environment from the host by matching
+  the discovered asset hub genesis against the bundled descriptors; an explicit
+  environment is validated the same way, failing with the new `EnvironmentMismatchError` /
+  `GenesisMismatchError` instead of an opaque unsupported-genesis error. Only the
+  asset hub is fatal there, since it anchors the environment; a bulletin or
+  individuality descriptor that disagrees warns and leaves that one chain
+  throwing on use, as any chain the host cannot serve already does. Calls
+  that pass an environment keep exactly the previous behavior on legacy hosts;
+  the zero-arg form needs discovery, so it throws there and outside a container.
+  `createFakeTruApiClient` / `createFakeHost` model `chain.getChainInfo` behind a
+  new `chainInfo` option, so tests can drive discovery; omitting it models a host
+  predating the call. The `chain.getChainInfo` binding this rides on ships in
+  `@parity/truapi` 0.9.0, adopted separately.
+
+  The explicit form is only unchanged on legacy hosts. On a host that serves discovery,
+  `getChainAPI("paseo")` can now fail where it previously connected:
+  `EnvironmentMismatchError` when the host's asset hub genesis matches a different bundled
+  environment, and `GenesisMismatchError` when it matches none and the bundled asset hub
+  descriptor disagrees with the host. Both surface at the call rather than at the first
+  storage read, so an unchanged call site fails earlier and with a different error type.
+
+- 3655724: Add `AccountsProvider.ringVrfSign(keyHandle, message)`, the plain signature under a
+  registered ring-VRF member key for protocols that carry their own proof, as opposed to
+  `createRingVRFProof`, which proves ring membership. It takes the same opaque
+  `RingVrfKeyHandle` as the alias and proof calls, from `listRingVrfKeys` /
+  `findRingVrfKeyHandle`, and hands back the signature as bytes. `SignerManager` does not
+  wrap it; call the host package's `AccountsProvider` directly.
+
+  **Breaking for implementors.** `ringVrfSign` is a required member of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test doubles
+  must add it. Callers are unaffected, and the fake at `@parity/product-sdk-host/testing`
+  already implements it.
+
+- 3655724: **New package `@parity/product-sdk-individuality`: read a person's personhood state from the individuality chain (#287).**
+
+  `readPersonhoodState(chain, { username })` answers one question — for a DotNS username, what
+  is that person's standing on the individuality chain? — and answers it from **one pinned
+  finalized block**. It returns a `Result<PersonhoodResult, ProductIndividualityError>`, per the
+  SDK-wide error model, so nothing throws. Two of the six underlying values (`Score.PersonhoodThreshold` and
+  `Score.AbsenceGraceRatio`) are session-updated with schedules behind them, so an unpinned
+  batch can mix eras and still look valid. The block used is reported back on every result.
+
+  The answer is a closed union of seven states, discriminated by `tag`:
+
+  | `tag`             | Payload                                                 |
+  | ----------------- | ------------------------------------------------------- |
+  | `NotEnrolled`     | —                                                       |
+  | `Lite`            | —                                                       |
+  | `Candidate`       | `score`, `personhoodThreshold`                          |
+  | `MembershipReady` | —                                                       |
+  | `Member`          | `activeWeeks`, `lastAttendedGame`                       |
+  | `Caution`         | `misses`, `allowedMisses`, `window`, `lastAttendedGame` |
+  | `Suspended`       | —                                                       |
+
+  wrapped by `UsernameUnowned | Resolved`, both carrying `{ blockHash, blockNumber }`.
+
+  **`UsernameUnowned` is a success value, not an error.** The chain was asked and answered
+  that nobody owns that username, so it arrives as `ok({ tag: "UsernameUnowned", ... })`.
+
+  **Everything that can fail arrives on the `err` channel**, typed as
+  `ProductIndividualityError` and recognised by `isSdkError`. Two kinds reach it:
+  `IndividualityDecodeError` when the chain returns a shape the descriptor says is impossible,
+  and the base error carrying anything else as its `cause` — an unreachable node, an aborted
+  signal, or the pinned block leaving the follower's window mid-read. Error messages are fixed
+  strings and never interpolate chain data.
+
+  The grace-policy decode enforces the runtime's own invariants (`window <= 8` and
+  `allowedMisses < window`), so a byte order that was ever wrong fails loudly rather than
+  silently making `Caution` unreachable for every member.
+
+  **Not an authorization oracle.** This is a client-side read in a client-side library, and a
+  backend that trusts "the SDK said `Member`" is trivially spoofed. Anything gating value must
+  verify on chain itself. Stated again in the module doc and the package skill.
+
+  **The derivation is exported separately from the read.** `derivePersonhoodState(snapshot)` is
+  pure — no chain client, no host container — so callers doing their own reads, and the
+  eligibility half tracked in #291, can consume the state machine on its own. Also exported:
+  `decodeAbsenceGracePolicy` and `toPersonhoodParticipant` for turning raw
+  `Score.Participants` and `Score.AbsenceGraceRatio` values into domain shapes.
+
+  **Chain resolution stays with the caller.** The package accepts an already-connected client
+  rather than resolving an environment itself, so which individuality chain is read is the
+  caller's choice:
+
+  ```ts
+  const chain = await getChainAPI("paseo");
+  const result = await readPersonhoodState(chain, { username: "alice.dot" });
+  ```
+
+  The parameter is typed structurally — anything exposing the storage entries satisfies it,
+  including a test double — matching how `getBalance` and `resolvePeopleUsernameOwner` already
+  type their chain arguments. A compile-time assertion in `@parity/product-sdk` checks that a
+  real `getChainAPI` client still satisfies it, so a descriptor regeneration that changes an
+  entry fails the typecheck. That also means no runtime dependency on
+  `@parity/product-sdk-chain-client`: this package depends only on
+  `@parity/product-sdk-errors`, `@parity/result` and `polkadot-api`.
+
+  The alias is read from both `People.AccountToAlias` and `PeopleLite.AccountToAlias`,
+  preferring the former. Both pallets carry the entry with the same shape, and a Lite person's
+  alias lives in the second, so consulting only `People` would leave their alias-keyed
+  participant record invisible and report them as `Lite`.
+
+  Two traps worth knowing if you read these entries yourself, both invisible to the compiler
+  and both verified against the committed metadata: `Score.PersonhoodThreshold` is a `u8`
+  (PAPI types `u8` and `u32` alike as `number`), and `Score.AbsenceGraceRatio`'s byte order is
+  `(allowed_misses, window)` — the metadata tuple is anonymous, so the order comes from the
+  pallet's doc comment rather than the type. Use `decodeAbsenceGracePolicy` rather than parsing
+  the hex yourself.
+
+  Reading `game` or `airdrop` state, the eligibility derivation, and transaction construction
+  are all out of scope here — see #291 and #290.
+
+  Re-exported from the umbrella as `@parity/product-sdk/individuality`. Documented by the
+  `product-sdk-individuality` skill.
+
+- 3655724: **Update TrUAPI to 0.9 and require registered ring-VRF key handles.**
+
+  `AccountsProvider`, `HostProvider`, and `SignerManager` now expose
+  `registerRingVrfKey(index, ring)` and `listRingVrfKeys(owner, disclosure?)`. Registration returns
+  the decoded ring-VRF public key; listing returns `RegisteredRingVrfKey` entries with opaque
+  `RingVrfKeyHandle` values. `findRingVrfKeyHandle(keys, ring)` selects a handle by declared
+  `RingLocation`, so products do not hard-code another product's derivation index.
+
+  `getProductAccountAlias` and `createRingVRFProof` now require that handle as their first argument.
+  This is a compile-time breaking change. It matches TrUAPI 0.9, where the host no longer chooses a
+  ring member key implicitly and rejects malformed legacy requests before application dispatch.
+
+  The dependency update also adopts TrUAPI's renamed derivation-index variants: `Index` replaces
+  `Left` and `Raw` replaces `Right`. The SDK's ergonomic numeric product-account APIs are unchanged;
+  the host adapter performs the `Index` conversion at the wire boundary.
+
+  The signer package's re-exported `RingLocation` now uses TrUAPI's `` chainId: `0x${string}` ``
+  instead of a plain `string`; callers loading chain IDs from configuration must narrow or validate
+  them before assignment. Custom `HostProviderOptions.loadAccountsProvider` implementations must
+  also provide the newly required `registerRingVrfKey` and `listRingVrfKeys` methods.
+
+  `findRingVrfKeyHandle` is exported from `@parity/product-sdk-host`, not from
+  `@parity/product-sdk-signer`, which re-exports the ring-VRF types only. A product depending on
+  the signer package alone needs `@parity/product-sdk-host` as a second direct dependency for the
+  selection step. Prefer the helper over an inline comparison: it requires the junction path to
+  match in order and compares chain and collection ids case-insensitively, so a shortcut that
+  checks only `chainId` can pick a key registered for a different ring on the same chain.
+
+### Patch Changes
+
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+  - @parity/product-sdk-host@0.16.0
+  - @parity/product-sdk-signer@0.13.0
+  - @parity/product-sdk-chain-client@0.11.0
+  - @parity/product-sdk-individuality@0.1.0
+  - @parity/product-sdk-cloud-storage@0.10.1
+  - @parity/product-sdk-local-storage@0.3.5
+  - @parity/product-sdk-contracts@0.10.2
+  - @parity/product-sdk-keys@0.3.19
+  - @parity/product-sdk-tx@0.4.2
+
 ## 0.21.0
 
 ### Minor Changes
