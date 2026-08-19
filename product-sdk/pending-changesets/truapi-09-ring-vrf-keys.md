@@ -24,3 +24,10 @@ The signer package's re-exported `RingLocation` now uses TrUAPI's `` chainId: `0
 instead of a plain `string`; callers loading chain IDs from configuration must narrow or validate
 them before assignment. Custom `HostProviderOptions.loadAccountsProvider` implementations must
 also provide the newly required `registerRingVrfKey` and `listRingVrfKeys` methods.
+
+`findRingVrfKeyHandle` is exported from `@parity/product-sdk-host`, not from
+`@parity/product-sdk-signer`, which re-exports the ring-VRF types only. A product depending on
+the signer package alone needs `@parity/product-sdk-host` as a second direct dependency for the
+selection step. Prefer the helper over an inline comparison: it requires the junction path to
+match in order and compares chain and collection ids case-insensitively, so a shortcut that
+checks only `chainId` can pick a key registered for a different ring on the same chain.
