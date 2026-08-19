@@ -244,25 +244,27 @@ export const DOTNS_PROTOCOL_REGISTRY_ABI: AbiEntry[] = [
 export const POP_STATUS = { NoStatus: 0, PopLite: 1, PopFull: 2, Reserved: 3 } as const;
 
 /**
- * Default deployed addresses on Paseo Asset Hub (chain id 420420417).
+ * The deployed DotNS addresses. The same on every network.
  *
- * Verified on 2026-08-18 against the live chain, not copied from a file: every
- * address below answers `DotnsProtocolRegistry.get(bytes32)` on
- * `wss://paseo-asset-hub-next-rpc.polkadot.io` under its `DotnsConstants` key,
- * and each has a `Revive.AccountInfoOf` entry. They also match
- * `paritytech/dotns` `deployments/paseo-assethub/420420417.json` at commit
- * `82ac5e64`.
+ * Not a per-network table, despite what the old name (`PASEO_ASSETHUB_DOTNS`)
+ * implied: every DotNS network is deployed through the same CREATE3 factory, so
+ * the addresses are identical everywhere and **only the TLD differs**. Verified
+ * on both Paseo Asset Hub Next V2 and Previewnet — `protocolRegistry.get(...)`
+ * returns the same registry on each, and all six addresses hold contracts on
+ * both. `paritytech/dotns` `DEPLOYMENTS.md` states the mechanism, and
+ * `preview-net-v1` confirms it from the deploy side: the TLD is passed only as
+ * registry init calldata, so it moves no address.
  *
- * These are pinned, not resolved at runtime, so re-verify after a redeploy.
- * The check is a `get(bytes32)` query per key against `protocolRegistry`, where
- * the key is the name below right-padded to 32 bytes (`bytes32("registry")`).
+ * So extending this module to another network means resolving its TLD, which
+ * `resolveTld` already does — not adding a second address table.
  *
- * `protocolRegistry` is the contract the others register themselves with. It is
- * not used on the resolution path today, but it is the address to go through if
- * we ever resolve the rest dynamically (`get(bytes32 key)` with the
- * `DotnsConstants` keys) instead of pinning them here.
+ * Each address answers `DotnsProtocolRegistry.get(bytes32)` under its
+ * `DotnsConstants` key (the name below, right-padded to 32 bytes) and has a
+ * `Revive.AccountInfoOf` entry. They are pinned rather than resolved at runtime,
+ * so re-verify after a redeploy; `protocolRegistry` is the address to walk from
+ * if we ever resolve the rest dynamically.
  */
-export const PASEO_ASSETHUB_DOTNS = {
+export const DOTNS_ADDRESSES = {
     registry: "0xf34054fd76BbF85f216cf9908226D5f0A72E50CA",
     reverseResolver: "0xee3883d7eB60Ee9BCD7F3bcD8f2f05302A9Cc035",
     resolver: "0xbd1165E549DF96F083c0A16f61590927bC187009",

@@ -20,7 +20,7 @@ import {
     DOTNS_RESOLVER_ABI,
     DOTNS_RESOLVER_WRITE_ABI,
     DOTNS_REVERSE_RESOLVER_ABI,
-    PASEO_ASSETHUB_DOTNS,
+    DOTNS_ADDRESSES,
     POP_STATUS,
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
@@ -68,8 +68,8 @@ const TARGET = "0x2222222222222222222222222222222222222222";
 // exercise the fallback path. Arbitrary values here would stop the
 // reverse-resolver branch firing and the tests would pass for the wrong reason.
 // See "honours the address overrides" for the opts path.
-const FORWARD_RESOLVER = PASEO_ASSETHUB_DOTNS.resolver;
-const REVERSE_RESOLVER = PASEO_ASSETHUB_DOTNS.reverseResolver;
+const FORWARD_RESOLVER = DOTNS_ADDRESSES.resolver;
+const REVERSE_RESOLVER = DOTNS_ADDRESSES.reverseResolver;
 /** classifyName returns two values, so the fake encodes it positionally. */
 const OPEN = [POP_STATUS.NoStatus, "Available to all"];
 
@@ -963,7 +963,7 @@ describe("the deployment's TLD reaches every entry point", () => {
     });
 
     test("setDotNsRecord targets the same node resolveDotNs reads", async () => {
-        const runtime = paseoRuntime({ resolver: PASEO_ASSETHUB_DOTNS.resolver });
+        const runtime = paseoRuntime({ resolver: DOTNS_ADDRESSES.resolver });
         const r = await setDotNsRecord(
             { name: "dim2.paseo", address: TARGET },
             { runtime, origin: SIGNER },

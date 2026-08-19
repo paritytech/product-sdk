@@ -19,7 +19,16 @@ export interface DotNsRecord {
      * `null` from `resolveDotNs`, not a record.
      */
     address?: `0x${string}`;
-    /** Name that was resolved, normalized (lowercase, `.dot` suffix) */
+    /**
+     * Name that was resolved, normalized: lowercased, and carrying the
+     * deployment's own TLD suffix — `.paseo` on Paseo Asset Hub Next V2, `.dot`
+     * on Previewnet. A bare label passed in comes back suffixed.
+     *
+     * Note for a **lite-person** registrant: the registry stores their label
+     * flattened, so `alice.42` is registered as `alice42` and this field reads
+     * `alice42.paseo`. Pass the flattened spelling when resolving; the dotted
+     * one derives a different node and finds nothing.
+     */
     name: string;
     /** H160 of the node's owner. Not SS58, same as {@link DotNsRecord.address}. */
     owner: `0x${string}`;

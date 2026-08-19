@@ -4,15 +4,15 @@
 // Guards on the transcribed deployment table. These check the shape of the
 // table, not that it names the live deployment: only a diff against
 // `paritytech/dotns` `deployments/paseo-assethub/420420417.json` can do that,
-// and it is a network fetch. See the comment on PASEO_ASSETHUB_DOTNS for the
+// and it is a network fetch. See the comment on DOTNS_ADDRESSES for the
 // commit the values were copied from, and re-check it when bumping.
 import { isValidH160 } from "@parity/product-sdk-address";
 import { describe, expect, test } from "vitest";
-import { PASEO_ASSETHUB_DOTNS } from "./dotns-abis.js";
+import { DOTNS_ADDRESSES } from "./dotns-abis.js";
 
-describe("PASEO_ASSETHUB_DOTNS", () => {
+describe("DOTNS_ADDRESSES", () => {
     test("every entry is a well-formed H160", () => {
-        for (const [name, address] of Object.entries(PASEO_ASSETHUB_DOTNS)) {
+        for (const [name, address] of Object.entries(DOTNS_ADDRESSES)) {
             expect(isValidH160(address), `${name} = ${address}`).toBe(true);
         }
     });
@@ -21,7 +21,7 @@ describe("PASEO_ASSETHUB_DOTNS", () => {
         // Six addresses transcribed by hand: a duplicated paste is the
         // transcription error most likely to go unnoticed, because the wrong
         // contract still answers and only the decode looks odd.
-        const entries = Object.entries(PASEO_ASSETHUB_DOTNS);
+        const entries = Object.entries(DOTNS_ADDRESSES);
         const seen = new Map<string, string>();
         for (const [name, address] of entries) {
             const key = address.toLowerCase();
@@ -36,8 +36,8 @@ describe("PASEO_ASSETHUB_DOTNS", () => {
         // a node has a forward record by comparing the registry's resolver
         // pointer against the reverse resolver, so collapsing these two would
         // make every registered name look resolvable.
-        expect(PASEO_ASSETHUB_DOTNS.resolver.toLowerCase()).not.toBe(
-            PASEO_ASSETHUB_DOTNS.reverseResolver.toLowerCase(),
+        expect(DOTNS_ADDRESSES.resolver.toLowerCase()).not.toBe(
+            DOTNS_ADDRESSES.reverseResolver.toLowerCase(),
         );
     });
 });

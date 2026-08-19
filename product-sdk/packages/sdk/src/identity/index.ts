@@ -37,8 +37,16 @@ export type {
 } from "./dotns-registry.js";
 export { DotNsError } from "./dotns-errors.js";
 export type { DotNsErrorReason } from "./dotns-errors.js";
-export { namehash, DOT_NODE } from "./dotns-namehash.js";
-export { POP_STATUS, PASEO_ASSETHUB_DOTNS } from "./dotns-abis.js";
+export {
+    namehash,
+    dotNsTld,
+    isConsistentDotNsTld,
+    stripSuffix,
+    DOT_NODE,
+    DOT_TLD,
+} from "./dotns-namehash.js";
+export type { DotNsTld } from "./dotns-namehash.js";
+export { POP_STATUS, DOTNS_ADDRESSES } from "./dotns-abis.js";
 
 // Context alias utilities (deprecated)
 export { deriveContextAlias, verifyContextAlias } from "./product-account.js";

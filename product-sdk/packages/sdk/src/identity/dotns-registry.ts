@@ -5,7 +5,21 @@
  *
  * DotNS is an ENS-style system on Asset Hub: a `DotnsRegistry` maps a node
  * (namehash) to a resolver + owner, a `DotnsResolver` maps a node to an
- * address, and a `DotnsReverseResolver` maps an account back to its name. All
+ * address, and a `DotnsReverseResolver` maps an account back to its name.
+ *
+ * **Names are rooted at the network's TLD, which is per deployment.** It is
+ * fixed when `DotnsProtocolRegistry.initialize` runs, has no setter, and is
+ * published as `tld()`. `.paseo` on Paseo Asset Hub Next V2, `.dot` on
+ * Previewnet, and operators can choose others. Every entry point that hashes a
+ * name therefore asks the chain first, through {@link resolveTld}, and callers
+ * can supply `opts.tld` to skip the read. Hashing under the wrong root returns a
+ * node the chain never wrote to, so the failure looks exactly like an
+ * unregistered name — which is why nothing here assumes a root.
+ *
+ * A rule this module holds to throughout: **a failed read must never become a
+ * plausible value.** The one deliberate exception is documented on
+ * {@link resolveTld}, where a missing getter identifies a deployment whose TLD
+ * could only have been `.dot`. All
  * are Revive contracts, reached via `@parity/product-sdk-contracts`'
  * `createContract(...).<method>.query(...)`. Contract source:
  * https://github.com/paritytech/dotns
@@ -39,7 +53,7 @@ import {
     DOTNS_RESOLVER_ABI,
     DOTNS_RESOLVER_WRITE_ABI,
     DOTNS_REVERSE_RESOLVER_ABI,
-    PASEO_ASSETHUB_DOTNS,
+    DOTNS_ADDRESSES,
     POP_STATUS,
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
@@ -75,9 +89,9 @@ export interface DotNsClientOptions {
      * from it; convert with `h160ToSs58` from `@parity/product-sdk-address`.
      */
     origin?: SS58String;
-    /** `DotnsRegistry` address. Defaults to the Paseo Asset Hub deployment. */
+    /** `DotnsRegistry` address. Defaults to the deployed set, which is the same on every network. */
     registryAddress?: HexString;
-    /** `DotnsReverseResolver` address. Defaults to the Paseo Asset Hub deployment. */
+    /** `DotnsReverseResolver` address. Defaults to the deployed set. */
     reverseResolverAddress?: HexString;
     /** `DotnsResolver` address (writes: setDotNsRecord). Defaults to Paseo AH. */
     resolverAddress?: HexString;
@@ -107,7 +121,7 @@ export interface DotNsClientOptions {
 
 /** Arguments for {@link prepareDotNsRegistration}. */
 export interface RegisterDotNsArgs {
-    /** The name to register, e.g. `"alice.dot"` (or bare `"alice"`). */
+    /** The name to register, e.g. `"alice.paseo"` — or the bare label `"alice"`. */
     name: string;
     /** The account that will own the registered name. */
     owner: string;
@@ -217,8 +231,7 @@ export async function resolveTld(opts: DotNsClientOptions): Promise<Result<DotNs
               );
     }
 
-    const address = (opts.protocolRegistryAddress ??
-        PASEO_ASSETHUB_DOTNS.protocolRegistry) as HexString;
+    const address = (opts.protocolRegistryAddress ?? DOTNS_ADDRESSES.protocolRegistry) as HexString;
     let perAddress = tldCache.get(opts.runtime);
     if (!perAddress) {
         perAddress = new Map();
@@ -355,8 +368,8 @@ export async function resolveDotNs(
         return err(nameError(name, normalized, tld));
     }
     const node = namehash(normalized, tld);
-    const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
-    const reverseAddr = opts.reverseResolverAddress ?? PASEO_ASSETHUB_DOTNS.reverseResolver;
+    const registryAddr = opts.registryAddress ?? DOTNS_ADDRESSES.registry;
+    const reverseAddr = opts.reverseResolverAddress ?? DOTNS_ADDRESSES.reverseResolver;
     const origin = readOrigin(opts);
     log.debug("resolveDotNs", { name: normalized, node, registry: registryAddr });
 
@@ -425,7 +438,7 @@ export async function reverseDotNs(
     address: string,
     opts: DotNsClientOptions,
 ): Promise<Result<string | null, DotNsError>> {
-    const reverseAddr = opts.reverseResolverAddress ?? PASEO_ASSETHUB_DOTNS.reverseResolver;
+    const reverseAddr = opts.reverseResolverAddress ?? DOTNS_ADDRESSES.reverseResolver;
     log.debug("reverseDotNs", { address, reverseResolver: reverseAddr });
     try {
         const reverse = contractOf(
@@ -483,8 +496,7 @@ export async function isDotNsAvailable(
     }
     // The registrar takes the bare label, without the TLD suffix.
     const label = stripSuffix(normalized, tld.suffix);
-    const controllerAddr =
-        opts.registrarControllerAddress ?? PASEO_ASSETHUB_DOTNS.registrarController;
+    const controllerAddr = opts.registrarControllerAddress ?? DOTNS_ADDRESSES.registrarController;
     log.debug("isDotNsAvailable", { name: normalized, label, controller: controllerAddr });
 
     try {
@@ -495,7 +507,7 @@ export async function isDotNsAvailable(
         );
         const popRules = contractOf(
             opts.runtime,
-            (opts.popRulesAddress ?? PASEO_ASSETHUB_DOTNS.popRules) as HexString,
+            (opts.popRulesAddress ?? DOTNS_ADDRESSES.popRules) as HexString,
             DOTNS_POP_RULES_ABI,
         );
         const origin = readOrigin(opts);
@@ -565,8 +577,8 @@ export async function setDotNsRecord(
         return err(new DotNsError("MissingOrigin", "setDotNsRecord needs opts.origin (SS58)"));
     }
     const node = namehash(normalized, tld);
-    const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
-    const resolverAddr = opts.resolverAddress ?? PASEO_ASSETHUB_DOTNS.resolver;
+    const registryAddr = opts.registryAddress ?? DOTNS_ADDRESSES.registry;
+    const resolverAddr = opts.resolverAddress ?? DOTNS_ADDRESSES.resolver;
     try {
         const registry = contractOf(opts.runtime, registryAddr as HexString, DOTNS_REGISTRY_ABI);
         const currentRes = await registry.resolver.query(node, { origin });
@@ -721,9 +733,8 @@ export async function prepareDotNsRegistration(
     }
     // The registrar takes the bare label, without the TLD suffix.
     const label = stripSuffix(normalized, tld.suffix);
-    const controllerAddr =
-        opts.registrarControllerAddress ?? PASEO_ASSETHUB_DOTNS.registrarController;
-    const popRulesAddr = opts.popRulesAddress ?? PASEO_ASSETHUB_DOTNS.popRules;
+    const controllerAddr = opts.registrarControllerAddress ?? DOTNS_ADDRESSES.registrarController;
+    const popRulesAddr = opts.popRulesAddress ?? DOTNS_ADDRESSES.popRules;
     const secret = `0x${bytesToHex(randomBytes(32))}` as HexString;
     const registration = { label, owner: args.owner, secret, reserved: args.reserved ?? false };
     // register compares msg.sender against the owner; msg.sender is derived
