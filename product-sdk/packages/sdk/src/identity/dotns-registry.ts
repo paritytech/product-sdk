@@ -43,7 +43,7 @@ import {
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
 import { isResolvableDotNsName, isValidDotNsName, normalizeDotNsName } from "./dotns.js";
-import { namehash } from "./dotns-namehash.js";
+import { DOT_TLD, namehash } from "./dotns-namehash.js";
 import type { DotNsRecord } from "./types.js";
 
 const log = createLogger("identity:dotns");
@@ -138,7 +138,10 @@ export async function resolveDotNs(
     if (!isResolvableDotNsName(normalized)) {
         return err(new DotNsError("InvalidName", `Invalid DotNS name: "${name}"`));
     }
-    const node = namehash(normalized);
+    // TODO(step 4): root at the deployment's own TLD from `resolveTld`.
+    // `DOT_TLD` here preserves today's behaviour, which is wrong on any
+    // deployment that is not `.dot` — see the TLD finding for pr-293.
+    const node = namehash(normalized, DOT_TLD);
     const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
     const reverseAddr = opts.reverseResolverAddress ?? PASEO_ASSETHUB_DOTNS.reverseResolver;
     const origin = readOrigin(opts);
@@ -342,7 +345,10 @@ export async function setDotNsRecord(
     if (!origin) {
         return err(new DotNsError("MissingOrigin", "setDotNsRecord needs opts.origin (SS58)"));
     }
-    const node = namehash(normalized);
+    // TODO(step 4): root at the deployment's own TLD from `resolveTld`.
+    // `DOT_TLD` here preserves today's behaviour, which is wrong on any
+    // deployment that is not `.dot` — see the TLD finding for pr-293.
+    const node = namehash(normalized, DOT_TLD);
     const registryAddr = opts.registryAddress ?? PASEO_ASSETHUB_DOTNS.registry;
     const resolverAddr = opts.resolverAddress ?? PASEO_ASSETHUB_DOTNS.resolver;
     try {
