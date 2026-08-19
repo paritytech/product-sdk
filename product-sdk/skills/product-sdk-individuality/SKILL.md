@@ -177,22 +177,33 @@ const result = await submitAndWatch(api.tx.Game.sign_up_with_alias(), signer);
 | `tag` | Origin | Needs a proof | Usable today |
 |---|---|---|---|
 | `AliasWithAccount` | `Signed` | No | **Yes.** The everyday case |
-| `AliasWithProof` | `None` | Yes | **No**, see below |
-| `AliasWithAccountRevised` | `Signed` | Yes | **No**, same reason |
+| `AliasWithProof` | `None` | Yes | **Not on paseo yet**, see below |
+| `AliasWithAccountRevised` | `Signed` | Yes | **Not on paseo yet**, same reason |
 
 `AliasWithAccount` requires the signing account to already be bound to the alias by `People.set_alias_account`, which the mobile apps do natively. That is the only prerequisite, and there is nothing to pass: the nonce comes from the slot PAPI already filled, so the extension's copy and the body's copy cannot disagree.
 
-**The two proof variants are not reachable from product code yet, and it is not an encoding gap.** `set_alias_account` requires the proof's context to be one the runtime allows accounts to be bound in — the score, mob or resources context. `createRingVRFProof` only mints product-scoped contexts, `blake2b256("product/<productId>/<suffix>")`, and no input produces a runtime-fixed one. So the chain answers `InvalidTransaction::Call` however correct your bytes are. The encoding is finished and tested; only the context source is missing. Track it on issue #290.
+**The two proof variants need a runtime paseo has not deployed yet. It is not an encoding gap.** `set_alias_account` requires the proof's context to be one the runtime allows accounts to be bound in: the score, mob or resources context.
 
-When one becomes available, the wiring is a callback, so nothing here changes:
+- **Individuality up to v0.11.2**, which is what paseo-people-next runs today at `specVersion 1000032`, fixes those contexts as constants. `createRingVRFProof` mints product-scoped contexts, `blake2b256("product/<productId>/<suffix>")`, and no input equals a constant, so the chain answers `InvalidTransaction::Call` however correct your bytes are.
+- **Individuality v0.12.0**, tagged but not yet deployed, derives those contexts with the *same* product-scoped construction the host already uses. On paseo, `productId: "peopl.paseo"` with `suffix: { tag: "Index", value: 0 }` yields exactly the score context, `0x99f1920e...e842`. Both sides were computed and compared: byte-identical.
+
+So there is nothing to build and nothing needed from the host. When paseo upgrades to `specVersion 1000035`, regenerate the descriptors and pass that context. Track it on issue #290.
+
+The wiring is a callback either way, so nothing in this package changes:
 
 ```ts
 const signer = withAsPerson(innerSigner, {
   tag: "AliasWithProof",
-  // `message` is the implication hash, computed for you.
+  // `message` is the implication hash, computed for you. Never choose it.
   createProof: (message) =>
     signerManager
-      .createRingVRFProof(keyHandle, context, ringLocation, message)
+      .createRingVRFProof(
+        keyHandle,
+        // The score context, once the chain derives it this way.
+        { productId: "peopl.paseo", suffix: { tag: "Index", value: 0 } },
+        ringLocation,
+        message,
+      )
       .then((r) => (r.ok ? r.value : Promise.reject(r.error))),
 });
 ```
@@ -218,5 +229,5 @@ The metadata-driven pieces are exported, because every origin-modifying extensio
 10. **Hand-building `AsPerson` and forgetting `RestrictOrigins`** — every call fails `Invalid.Call` before dispatch, and nothing in the error points at the extension you missed.
 11. **Choosing the proof message yourself** — it must be the implication hash, which depends on the nonce, era and tip. `withAsPerson` passes it to your callback; anything else is a bad proof.
 12. **Expecting `withAsPerson` to return a `Result`** — it returns a `PolkadotSigner` and throws `AsPersonError` from `signTx`. Wrap it in `submitAndWatch` and read the `err` channel.
-13. **Reaching for `AliasWithProof` to bind an alias** — the context wall above makes it unreachable from product code today, however correct the bytes are.
+13. **Reaching for `AliasWithProof` to bind an alias before paseo upgrades** — the chain fixes the allowed contexts as constants until `specVersion 1000035`, so it answers `Invalid.Call` however correct the bytes are.
 14. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `BadSigner`, and `AliasWithAccountRevised` is the variant that fixes it. It cannot be detected client-side without reading the ring root.

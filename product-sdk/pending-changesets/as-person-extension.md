@@ -33,8 +33,15 @@ every origin-modifying extension on this chain is bound the same way.
 Errors arrive as a thrown `AsPersonError`, not on a `Result` channel, because they happen inside
 `PolkadotSigner.signTx`.
 
-**`AliasWithProof` is not yet reachable from product code, and the gap is not in the encoding.**
-`People.set_alias_account` requires the proof's context to be one the runtime allows accounts to be
-bound in, and the host only mints product-scoped contexts. The encoding is finished and tested
-against the deployed metadata; when a call minting a runtime-fixed context exists, it wires in
-through the existing callback with no change here.
+**`AliasWithProof` needs a runtime that paseo has not deployed yet, and the gap is not in the
+encoding.** `People.set_alias_account` requires the proof's context to be one the runtime allows
+accounts to be bound in. Individuality `v0.11.2`, which is what paseo-people-next runs today at
+`specVersion 1000032`, fixes those contexts as constants that no host-minted context can equal, so
+the chain rejects the call however correct the bytes are. Individuality `v0.12.0` derives them with
+the same product-scoped construction the host already uses, so
+`createRingVRFProof(keyHandle, { productId: "peopl.<network>", suffix: Index(0) }, ...)` produces
+exactly the context the call wants. Verified by computing both sides: they are byte-identical.
+
+So this needs no further SDK work and nothing from the host. When paseo upgrades to `1000035`,
+regenerate the descriptors and pass that context; the encoding here is already finished and tested
+against the deployed metadata.
