@@ -14,6 +14,7 @@ import { ss58ToH160 } from "@parity/product-sdk-address";
 import { describe, expect, test } from "vitest";
 import {
     DOTNS_POP_RULES_ABI,
+    DOTNS_PROTOCOL_REGISTRY_ABI,
     DOTNS_REGISTRAR_CONTROLLER_ABI,
     DOTNS_REGISTRY_ABI,
     DOTNS_RESOLVER_ABI,
@@ -27,8 +28,13 @@ import {
     isDotNsAvailable,
     prepareDotNsRegistration,
     resolveDotNs,
+    resolveTld,
     setDotNsRecord,
 } from "./dotns-registry.js";
+import { DOT_TLD, dotNsTld } from "./dotns-namehash.js";
+
+/** A second protocol-registry address, to prove the TLD cache keys on it. */
+const OTHER_REGISTRY = "0x9999999999999999999999999999999999999999" as const;
 
 // Never reached on the validation path (the calls reject before touching it).
 const opts = { runtime: {} as ContractRuntime };
@@ -708,5 +714,162 @@ describe("registration refuses a taken name before the commit", () => {
         );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
+    });
+});
+
+describe("resolveTld", () => {
+    /** A runtime whose protocol registry answers `tld()` / `tldNode()` as told. */
+    function registryRuntime(answers: { tld?: unknown; tldNode?: unknown }) {
+        return createFakeContractRuntime({
+            abi: [...ALL_ABIS, ...DOTNS_PROTOCOL_REGISTRY_ABI],
+            onQuery: ({ functionName }) => {
+                if (functionName === "tld") return answers.tld;
+                if (functionName === "tldNode") return answers.tldNode;
+                return undefined;
+            },
+        });
+    }
+
+    const PASEO = dotNsTld(".paseo");
+    /** Both getters absent, which is what a pre-b4096968 deployment looks like. */
+    const NO_GETTER = fakeDryRunResult({ revert: true });
+
+    test("reads the suffix from the chain and derives the node", async () => {
+        const runtime = registryRuntime({ tld: ".paseo", tldNode: PASEO.node });
+        const r = await resolveTld({ runtime });
+        expect(r).toEqual({ ok: true, value: PASEO });
+    });
+
+    test("derives the node itself, so tldNode() is not required to answer", async () => {
+        const runtime = registryRuntime({ tld: ".paseo", tldNode: NO_GETTER });
+        const r = await resolveTld({ runtime });
+        expect(r).toEqual({ ok: true, value: PASEO });
+    });
+
+    test("caches per runtime: a second call does not re-read", async () => {
+        const runtime = registryRuntime({ tld: ".paseo", tldNode: PASEO.node });
+        await resolveTld({ runtime });
+        const afterFirst = runtime.calls.filter((c) => c.functionName === "tld").length;
+        await resolveTld({ runtime });
+        expect(runtime.calls.filter((c) => c.functionName === "tld").length).toBe(afterFirst);
+        expect(afterFirst).toBe(1);
+    });
+
+    test("concurrent first calls share one read", async () => {
+        const runtime = registryRuntime({ tld: ".paseo", tldNode: PASEO.node });
+        const [a, b, c] = await Promise.all([
+            resolveTld({ runtime }),
+            resolveTld({ runtime }),
+            resolveTld({ runtime }),
+        ]);
+        expect(runtime.calls.filter((x) => x.functionName === "tld").length).toBe(1);
+        expect([a, b, c]).toEqual([
+            { ok: true, value: PASEO },
+            { ok: true, value: PASEO },
+            { ok: true, value: PASEO },
+        ]);
+    });
+
+    test("the cache is per runtime, not global", async () => {
+        const one = registryRuntime({ tld: ".paseo", tldNode: PASEO.node });
+        const two = registryRuntime({ tld: ".dot", tldNode: DOT_TLD.node });
+        expect(await resolveTld({ runtime: one })).toEqual({ ok: true, value: PASEO });
+        expect(await resolveTld({ runtime: two })).toEqual({ ok: true, value: DOT_TLD });
+        expect(one.calls.filter((c) => c.functionName === "tld").length).toBe(1);
+        expect(two.calls.filter((c) => c.functionName === "tld").length).toBe(1);
+    });
+
+    test("the cache key includes the protocol registry address", async () => {
+        // One runtime pointed at two registries has two TLDs; keying on the
+        // runtime alone would serve the first answer for both.
+        const runtime = registryRuntime({ tld: ".paseo", tldNode: PASEO.node });
+        await resolveTld({ runtime });
+        await resolveTld({ runtime, protocolRegistryAddress: OTHER_REGISTRY });
+        expect(runtime.calls.filter((c) => c.functionName === "tld").length).toBe(2);
+    });
+
+    test("a supplied tld skips the chain entirely", async () => {
+        const runtime = registryRuntime({ tld: ".paseo", tldNode: PASEO.node });
+        const r = await resolveTld({ runtime, tld: DOT_TLD });
+        expect(r).toEqual({ ok: true, value: DOT_TLD });
+        expect(runtime.calls).toHaveLength(0);
+    });
+
+    test("a supplied tld whose node does not match its suffix is refused", async () => {
+        // The override path re-creating the original bug: `.paseo` names rooted
+        // at the `.dot` node.
+        const runtime = registryRuntime({ tld: ".paseo", tldNode: PASEO.node });
+        const r = await resolveTld({
+            runtime,
+            tld: { suffix: ".paseo", node: DOT_TLD.node },
+        });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("InvalidTld");
+    });
+
+    test("an absent getter falls back to .dot, because that TLD was compiled in", async () => {
+        // Pre-b4096968 deployments had no tld() and no way to be anything but
+        // `.dot`. Verified against Paseo Asset Hub Previewnet.
+        const runtime = registryRuntime({ tld: NO_GETTER, tldNode: NO_GETTER });
+        expect(await resolveTld({ runtime })).toEqual({ ok: true, value: DOT_TLD });
+    });
+
+    test("a dispatch failure is an error, not a fallback", async () => {
+        const runtime = registryRuntime({
+            tld: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
+        });
+        const r = await resolveTld({ runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
+    });
+
+    test("a revert carrying a reason is an error, not a fallback", async () => {
+        // Only an *empty* revert means "no such function". A reverting getter
+        // that has something to say is a real failure.
+        const runtime = registryRuntime({ tld: fakeDryRunResult({ revert: "nope" }) });
+        const r = await resolveTld({ runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
+    });
+
+    test("a failed read is not cached, so the next call retries", async () => {
+        let firstCall = true;
+        const runtime = createFakeContractRuntime({
+            abi: [...ALL_ABIS, ...DOTNS_PROTOCOL_REGISTRY_ABI],
+            onQuery: ({ functionName }) => {
+                if (functionName === "tldNode") return PASEO.node;
+                if (functionName !== "tld") return undefined;
+                if (firstCall) {
+                    firstCall = false;
+                    return fakeDryRunResult({ failure: { type: "ContractTrapped" } });
+                }
+                return ".paseo";
+            },
+        });
+        expect((await resolveTld({ runtime })).ok).toBe(false);
+        expect(await resolveTld({ runtime })).toEqual({ ok: true, value: PASEO });
+    });
+
+    test("an empty suffix is refused, not treated as the ENS root", async () => {
+        // What an upgraded-but-unmigrated proxy reports: the getters succeed and
+        // return `_tld` = "" with `_tldNode` = 0, which would reroot every name.
+        const runtime = registryRuntime({ tld: "", tldNode: `0x${"00".repeat(32)}` });
+        const r = await resolveTld({ runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("InvalidTld");
+    });
+
+    test("a multi-label suffix is refused, since initialize cannot produce one", async () => {
+        const runtime = registryRuntime({ tld: ".a.b" });
+        const r = await resolveTld({ runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("InvalidTld");
+    });
+
+    test("a tldNode() that contradicts tld() is refused, trusting neither", async () => {
+        const runtime = registryRuntime({ tld: ".paseo", tldNode: DOT_TLD.node });
+        const r = await resolveTld({ runtime });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("InvalidTld");
     });
 });

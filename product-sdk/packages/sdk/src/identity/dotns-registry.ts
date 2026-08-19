@@ -33,6 +33,7 @@ import { createLogger } from "@parity/product-sdk-logger";
 import type { SS58String } from "polkadot-api";
 import {
     DOTNS_POP_RULES_ABI,
+    DOTNS_PROTOCOL_REGISTRY_ABI,
     DOTNS_REGISTRAR_CONTROLLER_ABI,
     DOTNS_REGISTRY_ABI,
     DOTNS_RESOLVER_ABI,
@@ -43,7 +44,14 @@ import {
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
 import { isResolvableDotNsName, isValidDotNsName, normalizeDotNsName } from "./dotns.js";
-import { DOT_TLD, namehash, stripSuffix } from "./dotns-namehash.js";
+import {
+    DOT_TLD,
+    dotNsTld,
+    type DotNsTld,
+    isConsistentDotNsTld,
+    namehash,
+    stripSuffix,
+} from "./dotns-namehash.js";
 import type { DotNsRecord } from "./types.js";
 
 const log = createLogger("identity:dotns");
@@ -77,6 +85,24 @@ export interface DotNsClientOptions {
     registrarControllerAddress?: HexString;
     /** `PopRules` address (registration price). Defaults to Paseo AH. */
     popRulesAddress?: HexString;
+    /**
+     * `DotnsProtocolRegistry` address, the contract holding this network's TLD.
+     * Defaults to Paseo AH — and the address is the same on every network, since
+     * the whole set is CREATE3-deterministic.
+     */
+    protocolRegistryAddress?: HexString;
+    /**
+     * The deployment's TLD, when you already know it.
+     *
+     * Omit it and the client reads `protocolRegistry.tld()` once per runtime and
+     * caches it, which is the correct default: the TLD is per network and only
+     * the chain knows which one is in play. Supply it to skip the read for
+     * offline or test use, or to pin a deployment deliberately. Build it with
+     * `dotNsTld(".paseo")` rather than by hand — a suffix paired with the wrong
+     * node is rejected, because that pairing is the defect this option could
+     * otherwise reintroduce.
+     */
+    tld?: DotNsTld;
 }
 
 /** Arguments for {@link prepareDotNsRegistration}. */
@@ -118,6 +144,169 @@ function readOrigin(opts: DotNsClientOptions): SS58String {
 /** Case-insensitive H160 compare: chain reads are lowercase, our table is EIP-55. */
 function sameAddress(a: unknown, b: unknown): boolean {
     return typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
+}
+
+// ── The deployment's TLD ─────────────────────────────────────────────
+//
+// Every node hash is rooted at the network's TLD, which is fixed when
+// `DotnsProtocolRegistry.initialize` runs and has no setter. Read it once per
+// (runtime, protocol registry) and cache it: it cannot change under us.
+
+/**
+ * Cached TLD per runtime, then per protocol-registry address.
+ *
+ * Keyed on the address as well as the runtime because the address is
+ * overridable, and one runtime pointed at two registries has two TLDs. The
+ * value is the in-flight promise rather than the resolved TLD, so concurrent
+ * first calls share one read instead of racing.
+ */
+const tldCache = new WeakMap<ContractRuntime, Map<string, Promise<Result<DotNsTld, DotNsError>>>>();
+
+/** An empty-payload revert: the contract ran and refused, telling us nothing. */
+function isEmptyRevert(value: unknown): boolean {
+    return (
+        typeof value === "object" &&
+        value !== null &&
+        (value as { type?: unknown }).type === "ContractRevertedWithPayload" &&
+        (value as { data?: unknown }).data === "0x"
+    );
+}
+
+/**
+ * The TLD every name on this deployment is rooted at.
+ *
+ * Asks `protocolRegistry.tld()` and derives the node from the suffix, which is
+ * exactly what `initialize` did — so `tldNode()` is only ever a cross-check, and
+ * one read answers the question.
+ *
+ * Three outcomes, and the middle one is a deliberate exception to this module's
+ * rule that a failed read must never become a plausible value:
+ *
+ *   - the getter answers with a usable suffix → that TLD;
+ *   - the getter **reverts with an empty payload** → `DOT_TLD`, with a warning.
+ *     That signature means the function does not exist, which dates the
+ *     deployment before `dotns` `b4096968` ("make the TLD network-configurable
+ *     via the protocol registry"). Before that commit the TLD was a
+ *     compile-time constant and `.dot` was the only value it could hold, so
+ *     this is the one case where the fallback is provably right rather than
+ *     merely plausible. Verified against Paseo Asset Hub Previewnet, where both
+ *     getters revert empty and `dim2` is owned under the `.dot` root;
+ *   - anything else → `err`. A dispatch failure, a revert carrying a reason, an
+ *     undecodable answer, or a TLD we cannot use.
+ *
+ * That last case includes a getter that *succeeds* with an unusable value. The
+ * registry is `UUPSUpgradeable` with no reinitializer, so a pre-`b4096968` proxy
+ * upgraded to current contracts without a migration reports `_tld` as `""` and
+ * `_tldNode` as zero — both getters succeed and hand back the plain ENS root,
+ * which would silently reroot every name. {@link isConsistentDotNsTld} is what
+ * catches it.
+ *
+ * @internal Exposed for unit testing; consumers reach it through the entry points.
+ */
+export async function resolveTld(opts: DotNsClientOptions): Promise<Result<DotNsTld, DotNsError>> {
+    if (opts.tld) {
+        // A caller-supplied pair gets the same consistency check as a chain read:
+        // `.paseo` carrying `DOT_NODE` is the original bug via the override path.
+        return isConsistentDotNsTld(opts.tld)
+            ? ok(opts.tld)
+            : err(
+                  new DotNsError(
+                      "InvalidTld",
+                      `opts.tld is inconsistent: "${opts.tld.suffix}" does not hash to ${opts.tld.node}`,
+                  ),
+              );
+    }
+
+    const address = (opts.protocolRegistryAddress ??
+        PASEO_ASSETHUB_DOTNS.protocolRegistry) as HexString;
+    let perAddress = tldCache.get(opts.runtime);
+    if (!perAddress) {
+        perAddress = new Map();
+        tldCache.set(opts.runtime, perAddress);
+    }
+    const cached = perAddress.get(address);
+    if (cached) return cached;
+
+    const pending = readTld(opts, address);
+    perAddress.set(address, pending);
+    // Only a successful read is worth keeping: a failure is usually transient
+    // (RPC, not deployment), and caching it would strand the client for the
+    // life of the runtime.
+    pending.then((result) => {
+        if (!result.ok) perAddress?.delete(address);
+    });
+    return pending;
+}
+
+async function readTld(
+    opts: DotNsClientOptions,
+    address: HexString,
+): Promise<Result<DotNsTld, DotNsError>> {
+    try {
+        const registry = contractOf(opts.runtime, address, DOTNS_PROTOCOL_REGISTRY_ABI);
+        const origin = readOrigin(opts);
+        const suffixRes = await registry.tld.query({ origin });
+
+        if (!suffixRes.success) {
+            if (isEmptyRevert(suffixRes.value)) {
+                log.warn(
+                    "DotNS protocol registry has no tld() getter; treating this as a " +
+                        "pre-b4096968 deployment, whose TLD was the compile-time .dot",
+                    { protocolRegistry: address },
+                );
+                return ok(DOT_TLD);
+            }
+            return err(
+                new DotNsError("RegistryCall", "protocolRegistry.tld call failed", {
+                    cause: suffixRes.value,
+                }),
+            );
+        }
+
+        const suffix = suffixRes.value as string;
+        const tld = dotNsTld(suffix);
+        if (!isConsistentDotNsTld(tld)) {
+            return err(
+                new DotNsError(
+                    "InvalidTld",
+                    `protocolRegistry.tld returned an unusable TLD: ${JSON.stringify(suffix)}`,
+                ),
+            );
+        }
+
+        // Cross-check, not the source. A disagreement means the deployment's
+        // stored node was not derived from its stored label, which no
+        // `initialize` can produce — so trust neither value.
+        //
+        // Only a well-formed node counts as a disagreement. A revert (the getter
+        // is absent) or an unreadable answer means the cross-check did not run,
+        // which is not evidence against a suffix that already derived cleanly.
+        const nodeRes = await registry.tldNode.query({ origin });
+        if (nodeRes.success && isNode(nodeRes.value) && !sameNode(nodeRes.value, tld.node)) {
+            return err(
+                new DotNsError(
+                    "InvalidTld",
+                    `protocolRegistry disagrees with itself: tld() ${suffix} derives ` +
+                        `${tld.node} but tldNode() reports ${String(nodeRes.value)}`,
+                ),
+            );
+        }
+
+        log.debug("resolveTld", { protocolRegistry: address, suffix: tld.suffix, node: tld.node });
+        return ok(tld);
+    } catch (cause) {
+        return err(new DotNsError("RegistryCall", "DotNS TLD read failed", { cause }));
+    }
+}
+
+/** Whether a value is a readable 32-byte node, and so usable as a cross-check. */
+function isNode(value: unknown): value is HexString {
+    return typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value);
+}
+
+/** Case-insensitive 32-byte node compare, for the same reason as {@link sameAddress}. */
+function sameNode(a: string, b: string): boolean {
+    return a.toLowerCase() === b.toLowerCase();
 }
 
 /**

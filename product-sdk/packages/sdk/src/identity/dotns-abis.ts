@@ -211,6 +211,35 @@ export const DOTNS_POP_RULES_ABI: AbiEntry[] = [
     },
 ];
 
+/**
+ * `IDotnsProtocolRegistry`, the two TLD getters.
+ *
+ * The TLD is per network: `initialize(tldLabel)` fixes it once at deployment
+ * and there is no setter, so these are immutable for the life of a deployment.
+ * `tld()` returns the suffix with its leading dot (`".paseo"`); `tldNode()`
+ * returns `namehash(0, labelhash(label))`, which is derivable from the suffix
+ * and so is read only as a cross-check.
+ *
+ * Deployments predating `dotns` `b4096968` have neither getter — the TLD was a
+ * compile-time constant there — and revert with an empty payload.
+ */
+export const DOTNS_PROTOCOL_REGISTRY_ABI: AbiEntry[] = [
+    {
+        type: "function",
+        name: "tld",
+        inputs: [],
+        outputs: [{ name: "suffix", type: "string" }],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "tldNode",
+        inputs: [],
+        outputs: [{ name: "node", type: "bytes32" }],
+        stateMutability: "view",
+    },
+];
+
 /** `IPopRules.PopStatus`. Ordering is meaningful: a user meets a tier when `userStatus >= status`. */
 export const POP_STATUS = { NoStatus: 0, PopLite: 1, PopFull: 2, Reserved: 3 } as const;
 
