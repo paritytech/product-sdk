@@ -166,8 +166,19 @@ export function usernameBase(username: string): string {
     return dot === -1 ? username : username.slice(0, dot);
 }
 
-/** Options every read is given, so a caller can pin and cancel it. */
-interface ReadAt {
+/**
+ * Where and whether to read.
+ *
+ * Named apart from `ReadAt` in `read.ts` on purpose: that one requires `at`,
+ * because a six-read batch has to agree on one block or it mixes eras. A single
+ * read cannot mix eras, so here the pin is optional. Two different contracts
+ * must not share one name.
+ */
+interface ConsumersReadAt {
+    /**
+     * Read at this block rather than the current best one. Only needed to join
+     * this read to a batch that has already pinned a block.
+     */
     at?: string;
     signal?: AbortSignal;
 }
@@ -192,7 +203,10 @@ export interface ConsumersChain {
         query: {
             Resources: {
                 Consumers: {
-                    getValue(key: string, options?: ReadAt): Promise<RawConsumerInfo | undefined>;
+                    getValue(
+                        key: string,
+                        options?: ConsumersReadAt,
+                    ): Promise<RawConsumerInfo | undefined>;
                 };
             };
         };
@@ -200,16 +214,9 @@ export interface ConsumersChain {
 }
 
 /** Options for {@link lookupUsername}. */
-export interface LookupUsernameOptions {
+export interface LookupUsernameOptions extends ConsumersReadAt {
     /** The account to read, SS58 encoded. This is the storage key. */
     account: string;
-    /**
-     * Read at this block rather than the current best one. One read cannot mix
-     * eras, so this exists only so a caller can join this read to a batch that
-     * has already pinned a block, such as `readPersonhoodState`.
-     */
-    at?: string;
-    signal?: AbortSignal;
 }
 
 /**
@@ -411,9 +418,9 @@ if (import.meta.vitest) {
          */
         function fakeChain(answer: RawConsumerInfo | undefined | (() => never)): {
             chain: ConsumersChain;
-            calls: Array<{ key: string; options?: ReadAt }>;
+            calls: Array<{ key: string; options?: ConsumersReadAt }>;
         } {
-            const calls: Array<{ key: string; options?: ReadAt }> = [];
+            const calls: Array<{ key: string; options?: ConsumersReadAt }> = [];
             return {
                 calls,
                 chain: {
