@@ -18,8 +18,10 @@
  *    Hand either one the other form and it encodes without throwing, producing
  *    the wrong bytes. Callers of this module never see that: they pass bytes for
  *    both, and {@link encodeAsPersonInfo} converts. The round trip in
- *    {@link encodeChecked} is what catches it if the metadata ever changes which
- *    field is which.
+ *    {@link encodeChecked} catches a change to which field is which, but **not a
+ *    wrong width on a fixed-size field**, because PAPI validates no width on
+ *    encode or decode. That is why the context and proof lengths are checked
+ *    explicitly further down.
  * 3. **The extension pipeline differs between chains that both have `AsPerson`.**
  *    Paseo declares 22 extensions, the devnet 23. Nothing may assume a count, a
  *    position, or that a given extension exists at all.
@@ -185,6 +187,18 @@ interface DynamicEnum {
  */
 const CONTEXT_BYTES = 32;
 
+/**
+ * Sanity ceiling on the ring VRF proof.
+ *
+ * The chain declares the field as a `BoundedVec`, but the bound is a type
+ * parameter with no type in the metadata, so the real maximum is not recoverable
+ * and this cannot be exact. It exists because PAPI's byte encoder enforces no
+ * bound at all: a 100 KB proof encodes cleanly into an extrinsic the node then
+ * rejects on decode. A real bandersnatch ring VRF proof is under a kilobyte, so
+ * this rejects nothing legitimate while turning a silent build into a local error.
+ */
+const PROOF_BYTES_MAX = 8 * 1024;
+
 /** Reject a context the chain cannot read, before it becomes wrong bytes. */
 function checkContext(context: Uint8Array): Uint8Array {
     if (context.length !== CONTEXT_BYTES) {
@@ -193,6 +207,17 @@ function checkContext(context: Uint8Array): Uint8Array {
         throw new AsPersonError("proof context is not 32 bytes");
     }
     return context;
+}
+
+/** Reject a proof the chain will not accept, for the reasons on the constant. */
+function checkProof(proof: Uint8Array): Uint8Array {
+    if (proof.length === 0) {
+        throw new AsPersonError("ring VRF proof is empty");
+    }
+    if (proof.length > PROOF_BYTES_MAX) {
+        throw new AsPersonError("ring VRF proof is larger than the chain will accept");
+    }
+    return proof;
 }
 
 /** Map a domain value onto the positional shape the chain's own codec expects. */
@@ -206,7 +231,7 @@ function toDynamicEnum(value: AsPersonValue): DynamicEnum {
             return {
                 type: value.tag,
                 value: [
-                    value.proof,
+                    checkProof(value.proof),
                     value.ringIndex,
                     value.revision,
                     `0x${bytesToHex(checkContext(value.context))}`,
@@ -217,7 +242,7 @@ function toDynamicEnum(value: AsPersonValue): DynamicEnum {
                 type: value.tag,
                 value: [
                     value.nonce,
-                    value.proof,
+                    checkProof(value.proof),
                     value.ringIndex,
                     value.revision,
                     `0x${bytesToHex(checkContext(value.context))}`,
@@ -274,13 +299,18 @@ function canonical(value: unknown): unknown {
  */
 export function encodeChecked(codec: TypeCodec, value: unknown): Uint8Array {
     const [encode, decode] = codec;
-    const bytes = encode(value);
 
+    // Both halves inside the try. PAPI's dynamic codecs throw bare `TypeError`s
+    // such as "inner[tag] is not a function" for a malformed value, and this
+    // function is exported, so a consumer encoding another origin extension would
+    // otherwise get an error naming neither this package nor their input.
+    let bytes: Uint8Array;
     let decoded: unknown;
     try {
+        bytes = encode(value);
         decoded = decode(bytes);
     } catch (cause) {
-        throw new AsPersonError("encoded extension value does not decode back", { cause });
+        throw new AsPersonError("extension value could not be encoded for this chain", { cause });
     }
 
     if (JSON.stringify(canonical(decoded)) !== JSON.stringify(canonical(value))) {
@@ -301,11 +331,6 @@ export function encodeChecked(codec: TypeCodec, value: unknown): Uint8Array {
  */
 export function encodeAsPersonInfo(pipeline: ExtensionPipeline, value: AsPersonValue): Uint8Array {
     return encodeChecked(pipeline.codec(pipeline.slot(AS_PERSON).type), toDynamicEnum(value));
-}
-
-/** Encode `None`: the extension present and unused, which is PAPI's own default. */
-export function encodeAsPersonNone(pipeline: ExtensionPipeline): Uint8Array {
-    return encodeChecked(pipeline.codec(pipeline.slot(AS_PERSON).type), undefined);
 }
 
 /**
@@ -458,10 +483,6 @@ if (import.meta.vitest) {
             expect(hex(bytes).endsWith(CONTEXT_HEX)).toBe(true);
         });
 
-        test("encodes None as a single zero byte", () => {
-            expect(hex(encodeAsPersonNone(pipeline))).toBe("0x00");
-        });
-
         test("throws for a chain that does not declare AsPerson", () => {
             const assetHub = readExtensionPipeline(ASSET_HUB);
             expect(() =>
@@ -541,6 +562,21 @@ if (import.meta.vitest) {
                     value: [hex(PROOF), 4, 5, `0x${CONTEXT_HEX}`],
                 }),
             ).toThrow(AsPersonError);
+        });
+
+        test("reports a malformed value as this package's error, not a raw codec error", () => {
+            // This function is exported, so a consumer encoding another origin
+            // extension would otherwise see PAPI internals such as
+            // "inner[tag] is not a function".
+            for (const bad of [
+                { type: "NotAVariant", value: 1 },
+                { type: "AsPersonalAliasWithProof" },
+                { type: "AsPersonalAliasWithProof", value: [1] },
+                null,
+                "nope",
+            ]) {
+                expect(() => encodeChecked(asPerson(), bad)).toThrow(AsPersonError);
+            }
         });
 
         test("never puts the value in the error message", () => {

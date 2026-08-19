@@ -120,9 +120,11 @@ export type AsPersonInfo =
      *
      * The chain accepts this for `People.set_alias_account` and nothing else, and
      * requires the proof's context to be one the runtime allows accounts to be
-     * bound in. Host-minted product contexts are not among them today, so this
-     * variant is not yet reachable from product code. It is here because the
-     * encoding is settled and only the context source is missing.
+     * bound in. Individuality up to v0.11.2, which is what paseo runs today,
+     * fixes those as constants that no host-minted context can equal, so the call
+     * is rejected there however correct the bytes are. v0.12.0 derives them with
+     * the same product-scoped construction the host uses, which makes this
+     * variant reachable once paseo upgrades. Nothing here changes when it does.
      */
     | { tag: "AliasWithProof"; createProof: CreateRingVRFProof }
     /**
@@ -191,17 +193,40 @@ function nonceFrom(pipeline: ExtensionPipeline, extensions: PapiSignedExtensions
     return decodeCheckNonce(pipeline, supplied.value);
 }
 
-/** Ask for a proof, and report a rejection as this package's own error. */
+/**
+ * Ask for a proof, and report both ways it can fail as this package's own error.
+ *
+ * `createProof` is the one input a caller has to write themselves, and it usually
+ * adapts a host call that returns a `Result` into a promise of a plain object, so
+ * resolving with `undefined` or a partial object is a likelier mistake than
+ * rejecting. Without the shape check below that surfaces as
+ * `TypeError: Cannot read properties of undefined`, which names neither this
+ * package nor the callback.
+ */
 async function requestProof(
     createProof: CreateRingVRFProof,
     message: Uint8Array,
 ): Promise<RingVRFProof> {
+    let proof: RingVRFProof;
     try {
-        return await createProof(message);
+        proof = await createProof(message);
     } catch (cause) {
         // No message bytes and no proof bytes: both identify a person.
         throw new AsPersonError("ring VRF proof request failed", { cause });
     }
+
+    if (
+        !(proof?.proof instanceof Uint8Array) ||
+        !(proof?.contextualAlias?.context instanceof Uint8Array) ||
+        typeof proof?.ringIndex !== "number" ||
+        typeof proof?.ringRevision !== "number"
+    ) {
+        // Which field is missing is not named: the values are pseudonymous
+        // identity, and listing the present ones leaks by omission.
+        throw new AsPersonError("ring VRF proof is missing a field the extension needs");
+    }
+
+    return proof;
 }
 
 /**
@@ -258,6 +283,13 @@ async function buildValue(
                 context: proof.contextualAlias.context,
             };
         }
+
+        default:
+            // Unreachable through the typed union, reachable from JavaScript. The
+            // switch returning `undefined` would encode the extension as `None`,
+            // which runs the call under a plain account origin: a transaction that
+            // can succeed while doing the wrong thing.
+            throw new AsPersonError("unknown AsPerson variant");
     }
 }
 
@@ -274,11 +306,25 @@ async function buildValue(
  * @returns a `PolkadotSigner` usable anywhere the original was.
  */
 export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): PolkadotSigner {
+    // Decoding the metadata is the expensive part of reading the pipeline, around
+    // 7 ms for a 435 KB blob, and PAPI hands the same array for every signature
+    // until the runtime upgrades. Cached on identity rather than content, so a
+    // runtime upgrade brings a different array and cannot be served a stale
+    // pipeline. Per closure, not module level, so two wrapped signers on two
+    // chains cannot share an entry.
+    let cached: { metadata: Uint8Array; pipeline: ExtensionPipeline } | undefined;
+    const pipelineFor = (metadata: Uint8Array): ExtensionPipeline => {
+        if (cached?.metadata !== metadata) {
+            cached = { metadata, pipeline: readExtensionPipeline(metadata) };
+        }
+        return cached.pipeline;
+    };
+
     return {
         publicKey: signer.publicKey,
         signBytes: (data) => signer.signBytes(data),
         async signTx(callData, signedExtensions, metadata, atBlockNumber, hasher) {
-            const pipeline = readExtensionPipeline(metadata);
+            const pipeline = pipelineFor(metadata);
             let extensions = signedExtensions;
 
             // Step 1. Inside the hash, and false is an immediate rejection for a
@@ -497,6 +543,52 @@ if (import.meta.vitest) {
         });
     });
 
+    describe("input validation at the package boundary", () => {
+        test("an unrecognized tag throws instead of silently encoding None", async () => {
+            // None would run the call under a plain account origin, so it could
+            // succeed while doing the wrong thing. Reachable from JavaScript,
+            // including by passing the on-chain variant name by mistake.
+            for (const tag of [
+                "aliasWithAccount",
+                "AsPersonalAliasWithAccount",
+                "Typo",
+                undefined,
+            ]) {
+                await expect(sign({ tag } as unknown as AsPersonInfo)).rejects.toThrow(
+                    AsPersonError,
+                );
+            }
+        });
+
+        test("reads the metadata once per signer, not once per signature", async () => {
+            // Decoding the blob is about 7 ms. PAPI hands the same array until the
+            // runtime upgrades, so the pipeline is cached on identity.
+            const { signer } = spySigner();
+            const wrapped = withAsPerson(signer, { tag: "AliasWithAccount" });
+
+            const first = process.hrtime.bigint();
+            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 1);
+            const firstMs = Number(process.hrtime.bigint() - first) / 1e6;
+
+            const second = process.hrtime.bigint();
+            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 2);
+            const secondMs = Number(process.hrtime.bigint() - second) / 1e6;
+
+            // Generous ratio so this is not a flaky timing test: the point is that
+            // the decode is gone, not how fast the rest is.
+            expect(secondMs).toBeLessThan(firstMs / 2);
+        });
+
+        test("re-reads the metadata when the runtime changes", async () => {
+            // A different array means a different runtime, so the cache must miss.
+            const { signer, calls } = spySigner();
+            const wrapped = withAsPerson(signer, { tag: "AliasWithAccount" });
+            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 1);
+            await wrapped.signTx(CALL_DATA, papiExtensions(), new Uint8Array(METADATA), 2);
+            expect(calls).toHaveLength(2);
+        });
+    });
+
     describe("AliasWithAccount", () => {
         test("encodes variant 0 with the nonce PAPI already put in CheckNonce", async () => {
             const { seen } = await sign({ tag: "AliasWithAccount" }, papiExtensions(7));
@@ -566,6 +658,46 @@ if (import.meta.vitest) {
             await sign(info(createProof));
             expect(createProof).toHaveBeenCalledOnce();
             expect(createProof.mock.calls[0][0]).toHaveLength(32);
+        });
+
+        test("reports a proof that resolves with the wrong shape as this package's error", async () => {
+            // The likelier mistake than a rejection: callers adapt a host call
+            // that returns a Result into a promise of a plain object.
+            const malformed = [
+                async () => undefined,
+                async () => ({}),
+                async () => ({ proof: PROOF_BYTES, ringIndex: 1, ringRevision: 1 }),
+                async () => ({ ...RING_PROOF, ringIndex: "4" }),
+            ] as unknown as CreateRingVRFProof[];
+
+            for (const createProof of malformed) {
+                await expect(sign(info(createProof))).rejects.toThrow(AsPersonError);
+            }
+        });
+
+        test("does not sign when the proof shape is wrong", async () => {
+            const { signer, calls } = spySigner();
+            await withAsPerson(signer, {
+                tag: "AliasWithProof",
+                createProof: (async () => undefined) as unknown as CreateRingVRFProof,
+            })
+                .signTx(CALL_DATA, papiExtensions(), METADATA, 1)
+                .catch(() => {});
+            expect(calls).toHaveLength(0);
+        });
+
+        test("rejects an empty proof", async () => {
+            await expect(
+                sign(info(async () => ({ ...RING_PROOF, proof: new Uint8Array() }))),
+            ).rejects.toThrow(AsPersonError);
+        });
+
+        test("rejects a proof larger than the chain accepts", async () => {
+            // PAPI's byte encoder enforces no BoundedVec bound, so without this
+            // the SDK builds an extrinsic the node rejects on decode.
+            await expect(
+                sign(info(async () => ({ ...RING_PROOF, proof: new Uint8Array(100_000) }))),
+            ).rejects.toThrow(AsPersonError);
         });
 
         test("reports a rejected proof as this package's error", async () => {

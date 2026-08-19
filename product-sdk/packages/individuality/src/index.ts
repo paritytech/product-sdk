@@ -74,24 +74,14 @@ export type { IndividualityChain, RawAccountAlias, ReadPersonhoodStateOptions } 
 export { withAsPerson } from "./as-person-signer.js";
 export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person-signer.js";
 
-// The metadata-driven pieces underneath, exported because every other
-// origin-modifying extension on this chain is bound the same way, and #291b will
-// need them for `GameAsInvited` rather than a second copy of this logic.
-export {
-    AS_PERSON,
-    encodeAsPersonInfo,
-    encodeAsPersonNone,
-    encodeChecked,
-    readExtensionPipeline,
-} from "./as-person-codec.js";
-export type {
-    AsPersonValue,
-    ExtensionPipeline,
-    ExtensionSlot,
-    TypeCodec,
-} from "./as-person-codec.js";
-export { buildImplication, implicationMessage, reviseMessage } from "./as-person-implication.js";
-export type { PapiSignedExtensions } from "./as-person-implication.js";
+// The metadata-driven pieces underneath stay internal on purpose. They are
+// written generically, taking an extension identifier rather than hard-coding
+// `AsPerson`, so the other origin-modifying extensions on this chain can reuse
+// them, and #291b should. But they are implementation details of `withAsPerson`
+// today, and two of their types are shapes chosen to suit it rather than to be a
+// public contract. Widening a surface later never breaks anyone; narrowing one
+// after it ships does. Export them when something outside this package actually
+// reaches for them.
 
 // Errors. `UsernameUnowned` is not one of them — it travels on the success
 // channel as a `PersonhoodResult`. `AsPersonError` is the write half's, and

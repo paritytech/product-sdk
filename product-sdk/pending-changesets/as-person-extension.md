@@ -26,9 +26,12 @@ transaction so the origin is `None`, the only origin that variant accepts.
 Everything is encoded from the runtime metadata the transaction is being signed against, never from
 a hand-written type. The deployed `AsPersonInfo` and the upstream `polkadot-sdk` one both declare a
 variant named `AsPersonalAliasWithProof` with different field lists, so an upstream-derived encoder
-would emit plausible bytes with a field missing. The metadata-driven pieces are exported for the same
-reason — `readExtensionPipeline`, `buildImplication`, `implicationMessage`, `encodeChecked` — since
-every origin-modifying extension on this chain is bound the same way.
+would emit plausible bytes with a field missing.
+
+The public surface is five names: `withAsPerson`, `AsPersonInfo`, `CreateRingVRFProof`,
+`RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath stay internal, but they are
+written generically, taking an extension identifier rather than hard-coding `AsPerson`, so the other
+origin-modifying extensions on this chain can reuse them when something needs them.
 
 Errors arrive as a thrown `AsPersonError`, not on a `Result` channel, because they happen inside
 `PolkadotSigner.signTx`.

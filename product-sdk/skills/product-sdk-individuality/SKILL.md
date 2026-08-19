@@ -210,10 +210,12 @@ const signer = withAsPerson(innerSigner, {
 
 ### If you are building the extension yourself
 
-The metadata-driven pieces are exported, because every origin-modifying extension on this chain is bound the same way: `readExtensionPipeline`, `buildImplication`, `implicationMessage`, `encodeChecked`, `encodeAsPersonInfo`. Two things to know before you use them:
+`withAsPerson` is the whole public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. If you need them for another origin-modifying extension on this chain, they are written generically and take an extension identifier, so ask for them to be exported rather than writing a second copy.
+
+Two things to know either way, because they are the traps that cost the most time here:
 
 - **Encode from the runtime metadata, never from a hand-written type.** The deployed `AsPersonInfo` and the upstream `polkadot-sdk` one both have a variant called `AsPersonalAliasWithProof` with *different field lists* — the deployed one carries a revision index. An upstream-derived encoder emits plausible bytes with a field missing and no index mismatch to signal it.
-- **PAPI wants different JavaScript for two byte fields that look alike.** A `BoundedVec<u8>` takes a `Uint8Array`; a `[u8; 32]` takes a `0x` string. Hand either the other form and it encodes *without throwing*, producing wrong bytes. `encodeChecked` catches shape mistakes by round-tripping the value; it cannot catch a wrong *length* on a fixed-size field, because PAPI validates no width, so the context length is checked explicitly.
+- **PAPI wants different JavaScript for two byte fields that look alike.** A `BoundedVec<u8>` takes a `Uint8Array`; a `[u8; 32]` takes a `0x` string. Hand either the other form and it encodes *without throwing*, producing wrong bytes. A round trip through the chain's own codec catches that, but it cannot catch a wrong *length* on a fixed-size field, because PAPI validates no width on encode or decode. So the context length and the proof length are both checked explicitly, and a proof or context of the wrong size throws `AsPersonError` rather than building an extrinsic the node rejects.
 
 ## Common Mistakes
 
@@ -229,5 +231,6 @@ The metadata-driven pieces are exported, because every origin-modifying extensio
 10. **Hand-building `AsPerson` and forgetting `RestrictOrigins`** — every call fails `Invalid.Call` before dispatch, and nothing in the error points at the extension you missed.
 11. **Choosing the proof message yourself** — it must be the implication hash, which depends on the nonce, era and tip. `withAsPerson` passes it to your callback; anything else is a bad proof.
 12. **Expecting `withAsPerson` to return a `Result`** — it returns a `PolkadotSigner` and throws `AsPersonError` from `signTx`. Wrap it in `submitAndWatch` and read the `err` channel.
-13. **Reaching for `AliasWithProof` to bind an alias before paseo upgrades** — the chain fixes the allowed contexts as constants until `specVersion 1000035`, so it answers `Invalid.Call` however correct the bytes are.
-14. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `BadSigner`, and `AliasWithAccountRevised` is the variant that fixes it. It cannot be detected client-side without reading the ring root.
+13. **Returning the host's `Result` straight out of `createProof`** — the callback must resolve to the proof object itself, so unwrap it first. Resolving with a `Result`, with `undefined`, or with a partial object throws `AsPersonError` and nothing is signed.
+14. **Reaching for `AliasWithProof` to bind an alias before paseo upgrades** — the chain fixes the allowed contexts as constants until `specVersion 1000035`, so it answers `Invalid.Call` however correct the bytes are.
+15. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `BadSigner`, and `AliasWithAccountRevised` is the variant that fixes it. It cannot be detected client-side without reading the ring root.
