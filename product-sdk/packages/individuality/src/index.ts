@@ -4,8 +4,9 @@
  * @parity/product-sdk-individuality — read a person's standing on the
  * individuality chain.
  *
- * One question, one answer: for a DotNS username, what is that person's
- * personhood state, as of one pinned finalized block?
+ * Two reads, opposite directions. For a DotNS username, what is that person's
+ * personhood state, as of one pinned finalized block? And for an account, what
+ * usernames does it hold?
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -53,6 +54,24 @@ export type { RawParticipant, RawRecognition, RawStreak } from "./decode.js";
 // The pinned batched read.
 export { readPersonhoodState } from "./read.js";
 export type { IndividualityChain, RawAccountAlias, ReadPersonhoodStateOptions } from "./read.js";
+
+// The account to username direction, over `Resources.Consumers`. A lite name is
+// always present; a full one appears once the person claimed a bare name, which
+// is also exactly when they stop being eligible to claim.
+export {
+    canClaimFullUsername,
+    decodeConsumerInfo,
+    displayUsername,
+    lookupUsername,
+    usernameBase,
+} from "./username.js";
+export type {
+    ConsumersChain,
+    ConsumerUsernames,
+    LookupUsernameOptions,
+    RawConsumerInfo,
+    UsernameCredibility,
+} from "./username.js";
 
 // Errors. `UsernameUnowned` is not one of them — it travels on the success
 // channel as a `PersonhoodResult`.
