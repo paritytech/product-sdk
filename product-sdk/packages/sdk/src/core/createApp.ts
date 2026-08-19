@@ -32,9 +32,10 @@ import {
     isConnected,
     destroyAll,
 } from "@parity/product-sdk-chain-client";
+import { accountIdBytes } from "@parity/product-sdk-address";
 import { getAccountsProvider } from "@parity/product-sdk-host";
 import {
-    accountIdHexToBytes,
+    accountIdToHex,
     type PeopleUsernameQueryApi,
     resolvePeopleUsernameOwner,
 } from "../identity/dotns.js";
@@ -321,21 +322,22 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
             const peopleApi = peopleClient.getTypedApi(
                 args.peopleChain,
             ) as unknown as PeopleUsernameQueryApi;
-            const accountId = await resolvePeopleUsernameOwner(username, peopleApi);
-            if (!accountId) {
+            const owner = await resolvePeopleUsernameOwner(username, peopleApi);
+            if (!owner) {
                 throw new Error(`No account owns DotNS username "${username}"`);
             }
 
-            const owner = accountIdHexToBytes(accountId);
             const signer = accountsProvider.getLegacyAccountSigner({
-                publicKey: owner,
+                publicKey: accountIdBytes(owner),
                 name: username,
             });
 
             try {
                 return {
                     username,
-                    accountId,
+                    // The public result stays hex, which is what this field has
+                    // always been. Only the resolver's own return type changed.
+                    accountId: accountIdToHex(owner),
                     signature: await signer.signBytes(message),
                 };
             } catch (cause) {

@@ -160,11 +160,17 @@ export async function isDotNsAvailable(name: string): Promise<boolean> {
 }
 
 /**
- * Resolve a People / People Lite username to its owning `AccountId32`.
+ * Resolve a People / People Lite username to its owning account.
  *
  * Queries `Resources.UsernameOwnerOf` on the caller-supplied typed-api fragment.
- * The returned value is the raw 32-byte account id as a `0x`-prefixed hex
- * string, or `null` when no owner is registered for that username.
+ * The returned value is the SS58 address the storage yields, or `null` when no
+ * owner is registered for that username.
+ *
+ * Returns SS58 rather than hex because that is both the form the storage yields
+ * and the form `Resources.Consumers` is keyed by, so reading an account's
+ * usernames from this result needs no conversion. Callers that want the raw
+ * 32-byte key use `accountIdBytes` from `@parity/product-sdk-address`, and
+ * {@link accountIdToHex} for the hex form.
  *
  * The `username` is UTF-8 encoded as-is — no normalization is applied. Pass
  * the exact byte string the chain stores (typically with the `.dot` suffix).
@@ -176,13 +182,11 @@ export async function isDotNsAvailable(name: string): Promise<boolean> {
 export async function resolvePeopleUsernameOwner(
     username: string,
     peopleApi: PeopleUsernameQueryApi,
-): Promise<`0x${string}` | null> {
+): Promise<SS58String | null> {
     const owner = await peopleApi.query.Resources.UsernameOwnerOf.getValue(
         new TextEncoder().encode(username),
     );
-    if (!owner) return null;
-
-    return accountIdBytesToHex(accountIdBytes(owner));
+    return owner ?? null;
 }
 
 function assertHex(value: string): `0x${string}` {
@@ -205,4 +209,14 @@ function accountIdBytesToHex(bytes: Uint8Array): `0x${string}` {
         throw new Error(`Expected 32-byte AccountId, got ${bytes.length} bytes`);
     }
     return `0x${bytesToHex(bytes)}`;
+}
+
+/**
+ * An SS58 address as its raw 32-byte account id in `0x` hex.
+ *
+ * The inverse of {@link accountIdHexToBytes}. Exported so callers that have to
+ * report the hex form share this module's 32-byte check rather than copying it.
+ */
+export function accountIdToHex(address: string): `0x${string}` {
+    return accountIdBytesToHex(accountIdBytes(address));
 }
