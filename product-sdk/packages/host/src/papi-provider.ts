@@ -61,6 +61,38 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
 /** A `chainHead_v1_followEvent` payload (loosely typed — consumed by PAPI's substrate-client). */
 type FollowEvent = { event: string } & Record<string, unknown>;
 
+type BufferedOperation = {
+    announced: boolean;
+    items: RemoteChainHeadFollowItem[];
+};
+
+/** Return the operation id carried by an operation follow item. */
+function followOperationId(item: RemoteChainHeadFollowItem): string | undefined {
+    switch (item.tag) {
+        case "OperationBodyDone":
+        case "OperationCallDone":
+        case "OperationStorageItems":
+        case "OperationStorageDone":
+        case "OperationWaitingForContinue":
+        case "OperationInaccessible":
+        case "OperationError":
+            return item.value.operationId;
+        default:
+            return undefined;
+    }
+}
+
+/** Whether this item closes its operation. */
+function isTerminalOperationItem(item: RemoteChainHeadFollowItem): boolean {
+    return (
+        item.tag === "OperationBodyDone" ||
+        item.tag === "OperationCallDone" ||
+        item.tag === "OperationStorageDone" ||
+        item.tag === "OperationInaccessible" ||
+        item.tag === "OperationError"
+    );
+}
+
 /** Map a JSON-RPC storage query-type string to the truapi `StorageQueryType` tag. */
 const STORAGE_TYPE_MAP: Record<string, StorageQueryType> = {
     value: "Value",
@@ -194,6 +226,7 @@ export function createHostPapiProvider(
     return (onMessage: (message: JsonRpcMessage) => void): JsonRpcConnection => {
         const activeFollows = new Map<string, TransportSubscription>();
         const activeBroadcasts = new Set<string>();
+        const followOperations = new Map<string, Map<string, BufferedOperation>>();
 
         function sendJsonRpcResponse(id: JsonRpcRequest["id"], result: unknown): void {
             onMessage({ jsonrpc: "2.0", id, result } as JsonRpcMessage);
@@ -207,6 +240,65 @@ export function createHostPapiProvider(
                 method: "chainHead_v1_followEvent",
                 params: { subscription, result: event },
             } as JsonRpcMessage);
+        }
+
+        function forwardFollowItem(
+            followSubscriptionId: string,
+            item: RemoteChainHeadFollowItem,
+        ): void {
+            const operationId = followOperationId(item);
+            if (operationId === undefined) {
+                sendFollowEvent(followSubscriptionId, convertFollowEventToJsonRpc(item));
+                return;
+            }
+
+            const operations = followOperations.get(followSubscriptionId);
+            if (!operations) return;
+
+            let operation = operations.get(operationId);
+            if (!operation) {
+                operation = { announced: false, items: [] };
+                operations.set(operationId, operation);
+            }
+            if (!operation.announced) {
+                operation.items.push(item);
+                return;
+            }
+
+            sendFollowEvent(followSubscriptionId, convertFollowEventToJsonRpc(item));
+            if (isTerminalOperationItem(item)) {
+                operations.delete(operationId);
+            }
+        }
+
+        function sendOperationStartedResponse(
+            id: JsonRpcRequest["id"],
+            followSubscriptionId: string,
+            result: OperationStartedResult,
+        ): void {
+            // The JSON-RPC response must be observable before any event naming its
+            // operation. TrUAPI request and subscription frames are independent,
+            // so a fast operation can complete before this request resolves.
+            sendJsonRpcResponse(id, convertOperationResultToJsonRpc(result));
+            if (result.tag !== "Started") return;
+
+            const operations = followOperations.get(followSubscriptionId);
+            if (!operations) return;
+
+            const operationId = result.value.operationId;
+            let operation = operations.get(operationId);
+            if (!operation) {
+                operation = { announced: true, items: [] };
+                operations.set(operationId, operation);
+                return;
+            }
+
+            operation.announced = true;
+            const pendingItems = operation.items;
+            operation.items = [];
+            for (const item of pendingItems) {
+                forwardFollowItem(followSubscriptionId, item);
+            }
         }
 
         /** Reject an inbound request with the host's error reason as the JSON-RPC message. */
@@ -234,8 +326,9 @@ export function createHostPapiProvider(
                     ) => {
                         if (item.tag === "Stop" && activeFollows.delete(followSubscriptionId)) {
                             ref.handle?.unsubscribe();
+                            followOperations.delete(followSubscriptionId);
                         }
-                        sendFollowEvent(followSubscriptionId, convertFollowEventToJsonRpc(item));
+                        forwardFollowItem(followSubscriptionId, item);
                     };
                     ref.handle = subscribeWithInterrupt(
                         chain.followHeadSubscribe({ request: { genesisHash, withRuntime } }),
@@ -261,11 +354,13 @@ export function createHostPapiProvider(
                     // A transport interrupt/close ends the stream without a Stop
                     // item; synthesize one so the consumer refollows.
                     ref.handle.onInterrupt(() => {
+                        followOperations.delete(followSubscriptionId);
                         if (activeFollows.delete(followSubscriptionId)) {
                             sendFollowEvent(followSubscriptionId, { event: "stop" });
                         }
                     });
                     activeFollows.set(followSubscriptionId, ref.handle);
+                    followOperations.set(followSubscriptionId, new Map());
                     sendJsonRpcResponse(id, followSubscriptionId);
                     for (const item of pendingItems) {
                         forwardItem(followSubscriptionId, item);
@@ -279,6 +374,7 @@ export function createHostPapiProvider(
                         follow.unsubscribe();
                         activeFollows.delete(followSubId);
                     }
+                    followOperations.delete(followSubId);
                     sendJsonRpcResponse(id, null);
                     break;
                 }
@@ -298,9 +394,10 @@ export function createHostPapiProvider(
                         .getHeadBody({ genesisHash, followSubscriptionId, hash })
                         .match(
                             (response) =>
-                                sendJsonRpcResponse(
+                                sendOperationStartedResponse(
                                     id,
-                                    convertOperationResultToJsonRpc(response.operation),
+                                    followSubscriptionId,
+                                    response.operation,
                                 ),
                             hostError(id),
                         );
@@ -332,9 +429,10 @@ export function createHostPapiProvider(
                         })
                         .match(
                             (response) =>
-                                sendJsonRpcResponse(
+                                sendOperationStartedResponse(
                                     id,
-                                    convertOperationResultToJsonRpc(response.operation),
+                                    followSubscriptionId,
+                                    response.operation,
                                 ),
                             hostError(id),
                         );
@@ -357,9 +455,10 @@ export function createHostPapiProvider(
                         })
                         .match(
                             (response) =>
-                                sendJsonRpcResponse(
+                                sendOperationStartedResponse(
                                     id,
-                                    convertOperationResultToJsonRpc(response.operation),
+                                    followSubscriptionId,
+                                    response.operation,
                                 ),
                             hostError(id),
                         );
@@ -387,7 +486,10 @@ export function createHostPapiProvider(
                     const [followSubscriptionId, operationId] = params as [string, string];
                     chain
                         .stopHeadOperation({ genesisHash, followSubscriptionId, operationId })
-                        .match(() => sendJsonRpcResponse(id, null), hostError(id));
+                        .match(() => {
+                            followOperations.get(followSubscriptionId)?.delete(operationId);
+                            sendJsonRpcResponse(id, null);
+                        }, hostError(id));
                     break;
                 }
                 case "chainSpec_v1_genesisHash": {
@@ -467,6 +569,7 @@ export function createHostPapiProvider(
                     handle.unsubscribe();
                 }
                 activeFollows.clear();
+                followOperations.clear();
                 for (const operationId of activeBroadcasts) {
                     // Fire-and-forget: the transport may already be torn down.
                     chain.stopTransaction({ genesisHash, operationId }).match(
@@ -491,6 +594,8 @@ if (import.meta.vitest) {
         responses?: Record<string, unknown>;
         /** Methods named here resolve to their `.match` error arm carrying the given value. */
         errors?: Record<string, unknown>;
+        /** Capture selected successful matches so tests can resolve them after follow events. */
+        deferMatch?: (method: string, resolve: () => unknown) => boolean;
         /** Unsubscribe spy used by the follow subscription (defaults to a fresh `vi.fn()`). */
         unsubscribe?: () => void;
         /** Item emitted synchronously while the transport subscription starts. */
@@ -503,16 +608,20 @@ if (import.meta.vitest) {
         /** Transport request id assigned to the follow subscription. */
         subscriptionId?: string;
     }) {
-        const okMatch = (value: unknown) => ({
-            match: (ok: (v: unknown) => unknown, _err: (e: unknown) => unknown) => ok(value),
-        });
         const errMatch = (error: unknown) => ({
             match: (_ok: (v: unknown) => unknown, err: (e: unknown) => unknown) => err(error),
         });
         const method = (name: string, response: unknown) => (args: unknown) => {
             opts.onCall?.(name, args);
             const errors = opts.errors ?? {};
-            return name in errors ? errMatch(errors[name]) : okMatch(response);
+            if (name in errors) return errMatch(errors[name]);
+            return {
+                match: (ok: (value: unknown) => unknown) => {
+                    const resolve = () => ok(response);
+                    if (opts.deferMatch?.(name, resolve)) return undefined;
+                    return resolve();
+                },
+            };
         };
         return {
             chain: {
@@ -539,13 +648,22 @@ if (import.meta.vitest) {
                     "getHeadHeader",
                     opts.responses?.getHeadHeader ?? { header: "0x01" },
                 ),
-                getHeadBody: method("getHeadBody", {
-                    operation: { tag: "Started", value: { operationId: "op1" } },
-                }),
-                getHeadStorage: method("getHeadStorage", { operation: { tag: "LimitReached" } }),
-                callHead: method("callHead", {
-                    operation: { tag: "Started", value: { operationId: "op2" } },
-                }),
+                getHeadBody: method(
+                    "getHeadBody",
+                    opts.responses?.getHeadBody ?? {
+                        operation: { tag: "Started", value: { operationId: "op1" } },
+                    },
+                ),
+                getHeadStorage: method(
+                    "getHeadStorage",
+                    opts.responses?.getHeadStorage ?? { operation: { tag: "LimitReached" } },
+                ),
+                callHead: method(
+                    "callHead",
+                    opts.responses?.callHead ?? {
+                        operation: { tag: "Started", value: { operationId: "op2" } },
+                    },
+                ),
                 unpinHead: method("unpinHead", undefined),
                 continueHead: method("continueHead", undefined),
                 stopHeadOperation: method("stopHeadOperation", undefined),
@@ -626,6 +744,113 @@ if (import.meta.vitest) {
                 },
             },
         ]);
+    });
+
+    test("buffers a call completion until after its operation-start response", () => {
+        let observer:
+            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
+            | undefined;
+        let resolveCall: (() => unknown) | undefined;
+        const client = makeFakeClient({
+            responses: {
+                callHead: { operation: { tag: "Started", value: { operationId: "op-call" } } },
+            },
+            captureObserver: (value) => {
+                observer = value;
+            },
+            deferMatch: (method, resolve) => {
+                if (method !== "callHead") return false;
+                resolveCall = resolve;
+                return true;
+            },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        messages.length = 0;
+
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_call",
+            params: ["p:41", "0xhash", "Test_call", "0x"],
+        });
+        observer?.next({
+            tag: "OperationCallDone",
+            value: { operationId: "op-call", output: "0x1234" },
+        });
+        expect(messages).toEqual([]);
+
+        resolveCall?.();
+        expect(messages).toEqual([
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                result: { result: "started", operationId: "op-call" },
+            },
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: {
+                    subscription: "p:41",
+                    result: {
+                        event: "operationCallDone",
+                        operationId: "op-call",
+                        output: "0x1234",
+                    },
+                },
+            },
+        ]);
+    });
+
+    test("preserves buffered storage item order after announcing the operation", () => {
+        let observer:
+            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
+            | undefined;
+        let resolveStorage: (() => unknown) | undefined;
+        const client = makeFakeClient({
+            responses: {
+                getHeadStorage: {
+                    operation: { tag: "Started", value: { operationId: "op-storage" } },
+                },
+            },
+            captureObserver: (value) => {
+                observer = value;
+            },
+            deferMatch: (method, resolve) => {
+                if (method !== "getHeadStorage") return false;
+                resolveStorage = resolve;
+                return true;
+            },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        messages.length = 0;
+
+        conn.send({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "chainHead_v1_storage",
+            params: ["p:41", "0xhash", [{ key: "0x01", type: "value" }], null],
+        });
+        observer?.next({
+            tag: "OperationStorageItems",
+            value: {
+                operationId: "op-storage",
+                items: [{ key: "0x01", value: "0xabcd" }],
+            },
+        });
+        observer?.next({
+            tag: "OperationStorageDone",
+            value: { operationId: "op-storage" },
+        });
+        expect(messages).toEqual([]);
+
+        resolveStorage?.();
+        expect(
+            messages.map((message) => ("id" in message ? message.id : message.params.result.event)),
+        ).toEqual([3, "operationStorageItems", "operationStorageDone"]);
     });
 
     test("chainSpec_v1_properties parses the JSON-encoded properties string", () => {
