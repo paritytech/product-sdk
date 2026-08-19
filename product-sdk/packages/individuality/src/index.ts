@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * @parity/product-sdk-individuality — read a person's standing on the
- * individuality chain.
+ * individuality chain, and act as that person on it.
  *
- * One question, one answer: for a DotNS username, what is that person's
- * personhood state, as of one pinned finalized block?
+ * Two halves. The **read** half answers one question: for a DotNS username, what
+ * is that person's personhood state, as of one pinned finalized block? The
+ * **write** half is `withAsPerson`, which wraps a signer so a call dispatches
+ * under a person origin instead of an account origin.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -31,6 +33,19 @@
  * **Not an authorization oracle.** This is a client-side read in a client-side
  * library, and a backend that trusts "the SDK said `Member`" is trivially
  * spoofed. Anything that gates value must verify on chain itself.
+ *
+ * The write half needs no chain client and no submitter of its own. It returns a
+ * `PolkadotSigner`, so it composes with `@parity/product-sdk-tx`:
+ *
+ * ```ts
+ * import { submitAndWatch } from "@parity/product-sdk-tx";
+ * import { withAsPerson } from "@parity/product-sdk-individuality";
+ *
+ * const signer = withAsPerson(accounts.getProductAccountSigner(account), {
+ *     tag: "AliasWithAccount",
+ * });
+ * await submitAndWatch(api.tx.Game.sign_up_with_alias(), signer);
+ * ```
  */
 
 // The seven-state union, its wrappers, and the pinned-block coordinates.
@@ -54,6 +69,32 @@ export type { RawParticipant, RawRecognition, RawStreak } from "./decode.js";
 export { readPersonhoodState } from "./read.js";
 export type { IndividualityChain, RawAccountAlias, ReadPersonhoodStateOptions } from "./read.js";
 
+// The write half: wrap a signer so the call runs under a person origin. Returns
+// a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx`.
+export { withAsPerson } from "./as-person-signer.js";
+export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person-signer.js";
+
+// The metadata-driven pieces underneath, exported because every other
+// origin-modifying extension on this chain is bound the same way, and #291b will
+// need them for `GameAsInvited` rather than a second copy of this logic.
+export {
+    AS_PERSON,
+    encodeAsPersonInfo,
+    encodeAsPersonNone,
+    encodeChecked,
+    readExtensionPipeline,
+} from "./as-person-codec.js";
+export type {
+    AsPersonValue,
+    ExtensionPipeline,
+    ExtensionSlot,
+    TypeCodec,
+} from "./as-person-codec.js";
+export { buildImplication, implicationMessage, reviseMessage } from "./as-person-implication.js";
+export type { PapiSignedExtensions } from "./as-person-implication.js";
+
 // Errors. `UsernameUnowned` is not one of them — it travels on the success
-// channel as a `PersonhoodResult`.
-export { IndividualityDecodeError, ProductIndividualityError } from "./errors.js";
+// channel as a `PersonhoodResult`. `AsPersonError` is the write half's, and
+// unlike the others it is thrown rather than returned, because it happens inside
+// `PolkadotSigner.signTx` where there is no `Result` channel.
+export { AsPersonError, IndividualityDecodeError, ProductIndividualityError } from "./errors.js";
