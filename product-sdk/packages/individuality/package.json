@@ -24,10 +24,14 @@
     },
     "dependencies": {
         "@parity/product-sdk-errors": "workspace:*",
+        "@parity/product-sdk-utils": "workspace:*",
         "@parity/result": "workspace:*",
+        "@polkadot-api/metadata-builders": "catalog:",
+        "@polkadot-api/substrate-bindings": "catalog:",
         "polkadot-api": "catalog:"
     },
     "devDependencies": {
+        "@parity/product-sdk-descriptors": "workspace:*",
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
