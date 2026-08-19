@@ -10,7 +10,7 @@ description: >
 
 # Product SDK Individuality
 
-Answers one question: **for a DotNS username, what is that person's personhood state on the individuality chain, as of one pinned finalized block?**
+Answers two questions, in opposite directions. **For a DotNS username, what is that person's personhood state on the individuality chain, as of one pinned finalized block?** And **for an account, what usernames does it hold?**
 
 Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/product-sdk/individuality`)
 
@@ -46,6 +46,51 @@ if (!result.ok) {
 ```
 
 This package does **not** resolve a chain. It takes an already-connected client, so the environment choice stays with you — see the `product-sdk-chain-connection` skill for `getChainAPI`.
+
+## Account to Username
+
+The other direction, and the one a results or profile screen needs. `lookupUsername(chain, { account })`
+reads `Resources.Consumers`, which is keyed by account and carries both names plus the credibility.
+The account is what a paired session already gives you as `rootAddress`.
+
+```ts
+import { getChainAPI } from "@parity/product-sdk-chain-client";
+import { displayUsername, lookupUsername } from "@parity/product-sdk-individuality";
+
+const chain = await getChainAPI("paseo");
+const result = await lookupUsername(chain, { account: rootAddress });
+
+if (!result.ok) {
+  console.error(result.error);
+} else if (result.value === null) {
+  console.log("this account has no consumer record");
+} else {
+  console.log(displayUsername(result.value)); // the claimed name, else the lite one
+}
+```
+
+> **NO RECORD IS `ok(null)`**, not an error. The chain was asked and answered.
+
+Four things the chain guarantees, all worth knowing before you render any of this:
+
+| | |
+|---|---|
+| `liteUsername` | always present, always `<letters>.<digits>`, for example `bigtava.07` |
+| `fullUsername` | the claimed bare name, letters only, no dot. Present exactly when the person claimed one |
+| eligibility | `canClaimFullUsername(record)` is `fullUsername === null`, which is the literal precondition the claim extrinsic checks |
+| `credibility` | `{ tag: "Lite" }` before a claim, `{ tag: "Person", alias, demoted }` after |
+
+**A `demoted` person is still a `Person`, and still has their full username.** Demotion fires when the
+person authorization goes stale and it rewrites only that flag, so `credibility.tag === "Person"` on
+its own does **not** mean "in good standing". Check `demoted`.
+
+`usernameBase("bigtava.07")` gives `"bigtava"`, the name a claim would suggest. It is a suggestion,
+not an entitlement: an account may hold a reservation for a different name, and the reservation is
+what the chain honours.
+
+`displayUsername` is the same rule the host applies when it computes
+`account.getUserId().primaryUsername` from this record at session-pairing time. For the signed-in
+user the two should agree; if they disagree, the session snapshot is older than the chain.
 
 ## The Seven States
 
