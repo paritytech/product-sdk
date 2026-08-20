@@ -4,9 +4,9 @@
  * @parity/product-sdk-individuality — read a person's standing on the
  * individuality chain, and act as that person on it.
  *
- * Two halves. The **read** half goes in both directions: for a DotNS username,
- * what is that person's personhood state, as of one pinned finalized block? And
- * for an account, what usernames does it hold? The **write** half is
+ * Two halves. The **read** half goes in both directions: for a DotNS username or
+ * an account, what is that person's personhood state, as of one pinned finalized
+ * block? And for an account, what usernames does it hold? The **write** half is
  * `withAsPerson`, which wraps a signer so a call dispatches under a person origin
  * instead of an account origin.
  *
@@ -18,9 +18,12 @@
  * const result = await readPersonhoodState(chain, { username: "alice.dot" });
  * if (!result.ok) {
  *     console.error(result.error);
- * } else if (result.value.tag === "Resolved" && result.value.state.tag === "Member") {
- *     console.log(`member for ${result.value.state.activeWeeks} weeks`);
+ * } else if (result.value.tag === "Resolved") {
+ *     const { state, metrics } = result.value;
+ *     console.log(state.tag, metrics.score, "of", metrics.personhoodThreshold);
  * }
+ *
+ * const byAccount = await readPersonhoodState(chain, { account: aliceAddress });
  * ```
  *
  * And the other direction, from an account:
@@ -70,13 +73,16 @@ export type {
     AbsenceGracePolicy,
     FinalizedSnapshot,
     PersonhoodInputs,
+    PersonhoodMetrics,
     PersonhoodParticipant,
     PersonhoodResult,
     PersonhoodState,
 } from "./types.js";
 
-// The pure derivation, for a snapshot the caller already holds.
-export { derivePersonhoodState } from "./derive.js";
+// The pure derivation, for a snapshot the caller already holds. `missesInWindow`
+// comes with it, or a caller reproducing `metrics.misses` reaches for the
+// projected count the grace policy uses instead.
+export { derivePersonhoodState, missesInWindow } from "./derive.js";
 
 // Raw storage values to domain shapes, for callers doing their own reads.
 export { decodeAbsenceGracePolicy, toPersonhoodParticipant } from "./decode.js";

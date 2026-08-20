@@ -49,6 +49,15 @@ export {
 export type { DotNsTld } from "./dotns-namehash.js";
 export { POP_STATUS, DOTNS_ADDRESSES } from "./dotns-abis.js";
 
+// Where those addresses come from: the pinned table, or the gateway walk.
+export {
+    DOTNS_REGISTRY_KEYS,
+    discoverDotNsAddresses,
+    resolveDotNsAddresses,
+    verifyDotNsAddresses,
+} from "./dotns-addresses.js";
+export type { DotNsAddresses, DotNsGatewayQueryApi } from "./dotns-addresses.js";
+
 // Context alias utilities (deprecated)
 export { deriveContextAlias, verifyContextAlias } from "./product-account.js";
 

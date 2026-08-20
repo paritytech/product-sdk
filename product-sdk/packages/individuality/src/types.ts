@@ -10,6 +10,10 @@
  * - {@link PersonhoodResult} — the outcome of the read itself, which may find
  *   the username unowned. That is a success value, not an error.
  *
+ * Every resolved result also carries {@link PersonhoodMetrics}: the same numbers
+ * the state was derived from, for a UI that renders progress regardless of which
+ * state the person is in.
+ *
  * Every result carries the {@link FinalizedSnapshot} it was read at. The
  * personhood threshold and the absence-grace ratio are session-updated values,
  * so two of the six underlying reads move on a session cadence — which is why
@@ -117,6 +121,35 @@ export interface PersonhoodInputs {
 }
 
 /**
+ * The numbers behind a resolved state, carried alongside it.
+ *
+ * The state union answers "what is this person's standing"; these answer "by how
+ * much", which a progress bar needs in every state rather than only in the two
+ * whose variants happen to carry payload. All five come from the same pinned
+ * snapshot as the state, so no extra read pays for them.
+ *
+ * **`misses` here is not `Caution.misses`.** This is what the window holds
+ * *now*. `Caution.misses` is a projection — what it would hold after one more
+ * absence — because that is what the grace policy is evaluated against. A UI
+ * showing "you have missed 2 of the last 8" wants this one.
+ *
+ * `score` and `misses` are `null` when the account has no participant record:
+ * there is no score to report and no attendance history to count. The threshold
+ * and the policy are unkeyed storage values, so they are always present.
+ */
+export interface PersonhoodMetrics {
+    score: number | null;
+    /** `Score.PersonhoodThreshold`, the score at which personhood is reached. */
+    personhoodThreshold: number;
+    /** Absences inside the current window, or `null` with no record. */
+    misses: number | null;
+    /** `Score.AbsenceGraceRatio`: how many of `window` may be absences. */
+    allowedMisses: number;
+    /** `Score.AbsenceGraceRatio`: how many recent games the policy looks at. */
+    window: number;
+}
+
+/**
  * The outcome of a personhood read.
  *
  * `UsernameUnowned` is a first-class success value: the chain was queried and
@@ -126,10 +159,14 @@ export type PersonhoodResult =
     /** `Resources.UsernameOwnerOf` held no owner for the username. */
     | { tag: "UsernameUnowned"; at: FinalizedSnapshot }
     /**
-     * The username resolved to an account, and its standing was derived.
+     * An account was in hand — resolved from a username, or given directly —
+     * and its standing was derived.
      *
+     * @param accountAddress - the account the state belongs to: the username's
+     *   owner, or the caller's own `account` input when that is what was passed.
      * @param alias - the contextual alias from `People.AccountToAlias`, or
      *   `null` when the account has none.
+     * @param metrics - the numbers the state was derived from, in every state.
      */
     | {
           tag: "Resolved";
@@ -137,4 +174,5 @@ export type PersonhoodResult =
           accountAddress: string;
           alias: string | null;
           state: PersonhoodState;
+          metrics: PersonhoodMetrics;
       };
