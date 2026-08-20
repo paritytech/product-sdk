@@ -4,9 +4,7 @@
  * The account to username direction, over `Resources.Consumers`.
  *
  * `Resources.UsernameOwnerOf` answers "who owns this username". This module
- * answers the question a results or profile screen actually asks: "what is this
- * account's username". The chain keys `Resources.Consumers` by account and its
- * value carries both names plus the credibility.
+ * answers the reverse, which is what a profile or results screen needs.
  *
  * Three facts about the record come from the pallet, not from the descriptor,
  * and none of them is visible to the compiler:
@@ -17,21 +15,17 @@
  * 2. **`full_username.is_none()` is the chain's own precondition for claiming a
  *    bare name.** Eligibility is a reading of this record, not a guess.
  * 3. **A demoted person keeps `Person` and keeps their full username.** Demotion
- *    rewrites only the `demoted` flag. But `demoted: false` is weaker than it
- *    looks: the chain sets it only when someone submits `demote_auth_expired`,
- *    which nothing does automatically, so it also covers an authorization that
- *    expired days ago. `lastUpdate` against the chain's `PersonAuthDuration`
- *    separates those. This module does not read that constant, so it returns the
- *    timestamp, not a verdict.
+ *    rewrites only the `demoted` flag, and the chain sets it only when someone
+ *    submits `demote_auth_expired`, which nothing does automatically. So
+ *    `demoted: false` also covers an authorization that expired days ago.
  *
- * Both names are restricted on chain to ASCII: a full username is lowercase
- * letters only, a lite username is letters, one dot, then digits. So a decode
- * failure here means the descriptor and the chain disagree.
+ * Both names are ASCII on chain, so any decode failure here means the descriptor
+ * and the chain disagree.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { IndividualityDecodeError, ProductIndividualityError } from "./errors.js";
 
-/** Strict, so malformed bytes fail rather than becoming U+FFFD. Stateless here, so one instance does. */
+/** `fatal` so malformed bytes throw instead of becoming U+FFFD, a name nobody owns. */
 const UTF8 = new TextDecoder("utf-8", { fatal: true });
 
 /**
@@ -69,9 +63,10 @@ export type UsernameCredibility =
            * When the authorization was last refreshed, in seconds since the epoch.
            * Stale past `PersonAuthDuration` whether or not `demoted` is set.
            *
-           * Narrowed from the chain's `u64` to `number`, so the record stays
-           * JSON-serializable and matches every other numeric in this package. A
-           * seconds timestamp is exact in a double until year 285 million.
+           * A timestamp rather than a derived boolean because `PersonAuthDuration`
+           * is a runtime constant this package does not read, so only the caller
+           * can judge staleness. Narrowed from the chain's `u64` to `number` so the
+           * record stays JSON-serializable, which a bigint here would break.
            */
           lastUpdate: number;
           demoted: boolean;
@@ -79,19 +74,13 @@ export type UsernameCredibility =
 
 /** The usernames registered for one account, decoded. */
 export interface ConsumerUsernames {
-    /** Always present. Letters, one dot, then digits, for example `example.07`. */
+    /** Always present, for example `example.07`. */
     liteUsername: string;
-    /** The claimed bare name, when the account has claimed one. */
     fullUsername: string | null;
     credibility: UsernameCredibility;
 }
 
-/**
- * Decode a raw `Resources.Consumers` value.
- *
- * `undefined` in means the account has no consumer record, which is a real
- * answer rather than a failure, so it maps to `null` rather than throwing.
- */
+/** `undefined` in means the account has no record, which is an answer, not a failure. */
 export function decodeConsumerInfo(value: RawConsumerInfo | undefined): ConsumerUsernames | null {
     if (value === undefined) return null;
 
@@ -107,13 +96,6 @@ export function decodeConsumerInfo(value: RawConsumerInfo | undefined): Consumer
     };
 }
 
-/**
- * Decode one name strictly.
- *
- * The lenient default turns malformed bytes into U+FFFD, which would return a
- * username nobody owns. Both names are ASCII on chain, so a failure here means
- * the descriptor and the chain disagree.
- */
 function decodeUsername(bytes: Uint8Array): string {
     try {
         return UTF8.decode(bytes);
@@ -139,7 +121,6 @@ function optionalUsername(bytes: Uint8Array | undefined): string | null {
     return username;
 }
 
-/** Narrow the credibility variant. Same policy as the other raw decodes here. */
 function decodeCredibility(raw: RawConsumerInfo["credibility"]): UsernameCredibility {
     switch (raw.type) {
         case "Lite":
@@ -148,8 +129,6 @@ function decodeCredibility(raw: RawConsumerInfo["credibility"]): UsernameCredibi
             if (raw.value === undefined) {
                 throw new IndividualityDecodeError("person credibility has no payload");
             }
-            // Carried, not reduced to a boolean: the threshold is a runtime
-            // constant this package does not read.
             return {
                 tag: "Person",
                 alias: raw.value.alias,
@@ -164,9 +143,6 @@ function decodeCredibility(raw: RawConsumerInfo["credibility"]): UsernameCredibi
 }
 
 /**
- * The name to show for a consumer: the claimed one when there is one, else the
- * lite one.
- *
  * The host computes this same rule over the same record at session-pairing time
  * and exposes the answer as `account.getUserId().primaryUsername`. For the
  * signed-in user the two should agree; if they do not, the session snapshot is

@@ -51,12 +51,9 @@ type DevnetClient = Awaited<ReturnType<typeof getChainAPI<"devnet">>>;
 type PaseoSatisfiesContract = Assert<PaseoClient extends IndividualityChain ? true : false>;
 type DevnetSatisfiesContract = Assert<DevnetClient extends IndividualityChain ? true : false>;
 
-// The account to username direction reads one entry, `Resources.Consumers`, and
-// types it in its own narrow contract so a double for either read does not have
-// to implement the other's entries. It needs the same guard, and for a sharper
-// reason: the value shape was derived from the pallet source and the codegen
-// rather than read off the emitted descriptor, so these two lines are what turn
-// that derivation into a checked fact.
+// `ConsumersChain` needs this more than the batch contract does: its value shape
+// was derived from the pallet and the codegen rather than read off the emitted
+// descriptor, so these two lines are what make that derivation a checked fact.
 type PaseoSatisfiesConsumers = Assert<PaseoClient extends ConsumersChain ? true : false>;
 type DevnetSatisfiesConsumers = Assert<DevnetClient extends ConsumersChain ? true : false>;
 

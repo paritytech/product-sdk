@@ -1,18 +1,11 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * `resolvePeopleUsernameOwner` returns what the storage yields.
+ * The resolver's SS58 has to reach a `Consumers` key with no conversion, which is
+ * why the last test chains both reads instead of asserting on a type: `account` is
+ * `string` and `SS58String` carries an optional brand, so hex would satisfy both.
  *
- * `Resources.UsernameOwnerOf` yields SS58, and `Resources.Consumers` is keyed by
- * SS58, so the owner this returns has to be usable as a `Consumers` key with no
- * conversion in between. That round trip is the regression this file exists to
- * hold, and the last test holds it by chaining both reads for real. A type cannot:
- * `account` is `string` and `SS58String` carries an optional brand, so hex
- * satisfies both. The resolver used to return hex, which made every account to
- * username round trip carry a manual conversion.
- *
- * Deliberately not named `dotns.test.ts`: the open DotNS registry PR adds a file
- * by that name, and two branches adding the same path collide.
+ * Not named `dotns.test.ts` because the DotNS registry PR adds that path.
  */
 import { describe, expect, test } from "vitest";
 import type { SS58String } from "polkadot-api";
