@@ -22,7 +22,11 @@
  * `@ts-expect-error` would report as unused and this file would fail.
  */
 import type { getChainAPI } from "@parity/product-sdk-chain-client";
-import type { IndividualityChain } from "@parity/product-sdk-individuality";
+import type { RingVRFProof as HostRingVRFProof } from "@parity/product-sdk-host";
+import type {
+    IndividualityChain,
+    RingVRFProof as AsPersonRingVRFProof,
+} from "@parity/product-sdk-individuality";
 import { expect, test } from "vitest";
 
 // The false branch must be `false`, not `never`. `never` is assignable to
@@ -48,6 +52,62 @@ type ClientWithoutIndividuality = {
 type RejectsBogusClient = Assert<
     ClientWithoutIndividuality extends IndividualityChain ? false : true
 >;
+
+// The write half declares its own `RingVRFProof` rather than importing the
+// host's, for the same reason `IndividualityChain` is structural: it keeps the
+// individuality package free of a dependency on `@parity/product-sdk-host`. The
+// cost is that a field rename on the host side would go unnoticed there, since
+// nothing in that package resolves the host type. Here both are direct
+// dependencies, so this is where the two can be tied together.
+type HostProofSatisfiesLocal = Assert<HostRingVRFProof extends AsPersonRingVRFProof ? true : false>;
+
+// Negative control for the same assertion. If `AsPersonRingVRFProof` ever
+// stopped constraining, this flips to `false` and the file fails to typecheck.
+type ProofWithoutRingIndex = {
+    proof: Uint8Array;
+    contextualAlias: { context: Uint8Array; alias: Uint8Array };
+    ringRevision: number;
+};
+type RejectsProofMissingRingIndex = Assert<
+    ProofWithoutRingIndex extends AsPersonRingVRFProof ? false : true
+>;
+
+// `AliasWithProof` is only ever accepted for `People.set_alias_account`, so the
+// call has to exist on the real chain with the two arguments the extension's
+// validation reads. A descriptor regeneration that renames either fails here.
+type PeopleTx = PaseoClient["individuality"]["tx"]["People"];
+type SetAliasAccountExists = Assert<"set_alias_account" extends keyof PeopleTx ? true : false>;
+type SetAliasAccountArgs = Parameters<PeopleTx["set_alias_account"]>[0];
+type SetAliasAccountTakesAccountAndValidAt = Assert<
+    "account" extends keyof SetAliasAccountArgs
+        ? "call_valid_at" extends keyof SetAliasAccountArgs
+            ? true
+            : false
+        : false
+>;
+
+// The JSDoc examples in the individuality package submit
+// `Game.sign_up_with_alias` under a person origin. A person origin supplies only
+// the origin, never the call arguments, so those snippets go stale the moment
+// this call's parameters change — and nothing else in the repo compiles them.
+type GameTx = PaseoClient["individuality"]["tx"]["Game"];
+type SignUpWithAliasExists = Assert<"sign_up_with_alias" extends keyof GameTx ? true : false>;
+type SignUpWithAliasArgs = Parameters<GameTx["sign_up_with_alias"]>[0];
+type SignUpWithAliasTakesTheDocumentedArgs = Assert<
+    "identifier_key" extends keyof SignUpWithAliasArgs
+        ? "statement_account" extends keyof SignUpWithAliasArgs
+            ? "sig" extends keyof SignUpWithAliasArgs
+                ? true
+                : false
+            : false
+        : false
+>;
+
+// Negative control for the assertion above. The `extends keyof` chain would pass
+// vacuously if `SignUpWithAliasArgs` ever resolved to something permissive such
+// as `any`, so this pins a shape that is missing `sig` and requires it to fail.
+type SignUpArgsWithoutSig = Pick<SignUpWithAliasArgs, "identifier_key" | "statement_account">;
+type RejectsSignUpArgsMissingSig = Assert<"sig" extends keyof SignUpArgsWithoutSig ? false : true>;
 
 test("the individuality chain contract is asserted at compile time", () => {
     // The type assertions above are the test. This keeps vitest from reporting

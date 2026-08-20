@@ -8,6 +8,7 @@ catalog:
   "@parity/truapi": ^0.9.0
   "@playwright/test": ^1.60.0
   "@polkadot-api/json-rpc-provider": ^0.2.0
+  "@polkadot-api/metadata-builders": ^0.14.3
   "@polkadot-api/substrate-bindings": ^0.20.3
   "@polkadot-api/substrate-client": ^0.7.0
   "@polkadot-labs/hdkd-helpers": ^0.0.30
