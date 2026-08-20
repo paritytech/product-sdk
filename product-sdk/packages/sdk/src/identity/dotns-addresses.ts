@@ -53,7 +53,7 @@ export function isZero(addr: unknown): boolean {
     return typeof addr === "string" && addr.toLowerCase() === ZERO_ADDRESS;
 }
 
-/** Case-insensitive H160 compare: chain reads are lowercase, our table is EIP-55. */
+/** viem checksums every decoded `address`, so a read is EIP-55 whatever the chain sent. */
 export function sameAddress(a: unknown, b: unknown): boolean {
     return typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
 }

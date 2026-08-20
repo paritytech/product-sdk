@@ -20,6 +20,7 @@ import {
 } from "./dotns-abis.js";
 import {
     DOTNS_REGISTRY_KEYS,
+    sameAddress,
     type DotNsAddresses,
     type DotNsGatewayQueryApi,
     discoverDotNsAddresses,
@@ -434,6 +435,7 @@ describe("verifyDotNsAddresses", () => {
 });
 
 describe("the new ABI fragments round-trip", () => {
+    // Decoded addresses are checksummed, so they never match a literal on casing.
     test("get, TARGET and protocolRegistry encode and decode", async () => {
         const { runtime } = walkChain();
         const dispatcher = createContract(
@@ -441,7 +443,7 @@ describe("the new ABI fragments round-trip", () => {
             DISPATCHER,
             DOTNS_ROOT_GATEWAY_DISPATCHER_ABI as never,
         ) as never as { TARGET: { query: () => Promise<{ success: boolean; value: unknown }> } };
-        expect((await dispatcher.TARGET.query()).value).toBe(POP_CONTROLLER);
+        expect(sameAddress((await dispatcher.TARGET.query()).value, POP_CONTROLLER)).toBe(true);
 
         const controller = createContract(
             runtime,
@@ -450,7 +452,12 @@ describe("the new ABI fragments round-trip", () => {
         ) as never as {
             protocolRegistry: { query: () => Promise<{ success: boolean; value: unknown }> };
         };
-        expect((await controller.protocolRegistry.query()).value).toBe(DISCOVERED.protocolRegistry);
+        expect(
+            sameAddress(
+                (await controller.protocolRegistry.query()).value,
+                DISCOVERED.protocolRegistry,
+            ),
+        ).toBe(true);
 
         const registry = createContract(
             runtime,
@@ -459,8 +466,11 @@ describe("the new ABI fragments round-trip", () => {
         ) as never as {
             get: { query: (key: string) => Promise<{ success: boolean; value: unknown }> };
         };
-        expect((await registry.get.query(DOTNS_REGISTRY_KEYS.popRules)).value).toBe(
-            DISCOVERED.popRules,
-        );
+        expect(
+            sameAddress(
+                (await registry.get.query(DOTNS_REGISTRY_KEYS.popRules)).value,
+                DISCOVERED.popRules,
+            ),
+        ).toBe(true);
     });
 });

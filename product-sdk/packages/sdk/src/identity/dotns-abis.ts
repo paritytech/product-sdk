@@ -238,6 +238,39 @@ export const DOTNS_PROTOCOL_REGISTRY_ABI: AbiEntry[] = [
         outputs: [{ name: "node", type: "bytes32" }],
         stateMutability: "view",
     },
+    {
+        type: "function",
+        name: "get",
+        inputs: [{ name: "key", type: "bytes32" }],
+        outputs: [{ name: "addr", type: "address" }],
+        stateMutability: "view",
+    },
+];
+
+/**
+ * `RootGatewayDispatcher.TARGET`, the PoP controller it forwards to. `immutable`,
+ * so a rotation means a new dispatcher and a new pallet value, which is why
+ * discovery starts at the pallet rather than here.
+ */
+export const DOTNS_ROOT_GATEWAY_DISPATCHER_ABI: AbiEntry[] = [
+    {
+        type: "function",
+        name: "TARGET",
+        inputs: [],
+        outputs: [{ name: "", type: "address" }],
+        stateMutability: "view",
+    },
+];
+
+/** `DotnsPopController.protocolRegistry`, the only hop that names the registry. */
+export const DOTNS_POP_CONTROLLER_ABI: AbiEntry[] = [
+    {
+        type: "function",
+        name: "protocolRegistry",
+        inputs: [],
+        outputs: [{ name: "", type: "address" }],
+        stateMutability: "view",
+    },
 ];
 
 /** `IPopRules.PopStatus`. Ordering is meaningful: a user meets a tier when `userStatus >= status`. */
@@ -258,11 +291,13 @@ export const POP_STATUS = { NoStatus: 0, PopLite: 1, PopFull: 2, Reserved: 3 } a
  * So extending this module to another network means resolving its TLD, which
  * `resolveTld` already does — not adding a second address table.
  *
- * Each address answers `DotnsProtocolRegistry.get(bytes32)` under its
- * `DotnsConstants` key (the name below, right-padded to 32 bytes) and has a
- * `Revive.AccountInfoOf` entry. They are pinned rather than resolved at runtime,
- * so re-verify after a redeploy; `protocolRegistry` is the address to walk from
- * if we ever resolve the rest dynamically.
+ * Five answer `DotnsProtocolRegistry.get(bytes32)` under the keys in
+ * `DOTNS_REGISTRY_KEYS`, two of which differ from the field name used here.
+ * `protocolRegistry` has no key and comes from the gateway walk. All six have a
+ * `Revive.AccountInfoOf` entry.
+ *
+ * Pinned, not resolved at runtime: re-verify after a redeploy, or have the
+ * client do it with `verifyDotNsAddresses`.
  */
 export const DOTNS_ADDRESSES = {
     registry: "0xf34054fd76BbF85f216cf9908226D5f0A72E50CA",
