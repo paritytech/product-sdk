@@ -253,6 +253,9 @@ export async function discoverDotNsAddresses(
             keyof typeof DOTNS_REGISTRY_KEYS,
             HexString,
         ][];
+        // Not readAddress: that calls the method with no arguments, and these
+        // need the role name in the error rather than the method name, since
+        // every one of them is the same `get`.
         const found = await Promise.all(
             roles.map(async ([role, key]) => {
                 const res = await registry.get.query(key, { origin });
