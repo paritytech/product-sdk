@@ -6,9 +6,8 @@
  *
  * Two halves. The **read** half answers one question: for a DotNS username or an
  * account, what is that person's personhood state, as of one pinned finalized
- * block? The
- * **write** half is `withAsPerson`, which wraps a signer so a call dispatches
- * under a person origin instead of an account origin.
+ * block? The **write** half is `withAsPerson`, which wraps a signer so a call
+ * dispatches under a person origin instead of an account origin.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -20,12 +19,9 @@
  *     console.error(result.error);
  * } else if (result.value.tag === "Resolved") {
  *     const { state, metrics } = result.value;
- *     // The state answers the standing question; `metrics` carries the numbers
- *     // in every state, so a progress bar needs no switch.
  *     console.log(state.tag, metrics.score, "of", metrics.personhoodThreshold);
  * }
  *
- * // An account input skips the username lookup rather than adding one:
  * const byAccount = await readPersonhoodState(chain, { account: aliceAddress });
  * ```
  *
@@ -69,8 +65,10 @@ export type {
     PersonhoodState,
 } from "./types.js";
 
-// The pure derivation, for a snapshot the caller already holds.
-export { derivePersonhoodState } from "./derive.js";
+// The pure derivation, for a snapshot the caller already holds. `missesInWindow`
+// comes with it, or a caller reproducing `metrics.misses` reaches for the
+// projected count the grace policy uses instead.
+export { derivePersonhoodState, missesInWindow } from "./derive.js";
 
 // Raw storage values to domain shapes, for callers doing their own reads.
 export { decodeAbsenceGracePolicy, toPersonhoodParticipant } from "./decode.js";

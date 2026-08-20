@@ -2,8 +2,9 @@
 name: product-sdk-individuality
 description: >
   Use when reading a person's personhood or membership standing on the individuality chain
-  from a DotNS username, or when sending a transaction that must run under a person origin
-  instead of an account origin. Covers readPersonhoodState and its Result return, the
+  from a DotNS username or an account address, or when sending a transaction that must run
+  under a person origin instead of an account origin. Covers readPersonhoodState and its
+  two input forms, the raw metrics it returns alongside the state, its Result return, the
   seven-state PersonhoodState union, why UsernameUnowned is a success value rather than an
   error, using the pure derivation without a chain client, the decode helpers for raw
   Score.Participants values, and withAsPerson for the AsPerson transaction extension
@@ -14,7 +15,7 @@ description: >
 
 Two halves:
 
-- **Read** — for a DotNS username, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
+- **Read** — for a DotNS username or an account address, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
 - **Write** — send a call that dispatches under a *person* origin instead of an account origin, via `withAsPerson`.
 
 Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/product-sdk/individuality`)
@@ -50,6 +51,39 @@ if (!result.ok) {
 }
 ```
 
+## Two Ways In
+
+Pass a username **or** an account, never both. An account is the cheaper form: it skips the `Resources.UsernameOwnerOf` lookup rather than adding one, which is what a profile or results screen usually wants, because it already holds an address and not a name.
+
+```ts
+await readPersonhoodState(chain, { username: "alice.dot" });   // resolves the owner first
+await readPersonhoodState(chain, { account: accountAddress }); // one round trip less
+```
+
+Two consequences of the account form. `UsernameUnowned` is unreachable, since nothing was looked up, so an account with no records is `Resolved` with `NotEnrolled`. And `accountAddress` on the result is your own input echoed back, so it proves nothing about the chain: with a username, the account came from `Resources.UsernameOwnerOf`.
+
+Passing both, or neither, is an `err` result and costs no round trip. The option type rejects the obvious literal, but not `{ username: maybeName, account: maybeAccount }` where both are `string | undefined`, so the rule is enforced at runtime.
+
+## The Metrics
+
+Every `Resolved` result carries `metrics` as well as `state`, from the same pinned block and at no extra read:
+
+```ts
+interface PersonhoodMetrics {
+  score: number | null;          // null with no participant record
+  personhoodThreshold: number;   // the score at which personhood is reached
+  misses: number | null;         // absences in the current window, null with no record
+  allowedMisses: number;         // how many of `window` may be absences
+  window: number;                // how many recent games the policy looks at
+}
+```
+
+Why it exists: the state variants only carry numbers where the derivation needed them, so `Candidate` has a score and `Member` does not. A progress bar wants the score in every state, and `metrics` is that, with no switch on the tag.
+
+> **`metrics.misses` IS NOT `Caution.misses`.** The metric is what the window holds **now**. `Caution.misses` is a projection, what it would hold after **one more absence**, because that is what the grace policy is evaluated against. On a history of `0b11001111` they are 2 and 3. A screen showing "you have missed 2 of the last 8 games" wants the metric.
+
+If you do your own reads instead, `missesInWindow(history, window)` is exported so you can produce the same number, and the attendance history defaults to all-attended on chain, so a new participant reads as zero misses rather than eight.
+
 This package does **not** resolve a chain. It takes an already-connected client, so the environment choice stays with you — see the `product-sdk-chain-connection` skill for `getChainAPI`.
 
 ## The Seven States
@@ -80,9 +114,10 @@ type PersonhoodResult =
   | {
       tag: "Resolved";
       at: FinalizedSnapshot;          // { blockHash, blockNumber }
-      accountAddress: string;         // owner of the DotNS username
+      accountAddress: string;         // the username's owner, or the account you passed
       alias: string | null;           // contextual People alias, or null
       state: PersonhoodState;
+      metrics: PersonhoodMetrics;     // the numbers behind the state, in every state
     };
 ```
 

@@ -147,6 +147,48 @@ if (import.meta.vitest) {
         ...overrides,
     });
 
+    describe("missesInWindow", () => {
+        // Mirrors the runtime's `store_attendance`, so the vectors below can be
+        // written the way the pallet writes them: from a default history
+        // forward, one game at a time.
+        const store = (history: number, attended: boolean) =>
+            ((history << 1) | (attended ? 1 : 0)) & 0xff;
+
+        // The pallet defaults the history to all-attended so a new participant
+        // is not penalised for games played before they joined.
+        const DEFAULT_HISTORY = 0xff;
+
+        test("agrees with the runtime on its own vectors", () => {
+            const clean = DEFAULT_HISTORY;
+            expect([missesInWindow(clean, 8), missesInWindow(clean, 6)]).toEqual([0, 0]);
+            expect(missesInWindow(clean, 1)).toBe(0);
+
+            const oneMiss = store(clean, false);
+            expect([
+                missesInWindow(oneMiss, 1),
+                missesInWindow(oneMiss, 2),
+                missesInWindow(oneMiss, 8),
+            ]).toEqual([1, 1, 1]);
+
+            const missThenAttend = store(oneMiss, true);
+            expect([missesInWindow(missThenAttend, 2), missesInWindow(missThenAttend, 1)]).toEqual([
+                1, 0,
+            ]);
+
+            const aged = store(store(store(oneMiss, true), true), true);
+            expect([missesInWindow(aged, 3), missesInWindow(aged, 4)]).toEqual([0, 1]);
+        });
+
+        test("clamps the window to the one-byte history width", () => {
+            // The runtime debug-asserts a window of 8 or less and then clamps;
+            // the policy arrives here straight off the chain, so clamp too.
+            expect(missesInWindow(0x00, 8)).toBe(8);
+            expect(missesInWindow(0x00, 99)).toBe(8);
+            expect(missesInWindow(0x00, 0)).toBe(0);
+            expect(missesInWindow(DEFAULT_HISTORY, -3)).toBe(0);
+        });
+    });
+
     describe("derivePersonhoodState", () => {
         test("is NotEnrolled without a participant or Lite personhood", () => {
             expect(

@@ -16,8 +16,7 @@
  * const chain = await getChainAPI("paseo");
  * const state = await readPersonhoodState(chain, { username: "alice.dot" });
  *
- * // Or, when the account is already in hand — one round trip cheaper, because
- * // the username lookup is skipped rather than added to:
+ * // Or, when the account is already in hand:
  * const same = await readPersonhoodState(chain, { account: aliceAddress });
  * ```
  */
@@ -140,11 +139,19 @@ export interface IndividualityChain {
 }
 
 /**
- * What to read, and how: exactly one of a username or an account.
+ * What to read, and how: a username or an account, and never both.
  *
  * Two inputs rather than one because a profile or results screen usually holds
  * an account, not a name, and making it look the name up first would be a read
  * this function then throws away.
+ *
+ * **The rule is enforced at runtime, not by this type.** The union below rejects
+ * an object literal that names both fields as strings, and rejects an empty one.
+ * It does not reject `{ username: maybeName, account: maybeAccount }` with both
+ * typed `string | undefined`, which is the shape a caller writes when the values
+ * come from state: TypeScript checks such a literal property by property against
+ * the union and lets it through. {@link selectInput} is what actually holds the
+ * rule, and an ambiguous call is an `err` result rather than a silent choice.
  */
 export type ReadPersonhoodStateOptions = {
     /**
@@ -213,6 +220,37 @@ export async function readPersonhoodState(
     }
 }
 
+/** The one input a read runs on, chosen and validated before any round trip. */
+type ReadInput = { by: "account"; account: string } | { by: "username"; username: string };
+
+/**
+ * Pick the single input, or throw.
+ *
+ * Called before the block is pinned, so a call that cannot succeed costs no
+ * round trip, the same rule the abort check follows.
+ *
+ * An empty string counts as absent, and so does anything that is not a string.
+ * Taken as input, `""` resolves to a confident answer about the empty account.
+ */
+function selectInput(options: ReadPersonhoodStateOptions): ReadInput {
+    const given = (value: unknown): string | undefined =>
+        typeof value === "string" && value.length > 0 ? value : undefined;
+    const account = given(options.account);
+    const username = given(options.username);
+    if (account !== undefined && username !== undefined) {
+        throw new ProductIndividualityError(
+            "readPersonhoodState takes a username or an account, not both",
+        );
+    }
+    if (account !== undefined) {
+        return { by: "account", account };
+    }
+    if (username !== undefined) {
+        return { by: "username", username };
+    }
+    throw new ProductIndividualityError("readPersonhoodState needs a username or an account");
+}
+
 /** The read itself. Throws; {@link readPersonhoodState} owns the Result boundary. */
 async function runRead(
     chain: IndividualityChain,
@@ -221,8 +259,9 @@ async function runRead(
     const { signal } = options;
     const query = chain.individuality.query;
 
-    // A caller who already cancelled should cost no round trip at all. The block
-    // fetch below takes no options, so it cannot carry the signal itself.
+    // Both before the block fetch, which takes no options and so cannot carry the
+    // signal itself.
+    const input = selectInput(options);
     signal?.throwIfAborted();
 
     // Pin one finalized block: every read below must agree on it.
@@ -233,27 +272,20 @@ async function runRead(
     // An account input *skips* the username lookup rather than adding a read to
     // it, which is why the account path costs one round trip less.
     let owner: string;
-    if (options.account !== undefined) {
-        owner = options.account;
-    } else if (options.username !== undefined) {
+    if (input.by === "account") {
+        owner = input.account;
+    } else {
         // The entry point is `Resources.UsernameOwnerOf` on the individuality
         // chain's resources pallet — not `pallet_identity` on the fellows People
         // chain. Those are unrelated username systems.
         const resolved = await query.Resources.UsernameOwnerOf.getValue(
-            new TextEncoder().encode(options.username),
+            new TextEncoder().encode(input.username),
             at,
         );
         if (resolved == null) {
             return { tag: "UsernameUnowned", at: snapshot };
         }
         owner = resolved;
-    } else {
-        // The option type rules this out at compile time. A JavaScript caller
-        // still reaches it, and encoding `undefined` into a storage key would
-        // quietly ask the chain who owns the name "undefined".
-        throw new ProductIndividualityError(
-            "readPersonhoodState needs either a username or an account",
-        );
     }
 
     const [
@@ -294,10 +326,8 @@ async function runRead(
 
     const policy = decodeAbsenceGracePolicy(absenceGraceRatio);
 
-    // The state's own payloads answer the policy question; these answer "by how
-    // much" in every state, from the values already in hand. Note `misses` is
-    // the count the window holds now, not `Caution.misses`, which is what one
-    // more absence would leave in it.
+    // `misses` is what the window holds now, not `Caution.misses`, which is what
+    // one more absence would leave in it.
     const metrics: PersonhoodMetrics = {
         score: participant?.score ?? null,
         personhoodThreshold,
@@ -332,6 +362,7 @@ if (import.meta.vitest) {
     const { IndividualityDecodeError } = await import("./errors.js");
 
     const ALICE = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+    const BOB = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
     const ALIAS = `0x${"ab".repeat(32)}`;
     const LITE_ALIAS = `0x${"cd".repeat(32)}`;
     const BLOCK = { hash: `0x${"11".repeat(32)}`, number: 5_000 };
@@ -374,6 +405,8 @@ if (import.meta.vitest) {
             at: string;
             signal?: AbortSignal;
         }> = [];
+        // Separate from `calls`: the block fetch takes no key and no options.
+        let blockFetches = 0;
         const record = (entry: string, key: unknown, options: ReadAt) => {
             calls.push({ entry, key, at: options.at, signal: options.signal });
         };
@@ -438,12 +471,13 @@ if (import.meta.vitest) {
             raw: {
                 individuality: {
                     async getFinalizedBlock() {
+                        blockFetches += 1;
                         return BLOCK;
                     },
                 },
             },
         };
-        return { chain, calls, keyOf };
+        return { chain, calls, keyOf, blockFetches: () => blockFetches };
     }
 
     describe("readPersonhoodState", () => {
@@ -674,12 +708,41 @@ if (import.meta.vitest) {
             });
         });
 
-        test("neither input arrives on the err channel, typed", async () => {
-            const { chain, calls } = fakeChain({ owner: ALICE });
-            // Reachable only from JavaScript; the option type rules it out.
+        test("neither input arrives on the err channel, and costs no round trip", async () => {
+            const { chain, calls, blockFetches } = fakeChain({ owner: ALICE });
             const result = await readPersonhoodState(chain, {} as ReadPersonhoodStateOptions);
             expect(isErrorOf(unwrapErr(result), ProductIndividualityError)).toBe(true);
-            expect(calls.some((c) => c.entry === "UsernameOwnerOf")).toBe(false);
+            expect(blockFetches()).toBe(0);
+            expect(calls).toEqual([]);
+        });
+
+        test("both inputs at once is an error, never a silent choice", async () => {
+            // Without the runtime check the account wins in silence.
+            const { chain, calls, blockFetches } = fakeChain({
+                owner: BOB,
+                accountParticipant: raw(),
+            });
+            const result = await readPersonhoodState(chain, {
+                username: "bob.dot",
+                account: ALICE,
+            } as unknown as ReadPersonhoodStateOptions);
+            expect(isErrorOf(unwrapErr(result), ProductIndividualityError)).toBe(true);
+            expect(blockFetches()).toBe(0);
+            expect(calls).toEqual([]);
+        });
+
+        test("a null or empty input is no input at all", async () => {
+            // Each would otherwise be taken as the input.
+            const degenerate = [{ account: null }, { account: "" }, { username: "" }];
+            for (const options of degenerate) {
+                const { chain, blockFetches } = fakeChain({ owner: ALICE });
+                const result = await readPersonhoodState(
+                    chain,
+                    options as unknown as ReadPersonhoodStateOptions,
+                );
+                expect(isErrorOf(unwrapErr(result), ProductIndividualityError)).toBe(true);
+                expect(blockFetches()).toBe(0);
+            }
         });
 
         // --- the metrics alongside the state (#287 item 7) --------------------
