@@ -75,9 +75,6 @@ jobs:
         timeout-minutes: 20
         permissions:
             contents: read
-            # Trusted publishing: npm mints a short-lived credential from this
-            # token rather than a long-lived NPM_TOKEN, and attaches provenance.
-            id-token: write
         steps:
             - name: Resolve and validate the cut
               id: cut
@@ -136,11 +133,6 @@ jobs:
                   registry-url: "https://registry.npmjs.org"
                   cache: "pnpm"
                   cache-dependency-path: product-sdk/pnpm-lock.yaml
-
-            # Node 22 bundles npm 10. Trusted publishing (OIDC) needs npm >=
-            # 11.5.1 — older npm ignores the id-token, looks for a token that
-            # isn't there, and fails the publish. Same pin bulletin-deploy uses.
-            - run: npm install -g npm@11.17.0
 
             - run: pnpm install --frozen-lockfile
 
@@ -228,13 +220,42 @@ jobs:
 
             - run: pnpm build
 
-            # `--tag dev` is what keeps `@latest` untouched. Consumers opt in
-            # explicitly with `npm install @parity/product-sdk-host@dev` or by
-            # pinning the exact version.
-            - name: Publish under the dev dist-tag
-              run: pnpm changeset publish --tag dev --no-git-tag
+            # Publishing goes the same way release.yml sends it: pack here,
+            # upload, and hand off to paritytech/npm_publish_automation, which
+            # holds the org's NPM_TOKEN. This runner has no npm credential of
+            # its own and must not grow one.
+            - name: Pack packages
+              run: |
+                  mkdir -p artifacts
+                  for dir in packages/*/; do
+                    if [ -f "$dir/package.json" ]; then
+                      (cd "$dir" && pnpm pack --pack-destination ../../artifacts/)
+                    fi
+                  done
 
-            - name: Report what shipped
+            - name: Upload package artifacts
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+              with:
+                  name: packages
+                  path: product-sdk/artifacts/*.tgz
+
+            # `npm_tag: dev` is what keeps `@latest` untouched — without it the
+            # automation publishes to `latest`, and npm does NOT special-case a
+            # prerelease version there. Consumers opt in explicitly with
+            # `npm install @parity/product-sdk-host@dev` or by pinning.
+            - name: Publish via npm_publish_automation under the dev tag
+              uses: octokit/request-action@02f5e7c637a73a3b12ed81015fa7fb5f11cc5d7d # v2.x
+              with:
+                  route: POST /repos/paritytech/npm_publish_automation/actions/workflows/publish.yml/dispatches
+                  ref: main
+                  inputs: '${{ format(''{{ "repo": "{0}", "run_id": "{1}", "npm_tag": "dev" }}'', github.repository, github.run_id) }}'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.NPM_PUBLISH_AUTOMATION_TOKEN }}
+
+            # These versions were DISPATCHED, not confirmed. The publish
+            # happens in npm_publish_automation, which opens an issue here on
+            # failure — so a green run means handed off, not on the registry.
+            - name: Report what was dispatched
               run: |
                   set -euo pipefail
                   for pkg in packages/*/package.json; do
@@ -246,5 +267,5 @@ jobs:
                     # listing them here would claim a release that never went out.
                     before=$(awk -v n="$name" '$1 == n { print $2 }' "$RUNNER_TEMP/versions-before.txt")
                     [ "$version" = "$before" ] && continue
-                    echo "::notice::$name@$version"
+                    echo "::notice::dispatched $name@$version"
                   done
