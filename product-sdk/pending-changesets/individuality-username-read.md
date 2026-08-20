@@ -22,6 +22,9 @@ with `IndividualityDecodeError` for a shape the descriptor says is impossible.
 
 The record is `{ liteUsername, fullUsername, credibility }`, plus three pure helpers:
 `displayUsername` (the claimed name, else the lite one), `canClaimFullUsername`, and `usernameBase`.
+The read pins no block by default: it reads the finalized head at call time and reports no block
+back, so pass `at` a `readPersonhoodState` result's `at.blockHash` when both answers must describe
+the same block.
 
 Four properties come from the pallet rather than from the descriptor, and none is visible to the
 compiler:
@@ -31,10 +34,18 @@ compiler:
 - **`fullUsername === null` is the chain's own precondition for claiming a bare name**, which is what
   `canClaimFullUsername` reports. The chain writes `full_username` and `Credibility::Person` in the
   same statement, so "has a full name" and "is a person" are equivalent by construction.
-- **A demoted person keeps `Person` and keeps their full username.** `credibility.demoted` is the
-  only signal separating them from a person in good standing, which is why it is surfaced.
-- **An empty username decodes to absent**, and a name that is not valid UTF-8 fails loudly rather
-  than becoming U+FFFD.
+- **A demoted person keeps `Person` and keeps their full username.** Demotion rewrites only that
+  flag, so nothing else in the record separates a demoted person from the rest. `demoted: false` is
+  a weaker statement than it looks, though: the chain sets the flag only when somebody submits
+  `demote_auth_expired`, and nothing submits it automatically, so it also covers a person whose
+  authorization expired and who has not been demoted yet. `credibility.lastUpdate` is surfaced for
+  exactly that: compare it against the chain's `PersonAuthDuration` to tell a current authorization
+  from a stale one. This package does not read that constant, so it hands back the timestamp rather
+  than a verdict.
+- **An empty username is a decode error**, in both fields, and a name that is not valid UTF-8 fails
+  loudly rather than becoming U+FFFD. Empty is impossible on chain, and reading an empty full
+  username as absent would make `canClaimFullUsername` offer a claim the chain rejects, since
+  `Some("")` is still `Some`.
 
 `displayUsername` is the same rule the host applies for `account.getUserId().primaryUsername`, so for
 the signed-in user the two should agree and a disagreement means a stale session snapshot.
@@ -48,6 +59,9 @@ satisfies it, including a test double. A compile-time assertion in `@parity/prod
 rather than `0x` hex.** It reads storage that yields SS58, and `Resources.Consumers` is keyed by
 SS58, so the old hex return made every account to username round trip carry a manual conversion.
 `wallet.signMessageWithDotNsIdentity` is unaffected: its `accountId` result is still `0x` hex.
+Callers who relied on the hex return get `accountIdToHex`, newly exported from
+`@parity/product-sdk/identity`, which is the inverse of the existing `accountIdHexToBytes` and keeps
+the same 32-byte check.
 
 `@parity/product-sdk-auth` gets a documentation fix only. Its `SessionAddresses.rootAddress` doc, and
 the `product-sdk-transactions` skill that repeats it, both told callers `rootAddress` was "the right

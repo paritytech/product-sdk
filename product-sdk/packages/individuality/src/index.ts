@@ -21,6 +21,17 @@
  * }
  * ```
  *
+ * And the other direction, from an account:
+ *
+ * ```ts
+ * import { displayUsername, lookupUsername } from "@parity/product-sdk-individuality";
+ *
+ * const usernames = await lookupUsername(chain, { account: rootAddress });
+ * if (usernames.ok && usernames.value !== null) {
+ *     console.log(displayUsername(usernames.value));
+ * }
+ * ```
+ *
  * Failures arrive on the `err` channel as a `ProductIndividualityError`, per the
  * SDK-wide error model. A username nobody owns is not a failure: it is
  * `ok({ tag: "UsernameUnowned", ... })`.

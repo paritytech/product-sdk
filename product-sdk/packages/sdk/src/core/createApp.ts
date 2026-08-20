@@ -331,13 +331,15 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
                 publicKey: accountIdBytes(owner),
                 name: username,
             });
+            // The public result stays hex; only the resolver's return type changed.
+            // Converted outside the try, so an address failure is never reported
+            // as a signing failure.
+            const accountId = accountIdToHex(owner);
 
             try {
                 return {
                     username,
-                    // The public result stays hex, which is what this field has
-                    // always been. Only the resolver's own return type changed.
-                    accountId: accountIdToHex(owner),
+                    accountId,
                     signature: await signer.signBytes(message),
                 };
             } catch (cause) {

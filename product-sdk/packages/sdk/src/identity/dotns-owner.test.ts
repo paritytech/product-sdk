@@ -5,9 +5,11 @@
  *
  * `Resources.UsernameOwnerOf` yields SS58, and `Resources.Consumers` is keyed by
  * SS58, so the owner this returns has to be usable as a `Consumers` key with no
- * conversion in between. That round trip is the last test here, and it is the
- * regression this file exists to hold: the resolver used to return `0x` hex,
- * which made every account to username round trip carry a manual conversion.
+ * conversion in between. That round trip is the regression this file exists to
+ * hold, and the last test holds it by chaining both reads for real. A type cannot:
+ * `account` is `string` and `SS58String` carries an optional brand, so hex
+ * satisfies both. The resolver used to return hex, which made every account to
+ * username round trip carry a manual conversion.
  *
  * Deliberately not named `dotns.test.ts`: the open DotNS registry PR adds a file
  * by that name, and two branches adding the same path collide.
@@ -15,6 +17,7 @@
 import { describe, expect, test } from "vitest";
 import type { SS58String } from "polkadot-api";
 import { accountIdBytes } from "@parity/product-sdk-address";
+import { type ConsumersChain, lookupUsername } from "@parity/product-sdk-individuality";
 import { type PeopleUsernameQueryApi, resolvePeopleUsernameOwner } from "./dotns.js";
 
 const ALICE = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
@@ -54,23 +57,34 @@ describe("resolvePeopleUsernameOwner", () => {
         expect(keys[0]).toEqual(new TextEncoder().encode("alice.dot"));
     });
 
-    test("the result is a Consumers key as it stands, with no conversion", async () => {
-        // The point of the change. `Resources.Consumers` is keyed by the account,
-        // so a caller chaining the two reads must be able to pass this straight
-        // through. A hex return made this line a conversion site.
+    test("the owner reaches the Consumers storage key unconverted", async () => {
+        // The one assertion here that spans both reads: the resolver's output goes
+        // straight into `lookupUsername` and has to arrive as the storage key
+        // untouched. The recorded key is the guard, not a type: see the header.
         const { api } = fakePeopleApi(ALICE);
         const owner = await resolvePeopleUsernameOwner("alice.dot", api);
         expect(owner).not.toBeNull();
+        if (owner === null) return;
 
-        const consumersKeys: string[] = [];
-        const consumers = {
-            getValue: async (key: string) => {
-                consumersKeys.push(key);
-                return undefined;
+        const keys: string[] = [];
+        const chain: ConsumersChain = {
+            individuality: {
+                query: {
+                    Resources: {
+                        Consumers: {
+                            async getValue(key) {
+                                keys.push(key);
+                                return undefined;
+                            },
+                        },
+                    },
+                },
             },
         };
-        await consumers.getValue(owner as string);
-        expect(consumersKeys[0]).toBe(ALICE);
+
+        const result = await lookupUsername(chain, { account: owner });
+        expect(result.ok).toBe(true);
+        expect(keys).toEqual([ALICE]);
     });
 
     test("the returned owner still decodes to a 32-byte public key", async () => {
@@ -78,6 +92,8 @@ describe("resolvePeopleUsernameOwner", () => {
         // bytes is one call; it used to go SS58 to hex to bytes.
         const { api } = fakePeopleApi(ALICE);
         const owner = await resolvePeopleUsernameOwner("alice.dot", api);
-        expect(accountIdBytes(owner as string)).toHaveLength(32);
+        expect(owner).not.toBeNull();
+        if (owner === null) return;
+        expect(accountIdBytes(owner)).toHaveLength(32);
     });
 });

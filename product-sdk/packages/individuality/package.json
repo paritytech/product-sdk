@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-individuality",
-    "description": "Read the personhood state of a DotNS username from the individuality chain, as of one pinned finalized block",
+    "description": "Read a person's standing on the individuality chain: personhood state from a DotNS username, and the usernames an account holds",
     "version": "0.0.0",
     "type": "module",
     "main": "./dist/index.js",

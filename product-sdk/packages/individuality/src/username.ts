@@ -17,9 +17,12 @@
  * 2. **`full_username.is_none()` is the chain's own precondition for claiming a
  *    bare name.** Eligibility is a reading of this record, not a guess.
  * 3. **A demoted person keeps `Person` and keeps their full username.** Demotion
- *    fires when the person authorization goes stale, and it rewrites only the
- *    `demoted` flag, so that flag is the only signal separating a demoted person
- *    from one in good standing.
+ *    rewrites only the `demoted` flag. But `demoted: false` is weaker than it
+ *    looks: the chain sets it only when someone submits `demote_auth_expired`,
+ *    which nothing does automatically, so it also covers an authorization that
+ *    expired days ago. `lastUpdate` against the chain's `PersonAuthDuration`
+ *    separates those. This module does not read that constant, so it returns the
+ *    timestamp, not a verdict.
  *
  * Both names are restricted on chain to ASCII: a full username is lowercase
  * letters only, a lite username is letters, one dot, then digits. So a decode
@@ -27,6 +30,9 @@
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { IndividualityDecodeError, ProductIndividualityError } from "./errors.js";
+
+/** Strict, so malformed bytes fail rather than becoming U+FFFD. Stateless here, so one instance does. */
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
 
 /**
  * The raw `Resources.Consumers` value, narrowed to the fields we read.
@@ -38,7 +44,10 @@ import { IndividualityDecodeError, ProductIndividualityError } from "./errors.js
 export interface RawConsumerInfo {
     lite_username: Uint8Array;
     full_username?: Uint8Array | undefined;
-    credibility: { type: string; value?: { alias: string; demoted: boolean } | undefined };
+    credibility: {
+        type: string;
+        value?: { alias: string; last_update: bigint; demoted: boolean } | undefined;
+    };
 }
 
 /**
@@ -49,11 +58,20 @@ export interface RawConsumerInfo {
  */
 export type UsernameCredibility =
     | { tag: "Lite" }
-    | { tag: "Person"; alias: string; demoted: boolean };
+    | {
+          tag: "Person";
+          alias: string;
+          /**
+           * When the authorization was last refreshed, in seconds since the epoch.
+           * Stale past `PersonAuthDuration` whether or not `demoted` is set.
+           */
+          lastUpdate: bigint;
+          demoted: boolean;
+      };
 
 /** The usernames registered for one account, decoded. */
 export interface ConsumerUsernames {
-    /** Always present. Letters, one dot, then digits, for example `alice.07`. */
+    /** Always present. Letters, one dot, then digits, for example `bigtava.07`. */
     liteUsername: string;
     /** The claimed bare name, when the account has claimed one. */
     fullUsername: string | null;
@@ -90,24 +108,27 @@ export function decodeConsumerInfo(value: RawConsumerInfo | undefined): Consumer
  */
 function decodeUsername(bytes: Uint8Array): string {
     try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        return UTF8.decode(bytes);
     } catch (cause) {
         throw new IndividualityDecodeError("consumer username is not valid UTF-8", { cause });
     }
 }
 
 /**
- * Absent, and absent because empty, both become `null`.
+ * Absent stays absent. Present but empty throws, like an empty lite name.
  *
- * Empty is what the host treats as absent, at its decoder and again at its
- * accessor. On-chain validation puts a minimum length on both names, so this is
- * insurance rather than a documented state, and it keeps an empty string out of
- * every display path.
+ * `null` has to mean exactly `full_username.is_none()`, since that is what
+ * {@link canClaimFullUsername} reports. An empty name is `Some("")` on chain and
+ * the claim path rejects it, so reading it as absent would offer a claim the
+ * chain refuses. On-chain length validation makes it unreachable anyway.
  */
 function optionalUsername(bytes: Uint8Array | undefined): string | null {
     if (bytes === undefined) return null;
     const username = decodeUsername(bytes);
-    return username.length === 0 ? null : username;
+    if (username.length === 0) {
+        throw new IndividualityDecodeError("consumer record has an empty full username");
+    }
+    return username;
 }
 
 /** Narrow the credibility variant. Same policy as the other raw decodes here. */
@@ -121,7 +142,14 @@ function decodeCredibility(raw: RawConsumerInfo["credibility"]): UsernameCredibi
             if (raw.value === undefined) {
                 throw new IndividualityDecodeError("person credibility has no payload");
             }
-            return { tag: "Person", alias: raw.value.alias, demoted: raw.value.demoted };
+            // Carried, not reduced to a boolean: the threshold is a runtime
+            // constant this package does not read.
+            return {
+                tag: "Person",
+                alias: raw.value.alias,
+                lastUpdate: raw.value.last_update,
+                demoted: raw.value.demoted,
+            };
         default:
             // A variant added by a runtime upgrade must fail loudly, never read
             // as Lite. Fixed message: never echo chain data.
@@ -146,7 +174,8 @@ export function displayUsername(record: ConsumerUsernames): string {
  * Whether this account can still claim a bare name.
  *
  * This is the chain's own precondition, not an approximation of it: the claim
- * extrinsic rejects a record that already carries a full username.
+ * extrinsic rejects a record that already carries a full username. Exact because
+ * the decoder throws on an empty name, so `null` means `full_username.is_none()`.
  */
 export function canClaimFullUsername(record: ConsumerUsernames): boolean {
     return record.fullUsername === null;
@@ -176,10 +205,13 @@ export function usernameBase(username: string): string {
  */
 interface ConsumersReadAt {
     /**
-     * Read at this block rather than the current best one. Only needed to join
-     * this read to a batch that has already pinned a block.
+     * Read at this block rather than at the finalized head, which is the default.
+     * A block hash, or `"best"`; the loosened `string` type hides those literals.
+     * Mainly to join a batch that already pinned one: pass a
+     * `readPersonhoodState` result's `at.blockHash`.
      */
     at?: string;
+    /** Aborts the read. Already aborted costs no round trip, and lands on `err`. */
     signal?: AbortSignal;
 }
 
@@ -263,14 +295,24 @@ if (import.meta.vitest) {
 
     /** A lite-only record; override any field per test. */
     const raw = (overrides: Partial<RawConsumerInfo> = {}): RawConsumerInfo => ({
-        lite_username: utf8("alice.07"),
+        lite_username: utf8("bigtava.07"),
         credibility: { type: "Lite" },
         ...overrides,
     });
 
+    /** Seconds since the epoch, fixed so assertions stay deterministic. */
+    const LAST_UPDATE = 1_770_000_000n;
+
     const person = (demoted = false) => ({
         type: "Person",
-        value: { alias: ALIAS, demoted },
+        value: { alias: ALIAS, last_update: LAST_UPDATE, demoted },
+    });
+
+    /** A decoded record; override the full username per test. */
+    const record = (fullUsername: string | null): ConsumerUsernames => ({
+        liteUsername: "bigtava.07",
+        fullUsername,
+        credibility: { tag: "Lite" },
     });
 
     describe("decodeConsumerInfo", () => {
@@ -280,7 +322,7 @@ if (import.meta.vitest) {
 
         test("a lite-only record has no full username", () => {
             expect(decodeConsumerInfo(raw())).toEqual({
-                liteUsername: "alice.07",
+                liteUsername: "bigtava.07",
                 fullUsername: null,
                 credibility: { tag: "Lite" },
             });
@@ -288,16 +330,17 @@ if (import.meta.vitest) {
 
         test("a claimed record carries both names", () => {
             const decoded = decodeConsumerInfo(
-                raw({ full_username: utf8("alice"), credibility: person() }),
+                raw({ full_username: utf8("bigtava"), credibility: person() }),
             );
-            expect(decoded?.liteUsername).toBe("alice.07");
-            expect(decoded?.fullUsername).toBe("alice");
+            expect(decoded?.liteUsername).toBe("bigtava.07");
+            expect(decoded?.fullUsername).toBe("bigtava");
         });
 
         test("the person alias and the demoted flag are passed through", () => {
             expect(decodeConsumerInfo(raw({ credibility: person() }))?.credibility).toEqual({
                 tag: "Person",
                 alias: ALIAS,
+                lastUpdate: LAST_UPDATE,
                 demoted: false,
             });
         });
@@ -306,18 +349,34 @@ if (import.meta.vitest) {
             // The only signal that separates the two. Dropping it would report a
             // person whose authorization expired as one in good standing.
             const decoded = decodeConsumerInfo(
-                raw({ full_username: utf8("alice"), credibility: person(true) }),
+                raw({ full_username: utf8("bigtava"), credibility: person(true) }),
             );
-            expect(decoded?.credibility).toEqual({ tag: "Person", alias: ALIAS, demoted: true });
-            expect(decoded?.fullUsername).toBe("alice");
+            expect(decoded?.credibility).toEqual({
+                tag: "Person",
+                alias: ALIAS,
+                lastUpdate: LAST_UPDATE,
+                demoted: true,
+            });
+            expect(decoded?.fullUsername).toBe("bigtava");
         });
 
-        test("an empty full username is absent, not an empty string", () => {
-            // Matches the host, which filters empty at its decoder and again at
-            // its accessor. Left empty, it would be shown as a display name.
-            expect(decodeConsumerInfo(raw({ full_username: new Uint8Array() }))?.fullUsername).toBe(
-                null,
+        test("an empty full username is a decode error, not an absent one", () => {
+            // As absent it would make canClaimFullUsername offer a claim the chain
+            // rejects: `Some("")` is still `Some`.
+            expect(() => decodeConsumerInfo(raw({ full_username: new Uint8Array() }))).toThrow(
+                IndividualityDecodeError,
             );
+            expect(() => decodeConsumerInfo(raw({ full_username: new Uint8Array() }))).toThrow(
+                "consumer record has an empty full username",
+            );
+        });
+
+        test("a Person with an empty full username fails rather than reading as claimable", () => {
+            // Used to decode to Person with fullUsername null, which reported a
+            // claim as open for an account that already has a name.
+            expect(() =>
+                decodeConsumerInfo(raw({ full_username: new Uint8Array(), credibility: person() })),
+            ).toThrow(IndividualityDecodeError);
         });
 
         test("an empty lite username is a decode error", () => {
@@ -354,52 +413,40 @@ if (import.meta.vitest) {
     });
 
     describe("displayUsername", () => {
-        const record = (fullUsername: string | null): ConsumerUsernames => ({
-            liteUsername: "alice.07",
-            fullUsername,
-            credibility: { tag: "Lite" },
-        });
-
         test("a claimed name wins over the lite one", () => {
-            expect(displayUsername(record("alice"))).toBe("alice");
+            expect(displayUsername(record("bigtava"))).toBe("bigtava");
         });
 
         test("the lite name is used when nothing is claimed", () => {
-            expect(displayUsername(record(null))).toBe("alice.07");
+            expect(displayUsername(record(null))).toBe("bigtava.07");
         });
     });
 
     describe("canClaimFullUsername", () => {
-        const record = (fullUsername: string | null): ConsumerUsernames => ({
-            liteUsername: "alice.07",
-            fullUsername,
-            credibility: { tag: "Lite" },
-        });
-
         test("an unclaimed record can still claim", () => {
             expect(canClaimFullUsername(record(null))).toBe(true);
         });
 
         test("a claimed record cannot claim again", () => {
-            expect(canClaimFullUsername(record("alice"))).toBe(false);
+            expect(canClaimFullUsername(record("bigtava"))).toBe(false);
         });
     });
 
     describe("usernameBase", () => {
         test("a lite username strips to its letters", () => {
-            expect(usernameBase("alice.07")).toBe("alice");
+            expect(usernameBase("bigtava.07")).toBe("bigtava");
             expect(usernameBase("bigtava.07")).toBe("bigtava");
         });
 
         test("a full username has no dot and is returned unchanged", () => {
-            expect(usernameBase("alice")).toBe("alice");
+            expect(usernameBase("bigtava")).toBe("bigtava");
         });
 
         test("the first dot is the cut, not the last", () => {
             // Pins an otherwise arbitrary-looking choice. The chain allows
             // exactly one dot in a lite username, so first and last coincide on
             // every value this can be handed; the input below is unreachable.
-            expect(usernameBase("bob.alice.07")).toBe("bob");
+            expect(usernameBase("bob.bigtava.07")).toBe("bob");
         });
 
         test("a leading dot strips to the empty label", () => {
@@ -441,12 +488,12 @@ if (import.meta.vitest) {
         }
 
         test("an account with a record answers on the ok channel", async () => {
-            const { chain } = fakeChain(raw({ full_username: utf8("alice") }));
+            const { chain } = fakeChain(raw({ full_username: utf8("bigtava") }));
             expect(await lookupUsername(chain, { account: ALICE })).toEqual({
                 ok: true,
                 value: {
-                    liteUsername: "alice.07",
-                    fullUsername: "alice",
+                    liteUsername: "bigtava.07",
+                    fullUsername: "bigtava",
                     credibility: { tag: "Lite" },
                 },
             });

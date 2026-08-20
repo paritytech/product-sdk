@@ -2,10 +2,12 @@
 name: product-sdk-individuality
 description: >
   Use when reading a person's personhood or membership standing on the individuality chain
-  from a DotNS username. Covers readPersonhoodState and its Result return, the seven-state
-  PersonhoodState union, why UsernameUnowned is a success value rather than an error, using
-  the pure derivation without a chain client, and the decode helpers for raw
-  Score.Participants values.
+  from a DotNS username, or when reading the usernames an account holds. Covers
+  readPersonhoodState and lookupUsername, their Result returns, the seven-state
+  PersonhoodState union, why UsernameUnowned is a success value rather than an error, why a
+  consumer record with no entry is a success value too, using the pure derivation without a
+  chain client, and the decode helpers for raw Score.Participants and Resources.Consumers
+  values.
 ---
 
 # Product SDK Individuality
@@ -20,7 +22,7 @@ Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/pro
 
 > **`UsernameUnowned` IS A SUCCESS VALUE**, not an error. The chain was asked and answered that nobody owns that username, so it arrives as `ok({ tag: "UsernameUnowned", ... })`.
 
-> **ALL READS SHARE ONE FINALIZED BLOCK.** Two of the six underlying values move on a session cadence, so mixing blocks would silently mix eras. The block used is reported back on every result.
+> **THE PERSONHOOD READ SHARES ONE FINALIZED BLOCK.** Two of its six underlying values move on a session cadence, so mixing blocks would silently mix eras. `readPersonhoodState` pins one block and reports it back on every result. The account to username read is a single read that cannot mix eras, so it pins nothing by default and reports no block: see [Account to Username](#account-to-username).
 
 ## Quick Start
 
@@ -71,6 +73,11 @@ if (!result.ok) {
 
 > **NO RECORD IS `ok(null)`**, not an error. The chain was asked and answered.
 
+> **THIS READ REPORTS NO BLOCK.** With no `at` it reads the finalized head at call time, so the answer
+> is final, but nothing tells you which block it came from and two calls can land either side of a
+> block boundary. When a username has to agree with a personhood answer, pass `at` the `at.blockHash`
+> from the `readPersonhoodState` result.
+
 Four things the chain guarantees, all worth knowing before you render any of this:
 
 | | |
@@ -78,11 +85,17 @@ Four things the chain guarantees, all worth knowing before you render any of thi
 | `liteUsername` | always present, always `<letters>.<digits>`, for example `bigtava.07` |
 | `fullUsername` | the claimed bare name, letters only, no dot. Present exactly when the person claimed one |
 | eligibility | `canClaimFullUsername(record)` is `fullUsername === null`, which is the literal precondition the claim extrinsic checks |
-| `credibility` | `{ tag: "Lite" }` before a claim, `{ tag: "Person", alias, demoted }` after |
+| `credibility` | `{ tag: "Lite" }` before a claim, `{ tag: "Person", alias, lastUpdate, demoted }` after |
 
-**A `demoted` person is still a `Person`, and still has their full username.** Demotion fires when the
-person authorization goes stale and it rewrites only that flag, so `credibility.tag === "Person"` on
-its own does **not** mean "in good standing". Check `demoted`.
+**A `demoted` person is still a `Person`, and still has their full username.** Demotion rewrites only
+that flag, so `credibility.tag === "Person"` on its own does **not** mean "in good standing".
+
+**And neither does `demoted: false`.** The chain sets that flag only when somebody submits
+`demote_auth_expired`, and nothing submits it automatically, so a person whose authorization expired
+days ago still reads as `demoted: false` until someone bothers. Use `credibility.lastUpdate`, seconds
+since the epoch, against the chain's `PersonAuthDuration` if you need to know whether the
+authorization is current. This package does not read that constant, so it hands back the timestamp
+rather than a verdict.
 
 `usernameBase("bigtava.07")` gives `"bigtava"`, the name a claim would suggest. It is a suggestion,
 not an entitlement: an account may hold a reservation for a different name, and the reservation is
