@@ -121,3 +121,14 @@ cascades only at patch level (controlled by `updateInternalDependencies:
 "patch"` in `.changeset/config.json`) and the umbrella ends up at an
 oddly lower bump than its child. Prior waves (0.3.0 → 0.4.0,
 0.4.0 → 0.5.0) followed this policy.
+
+### Declare required-member additions
+
+When a change adds a required member to an exported interface, say so in
+the body. Existing implementations and hand-rolled test doubles break at
+compile time even though no caller changes, so the break is invisible to
+anyone reading only the call sites. The wording to copy:
+
+> **Breaking for implementors.** `signVrf` is a required member of the
+> exported `AccountsProvider` interface, so alternative implementations
+> and hand-rolled test doubles must add it. Callers are unaffected.
