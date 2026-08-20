@@ -86,6 +86,29 @@ type SetAliasAccountTakesAccountAndValidAt = Assert<
         : false
 >;
 
+// The JSDoc examples in the individuality package submit
+// `Game.sign_up_with_alias` under a person origin. A person origin supplies only
+// the origin, never the call arguments, so those snippets go stale the moment
+// this call's parameters change — and nothing else in the repo compiles them.
+type GameTx = PaseoClient["individuality"]["tx"]["Game"];
+type SignUpWithAliasExists = Assert<"sign_up_with_alias" extends keyof GameTx ? true : false>;
+type SignUpWithAliasArgs = Parameters<GameTx["sign_up_with_alias"]>[0];
+type SignUpWithAliasTakesTheDocumentedArgs = Assert<
+    "identifier_key" extends keyof SignUpWithAliasArgs
+        ? "statement_account" extends keyof SignUpWithAliasArgs
+            ? "sig" extends keyof SignUpWithAliasArgs
+                ? true
+                : false
+            : false
+        : false
+>;
+
+// Negative control for the assertion above. The `extends keyof` chain would pass
+// vacuously if `SignUpWithAliasArgs` ever resolved to something permissive such
+// as `any`, so this pins a shape that is missing `sig` and requires it to fail.
+type SignUpArgsWithoutSig = Pick<SignUpWithAliasArgs, "identifier_key" | "statement_account">;
+type RejectsSignUpArgsMissingSig = Assert<"sig" extends keyof SignUpArgsWithoutSig ? false : true>;
+
 test("the individuality chain contract is asserted at compile time", () => {
     // The type assertions above are the test. This keeps vitest from reporting
     // the file as an empty suite.

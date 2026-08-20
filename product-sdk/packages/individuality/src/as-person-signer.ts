@@ -22,7 +22,10 @@
  * const signer = withAsPerson(accounts.getProductAccountSigner(account), {
  *     tag: "AliasWithAccount",
  * });
- * await submitAndWatch(api.tx.Game.sign_up_with_alias(), signer);
+ * await submitAndWatch(
+ *     api.tx.Game.sign_up_with_alias({ identifier_key, statement_account, sig }),
+ *     signer,
+ * );
  * ```
  *
  * Order inside `signTx` is not arbitrary, and getting it wrong produces a bad

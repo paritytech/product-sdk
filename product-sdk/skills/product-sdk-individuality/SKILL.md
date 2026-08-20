@@ -163,7 +163,10 @@ const signer = withAsPerson(accounts.getProductAccountSigner(account), {
   tag: "AliasWithAccount",
 });
 
-const result = await submitAndWatch(api.tx.Game.sign_up_with_alias(), signer);
+const result = await submitAndWatch(
+  api.tx.Game.sign_up_with_alias({ identifier_key, statement_account, sig }),
+  signer,
+);
 ```
 
 > **`RestrictOrigins` MUST BE `true`, AND THIS PACKAGE DOES IT FOR YOU.** PAPI defaults that extension to `false`, and `false` against a person origin is an immediate `InvalidTransaction::Call` from the origin-restriction pallet — before your call runs, with no dispatch error to read. If you build the extension by hand instead of using `withAsPerson`, this is the one nobody guesses.
