@@ -8,6 +8,7 @@ import {
     AccountNotFoundError,
     DestroyedError,
     HostDisconnectedError,
+    HostRejectedError,
     HostUnavailableError,
     SigningFailedError,
     type SignerError,
@@ -1088,6 +1089,48 @@ if (import.meta.vitest) {
                 expect(result.value.primaryUsername).toBe("alice.dot");
             }
             expect(fakeHostProvider.getUserId).toHaveBeenCalledTimes(1);
+            manager.destroy();
+        });
+
+        test("passes a host error through with its cause intact", async () => {
+            // Looks like it tests a pass-through, and that is the point: a
+            // catch added here later would flatten the error again and undo
+            // the whole change, silently, at the layer consumers use.
+            const raw = { tag: "Domain", value: { tag: "V1", value: { tag: "NotAllowlisted" } } };
+            const fakeHostProvider = {
+                type: "host" as const,
+                connect: vi.fn().mockResolvedValue(ok([mockAccount()])),
+                disconnect: vi.fn(),
+                onStatusChange: vi.fn().mockReturnValue(() => {}),
+                onAccountsChange: vi.fn().mockReturnValue(() => {}),
+                createRingVRFProof: vi
+                    .fn()
+                    .mockResolvedValue(
+                        err(new HostRejectedError("rejected", false, { cause: raw })),
+                    ),
+            };
+
+            const manager = new SignerManager({
+                createProvider: (type) =>
+                    type === "host"
+                        ? (fakeHostProvider as unknown as SignerProvider)
+                        : mockProvider(),
+            });
+            await manager.connect("host");
+            await flush();
+
+            const result = await manager.createRingVRFProof(
+                {} as never,
+                {} as never,
+                {} as never,
+                new Uint8Array([1, 2, 3]),
+            );
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostRejectedError);
+                expect(result.error.cause).toBe(raw);
+            }
             manager.destroy();
         });
     });

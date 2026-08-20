@@ -33,8 +33,13 @@ export class SignerError extends Error implements SdkError {
  * in a Polkadot host, or pick a dev provider" message to the user.
  */
 export class HostUnavailableError extends SignerError {
-    constructor(message = "Host API is not available") {
-        super(message);
+    /**
+     * `options.cause` carries whatever made the host unreachable, when there is
+     * such a thing: the error the accounts-provider loader threw. Absent when
+     * the host is simply not there, which is a state rather than a failure.
+     */
+    constructor(message = "Host API is not available", options?: ErrorOptions) {
+        super(message, options);
         this.name = "HostUnavailableError";
     }
 }
@@ -187,6 +192,14 @@ if (import.meta.vitest) {
         test("HostUnavailableError with custom message", () => {
             const e = new HostUnavailableError("custom");
             expect(e.message).toBe("custom");
+        });
+
+        test("HostUnavailableError carries a cause when given one", () => {
+            const cause = new Error("loader blew up");
+            const e = new HostUnavailableError("host accounts provider failed", { cause });
+            expect(e.cause).toBe(cause);
+            expect(e.name).toBe("HostUnavailableError");
+            expect(new HostUnavailableError().cause).toBeUndefined();
         });
 
         test("HostRejectedError", () => {

@@ -18,9 +18,10 @@ two apart:
 
 ```ts
 import type { scale, VersionedHostAccountCreateProofError } from "@parity/truapi";
+import { isErrorOf } from "@parity/result";
 
 const result = await manager.createRingVRFProof(handle, context, ring, message);
-if (result.isErr() && result.error instanceof HostRejectedError) {
+if (!result.ok && isErrorOf(result.error, HostRejectedError)) {
     const raw = result.error.cause as scale.CallErrorValue<VersionedHostAccountCreateProofError>;
     if (raw.tag === "Domain" && raw.value.value.tag === "NotAllowlisted") {
         // Degrade: this host has no allowlist source yet.
@@ -35,11 +36,22 @@ against the calling product and reads no manifest, so no allowlist entry can exi
 product spanning both needs to branch on this to degrade per host.
 
 Covers `registerRingVrfKey`, `listRingVrfKeys`, `getProductAccountAlias`,
-`createRingVRFProof`, `getUserId`, `signVrf` and `getProductAccount`.
+`createRingVRFProof`, `getUserId`, `signVrf` and `getProductAccount`. A provider method
+that throws instead of rejecting keeps its own error on `cause` rather than losing it,
+which is the shape a host predating a call fails in.
 
-**Additive.** The parameter is optional and third, so `nonTransient` keeps its position and
-no existing call site changes. Messages, `name` and `nonTransient` are all unchanged, and
-consumers matching on the message text keep working.
+**`nonTransient` now answers consistently, which is a behaviour change.** It is classified
+from the host's error at every method instead of only at `getProductAccount`, so a signed-out
+host (`NotConnected`) reports `nonTransient: true` from `registerRingVrfKey`,
+`listRingVrfKeys`, `getProductAccountAlias`, `createRingVRFProof`, `getUserId` and `signVrf`,
+where it previously reported `false`. Those six could not classify before, because the error
+they needed had already been discarded. If you branch on `nonTransient`, a signed-out user now
+reaches your read-only path on all seven calls rather than one, which is what the field is
+documented to mean. Nothing inside the SDK changes behaviour: its one internal reader takes
+its value from `getProductAccount`, which already classified correctly.
+
+`HostUnavailableError` also takes an optional `ErrorOptions` now, and a failed
+accounts-provider load carries the error the loader threw, instead of only its message text.
 
 Reading `cause` at this layer means depending on `@parity/truapi` for the cast. Consumers
 wanting fully-typed handling without one should call `getAccountsProvider()` from
