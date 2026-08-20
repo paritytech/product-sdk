@@ -44,6 +44,10 @@ const UTF8 = new TextDecoder("utf-8", { fatal: true });
 export interface RawConsumerInfo {
     lite_username: Uint8Array;
     full_username?: Uint8Array | undefined;
+    /**
+     * PAPI's encoding of the pallet's `Credibility` enum: variant name in `type`,
+     * payload in `value`. Either `Lite`, which has no payload, or `Person`.
+     */
     credibility: {
         type: string;
         value?: { alias: string; last_update: bigint; demoted: boolean } | undefined;
@@ -141,8 +145,6 @@ function decodeCredibility(raw: RawConsumerInfo["credibility"]): UsernameCredibi
         case "Lite":
             return { tag: "Lite" };
         case "Person":
-            // The payload is optional on this structural type so the Lite
-            // variant, which carries none, still satisfies it.
             if (raw.value === undefined) {
                 throw new IndividualityDecodeError("person credibility has no payload");
             }
