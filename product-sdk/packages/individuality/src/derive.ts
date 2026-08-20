@@ -30,18 +30,28 @@ function countSetBits(value: number): number {
 }
 
 /**
+ * Misses the window currently holds: the games inside it that were absences.
+ *
+ * Mirrors the runtime's `misses_in_window(window)` on the history exactly as
+ * stored. The window is clamped to the one-byte history width, so a wider
+ * policy counts eight games and no more.
+ */
+export function missesInWindow(history: number, window: number): number {
+    const clamped = window >= HISTORY_BITS ? HISTORY_BITS : Math.max(window, 0);
+    const mask = (1 << clamped) - 1;
+    return clamped - countSetBits(history & mask);
+}
+
+/**
  * Misses a next-game absence would leave inside the window, mirroring the
  * runtime: `store_attendance(false)` (shift left, so bit 0 becomes the miss)
  * followed by `misses_in_window(window)`.
  *
- * The window is clamped to the one-byte history width; a JS number is not a
- * `u8`, so the shift is masked back down explicitly.
+ * A JS number is not a `u8`, so the shift is masked back down explicitly before
+ * the window is counted.
  */
 function projectedMisses(history: number, window: number): number {
-    const next = (history << 1) & 0xff;
-    const clamped = window >= HISTORY_BITS ? HISTORY_BITS : Math.max(window, 0);
-    const mask = (1 << clamped) - 1;
-    return clamped - countSetBits(next & mask);
+    return missesInWindow((history << 1) & 0xff, window);
 }
 
 /**

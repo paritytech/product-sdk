@@ -4,8 +4,9 @@
  * @parity/product-sdk-individuality — read a person's standing on the
  * individuality chain, and act as that person on it.
  *
- * Two halves. The **read** half answers one question: for a DotNS username, what
- * is that person's personhood state, as of one pinned finalized block? The
+ * Two halves. The **read** half answers one question: for a DotNS username or an
+ * account, what is that person's personhood state, as of one pinned finalized
+ * block? The
  * **write** half is `withAsPerson`, which wraps a signer so a call dispatches
  * under a person origin instead of an account origin.
  *
@@ -17,9 +18,15 @@
  * const result = await readPersonhoodState(chain, { username: "alice.dot" });
  * if (!result.ok) {
  *     console.error(result.error);
- * } else if (result.value.tag === "Resolved" && result.value.state.tag === "Member") {
- *     console.log(`member for ${result.value.state.activeWeeks} weeks`);
+ * } else if (result.value.tag === "Resolved") {
+ *     const { state, metrics } = result.value;
+ *     // The state answers the standing question; `metrics` carries the numbers
+ *     // in every state, so a progress bar needs no switch.
+ *     console.log(state.tag, metrics.score, "of", metrics.personhoodThreshold);
  * }
+ *
+ * // An account input skips the username lookup rather than adding one:
+ * const byAccount = await readPersonhoodState(chain, { account: aliceAddress });
  * ```
  *
  * Failures arrive on the `err` channel as a `ProductIndividualityError`, per the
@@ -56,6 +63,7 @@ export type {
     AbsenceGracePolicy,
     FinalizedSnapshot,
     PersonhoodInputs,
+    PersonhoodMetrics,
     PersonhoodParticipant,
     PersonhoodResult,
     PersonhoodState,
