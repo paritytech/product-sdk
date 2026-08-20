@@ -11,6 +11,7 @@ import {
 } from "@parity/product-sdk-contracts";
 import { createFakeContractRuntime, fakeDryRunResult } from "@parity/product-sdk-contracts/testing";
 import { ss58ToH160 } from "@parity/product-sdk-address";
+import type { SS58String } from "polkadot-api";
 import { describe, expect, test } from "vitest";
 import {
     DOTNS_POP_RULES_ABI,
@@ -347,6 +348,19 @@ describe("origin", () => {
         );
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("MissingOrigin");
+        expect(runtime.calls).toHaveLength(0);
+    });
+
+    test("prepareDotNsRegistration with a malformed origin fails before any call", async () => {
+        // ss58ToH160 throws on an undecodable address. Every function here
+        // promises a Result, so the throw has to be converted, not escape.
+        const runtime = runtimeWith({});
+        const r = await prepareDotNsRegistration(
+            { name: "alice.dot", owner: OWNER },
+            { runtime, origin: "not-an-ss58-address" as SS58String, tld: DOT_TLD },
+        );
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("InvalidOrigin");
         expect(runtime.calls).toHaveLength(0);
     });
 

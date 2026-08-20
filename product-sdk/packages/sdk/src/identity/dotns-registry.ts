@@ -757,7 +757,18 @@ export async function prepareDotNsRegistration(
     const registration = { label, owner: args.owner, secret, reserved: args.reserved ?? false };
     // register compares msg.sender against the owner; msg.sender is derived
     // from the SS58 origin, so derive it the same way to predict the branch.
-    const payer = ss58ToH160(origin);
+    // ss58ToH160 throws on an undecodable address, and this sits outside the
+    // try below, so guard it here rather than letting it escape the Result.
+    let payer: HexString;
+    try {
+        payer = ss58ToH160(origin);
+    } catch (cause) {
+        return err(
+            new DotNsError("InvalidOrigin", `opts.origin is not a valid SS58 address: ${origin}`, {
+                cause,
+            }),
+        );
+    }
 
     try {
         const controller = contractOf(

@@ -14,6 +14,7 @@ export type DotNsErrorReason =
     | "InvalidTld" // the deployment reported a TLD we cannot use, or the caller supplied an inconsistent one
     | "TldMismatch" // a well-formed name, but rooted at another deployment's TLD
     | "MissingOrigin" // a write was requested without the submitting account
+    | "InvalidOrigin" // the submitting account was supplied, but is not a decodable SS58 address
     | "NameUnavailable" // already registered
     | "NameReserved" // governance-held, or a base stem held by another user
     | "OwnerStatusInsufficient" // the owner lacks the personhood tier the label requires
