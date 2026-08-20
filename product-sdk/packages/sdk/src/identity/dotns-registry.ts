@@ -130,7 +130,16 @@ export interface DotNsClientOptions {
 export interface RegisterDotNsArgs {
     /** The name to register, e.g. `"alice.paseo"` — or the bare label `"alice"`. */
     name: string;
-    /** The account that will own the registered name. */
+    /**
+     * The account that will own the registered name: an H160, `0x` and 20
+     * bytes. Not SS58 — DotNS is a set of Revive contracts, and the registrar
+     * takes the owner as an ABI `address`. Convert with `ss58ToH160` from
+     * `@parity/product-sdk-address` if you hold a Substrate-shaped address.
+     *
+     * Typed `string` rather than `` `0x${string}` `` so callers need no cast,
+     * which means the compiler will not catch an SS58 address here: it reaches
+     * the contract and reverts on chain.
+     */
     owner: string;
     /** Reserved-name registration (default `false`). */
     reserved?: boolean;
@@ -140,7 +149,13 @@ export interface RegisterDotNsArgs {
 export interface SetRecordArgs {
     /** The name whose resolver record is being set. */
     name: string;
-    /** The address the name should resolve to. */
+    /**
+     * The address the name should resolve to: an H160, `0x` and 20 bytes. It is
+     * written straight into `resolver.setAddress` as an ABI `address`, so SS58
+     * is not accepted — convert with `ss58ToH160` from
+     * `@parity/product-sdk-address` first. Unenforced by the type, as with
+     * {@link RegisterDotNsArgs.owner}.
+     */
     address: string;
 }
 
