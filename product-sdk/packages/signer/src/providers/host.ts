@@ -403,7 +403,7 @@ export class HostProvider implements SignerProvider {
             } else {
                 log.error("failed to get product account", { error: message });
             }
-            return err(new HostRejectedError(message, nonTransient));
+            return err(new HostRejectedError(message, nonTransient, { cause: raw }));
         }
     }
 
@@ -444,6 +444,7 @@ export class HostProvider implements SignerProvider {
                 (error) => {
                     throw new Error(
                         `Host rejected ring VRF key registration: ${formatError(error)}`,
+                        { cause: error },
                     );
                 },
             )) as RingVrfPublicKey;
@@ -452,7 +453,8 @@ export class HostProvider implements SignerProvider {
             const message =
                 cause instanceof Error ? cause.message : "Failed to register ring VRF key";
             log.error("failed to register ring VRF key", { error: message });
-            return err(new HostRejectedError(message));
+            const raw = cause instanceof Error ? cause.cause : cause;
+            return err(new HostRejectedError(message, false, { cause: raw }));
         }
     }
 
@@ -471,6 +473,7 @@ export class HostProvider implements SignerProvider {
                 (error) => {
                     throw new Error(
                         `Host rejected ring VRF key list request: ${formatError(error)}`,
+                        { cause: error },
                     );
                 },
             )) as RegisteredRingVrfKey[];
@@ -479,7 +482,8 @@ export class HostProvider implements SignerProvider {
             const message =
                 cause instanceof Error ? cause.message : "Failed to list registered ring VRF keys";
             log.error("failed to list registered ring VRF keys", { error: message });
-            return err(new HostRejectedError(message));
+            const raw = cause instanceof Error ? cause.cause : cause;
+            return err(new HostRejectedError(message, false, { cause: raw }));
         }
     }
 
@@ -507,7 +511,9 @@ export class HostProvider implements SignerProvider {
                 .match(
                     (result) => result,
                     (error) => {
-                        throw new Error(`Host rejected alias request: ${formatError(error)}`);
+                        throw new Error(`Host rejected alias request: ${formatError(error)}`, {
+                            cause: error,
+                        });
                     },
                 )) as ContextualAlias;
 
@@ -516,7 +522,8 @@ export class HostProvider implements SignerProvider {
             const message =
                 cause instanceof Error ? cause.message : "Failed to get product account alias";
             log.error("failed to get product account alias", { error: message });
-            return err(new HostRejectedError(message));
+            const raw = cause instanceof Error ? cause.cause : cause;
+            return err(new HostRejectedError(message, false, { cause: raw }));
         }
     }
 
@@ -542,7 +549,9 @@ export class HostProvider implements SignerProvider {
             const result = (await this.accountsProvider.getUserId().match(
                 (value) => value,
                 (error) => {
-                    throw new Error(`Host rejected user id request: ${formatError(error)}`);
+                    throw new Error(`Host rejected user id request: ${formatError(error)}`, {
+                        cause: error,
+                    });
                 },
             )) as { primaryUsername: string };
 
@@ -550,7 +559,8 @@ export class HostProvider implements SignerProvider {
         } catch (cause) {
             const message = cause instanceof Error ? cause.message : "Failed to get user id";
             log.error("failed to get user id", { error: message });
-            return err(new HostRejectedError(message));
+            const raw = cause instanceof Error ? cause.cause : cause;
+            return err(new HostRejectedError(message, false, { cause: raw }));
         }
     }
 
@@ -581,6 +591,7 @@ export class HostProvider implements SignerProvider {
                     (error) => {
                         throw new Error(
                             `Host rejected Ring VRF proof request: ${formatError(error)}`,
+                            { cause: error },
                         );
                     },
                 )) as RingVRFProof;
@@ -590,7 +601,8 @@ export class HostProvider implements SignerProvider {
             const message =
                 cause instanceof Error ? cause.message : "Failed to create Ring VRF proof";
             log.error("failed to create Ring VRF proof", { error: message });
-            return err(new HostRejectedError(message));
+            const raw = cause instanceof Error ? cause.cause : cause;
+            return err(new HostRejectedError(message, false, { cause: raw }));
         }
     }
 
@@ -618,7 +630,10 @@ export class HostProvider implements SignerProvider {
                 .match(
                     (result) => result,
                     (error) => {
-                        throw new Error(`Host rejected VRF signing request: ${formatError(error)}`);
+                        throw new Error(
+                            `Host rejected VRF signing request: ${formatError(error)}`,
+                            { cause: error },
+                        );
                     },
                 )) as VrfSignature;
 
@@ -626,7 +641,8 @@ export class HostProvider implements SignerProvider {
         } catch (cause) {
             const message = cause instanceof Error ? cause.message : "Failed to sign VRF";
             log.error("failed to sign VRF", { error: message });
-            return err(new HostRejectedError(message));
+            const raw = cause instanceof Error ? cause.cause : cause;
+            return err(new HostRejectedError(message, false, { cause: raw }));
         }
     }
 
@@ -1592,6 +1608,138 @@ if (import.meta.vitest) {
                 ring,
                 message,
             );
+        });
+    });
+
+    describe("HostProvider preserves the host error as cause", () => {
+        // truapi's envelope for a cross-product refusal. `Domain` separates a
+        // host rejection from a transport failure, and the inner tag is what a
+        // consumer narrows on — see host-rust-core#373 for why NotAllowlisted
+        // is the steady-state answer on this path rather than an edge case.
+        const domainError = {
+            tag: "Domain",
+            value: { tag: "V1", value: { tag: "NotAllowlisted" } },
+        };
+        const rejecting = {
+            match: async (_onOk: (value: unknown) => unknown, onErr: (error: unknown) => unknown) =>
+                onErr(domainError),
+        };
+
+        const keyHandle = {
+            dotNsIdentifier: "people.dot",
+            derivationIndex: { tag: "Index", value: 0 },
+        } as unknown as RingVrfKeyHandle;
+        const ring: RingLocation = {
+            chainId: "0x01",
+            junctions: [{ tag: "PalletInstance", value: 67 }],
+        };
+        const context: ProductProofContext = {
+            productId: "myapp.dot",
+            suffix: { tag: "Index", value: 0 },
+        };
+
+        const cases: {
+            name: string;
+            reject: (mock: ReturnType<typeof createMockProvider>) => void;
+            call: (provider: HostProvider) => Promise<Result<unknown, SignerError>>;
+        }[] = [
+            {
+                name: "registerRingVrfKey",
+                reject: (mock) => mock.registerRingVrfKey.mockReturnValue(rejecting),
+                call: (provider) => provider.registerRingVrfKey(0, ring),
+            },
+            {
+                name: "listRingVrfKeys",
+                reject: (mock) => mock.listRingVrfKeys.mockReturnValue(rejecting),
+                call: (provider) => provider.listRingVrfKeys("people.dot"),
+            },
+            {
+                name: "getProductAccountAlias",
+                reject: (mock) => mock.getProductAccountAlias.mockReturnValue(rejecting),
+                call: (provider) => provider.getProductAccountAlias(keyHandle, context, ring),
+            },
+            {
+                name: "createRingVRFProof",
+                reject: (mock) => mock.createRingVRFProof.mockReturnValue(rejecting),
+                call: (provider) =>
+                    provider.createRingVRFProof(
+                        keyHandle,
+                        context,
+                        ring,
+                        new Uint8Array([1, 2, 3]),
+                    ),
+            },
+            {
+                name: "getUserId",
+                reject: (mock) => mock.getUserId.mockReturnValue(rejecting),
+                call: (provider) => provider.getUserId(),
+            },
+            {
+                name: "signVrf",
+                reject: (mock) => mock.signVrf.mockReturnValue(rejecting),
+                call: (provider) =>
+                    provider.signVrf(
+                        { dotNsIdentifier: "myapp.dot", derivationIndex: 0 },
+                        new Uint8Array([1, 2, 3]),
+                        [],
+                    ),
+            },
+            {
+                name: "getProductAccount",
+                reject: (mock) => mock.getProductAccount.mockReturnValue(rejecting),
+                call: (provider) => provider.getProductAccount("myapp.dot", 0),
+            },
+        ];
+
+        test.each(cases)(
+            "$name surfaces the raw tagged error as cause",
+            async ({ reject, call }) => {
+                const mockProvider = createMockProvider({
+                    accounts: [{ publicKey: new Uint8Array(32).fill(0xa2), name: undefined }],
+                });
+                const provider = new HostProvider({
+                    maxRetries: 1,
+                    loadAccountsProvider: loadProvider(mockProvider),
+                    requestChainSubmitPermissionFn: grantPermission(),
+                    productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+                });
+                await provider.connect();
+                // Reject only after connect, so the failure under test is the
+                // on-demand call and not the connection itself.
+                reject(mockProvider);
+
+                const result = await call(provider);
+
+                expect(result.ok).toBe(false);
+                if (!result.ok) {
+                    expect(result.error).toBeInstanceOf(HostRejectedError);
+                    expect(result.error.cause).toBe(domainError);
+                }
+            },
+        );
+
+        test("a non-tagged rejection still yields an error with the raw value as cause", async () => {
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: new Uint8Array(32).fill(0xa2), name: undefined }],
+            });
+            const provider = new HostProvider({
+                maxRetries: 1,
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+                productAccount: { dotNsIdentifier: "myapp.dot", requestName: false },
+            });
+            await provider.connect();
+            mockProvider.getUserId.mockReturnValue({
+                match: async (
+                    _onOk: (value: unknown) => unknown,
+                    onErr: (error: unknown) => unknown,
+                ) => onErr("Unknown"),
+            });
+
+            const result = await provider.getUserId();
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) expect(result.error.cause).toBe("Unknown");
         });
     });
 
