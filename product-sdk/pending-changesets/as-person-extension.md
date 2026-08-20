@@ -45,6 +45,6 @@ the same product-scoped construction the host already uses, so
 `createRingVRFProof(keyHandle, { productId: "peopl.<network>", suffix: Index(0) }, ...)` produces
 exactly the context the call wants. Verified by computing both sides: they are byte-identical.
 
-So this needs no further SDK work and nothing from the host. When paseo upgrades to `1000035`,
-regenerate the descriptors and pass that context; the encoding here is already finished and tested
-against the deployed metadata.
+So this needs no further SDK work and nothing from the host. When paseo upgrades to `1000035` or
+later, regenerate the descriptors and pass that context; the encoding here is already finished and
+tested against the deployed metadata.

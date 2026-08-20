@@ -187,7 +187,7 @@ const result = await submitAndWatch(api.tx.Game.sign_up_with_alias(), signer);
 - **Individuality up to v0.11.2**, which is what paseo-people-next runs today at `specVersion 1000032`, fixes those contexts as constants. `createRingVRFProof` mints product-scoped contexts, `blake2b256("product/<productId>/<suffix>")`, and no input equals a constant, so the chain answers `InvalidTransaction::Call` however correct your bytes are.
 - **Individuality v0.12.0**, tagged but not yet deployed, derives those contexts with the *same* product-scoped construction the host already uses. On paseo, `productId: "peopl.paseo"` with `suffix: { tag: "Index", value: 0 }` yields exactly the score context, `0x99f1920e...e842`. Both sides were computed and compared: byte-identical.
 
-So there is nothing to build and nothing needed from the host. When paseo upgrades to `specVersion 1000035`, regenerate the descriptors and pass that context. Track it on issue #290.
+So there is nothing to build and nothing needed from the host. When paseo upgrades to `specVersion 1000035` or later, regenerate the descriptors and pass that context. Track it on issue #290.
 
 The wiring is a callback either way, so nothing in this package changes:
 
