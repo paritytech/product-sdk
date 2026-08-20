@@ -64,6 +64,13 @@ import {
     POP_STATUS,
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
+import {
+    type RuntimeCache,
+    cachedPerRuntime,
+    isZero,
+    resolveDotNsAddresses,
+    sameAddress,
+} from "./dotns-addresses.js";
 import { isResolvableDotNsName, isValidDotNsName, normalizeDotNsName } from "./dotns.js";
 import {
     DOT_TLD,
@@ -78,8 +85,6 @@ import type { DotNsRecord } from "./types.js";
 const log = createLogger("identity:dotns");
 
 type HexString = `0x${string}`;
-
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 /** Shared inputs for a DotNS registry call. */
 export interface DotNsClientOptions {
@@ -165,21 +170,12 @@ function contractOf(runtime: ContractRuntime, address: HexString, abi: AbiEntry[
     return createContract(runtime, address, abi as any) as any;
 }
 
-function isZero(addr: unknown): boolean {
-    return typeof addr === "string" && addr.toLowerCase() === ZERO_ADDRESS;
-}
-
 /**
  * Origin for a read. Passing the fallback explicitly rather than letting the
  * contracts layer substitute it keeps each query from logging a warning.
  */
 function readOrigin(opts: DotNsClientOptions): SS58String {
     return opts.origin ?? QUERY_FALLBACK_ORIGIN;
-}
-
-/** Case-insensitive H160 compare: chain reads are lowercase, our table is EIP-55. */
-function sameAddress(a: unknown, b: unknown): boolean {
-    return typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
 }
 
 // ── The deployment's TLD ─────────────────────────────────────────────
@@ -189,14 +185,11 @@ function sameAddress(a: unknown, b: unknown): boolean {
 // (runtime, protocol registry) and cache it: it cannot change under us.
 
 /**
- * Cached TLD per runtime, then per protocol-registry address.
- *
- * Keyed on the address as well as the runtime because the address is
- * overridable, and one runtime pointed at two registries has two TLDs. The
- * value is the in-flight promise rather than the resolved TLD, so concurrent
- * first calls share one read instead of racing.
+ * Cached TLD per runtime, then per protocol-registry address. Keyed on the
+ * address as well because it is overridable, and one runtime pointed at two
+ * registries has two TLDs.
  */
-const tldCache = new WeakMap<ContractRuntime, Map<string, Promise<Result<DotNsTld, DotNsError>>>>();
+const tldCache: RuntimeCache<DotNsTld> = new WeakMap();
 
 /** An empty-payload revert: the contract ran and refused, telling us nothing. */
 function isEmptyRevert(value: unknown): boolean {
@@ -253,24 +246,10 @@ export async function resolveTld(opts: DotNsClientOptions): Promise<Result<DotNs
               );
     }
 
-    const address = (opts.protocolRegistryAddress ?? DOTNS_ADDRESSES.protocolRegistry) as HexString;
-    let perAddress = tldCache.get(opts.runtime);
-    if (!perAddress) {
-        perAddress = new Map();
-        tldCache.set(opts.runtime, perAddress);
-    }
-    const cached = perAddress.get(address);
-    if (cached) return cached;
-
-    const pending = readTld(opts, address);
-    perAddress.set(address, pending);
-    // Only a successful read is worth keeping: a failure is usually transient
-    // (RPC, not deployment), and caching it would strand the client for the
-    // life of the runtime.
-    pending.then((result) => {
-        if (!result.ok) perAddress?.delete(address);
-    });
-    return pending;
+    const addresses = await resolveDotNsAddresses(opts);
+    if (!addresses.ok) return addresses;
+    const address = addresses.value.protocolRegistry;
+    return cachedPerRuntime(tldCache, opts.runtime, address, () => readTld(opts, address));
 }
 
 async function readTld(
