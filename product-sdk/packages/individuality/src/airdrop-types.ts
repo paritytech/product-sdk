@@ -128,9 +128,10 @@ export type AirdropOutcome =
     /** No registrant was supplied, so no winner lookup happened. */
     | { tag: "Unchecked" }
     /**
-     * No winning entry. Before the draw that means "not drawn yet" and after it
-     * "did not win" — the same storage answer, so read {@link AirdropEvent.phase}
-     * to tell them apart.
+     * No winning entry, which is **three** situations sharing one storage answer:
+     * not drawn yet, did not win, or won and already claimed — a successful claim
+     * removes the row. `phase` separates the first from the rest; only a kept
+     * ticket or the `PrizeClaimed` event separates the last two.
      */
     | { tag: "NotWon" }
     /** Won. `ticket` is the 32-byte entropy slot the win is recorded under. */

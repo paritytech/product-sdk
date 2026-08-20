@@ -203,6 +203,28 @@ export type {
 export { readCurrentGame } from "./game-read.js";
 export type { GameChain, ReadCurrentGameOptions } from "./game-read.js";
 
+// Claiming a prize. `claim_airdrop` has five gates and only two are about
+// personhood, so the predicate is exported separately from the read that feeds
+// it. Submission stays with `@parity/product-sdk-tx`: `claimPrizeTx` returns the
+// unsigned call. `confirmClaim` re-reads whether a claim landed, which is how the
+// flow survives a reload — a successful claim removes the `Winners` row.
+export type {
+    ClaimBlocker,
+    ClaimEligibility,
+    ClaimEligibilityResult,
+    ClaimOutcome,
+    ClaimWindow,
+} from "./claim-types.js";
+export { deriveClaimEligibility } from "./claim-derive.js";
+export type { ClaimInputs } from "./claim-derive.js";
+export { claimPrizeTx, confirmClaim, readClaimEligibility } from "./claim.js";
+export type {
+    ClaimChain,
+    ClaimTarget,
+    ConfirmClaimOptions,
+    ReadClaimEligibilityOptions,
+} from "./claim.js";
+
 // The write half: wrap a signer so the call runs under a person origin. Returns
 // a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx`.
 export { withAsPerson } from "./as-person-signer.js";

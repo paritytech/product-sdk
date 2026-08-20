@@ -34,6 +34,7 @@ import type { getChainAPI } from "@parity/product-sdk-chain-client";
 import type { RingVRFProof as HostRingVRFProof } from "@parity/product-sdk-host";
 import type {
     AirdropChain,
+    ClaimChain,
     ConsumersChain,
     GameChain,
     IndividualityChain,
@@ -207,6 +208,25 @@ type SignUpWithAliasTakesTheDocumentedArgs = Assert<
 // as `any`, so this pins a shape that is missing `sig` and requires it to fail.
 type SignUpArgsWithoutSig = Pick<SignUpWithAliasArgs, "identifier_key" | "statement_account">;
 type RejectsSignUpArgsMissingSig = Assert<"sig" extends keyof SignUpArgsWithoutSig ? false : true>;
+
+// The claim is the one contract here that touches `tx` as well as storage. Paseo
+// only, like the game surface it composes with.
+type PaseoSatisfiesClaimContract = Assert<PaseoClient extends ClaimChain ? true : false>;
+type RejectsBogusClaimClient = Assert<ClientWithoutIndividuality extends ClaimChain ? false : true>;
+
+// `claim_airdrop`'s three arguments, pinned by name. `ClaimChain` types them
+// structurally, and PAPI encodes whatever object it is handed — so a renamed field
+// would encode as `undefined` and fail on chain with nothing local to point at it.
+type ClaimAirdropArgs = Parameters<GameTx["claim_airdrop"]>[0];
+type ClaimAirdropTakesTheDocumentedArgs = Assert<
+    "game_index" extends keyof ClaimAirdropArgs
+        ? "airdrop_index" extends keyof ClaimAirdropArgs
+            ? "beneficiary" extends keyof ClaimAirdropArgs
+                ? true
+                : false
+            : false
+        : false
+>;
 
 test("the individuality chain contract is asserted at compile time", () => {
     // The type assertions above are the test. This keeps vitest from reporting
