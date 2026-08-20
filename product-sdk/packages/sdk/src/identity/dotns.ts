@@ -3,12 +3,16 @@
 /**
  * DotNS (Polkadot Name Service) utilities
  *
- * Provides name resolution for .dot domains
+ * Name validation and normalization. Every helper here takes the deployment's
+ * TLD suffix rather than assuming `.dot`: the TLD is fixed per network when the
+ * contracts initialise, so the same string is a valid name on one deployment
+ * and meaningless on another. `resolveTld` in `./dotns-registry.js` is what
+ * asks the chain which suffix is in play.
  */
 
 import { accountIdBytes } from "@parity/product-sdk-address";
 import { bytesToHex, hexToBytes } from "@parity/product-sdk-crypto";
-import { createLogger } from "@parity/product-sdk-logger";
+import { stripSuffix } from "./dotns-namehash.js";
 import type {
     ChainDefinition,
     PalletsTypedef,
@@ -18,9 +22,6 @@ import type {
     StorageDescriptor,
     TxDescriptor,
 } from "polkadot-api";
-import type { DotNsRecord } from "./types.js";
-
-const log = createLogger("identity");
 
 type AnyDescriptorEntry<T> = Record<string, Record<string, T>>;
 
@@ -71,93 +72,90 @@ export type PeopleUsernameQueryApi = {
 };
 
 /**
- * Check if a string is a valid DotNS name
+ * Whether `name` is a single registrable label under `suffix`.
  *
- * @param name - Name to validate
- * @returns True if valid DotNS name
+ * `suffix` is the deployment's own TLD, including its leading dot, as
+ * `resolveTld` reports it — `".dot"` on Paseo Asset Hub Previewnet, `".paseo"`
+ * on Next V2. It is required rather than defaulted, because a name is only
+ * valid *relative to a deployment*: `alice.dot` is registrable on one network
+ * and meaningless on the other, and a default would silently pick one.
+ *
+ * @param name - Name to validate, already normalized by {@link normalizeDotNsName}
+ * @param suffix - The deployment's TLD suffix, e.g. `".paseo"`
  */
-export function isValidDotNsName(name: string): boolean {
-    // Basic validation: alphanumeric, hyphens, ends with .dot
-    if (!name.endsWith(".dot")) return false;
-    const label = name.slice(0, -4);
+export function isValidDotNsName(name: string, suffix: string): boolean {
+    if (!name.endsWith(suffix)) return false;
+    return isValidLabel(stripSuffix(name, suffix));
+}
+
+/**
+ * One canonical DNS label, matching the on-chain rule.
+ *
+ * `StringUtils.isSingleLabel` allows lowercase ASCII, digits and non-edge
+ * hyphens up to 63 characters, and the registrar additionally requires 3.
+ */
+function isValidLabel(label: string): boolean {
     if (label.length < 3 || label.length > 63) return false;
     return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(label);
 }
 
 /**
- * Normalize a DotNS name (lowercase, trim whitespace)
+ * Whether a name can be resolved: one or more valid labels under `suffix`.
+ *
+ * Broader than {@link isValidDotNsName} on purpose. The registrar only mints
+ * single labels, so registration keeps the stricter rule, but the registry
+ * supports subnodes and `namehash` hashes them, so `bob.alice.paseo` is
+ * resolvable even though it is not registrable.
+ *
+ * @param name - Name to check, already normalized by {@link normalizeDotNsName}
+ * @param suffix - The deployment's TLD suffix, e.g. `".paseo"`
+ */
+export function isResolvableDotNsName(name: string, suffix: string): boolean {
+    if (!name.endsWith(suffix)) return false;
+    const labels = stripSuffix(name, suffix).split(".");
+    return labels.length > 0 && labels.every(isValidLabel);
+}
+
+/**
+ * Normalize a DotNS name for the deployment identified by `suffix`.
+ *
+ * Case-folds, applies NFC, trims surrounding whitespace, and drops a single
+ * trailing root dot, so `Alice.PASEO.` keys the same as `alice.paseo`. This
+ * mirrors `normalize_host` in truapi-server, which is what turns a URL into a
+ * dotNS identifier — a name arriving from navigation has to key identically
+ * here or the two layers disagree about the same input.
+ *
+ * The NFC step is defensive only: {@link isValidLabel} and the on-chain
+ * `StringUtils.isSingleLabel` both allow lowercase ASCII alone, so no name that
+ * survives validation can differ between its composed and decomposed spellings.
+ * It costs nothing and it keeps this function honest if the label rule ever
+ * widens.
+ *
+ * **The suffix is appended only when `name` contains no dot at all.** A bare
+ * label is the friendly path and gets the deployment's suffix; anything already
+ * carrying a dot is left exactly as written, so a name from another deployment
+ * survives to be refused by validation rather than being buried under our own
+ * suffix. Appending on `!endsWith(suffix)` instead would turn `alice.dot` into
+ * `alice.dot.paseo`, which is a well-formed subname and would resolve silently
+ * to a node nobody owns.
+ *
+ * The cost of that rule: a bare multi-label name such as `bob.alice` is no
+ * longer completed to `bob.alice.paseo`. Distinguishing it from `alice.dot`
+ * would require a hardcoded list of every network's TLD, and there are already
+ * more TLDs deployed than any such list contains.
  *
  * @param name - Name to normalize
- * @returns Normalized name
+ * @param suffix - The deployment's TLD suffix, e.g. `".paseo"`
  */
-export function normalizeDotNsName(name: string): string {
-    let normalized = name.toLowerCase().trim();
-    if (!normalized.endsWith(".dot")) {
-        normalized += ".dot";
-    }
-    return normalized;
+export function normalizeDotNsName(name: string, suffix: string): string {
+    const folded = name.trim().normalize("NFC").toLowerCase();
+    const normalized = folded.endsWith(".") ? folded.slice(0, -1) : folded;
+    return normalized.includes(".") ? normalized : normalized + suffix;
 }
 
-/**
- * Resolve a DotNS name to an address.
- *
- * @deprecated Not implemented — throws at runtime. Use
- *   `wallet.signMessageWithDotNsIdentity({ peopleChain, username })` (which
- *   internally calls {@link resolvePeopleUsernameOwner}) for the supported
- *   People-chain username flow.
- *
- * @param name - DotNS name (e.g., "alice.dot")
- * @returns Resolved record or null if not found
- */
-export async function resolveDotNs(name: string): Promise<DotNsRecord | null> {
-    const normalized = normalizeDotNsName(name);
-
-    if (!isValidDotNsName(normalized)) {
-        log.warn("Invalid DotNS name", { name });
-        return null;
-    }
-
-    log.debug("Resolving DotNS name", { name: normalized });
-
-    // TODO: Implement via PAPI query to DotNS pallet
-    throw new Error(
-        "resolveDotNs() is not yet implemented. " +
-            "This is a skeleton for the Product SDK structure.",
-    );
-}
-
-/**
- * Reverse resolve an address to a DotNS name.
- *
- * @deprecated Not implemented — throws at runtime. Reverse lookup will land
- *   alongside future identity work; for now resolve forward via
- *   `wallet.signMessageWithDotNsIdentity`.
- *
- * @param address - SS58 address
- * @returns Primary name or null if none set
- */
-export async function reverseDotNs(address: string): Promise<string | null> {
-    log.debug("Reverse resolving address", { address });
-
-    // TODO: Implement via PAPI query to DotNS pallet
-    throw new Error(
-        "reverseDotNs() is not yet implemented. " +
-            "This is a skeleton for the Product SDK structure.",
-    );
-}
-
-/**
- * Check if a DotNS name is available for registration.
- *
- * @deprecated Not implemented — depends on {@link resolveDotNs} which throws.
- *
- * @param name - Name to check
- * @returns True if available
- */
-export async function isDotNsAvailable(name: string): Promise<boolean> {
-    const record = await resolveDotNs(name).catch(() => null);
-    return record === null;
-}
+// `resolveDotNs` / `reverseDotNs` / `isDotNsAvailable` now live in
+// `./dotns-registry.ts` (real `Result`-returning registry calls), replacing the
+// throwing skeletons that used to sit here. See that module + the design doc.
 
 /**
  * Resolve a People / People Lite username to its owning account.

@@ -1,5 +1,121 @@
 # @parity/product-sdk-signer
 
+## 0.13.0
+
+### Minor Changes
+
+- 3655724: **Wrap `account.signVrf` (RFC-0023) in the accounts surface (#288).**
+
+  Producing an sr25519 VRF over a caller-supplied Merlin transcript previously meant
+  reaching for the raw `getTruApi()` client. `AccountsProvider` now has
+  `signVrf(account, transcriptLabel, items)`, with `HostProvider.signVrf` and
+  `SignerManager.signVrf` alongside `createRingVRFProof`. Bytes in, bytes out: the adapter
+  owns the hex encoding and the tagged derivation-index selector, and errors use the same
+  `Result` channel as every other account call.
+
+  New exported types, also re-exported from `@parity/product-sdk-signer`:
+  `VrfTranscriptItem`, `VrfSignature`, and `ProductAccountLookup`
+  (`{ dotNsIdentifier, derivationIndex? }`), which a `ProductAccount` satisfies.
+
+  **Breaking for implementors.** `signVrf` is a required member of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test doubles
+  must add it. Callers are unaffected, and the fake at `@parity/product-sdk-host/testing`
+  already implements it.
+
+  **Host-only.** There is no `DevProvider` implementation and the e2e test host does not
+  expose the call, so this returns `HOST_UNAVAILABLE` outside a host container, matching
+  `createRingVRFProof`. Use `createFakeHost()` for local tests.
+
+  The caller owns four things the types cannot enforce:
+
+  - _Domain separation_ — a label borrowed from another protocol makes the output
+    replayable across both.
+  - _Freshness_ — the VRF is deterministic, so per-round values must enter the transcript
+    as items; otherwise every call returns the same signature.
+  - _Size_ — hosts cap the transcript at 32 items and 8 KiB total and reject anything
+    larger as an unknown error. The SDK does not pre-validate.
+  - _Authorization_ — an `AutoSigning` allowance makes these calls silent. It is not
+    VRF-scoped, so granting it also authorizes other signing with that account.
+
+  Hosts predating the call reject it through the error channel rather than hanging.
+
+- 3655724: **Update TrUAPI to 0.9 and require registered ring-VRF key handles.**
+
+  `AccountsProvider`, `HostProvider`, and `SignerManager` now expose
+  `registerRingVrfKey(index, ring)` and `listRingVrfKeys(owner, disclosure?)`. Registration returns
+  the decoded ring-VRF public key; listing returns `RegisteredRingVrfKey` entries with opaque
+  `RingVrfKeyHandle` values. `findRingVrfKeyHandle(keys, ring)` selects a handle by declared
+  `RingLocation`, so products do not hard-code another product's derivation index.
+
+  `getProductAccountAlias` and `createRingVRFProof` now require that handle as their first argument.
+  This is a compile-time breaking change. It matches TrUAPI 0.9, where the host no longer chooses a
+  ring member key implicitly and rejects malformed legacy requests before application dispatch.
+
+  The dependency update also adopts TrUAPI's renamed derivation-index variants: `Index` replaces
+  `Left` and `Raw` replaces `Right`. The SDK's ergonomic numeric product-account APIs are unchanged;
+  the host adapter performs the `Index` conversion at the wire boundary.
+
+  The signer package's re-exported `RingLocation` now uses TrUAPI's `` chainId: `0x${string}` ``
+  instead of a plain `string`; callers loading chain IDs from configuration must narrow or validate
+  them before assignment. Custom `HostProviderOptions.loadAccountsProvider` implementations must
+  also provide the newly required `registerRingVrfKey` and `listRingVrfKeys` methods.
+
+  `findRingVrfKeyHandle` is exported from `@parity/product-sdk-host`, not from
+  `@parity/product-sdk-signer`, which re-exports the ring-VRF types only. A product depending on
+  the signer package alone needs `@parity/product-sdk-host` as a second direct dependency for the
+  selection step. Prefer the helper over an inline comparison: it requires the junction path to
+  match in order and compares chain and collection ids case-insensitively, so a shortcut that
+  checks only `chainId` can pick a key registered for a different ring on the same chain.
+
+### Patch Changes
+
+- 3655724: **Deprecate the context-alias helpers, delete the unimplemented ring-alias stubs (#287).**
+
+  `deriveContextAlias` returns addresses that can receive value and can never spend it: the alias
+  public key is `blake2b256(parentPublicKey || context)`, a hash rather than a derived key, so no
+  secret corresponds to the SS58 address or the H160. The address encodes and validates fine, so
+  nothing surfaces until value arrives at it.
+
+  **Deleted:** `deriveAnonymousAlias`, `createRingProof`, `verifyRingProof`, `AnonymousAliasInfo`,
+  and identity's `RingLocation`. Each function was a debug log followed by an unconditional
+  `throw`, with no branch or early return, so no working consumer could exist and this break is
+  compile-time only. The real ring VRF operations already live on `SignerManager` in
+  `@parity/product-sdk-signer` as `getProductAccountAlias(keyHandle, context, location)` and
+  `createRingVRFProof(keyHandle, context, location, message)`, host-backed and using an opaque
+  registered key handle selected by ring. Identity's `RingLocation` was also the wrong shape,
+  `{ringIndex, memberIndex}` against the protocol type `{chainId, junctions}`.
+
+  **Deprecated, removal in `@parity/product-sdk` 0.23.0:** `deriveContextAlias`,
+  `verifyContextAlias`, `ContextAliasInfo`. Their output is unchanged, so a caller using an alias as
+  a plain identifier has a release to migrate. `verifyContextAlias` compares two public values with
+  no secret involved anywhere, so it confirms a derivation relationship and authenticates nothing.
+
+  The derivation output is deliberately unchanged: the same name and signature returning different
+  bytes would break identifier consumers silently, with no compile error.
+
+  ### Migration
+
+  | If you used it for                                    | Use instead                                                                                                                                                                                                      |
+  | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | An account that holds or spends value                 | `SignerManager.getProductAccount(dotNsIdentifier, index)` from `@parity/product-sdk-signer`                                                                                                                      |
+  | The address offline, with no host                     | `deriveProductAccountPublicKey` from `@parity/product-sdk-keys`, the canonical sr25519 soft derivation                                                                                                           |
+  | An unlinkable per-context alias                       | Select a registered key by ring, then call `SignerManager.getProductAccountAlias(keyHandle, context, location)` or `createRingVRFProof(keyHandle, context, location, message)` from `@parity/product-sdk-signer` |
+  | A context-scoped identifier, never used as an account | `blake2b256` from `@parity/product-sdk/crypto`: the same bytes, without address packaging                                                                                                                        |
+
+  The DotNS half of `./identity` is unaffected (`resolveDotNs`, `reverseDotNs`, `isDotNsAvailable`,
+  `resolvePeopleUsernameOwner` and the name helpers), and the subpath itself is not deprecated.
+
+  `@parity/product-sdk-signer` takes a patch here for the context-alias migration wording. The
+  separate TrUAPI 0.9 changeset documents the `RingLocation` type break and supplies the release's
+  minor bump.
+
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+  - @parity/product-sdk-host@0.16.0
+  - @parity/product-sdk-keys@0.3.19
+
 ## 0.12.1
 
 ### Patch Changes

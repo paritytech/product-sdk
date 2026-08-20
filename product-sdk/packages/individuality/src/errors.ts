@@ -53,6 +53,28 @@ export class IndividualityDecodeError extends ProductIndividualityError {
     }
 }
 
+/**
+ * Building the `AsPerson` transaction extension failed.
+ *
+ * Raised when the chain does not declare the extension, declares a pipeline
+ * version this package cannot encode, or when a value does not survive a round
+ * trip through the chain's own codec.
+ *
+ * Unlike {@link IndividualityDecodeError} this one is thrown, not returned: it
+ * happens inside `PolkadotSigner.signTx`, where the only channel available is
+ * the exception PAPI already surfaces on the transaction's error path.
+ *
+ * **Never interpolate a proof, a context or an alias into the message.** Those
+ * are pseudonymous identity, and an error string is the least controlled place
+ * they can end up. An extension identifier or a version number is fine.
+ */
+export class AsPersonError extends ProductIndividualityError {
+    constructor(message: string, options?: ErrorOptions) {
+        super(message, options);
+        this.name = "AsPersonError";
+    }
+}
+
 if (import.meta.vitest) {
     const { describe, test, expect } = import.meta.vitest;
 
