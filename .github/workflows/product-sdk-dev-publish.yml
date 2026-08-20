@@ -9,8 +9,19 @@ name: "product-sdk: Dev publish"
 # on the `dev` tag so `npm install` (which resolves `@latest`) can never pick it
 # up by accident.
 #
-# The maintainer triggers this from the Actions UI:
-#   Actions → "product-sdk: Dev publish" → Run workflow → pr: 312, iteration: 0
+# Two ways in, because GitHub only exposes `workflow_dispatch` for workflows
+# that already live on the default branch:
+#
+#   1. Label the PR `dev-publish-<iteration>`, e.g. `dev-publish-0`. A
+#      `pull_request` workflow runs the file as it exists in the PR's own head
+#      branch, so this works while the workflow is still unmerged. Re-cut by
+#      adding `dev-publish-1`, and so on.
+#   2. Once this file is on `main`: Actions → "product-sdk: Dev publish" → Run
+#      workflow → pr: 312, iteration: 0.
+#
+# Both paths converge on the same two values and the same guards. The label
+# carries the iteration rather than deriving one from `github.run_number`
+# because a re-run must be able to reproduce a version, not invent a new one.
 #
 # Why this cannot reuse product-sdk-release.yml: that workflow consumes
 # changesets, commits `chore: version packages`, tags, and publishes to
@@ -36,12 +47,14 @@ on:
                 type: string
                 required: true
                 default: "0"
+    pull_request:
+        types: [labeled]
 
 permissions:
     contents: read
 
 concurrency:
-    group: product-sdk-dev-publish-${{ inputs.pr }}
+    group: product-sdk-dev-publish-${{ github.event.pull_request.number || inputs.pr }}
     cancel-in-progress: false
 
 defaults:
@@ -50,7 +63,14 @@ defaults:
 
 jobs:
     dev-publish:
-        name: "Publish dev.${{ inputs.pr }}.${{ inputs.iteration }}"
+        # Every other label is ignored. The same-repo check is belt and braces:
+        # a fork PR gets no `id-token` and no secrets, so it would fail at the
+        # publish step anyway, but failing here says why.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            (startsWith(github.event.label.name, 'dev-publish-') &&
+            github.event.pull_request.head.repo.full_name == github.repository)
+        name: "Publish dev.${{ github.event.pull_request.number || inputs.pr }}"
         runs-on: parity-default
         timeout-minutes: 20
         permissions:
@@ -59,17 +79,36 @@ jobs:
             # token rather than a long-lived NPM_TOKEN, and attaches provenance.
             id-token: write
         steps:
-            - name: Validate inputs
+            - name: Resolve and validate the cut
+              id: cut
               env:
-                  PR: ${{ inputs.pr }}
-                  ITERATION: ${{ inputs.iteration }}
+                  EVENT: ${{ github.event_name }}
+                  INPUT_PR: ${{ inputs.pr }}
+                  INPUT_ITERATION: ${{ inputs.iteration }}
+                  LABEL: ${{ github.event.label.name }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   set -euo pipefail
+                  if [ "$EVENT" = "workflow_dispatch" ]; then
+                    PR="$INPUT_PR"
+                    ITERATION="$INPUT_ITERATION"
+                  else
+                    PR="$PR_NUMBER"
+                    # `dev-publish-3` → 3. The job-level `if` already required
+                    # the prefix, so this only has to strip it.
+                    ITERATION="${LABEL#dev-publish-}"
+                  fi
                   # Both land inside an npm version string, so they are digits
                   # only. Anything else could smuggle a second dist-tag or an
-                  # extra semver segment past the prerelease check below.
+                  # extra semver segment past the prerelease check below — and
+                  # on the label path the value is whatever someone typed into
+                  # a label, so this is the only thing standing between a typo
+                  # and a malformed publish.
                   [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be digits, got '$PR'"; exit 1; }
                   [[ "$ITERATION" =~ ^[0-9]+$ ]] || { echo "::error::iteration must be digits, got '$ITERATION'"; exit 1; }
+                  echo "pr=$PR" >> "$GITHUB_OUTPUT"
+                  echo "iteration=$ITERATION" >> "$GITHUB_OUTPUT"
+                  echo "::notice::Cutting dev.$PR.$ITERATION"
 
             - name: Refuse to cut a dev release from main
               if: github.ref == 'refs/heads/main'
@@ -125,8 +164,8 @@ jobs:
             # make the same PR+iteration publish two different versions.
             - name: Version as a snapshot
               env:
-                  PR: ${{ inputs.pr }}
-                  ITERATION: ${{ inputs.iteration }}
+                  PR: ${{ steps.cut.outputs.pr }}
+                  ITERATION: ${{ steps.cut.outputs.iteration }}
               run: |
                   set -euo pipefail
                   pnpm changeset version \
