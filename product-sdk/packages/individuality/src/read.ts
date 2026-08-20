@@ -227,7 +227,7 @@ type ReadInput = { by: "account"; account: string } | { by: "username"; username
  * Pick the single input, or throw.
  *
  * Called before the block is pinned, so a call that cannot succeed costs no
- * round trip, the same rule the abort check follows.
+ * round trip.
  *
  * An empty string counts as absent, and so does anything that is not a string.
  * Taken as input, `""` resolves to a confident answer about the empty account.
@@ -259,8 +259,8 @@ async function runRead(
     const { signal } = options;
     const query = chain.individuality.query;
 
-    // Both before the block fetch, which takes no options and so cannot carry the
-    // signal itself.
+    // Neither an unusable call nor an already cancelled one should pin a block. The
+    // fetch below takes no options, so it cannot carry the signal itself.
     const input = selectInput(options);
     signal?.throwIfAborted();
 
