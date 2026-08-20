@@ -281,10 +281,10 @@ export const POP_STATUS = { NoStatus: 0, PopLite: 1, PopFull: 2, Reserved: 3 } a
  *
  * Not a per-network table, despite what the old name (`PASEO_ASSETHUB_DOTNS`)
  * implied: every DotNS network is deployed through the same CREATE3 factory, so
- * the addresses are identical everywhere and **only the TLD differs**. Verified
- * on both Paseo Asset Hub Next V2 and Previewnet — `protocolRegistry.get(...)`
- * returns the same registry on each, and all six addresses hold contracts on
- * both. `paritytech/dotns` `DEPLOYMENTS.md` states the mechanism, and
+ * the addresses are identical everywhere and **only the TLD differs**, `.paseo`
+ * on Paseo Asset Hub Next V2 and `.test` on Previewnet. Verified on both:
+ * `protocolRegistry.get(...)` returns the same registry on each, and all six
+ * addresses hold contracts on both. `paritytech/dotns` `DEPLOYMENTS.md` states the mechanism, and
  * `preview-net-v1` confirms it from the deploy side: the TLD is passed only as
  * registry init calldata, so it moves no address.
  *
