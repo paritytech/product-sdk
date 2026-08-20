@@ -90,9 +90,9 @@ describe("verifyContextAlias", () => {
         expect(verifyContextAlias("not-an-address", ALICE, CONTEXT)).toBe(false);
     });
 
-    // Guards the byte-level comparison: `addressesEqual` from
-    // @parity/product-sdk-address compares SS58 strings exactly and would
-    // return false here, silently narrowing behaviour.
+    // Guards the byte-level comparison. `addressesEqual` compared SS58 strings
+    // exactly until it was fixed to compare keys, so this is what would catch a
+    // regression back to a string compare.
     it("compares public keys, so it accepts an alias encoded at another prefix", () => {
         const alias = deriveContextAlias(ALICE, CONTEXT, 42);
         const reencoded = ss58Encode(ss58Decode(alias.address).publicKey, 0);

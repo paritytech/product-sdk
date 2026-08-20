@@ -88,12 +88,13 @@ const PHASE_OF_STATUS: Record<AirdropStatusTag, AirdropPhase> = {
 };
 
 /**
- * Validate a raw `Status` variant name.
+ * Validate a raw `Status` variant name. Exported so a read that only needs the
+ * variant, not the whole event, still fails loudly on an unknown one.
  *
  * The domain tags match the chain's variant names exactly, so this narrows
  * rather than translates.
  */
-function statusTag(type: string): AirdropStatusTag {
+export function statusTag(type: string): AirdropStatusTag {
     if (type in PHASE_OF_STATUS) {
         return type as AirdropStatusTag;
     }

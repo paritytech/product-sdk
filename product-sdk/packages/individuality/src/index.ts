@@ -134,7 +134,12 @@ export {
 
 // Raw `Airdrop` storage values to domain shapes, for callers doing their own
 // reads. `airdropPhase` is the `Status`-to-UI-phase collapse on its own.
-export { airdropPhase, toAirdropEvent, toRawRegistrationEntry } from "./airdrop-decode.js";
+export {
+    airdropPhase,
+    statusTag,
+    toAirdropEvent,
+    toRawRegistrationEntry,
+} from "./airdrop-decode.js";
 export type {
     RawActiveEvent,
     RawAirdropEventInfo,
@@ -203,7 +208,7 @@ export type {
 export { readCurrentGame } from "./game-read.js";
 export type { GameChain, ReadCurrentGameOptions } from "./game-read.js";
 
-// Claiming a prize. `claim_airdrop` has five gates and only two are about
+// Claiming a prize. `claim_airdrop` has six gates and only two are about
 // personhood, so the predicate is exported separately from the read that feeds
 // it. Submission stays with `@parity/product-sdk-tx`: `claimPrizeTx` returns the
 // unsigned call. `confirmClaim` re-reads whether a claim landed, which is how the

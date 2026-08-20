@@ -12,6 +12,7 @@
  * entropy slot with the entry as its value, so "am I registered" means scanning the
  * event's whole prefix — unbounded client-side, and no business in a polled status.
  */
+import { AccountId } from "polkadot-api";
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import {
     toAirdropEvent,
@@ -19,8 +20,13 @@ import {
     type RawActiveEvent,
     type RawRegistrationEntry,
 } from "./airdrop-decode.js";
-import { gameAirdropEventIds } from "./airdrop-ids.js";
-import type { AirdropDraw, AirdropOutcome, AirdropRegistrant } from "./airdrop-types.js";
+import { gameAirdropEventId, gameAirdropEventIds } from "./airdrop-ids.js";
+import type {
+    AirdropAssetId,
+    AirdropDraw,
+    AirdropOutcome,
+    AirdropRegistrant,
+} from "./airdrop-types.js";
 import { ProductIndividualityError } from "./errors.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
 import type { FinalizedSnapshot } from "./types.js";
@@ -70,6 +76,15 @@ export interface AirdropChain extends PinnedChain {
                         eventId: string,
                         options: ReadAt,
                     ): Promise<Array<{ keyArgs: [string, string]; value: RawRegistrationEntry }>>;
+                };
+                /**
+                 * Present only for assets a draw may pay in. `do_claim` rejects a
+                 * claim whose prize asset was disabled, so a claim check that skips
+                 * this can green-light one the chain will refuse, and a refused
+                 * claim pays a fee.
+                 */
+                SupportedAssets: {
+                    getValue(assetId: AirdropAssetId, options: ReadAt): Promise<bigint | undefined>;
                 };
             };
         };
@@ -200,12 +215,11 @@ export async function readDrawRegistration(
             readAt(snapshot, signal),
         );
 
-        const wanted = toRawRegistrationEntry(registrant);
-        const match = entries.find(
-            (entry) =>
-                entry.value.type === wanted.type &&
-                identityOf(entry.value).toLowerCase() === identityOf(wanted).toLowerCase(),
-        );
+        // Built before the scan, not per entry: the scan runs over every
+        // participant, and re-encoding the caller's own address each time doubled
+        // the work on a large draw.
+        const matches = matcherFor(toRawRegistrationEntry(registrant));
+        const match = entries.find(matches);
 
         return ok({
             at: snapshot,
@@ -219,8 +233,48 @@ export async function readDrawRegistration(
     }
 }
 
-function identityOf(entry: RawRegistrationEntry): string {
-    return entry.type === "Alias" ? entry.value.alias : entry.value.account_id;
+/**
+ * A predicate matching registration entries against one identity.
+ *
+ * Accounts are compared as **public keys, not SS58 strings**: one key encodes to a
+ * different string under every network prefix, so a caller holding the generic
+ * form would not match a chain returning the network form and would read as not
+ * registered. Base58 is also case-significant, so lowercasing an address breaks
+ * its checksum rather than normalising it. Aliases are 32-byte hex, where case
+ * genuinely does not matter.
+ *
+ * The caller's address is encoded here, once, which also makes a malformed one
+ * fail the same way every time. Encoding inside the scan instead made the failure
+ * depend on the draw's contents: a bad address threw only if some entry happened
+ * to be account-shaped, and answered "not registered" otherwise.
+ */
+function matcherFor(
+    wanted: RawRegistrationEntry,
+): (entry: { value: RawRegistrationEntry }) => boolean {
+    if (wanted.type === "Alias") {
+        const alias = wanted.value.alias.toLowerCase();
+        return ({ value }) => value.type === "Alias" && value.value.alias.toLowerCase() === alias;
+    }
+    const codec = AccountId();
+    const key = codec.enc(wanted.value.account_id);
+    return ({ value }) => {
+        if (value.type !== "Account") return false;
+        const other = codec.enc(value.value.account_id);
+        return other.length === key.length && other.every((byte, i) => byte === key[i]);
+    };
+}
+
+/**
+ * One draw's event id, with the base read from the chain rather than assumed.
+ * Internal, so the claim and prize-status reads share it instead of each repeating
+ * the read-then-derive pair.
+ */
+export async function readAirdropEventId(
+    chain: AirdropChain,
+    options: { gameIndex: number; airdropIndex: number },
+): Promise<string> {
+    const base = await chain.individuality.constants.Game.airdrop_event_id_base();
+    return gameAirdropEventId({ base, ...options });
 }
 
 /** Options for {@link readGameAirdropEventIds}. */
@@ -294,6 +348,7 @@ if (import.meta.vitest) {
         winners?: Record<string, string>;
         entropy?: string;
         base?: string;
+        assetDisabled?: boolean;
         /** `Registrations` rows under the event, as the prefix scan sees them. */
         registrations?: Array<{ keyArgs: [string, string]; value: RawRegistrationEntry }>;
         failOn?: "Events" | "Winners" | "EventEntropy" | "Registrations" | "constant" | "block";
@@ -352,6 +407,12 @@ if (import.meta.vitest) {
                                 boom("Registrations");
                                 record("Registrations", eventId, options);
                                 return state.registrations ?? [];
+                            },
+                        },
+                        SupportedAssets: {
+                            getValue: async (assetId, options) => {
+                                record("SupportedAssets", assetId, options);
+                                return state.assetDisabled ? undefined : 1n;
                             },
                         },
                     },
@@ -638,19 +699,56 @@ if (import.meta.vitest) {
             expect(registration.entriesScanned).toBe(1);
         });
 
-        test("does not match an alias against an account carrying the same bytes", async () => {
-            // The two variants are distinct identities even where the payload
-            // collides, so the variant has to be compared as well as the value.
+        test("matches an account across SS58 network prefixes", async () => {
+            // The two encodings below are one account. A string compare misses it.
+            const { AccountId } = await import("polkadot-api");
+            const otherPrefix = AccountId(0).dec(AccountId().enc(ALICE));
+            expect(otherPrefix).not.toBe(ALICE);
+
+            const { chain } = fakeChain({
+                registrations: rows({ type: "Account", value: { account_id: otherPrefix } }),
+            });
+            const registration = unwrapOk(
+                await readDrawRegistration(chain, {
+                    eventId: EVENT_ID,
+                    registrant: { tag: "Account", accountAddress: ALICE },
+                }),
+            );
+            expect(registration.slot).toBe(SLOT);
+        });
+
+        test("does not match an alias entry against an account registrant", async () => {
+            // The two variants are distinct identities, so the variant is compared
+            // as well as the value.
             const { chain } = fakeChain({
                 registrations: rows({ type: "Alias", value: { alias: ALIAS } }),
             });
             const registration = unwrapOk(
                 await readDrawRegistration(chain, {
                     eventId: EVENT_ID,
-                    registrant: { tag: "Account", accountAddress: ALIAS },
+                    registrant: { tag: "Account", accountAddress: ALICE },
                 }),
             );
             expect(registration.slot).toBeNull();
+        });
+
+        test("a malformed account address fails, whatever the draw contains", async () => {
+            // Deterministic across draw shapes, which is the point: see `matcherFor`.
+            for (const registrations of [
+                rows({ type: "Alias", value: { alias: ALIAS } }),
+                rows({ type: "Account", value: { account_id: ALICE } }),
+                [],
+            ]) {
+                const { chain } = fakeChain({ registrations });
+                const error = unwrapErr(
+                    await readDrawRegistration(chain, {
+                        eventId: EVENT_ID,
+                        // An alias hex is not an address, and never was.
+                        registrant: { tag: "Account", accountAddress: ALIAS },
+                    }),
+                );
+                expect(error).toBeInstanceOf(ProductIndividualityError);
+            }
         });
 
         test("picks the caller's row out of several", async () => {

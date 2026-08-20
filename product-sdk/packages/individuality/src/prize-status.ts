@@ -60,7 +60,17 @@ export type PrizeStatus =
      * No game is running and the caller named none, so there are no draws to
      * report. Carries the upcoming schedule, which is the useful answer here.
      */
-    | { tag: "NoGame"; at: FinalizedSnapshot; upcoming: GameSchedulePreview[] }
+    | {
+          tag: "NoGame";
+          at: FinalizedSnapshot;
+          /**
+           * The game that just ended, which is the index a late claim is keyed by.
+           * Its draw count is still unknown, so pair it with a count you captured
+           * and pass both back as {@link ReadPrizeStatusOptions.game}.
+           */
+          lastGameIndex: number | null;
+          upcoming: GameSchedulePreview[];
+      }
     /** A game's draws, in airdrop-index order. */
     | {
           tag: "Draws";
@@ -112,7 +122,12 @@ async function runPrizeStatusRead(
 
     const resolved = await resolveGame(chain, captured, snapshot, signal);
     if (resolved.tag === "NoGame") {
-        return { tag: "NoGame", at: snapshot, upcoming: resolved.upcoming };
+        return {
+            tag: "NoGame",
+            at: snapshot,
+            lastGameIndex: resolved.lastGameIndex,
+            upcoming: resolved.upcoming,
+        };
     }
 
     const base = await chain.individuality.constants.Game.airdrop_event_id_base();
@@ -140,7 +155,7 @@ async function runPrizeStatusRead(
 
 /** Which game's draws to report, and where its count came from. */
 type ResolvedGame =
-    | { tag: "NoGame"; upcoming: GameSchedulePreview[] }
+    | { tag: "NoGame"; lastGameIndex: number | null; upcoming: GameSchedulePreview[] }
     | {
           tag: "Game";
           index: number;
@@ -172,7 +187,11 @@ async function resolveGame(
         // `lastGameIndex` names the game that just ended, but not its draw count,
         // so it cannot stand in for a captured game. Reporting no draws here is
         // honest; guessing a count would not be.
-        return { tag: "NoGame", upcoming: current.upcoming };
+        return {
+            tag: "NoGame",
+            lastGameIndex: current.lastGameIndex,
+            upcoming: current.upcoming,
+        };
     }
 
     return {
@@ -328,6 +347,12 @@ if (import.meta.vitest) {
                             getEntries: async (_id, o) => {
                                 seen(o);
                                 return [];
+                            },
+                        },
+                        SupportedAssets: {
+                            getValue: async (_a, o) => {
+                                seen(o);
+                                return 1n;
                             },
                         },
                     },

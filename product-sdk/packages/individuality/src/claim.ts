@@ -20,12 +20,11 @@
  * evidence separating "claimed" from "never won" ({@link confirmClaim}).
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { runDrawRead, type AirdropChain } from "./airdrop-read.js";
-import { gameAirdropEventId } from "./airdrop-ids.js";
+import { readAirdropEventId, runDrawRead, type AirdropChain } from "./airdrop-read.js";
 import type { AirdropRegistrant } from "./airdrop-types.js";
 import { deriveClaimEligibility } from "./claim-derive.js";
 import type { ClaimEligibilityResult, ClaimOutcome } from "./claim-types.js";
-import { toRawRegistrationEntry } from "./airdrop-decode.js";
+import { airdropPhase, statusTag, toRawRegistrationEntry } from "./airdrop-decode.js";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
@@ -35,7 +34,7 @@ import type { PersonhoodParticipant } from "./types.js";
  * The `Game.claim_airdrop` call, plus the `Score.Participants` read the check
  * needs. Composed with `AirdropChain`, which supplies the draw.
  */
-export interface ClaimChain extends PinnedChain {
+export interface ClaimChain<Tx = unknown> extends PinnedChain {
     individuality: {
         constants: { Game: { airdrop_event_id_base(): Promise<string> } };
         query: {
@@ -54,7 +53,7 @@ export interface ClaimChain extends PinnedChain {
                     game_index: number;
                     airdrop_index: number;
                     beneficiary: string;
-                }): unknown;
+                }): Tx;
             };
         };
     };
@@ -90,9 +89,9 @@ function participantKey(registrant: AirdropRegistrant): { type: string; value: u
 }
 
 /**
- * Check whether one prize can be claimed, from one pinned finalized block — the
- * five gates span the draw and the score record, so reading them apart is exactly
- * the inconsistency pinning prevents.
+ * Check whether one prize can be claimed, from one pinned finalized block. The six
+ * gates span the draw, the score record and the asset list, so reading them apart
+ * is exactly the inconsistency pinning prevents.
  */
 export async function readClaimEligibility(
     chain: AirdropChain & ClaimChain,
@@ -103,8 +102,7 @@ export async function readClaimEligibility(
         const snapshot = await pinBlock(chain, signal);
         const at = readAt(snapshot, signal);
 
-        const base = await chain.individuality.constants.Game.airdrop_event_id_base();
-        const eventId = gameAirdropEventId({ base, gameIndex, airdropIndex });
+        const eventId = await readAirdropEventId(chain, { gameIndex, airdropIndex });
 
         const [draw, rawParticipant] = await Promise.all([
             runDrawRead(chain, { eventId, registrant, signal }, snapshot),
@@ -113,6 +111,16 @@ export async function readClaimEligibility(
 
         const participant: PersonhoodParticipant | null =
             rawParticipant === undefined ? null : toPersonhoodParticipant(rawParticipant);
+
+        // The sixth gate. Sequential because the asset id comes out of the draw,
+        // so it cannot join the batch above.
+        const prizeAssetEnabled =
+            draw.event === null
+                ? null
+                : (await chain.individuality.query.Airdrop.SupportedAssets.getValue(
+                      draw.event.prize.assetId,
+                      at,
+                  )) !== undefined;
 
         return ok({
             at: snapshot,
@@ -123,6 +131,7 @@ export async function readClaimEligibility(
                 gameIndex,
                 draw,
                 participant,
+                prizeAssetEnabled,
                 // Seconds, not milliseconds: every timestamp on these two pallets
                 // is a Unix second.
                 now: options.now ?? Math.floor(Date.now() / 1000),
@@ -140,15 +149,15 @@ export async function readClaimEligibility(
  * @param options.beneficiary - need not be the claimant; the chain takes any
  *   account, which is what gives an alias claimant somewhere to be paid.
  */
-export function claimPrizeTx<T = unknown>(
-    chain: ClaimChain,
+export function claimPrizeTx<Tx>(
+    chain: ClaimChain<Tx>,
     options: { gameIndex: number; airdropIndex: number; beneficiary: string },
-): T {
+): Tx {
     return chain.individuality.tx.Game.claim_airdrop({
         game_index: options.gameIndex,
         airdrop_index: options.airdropIndex,
         beneficiary: options.beneficiary,
-    }) as T;
+    });
 }
 
 /** Options for {@link confirmClaim}. */
@@ -170,8 +179,7 @@ export async function confirmClaim(
         const snapshot = await pinBlock(chain, signal);
         const at = readAt(snapshot, signal);
 
-        const base = await chain.individuality.constants.Game.airdrop_event_id_base();
-        const eventId = gameAirdropEventId({ base, gameIndex, airdropIndex });
+        const eventId = await readAirdropEventId(chain, { gameIndex, airdropIndex });
 
         const [ticket, rawEvent] = await Promise.all([
             chain.individuality.query.Airdrop.Winners.getValue(
@@ -186,18 +194,19 @@ export async function confirmClaim(
             return ok({ tag: "Pending", at: snapshot, ticket });
         }
 
-        // No ticket. Only a draw still taking claims makes that unambiguous —
-        // `ClearingWinners` drains the same rows, and a finalized draw has none.
-        const phase = rawEvent?.status.type;
-        return ok(
-            phase === "Claiming"
-                ? { tag: "Claimed", at: snapshot }
-                : {
-                      tag: "Unknown",
-                      at: snapshot,
-                      phase: phase === undefined ? "Gone" : "Settling",
-                  },
-        );
+        // No ticket. Only a draw still taking claims makes that unambiguous:
+        // `ClearingWinners` drains the same rows and a finalized draw has none. The
+        // variant goes through `statusTag`, so an unrecognised one throws instead of
+        // being reported as some other phase.
+        const status = rawEvent === undefined ? null : statusTag(rawEvent.status.type);
+        if (status === "Claiming") {
+            return ok({ tag: "Claimed", at: snapshot });
+        }
+        return ok({
+            tag: "Unknown",
+            at: snapshot,
+            phase: status === null ? "Gone" : airdropPhase(status),
+        });
     } catch (cause) {
         return err(normalizeError(cause, ProductIndividualityError));
     }
@@ -233,6 +242,7 @@ if (import.meta.vitest) {
 
     interface FakeState {
         participant?: RawParticipant;
+        assetDisabled?: boolean;
         ticket?: string;
         status?: string;
         eventMissing?: boolean;
@@ -297,6 +307,9 @@ if (import.meta.vitest) {
                         },
                         EventEntropy: { getValue: async () => undefined },
                         Registrations: { getEntries: async () => [] },
+                        SupportedAssets: {
+                            getValue: async () => (state.assetDisabled ? undefined : 1n),
+                        },
                     },
                 },
                 tx: {
@@ -380,6 +393,38 @@ if (import.meta.vitest) {
             expect(result.blockers).toEqual([{ tag: "NotAParticipant" }]);
         });
 
+        test("a disabled prize asset blocks the claim", async () => {
+            const { chain } = fakeChain({
+                participant: rawParticipant(),
+                ticket: TICKET,
+                assetDisabled: true,
+            });
+            const result = unwrapOk(
+                await readClaimEligibility(chain, {
+                    gameIndex: 41,
+                    airdropIndex: 0,
+                    registrant: { tag: "Account", accountAddress: ALICE },
+                    now: END - 60,
+                }),
+            );
+            expect(result.claimable).toBe(false);
+            expect(result.blockers).toEqual([{ tag: "PrizeAssetDisabled" }]);
+        });
+
+        test("a gone draw is not reported as having a disabled asset", async () => {
+            // Not applicable rather than failed: see `ClaimInputs.prizeAssetEnabled`.
+            const { chain } = fakeChain({ participant: rawParticipant(), eventMissing: true });
+            const result = unwrapOk(
+                await readClaimEligibility(chain, {
+                    gameIndex: 41,
+                    airdropIndex: 0,
+                    registrant: { tag: "Account", accountAddress: ALICE },
+                    now: END - 60,
+                }),
+            );
+            expect(result.blockers.some((b) => b.tag === "PrizeAssetDisabled")).toBe(false);
+        });
+
         test("a claimed or unwon prize blocks with NoPrize", async () => {
             const { chain } = fakeChain({ participant: rawParticipant() });
             const result = unwrapOk(
@@ -443,15 +488,16 @@ if (import.meta.vitest) {
             });
         });
 
-        test("returns whatever the chain's tx builder returned", async () => {
+        test("returns whatever the chain's tx builder returned, typed", async () => {
+            // The transaction type comes from the chain, not from a type argument
+            // at the call site. That is what lets the result go straight into
+            // `submitAndWatch` without a cast.
             const { chain } = fakeChain({});
-            expect(
-                claimPrizeTx<{ call: string }>(chain, {
-                    gameIndex: 1,
-                    airdropIndex: 0,
-                    beneficiary: ALICE,
-                }).call,
-            ).toBe("Game.claim_airdrop");
+            const built: { call: string } = claimPrizeTx(
+                chain as unknown as ClaimChain<{ call: string }>,
+                { gameIndex: 1, airdropIndex: 0, beneficiary: ALICE },
+            );
+            expect(built.call).toBe("Game.claim_airdrop");
         });
     });
 
@@ -486,6 +532,26 @@ if (import.meta.vitest) {
                 at: expect.anything(),
                 phase: "Settling",
             });
+        });
+
+        test("reports the draw's real phase, not a two-value guess", async () => {
+            // A draw still assigning winners is `Drawing`. Collapsing every
+            // non-claiming status to `Settling` would say the window is over.
+            const { chain } = fakeChain({ status: "DrawWinners" });
+            const outcome = unwrapOk(await confirmClaim(chain, target));
+            expect(outcome).toEqual({
+                tag: "Unknown",
+                at: expect.anything(),
+                phase: "Drawing",
+            });
+        });
+
+        test("an unknown status variant fails rather than reporting a phase", async () => {
+            // Matches every other decode in the package: a state added by a
+            // runtime upgrade must not render as some existing phase.
+            const { chain } = fakeChain({ status: "Reconciling" });
+            const error = unwrapErr(await confirmClaim(chain, target));
+            expect(error).toBeInstanceOf(ProductIndividualityError);
         });
 
         test("a vanished event is Unknown with phase Gone", async () => {

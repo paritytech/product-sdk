@@ -1,8 +1,10 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * `Game.claim_airdrop` has **five** gates and only two are about personhood, so a
- * caller checking recognition alone still gets errors it cannot explain.
+ * `Game.claim_airdrop` has **six** gates and only two are about personhood, so a
+ * caller checking recognition alone still gets errors it cannot explain. A refused
+ * claim pays a fee, since `Pays::No` applies only on success, so every gate that
+ * can be read is read.
  *
  * | Gate | On-chain error |
  * |---|---|
@@ -10,6 +12,7 @@
  * | `last_attended_game == game_index` | `Game.NotEligibleForAirdrop` |
  * | the draw's status is `Claiming` | `Airdrop.NotClaiming` |
  * | now is before the draw's `end_time` | `Airdrop.ClaimingWindowClosed` |
+ * | the prize asset is still enabled | `Airdrop.AssetNotEnabled` |
  * | a `Winners` entry for this identity | `Airdrop.NoSuchWinner` |
  */
 import type { AirdropPhase } from "./airdrop-types.js";
@@ -29,11 +32,12 @@ export type ClaimBlocker =
     /** Recognition is `Suspended` — distinct from never having had it. */
     | { tag: "Suspended" }
     /**
-     * The player attended a game after this one, which **overwrote**
-     * `last_attended_game` and closed this claim for good. Not a timing problem:
-     * playing again is what ended it.
+     * `last_attended_game` is not this game, so the chain's equality check fails.
+     * Covers three situations: the player never attended it, attended an earlier
+     * one, or has since played again, which overwrites the field and closes the
+     * claim for good. Compare `lastAttendedGame` to the game index to tell which.
      */
-    | { tag: "AttendedALaterGame"; lastAttendedGame: number | null }
+    | { tag: "DidNotAttendThisGame"; lastAttendedGame: number | null }
     /**
      * The draw is not taking claims. Before `Claiming` the winners are not
      * settled; after it the window has closed and the prize is being released.
@@ -41,6 +45,11 @@ export type ClaimBlocker =
     | { tag: "DrawNotClaiming"; phase: AirdropPhase }
     /** Past the draw's `end_time`. The chain checks this itself, late OCW or not. */
     | { tag: "ClaimWindowClosed"; endTime: number }
+    /**
+     * The prize asset was disabled for airdrops, so the payout cannot be
+     * released. Nothing the player can do about it.
+     */
+    | { tag: "PrizeAssetDisabled" }
     /**
      * No winning entry — which includes "already claimed", since claiming removes
      * the row. See {@link AirdropOutcome} for why storage cannot separate the two.
@@ -76,7 +85,12 @@ export interface ClaimEligibility {
      * removed the `Winners` row.
      */
     ticket: string | null;
-    /** `null` when there is nothing claimable to bound. */
+    /**
+     * The draw's deadlines whenever the draw exists, independent of whether this
+     * caller can claim, so a product can show the window to someone who did not
+     * win. `null` only when the event row is gone. Read `claimable` for whether
+     * there is anything to do before it.
+     */
     window: ClaimWindow | null;
 }
 

@@ -18,6 +18,16 @@ export interface ClaimInputs {
     /** `null` when `Score.Participants` holds no record for the claimant. */
     participant: PersonhoodParticipant | null;
     /**
+     * Whether the prize asset is still enabled for airdrops, from
+     * `Airdrop.SupportedAssets`. `false` blocks the claim on chain, so leaving it
+     * out would let a `claimable: true` cost the player a fee.
+     *
+     * `null` means nothing to check: the draw's event row is gone and carries no
+     * asset id. Not the same as disabled, and reporting it as such would name a
+     * cause that is not true on top of the `DrawNotClaiming` that already fires.
+     */
+    prizeAssetEnabled: boolean | null;
+    /**
      * Unix **seconds**, against the draw's `end_time`. An input rather than the
      * clock so a caller can pass the block's own time: a device clock minutes fast
      * will call a live window closed.
@@ -57,7 +67,7 @@ export function deriveClaimEligibility(inputs: ClaimInputs): ClaimEligibility {
     // repeating it as an attendance failure would double-count one cause.
     if (participant !== null && participant.lastAttendedGame !== gameIndex) {
         blockers.push({
-            tag: "AttendedALaterGame",
+            tag: "DidNotAttendThisGame",
             lastAttendedGame: participant.lastAttendedGame,
         });
     }
@@ -71,6 +81,12 @@ export function deriveClaimEligibility(inputs: ClaimInputs): ClaimEligibility {
     // covers that, so the window is only checkable when there is an event.
     if (draw.event !== null && now >= draw.event.endTime) {
         blockers.push({ tag: "ClaimWindowClosed", endTime: draw.event.endTime });
+    }
+
+    // Only an explicit `false` blocks. `null` is "not checkable", which
+    // `DrawNotClaiming` already covers.
+    if (inputs.prizeAssetEnabled === false) {
+        blockers.push({ tag: "PrizeAssetDisabled" });
     }
 
     if (draw.outcome.tag === "Unchecked") {
@@ -138,6 +154,7 @@ if (import.meta.vitest) {
             gameIndex: 41,
             draw: draw(),
             participant: participant(),
+            prizeAssetEnabled: true,
             now: NOW,
             ...overrides,
         });
@@ -216,20 +233,24 @@ if (import.meta.vitest) {
     describe("the attendance gate", () => {
         test("a later game closed the claim", () => {
             const result = check({ participant: participant({ lastAttendedGame: 42 }) });
-            expect(result.blockers).toEqual([{ tag: "AttendedALaterGame", lastAttendedGame: 42 }]);
+            expect(result.blockers).toEqual([
+                { tag: "DidNotAttendThisGame", lastAttendedGame: 42 },
+            ]);
         });
 
         test("an earlier game also fails, because the chain compares for equality", () => {
             // Not a "too old" check: the runtime tests `==`, so any mismatch
             // fails in either direction.
             const result = check({ participant: participant({ lastAttendedGame: 40 }) });
-            expect(result.blockers).toEqual([{ tag: "AttendedALaterGame", lastAttendedGame: 40 }]);
+            expect(result.blockers).toEqual([
+                { tag: "DidNotAttendThisGame", lastAttendedGame: 40 },
+            ]);
         });
 
         test("never having attended fails too", () => {
             const result = check({ participant: participant({ lastAttendedGame: null }) });
             expect(result.blockers).toEqual([
-                { tag: "AttendedALaterGame", lastAttendedGame: null },
+                { tag: "DidNotAttendThisGame", lastAttendedGame: null },
             ]);
         });
     });
@@ -276,6 +297,28 @@ if (import.meta.vitest) {
         });
     });
 
+    describe("the prize-asset gate", () => {
+        test("a disabled prize asset blocks the claim", () => {
+            // Blocks locally because a refused claim pays a fee.
+            const result = check({ prizeAssetEnabled: false });
+            expect(result.claimable).toBe(false);
+            expect(result.blockers).toEqual([{ tag: "PrizeAssetDisabled" }]);
+        });
+
+        test("an enabled asset adds no blocker", () => {
+            expect(check({ prizeAssetEnabled: true }).claimable).toBe(true);
+        });
+
+        test("nothing to check is not the same as disabled", () => {
+            // A gone draw carries no asset id, so the gate is not applicable.
+            const result = check({
+                draw: draw({ phase: "Gone", event: null }),
+                prizeAssetEnabled: null,
+            });
+            expect(result.blockers.map((b) => b.tag)).toEqual(["DrawNotClaiming"]);
+        });
+    });
+
     describe("several blockers at once", () => {
         test("collects every independent cause", () => {
             const result = check({
@@ -288,8 +331,8 @@ if (import.meta.vitest) {
                 now: END + 1,
             });
             expect(result.blockers.map((b) => b.tag).sort()).toEqual([
-                "AttendedALaterGame",
                 "ClaimWindowClosed",
+                "DidNotAttendThisGame",
                 "DrawNotClaiming",
                 "NoPrize",
                 "NotRecognized",
