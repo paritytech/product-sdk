@@ -88,7 +88,7 @@ Four things the chain guarantees, all worth knowing before you render any of thi
 
 | | |
 |---|---|
-| `liteUsername` | always present, always `<letters>.<digits>`, for example `bigtava.07` |
+| `liteUsername` | always present, always `<letters>.<digits>`, for example `example.07` |
 | `fullUsername` | the claimed bare name, letters only, no dot. Present exactly when the person claimed one |
 | eligibility | `canClaimFullUsername(record)` is `fullUsername === null`, which is the literal precondition the claim extrinsic checks |
 | `credibility` | `{ tag: "Lite" }` before a claim, `{ tag: "Person", alias, lastUpdate, demoted }` after |
@@ -103,7 +103,7 @@ since the epoch, against the chain's `PersonAuthDuration` if you need to know wh
 authorization is current. This package does not read that constant, so it hands back the timestamp
 rather than a verdict.
 
-`usernameBase("bigtava.07")` gives `"bigtava"`, the name a claim would suggest. It is a suggestion,
+`usernameBase("example.07")` gives `"example"`, the name a claim would suggest. It is a suggestion,
 not an entitlement: an account may hold a reservation for a different name, and the reservation is
 what the chain honours.
 

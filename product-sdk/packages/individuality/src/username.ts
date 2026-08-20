@@ -79,7 +79,7 @@ export type UsernameCredibility =
 
 /** The usernames registered for one account, decoded. */
 export interface ConsumerUsernames {
-    /** Always present. Letters, one dot, then digits, for example `bigtava.07`. */
+    /** Always present. Letters, one dot, then digits, for example `example.07`. */
     liteUsername: string;
     /** The claimed bare name, when the account has claimed one. */
     fullUsername: string | null;
@@ -301,7 +301,7 @@ if (import.meta.vitest) {
 
     /** A lite-only record; override any field per test. */
     const raw = (overrides: Partial<RawConsumerInfo> = {}): RawConsumerInfo => ({
-        lite_username: utf8("bigtava.07"),
+        lite_username: utf8("example.07"),
         credibility: { type: "Lite" },
         ...overrides,
     });
@@ -317,7 +317,7 @@ if (import.meta.vitest) {
 
     /** A decoded record; override the full username per test. */
     const record = (fullUsername: string | null): ConsumerUsernames => ({
-        liteUsername: "bigtava.07",
+        liteUsername: "example.07",
         fullUsername,
         credibility: { tag: "Lite" },
     });
@@ -329,7 +329,7 @@ if (import.meta.vitest) {
 
         test("a lite-only record has no full username", () => {
             expect(decodeConsumerInfo(raw())).toEqual({
-                liteUsername: "bigtava.07",
+                liteUsername: "example.07",
                 fullUsername: null,
                 credibility: { tag: "Lite" },
             });
@@ -337,10 +337,10 @@ if (import.meta.vitest) {
 
         test("a claimed record carries both names", () => {
             const decoded = decodeConsumerInfo(
-                raw({ full_username: utf8("bigtava"), credibility: person() }),
+                raw({ full_username: utf8("example"), credibility: person() }),
             );
-            expect(decoded?.liteUsername).toBe("bigtava.07");
-            expect(decoded?.fullUsername).toBe("bigtava");
+            expect(decoded?.liteUsername).toBe("example.07");
+            expect(decoded?.fullUsername).toBe("example");
         });
 
         test("the person alias and the demoted flag are passed through", () => {
@@ -357,7 +357,7 @@ if (import.meta.vitest) {
             // log, cache and bridge this record, so the narrowing is load bearing.
             const decoded = decodeConsumerInfo(raw({ credibility: person() }));
             expect(JSON.parse(JSON.stringify(decoded))).toEqual({
-                liteUsername: "bigtava.07",
+                liteUsername: "example.07",
                 fullUsername: null,
                 credibility: {
                     tag: "Person",
@@ -372,7 +372,7 @@ if (import.meta.vitest) {
             // The only signal that separates the two. Dropping it would report a
             // person whose authorization expired as one in good standing.
             const decoded = decodeConsumerInfo(
-                raw({ full_username: utf8("bigtava"), credibility: person(true) }),
+                raw({ full_username: utf8("example"), credibility: person(true) }),
             );
             expect(decoded?.credibility).toEqual({
                 tag: "Person",
@@ -380,7 +380,7 @@ if (import.meta.vitest) {
                 lastUpdate: LAST_UPDATE,
                 demoted: true,
             });
-            expect(decoded?.fullUsername).toBe("bigtava");
+            expect(decoded?.fullUsername).toBe("example");
         });
 
         test("an empty full username is a decode error, not an absent one", () => {
@@ -437,11 +437,11 @@ if (import.meta.vitest) {
 
     describe("displayUsername", () => {
         test("a claimed name wins over the lite one", () => {
-            expect(displayUsername(record("bigtava"))).toBe("bigtava");
+            expect(displayUsername(record("example"))).toBe("example");
         });
 
         test("the lite name is used when nothing is claimed", () => {
-            expect(displayUsername(record(null))).toBe("bigtava.07");
+            expect(displayUsername(record(null))).toBe("example.07");
         });
     });
 
@@ -451,25 +451,25 @@ if (import.meta.vitest) {
         });
 
         test("a claimed record cannot claim again", () => {
-            expect(canClaimFullUsername(record("bigtava"))).toBe(false);
+            expect(canClaimFullUsername(record("example"))).toBe(false);
         });
     });
 
     describe("usernameBase", () => {
         test("a lite username strips to its letters", () => {
-            expect(usernameBase("bigtava.07")).toBe("bigtava");
-            expect(usernameBase("bigtava.07")).toBe("bigtava");
+            expect(usernameBase("example.07")).toBe("example");
+            expect(usernameBase("sampleuser.42")).toBe("sampleuser");
         });
 
         test("a full username has no dot and is returned unchanged", () => {
-            expect(usernameBase("bigtava")).toBe("bigtava");
+            expect(usernameBase("example")).toBe("example");
         });
 
         test("the first dot is the cut, not the last", () => {
             // Pins an otherwise arbitrary-looking choice. The chain allows
             // exactly one dot in a lite username, so first and last coincide on
             // every value this can be handed; the input below is unreachable.
-            expect(usernameBase("bob.bigtava.07")).toBe("bob");
+            expect(usernameBase("bob.example.07")).toBe("bob");
         });
 
         test("a leading dot strips to the empty label", () => {
@@ -511,12 +511,12 @@ if (import.meta.vitest) {
         }
 
         test("an account with a record answers on the ok channel", async () => {
-            const { chain } = fakeChain(raw({ full_username: utf8("bigtava") }));
+            const { chain } = fakeChain(raw({ full_username: utf8("example") }));
             expect(await lookupUsername(chain, { account: ALICE })).toEqual({
                 ok: true,
                 value: {
-                    liteUsername: "bigtava.07",
-                    fullUsername: "bigtava",
+                    liteUsername: "example.07",
+                    fullUsername: "example",
                     credibility: { tag: "Lite" },
                 },
             });
