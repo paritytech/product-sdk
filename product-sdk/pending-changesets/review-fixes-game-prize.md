@@ -1,6 +1,6 @@
 ---
 "@parity/product-sdk-individuality": minor
-"@parity/product-sdk-address": patch
+"@parity/product-sdk-address": minor
 "@parity/product-sdk": minor
 ---
 
@@ -14,6 +14,10 @@ entered. It now compares decoded public keys. Aliases keep the case-insensitive 
 32-byte alias really is hex. `addressesEqual` in `@parity/product-sdk-address` had the
 same limitation and is fixed the same way, so it now returns true for one account written
 under two prefixes and still returns false, rather than throwing, for a malformed input.
+
+`@parity/product-sdk-address` takes a `minor` rather than a `patch` for two reasons the repo's
+convention names: `publicKeysEqual` is new public surface, and the `addressesEqual` change is
+breaking under pre-1.0 semver, since a comparison that returned false now returns true.
 
 **Behaviour change worth reading if you use `addressesEqual`.** It now compares the account, not
 the encoding, so two SS58 strings for one key are equal even when their network prefixes differ.
