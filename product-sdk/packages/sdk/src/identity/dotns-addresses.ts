@@ -21,6 +21,7 @@ import {
     DOTNS_ROOT_GATEWAY_DISPATCHER_ABI,
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
+import type { SS58String } from "polkadot-api";
 import type { DotNsClientOptions } from "./dotns-registry.js";
 
 type HexString = `0x${string}`;
@@ -116,6 +117,15 @@ function withOverrides(base: DotNsAddresses, opts: DotNsClientOptions): DotNsAdd
  * Async because the discovered source reads the chain. The pinned source does
  * no IO, so a caller that only validates a name still pays nothing for it.
  */
+const walkCache: RuntimeCache<DotNsAddresses> = new WeakMap();
+
+/**
+ * Constant, unlike the TLD cache which keys on the protocol registry address.
+ * Nothing else selects the deployment: `gatewayApi` is required to describe the
+ * same chain as `runtime`, and the walk derives every address from there.
+ */
+const WALK_KEY = "discovered";
+
 export async function resolveDotNsAddresses(
     opts: DotNsClientOptions,
 ): Promise<Result<DotNsAddresses, DotNsError>> {
@@ -123,7 +133,7 @@ export async function resolveDotNsAddresses(
 
     // Cache the walk, not the merged set: two callers differing only in their
     // overrides must share one walk and still each get their own answer.
-    const walked = await cachedPerRuntime(walkCache, opts.runtime, "discovered", () =>
+    const walked = await cachedPerRuntime(walkCache, opts.runtime, WALK_KEY, () =>
         discoverDotNsAddresses(opts),
     );
     return walked.ok ? ok(withOverrides(walked.value, opts)) : walked;
@@ -146,9 +156,20 @@ export type DotNsGatewayQueryApi = {
 const discoveryFailed = (step: string, cause?: unknown) =>
     err(new DotNsError("AddressDiscovery", `DotNS address discovery failed: ${step}`, { cause }));
 
-function contractAt(opts: DotNsClientOptions, address: HexString, abi: AbiEntry[]) {
-    // Same untyped-by-construction handle as dotns-registry's contractOf.
-    return createContract(opts.runtime, address, abi as any) as any;
+/**
+ * `createContract` is generic over a typed ABI def; these minimal literal ABIs
+ * are called by name via `.query()`, so the handle is untyped by construction.
+ */
+export function contractOf(runtime: ContractRuntime, address: HexString, abi: AbiEntry[]) {
+    return createContract(runtime, address, abi as any) as any;
+}
+
+/**
+ * Origin for a read. Passing the fallback explicitly rather than letting the
+ * contracts layer substitute it keeps each query from logging a warning.
+ */
+export function readOrigin(opts: DotNsClientOptions): SS58String {
+    return opts.origin ?? QUERY_FALLBACK_ORIGIN;
 }
 
 async function readAddress(
@@ -208,22 +229,26 @@ export async function discoverDotNsAddresses(
             return discoveryFailed("DotnsGateway.DispatcherAddress is unset");
         }
 
-        const origin = opts.origin ?? QUERY_FALLBACK_ORIGIN;
+        const origin = readOrigin(opts);
         const target = await readAddress(
-            contractAt(opts, dispatcher, DOTNS_ROOT_GATEWAY_DISPATCHER_ABI),
+            contractOf(opts.runtime, dispatcher, DOTNS_ROOT_GATEWAY_DISPATCHER_ABI),
             "TARGET",
             origin,
         );
         if (!target.ok) return target;
 
         const protocolRegistry = await readAddress(
-            contractAt(opts, target.value, DOTNS_POP_CONTROLLER_ABI),
+            contractOf(opts.runtime, target.value, DOTNS_POP_CONTROLLER_ABI),
             "protocolRegistry",
             origin,
         );
         if (!protocolRegistry.ok) return protocolRegistry;
 
-        const registry = contractAt(opts, protocolRegistry.value, DOTNS_PROTOCOL_REGISTRY_ABI);
+        const registry = contractOf(
+            opts.runtime,
+            protocolRegistry.value,
+            DOTNS_PROTOCOL_REGISTRY_ABI,
+        );
         const roles = Object.entries(DOTNS_REGISTRY_KEYS) as [
             keyof typeof DOTNS_REGISTRY_KEYS,
             HexString,
@@ -254,8 +279,6 @@ export async function discoverDotNsAddresses(
     }
 }
 
-const walkCache: RuntimeCache<DotNsAddresses> = new WeakMap();
-
 /**
  * Walk the gateway and report every role whose live address differs from the
  * one this client would call. Meant for startup: it fails loudly once, rather
@@ -264,8 +287,17 @@ const walkCache: RuntimeCache<DotNsAddresses> = new WeakMap();
 export async function verifyDotNsAddresses(
     opts: DotNsClientOptions,
 ): Promise<Result<DotNsAddresses, DotNsError>> {
-    const discovered = await discoverDotNsAddresses(opts);
+    // Through the cache, so verifying at startup and then using the client is
+    // one walk rather than two.
+    const discovered = await cachedPerRuntime(walkCache, opts.runtime, WALK_KEY, () =>
+        discoverDotNsAddresses(opts),
+    );
     if (!discovered.ok) return discovered;
+
+    // A discovered client already calls whatever the walk found, so there is
+    // nothing left to disagree with. Comparing it against the pinned table would
+    // report drift the client is not exposed to, and name an address it never uses.
+    if (opts.addressSource === "discovered") return ok(withOverrides(discovered.value, opts));
 
     const inUse = withOverrides(DOTNS_ADDRESSES, opts);
     const drift = (Object.keys(inUse) as (keyof DotNsAddresses)[])

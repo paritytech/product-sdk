@@ -10,7 +10,9 @@ The addresses in `DOTNS_ADDRESSES` are correct today, but nothing checked that. 
 
 **`verifyDotNsAddresses(opts)`** does the same walk once and reports every role whose live address differs from the one the client would call, listing all of them rather than the first. Meant for startup: a product that keeps the pinned table can still fail loudly when a redeploy moves something.
 
-Both take their trust root from `DotnsGateway.DispatcherAddress`, a governance-set value on the chain the caller already relies on for every name read — a stronger anchor than a constant in a bundle, though neither defends against a hostile RPC.
+Both take their trust root from `DotnsGateway.DispatcherAddress`, a governance-set value on the chain the caller already relies on for every name read, a stronger anchor than a constant in a bundle.
+
+One thing to weigh before enabling it: discovery also selects the address the write helpers build calls against, so it decides where a signed transaction goes and not only where a read comes from. A pinned address constrains that destination even against a hostile RPC, and a discovered one does not. `verifyDotNsAddresses` is the check for products that want the pinned constraint and an alarm when it goes stale.
 
 **New exports.** `resolveDotNsAddresses`, `discoverDotNsAddresses`, `verifyDotNsAddresses`, `DOTNS_REGISTRY_KEYS`, and the types `DotNsAddresses` and `DotNsGatewayQueryApi`.
 

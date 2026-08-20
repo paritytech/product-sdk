@@ -41,13 +41,7 @@
  * expiry getter), so `DotNsRecord.expiresAt` is always omitted.
  */
 import { err, ok, type Result } from "@parity/result";
-import {
-    type AbiEntry,
-    type BatchableCall,
-    createContract,
-    QUERY_FALLBACK_ORIGIN,
-} from "@parity/product-sdk-contracts";
-import type { ContractRuntime } from "@parity/product-sdk-contracts";
+import type { AbiEntry, BatchableCall, ContractRuntime } from "@parity/product-sdk-contracts";
 import { bytesToHex, randomBytes } from "@parity/product-sdk-crypto";
 import { ss58ToH160 } from "@parity/product-sdk-address";
 import { createLogger } from "@parity/product-sdk-logger";
@@ -68,7 +62,9 @@ import {
     type DotNsGatewayQueryApi,
     type RuntimeCache,
     cachedPerRuntime,
+    contractOf,
     isZero,
+    readOrigin,
     resolveDotNsAddresses,
     sameAddress,
 } from "./dotns-addresses.js";
@@ -129,6 +125,13 @@ export interface DotNsClientOptions {
      * `DotnsGateway.DispatcherAddress` — a governance-set value on the chain the
      * caller already trusts for every name read. Per-field address overrides win
      * over either source.
+     *
+     * Discovery also selects the address `setDotNsRecord` and
+     * `prepareDotNsRegistration` build calls against, so it decides where a
+     * signed transaction goes, not only where a read comes from. A pinned
+     * address constrains that destination even against a hostile RPC; a
+     * discovered one does not. Use {@link verifyDotNsAddresses} at startup if
+     * that matters.
      */
     addressSource?: "pinned" | "discovered";
     /**
@@ -186,20 +189,6 @@ export interface SetRecordArgs {
      * {@link RegisterDotNsArgs.owner}.
      */
     address: string;
-}
-
-function contractOf(runtime: ContractRuntime, address: HexString, abi: AbiEntry[]) {
-    // createContract is generic over a typed ABI def; these minimal literal ABIs
-    // are called by name via .query(), so the handle is untyped by construction.
-    return createContract(runtime, address, abi as any) as any;
-}
-
-/**
- * Origin for a read. Passing the fallback explicitly rather than letting the
- * contracts layer substitute it keeps each query from logging a warning.
- */
-function readOrigin(opts: DotNsClientOptions): SS58String {
-    return opts.origin ?? QUERY_FALLBACK_ORIGIN;
 }
 
 // ── The deployment's TLD ─────────────────────────────────────────────

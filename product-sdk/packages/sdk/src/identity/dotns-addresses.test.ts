@@ -436,6 +436,30 @@ describe("verifyDotNsAddresses", () => {
         if (!r.ok) expect(r.error.reason).toBe("AddressMismatch");
     });
 
+    test("a discovered client has nothing to disagree with", async () => {
+        // The gap that let the false alarm through: no test passed addressSource
+        // here. A client on "discovered" calls what the walk found, so drift
+        // against the pinned table is not drift it is exposed to.
+        const moved = addr("e1");
+        const { runtime, gatewayApi } = agreeing({ registry: moved });
+        const opts = { runtime, gatewayApi, addressSource: "discovered" } as const;
+
+        const inUse = await resolveDotNsAddresses(opts);
+        expect(inUse.ok && inUse.value.registry.toLowerCase()).toBe(moved);
+
+        const v = await verifyDotNsAddresses(opts);
+        expect(v.ok).toBe(true);
+        if (v.ok) expect(v.value.registry.toLowerCase()).toBe(moved);
+    });
+
+    test("verifying then using the client is one walk, not two", async () => {
+        const { runtime, gatewayApi } = agreeing();
+        const opts = { runtime, gatewayApi, addressSource: "discovered" } as const;
+        await verifyDotNsAddresses(opts);
+        await resolveDotNsAddresses(opts);
+        expect(walkCount(runtime)).toBe(1);
+    });
+
     test("a walk that cannot complete is a discovery failure, not a mismatch", async () => {
         const { runtime, gatewayApi } = walkChain({ dispatcher: undefined });
         const r = await verifyDotNsAddresses({ runtime, gatewayApi });
