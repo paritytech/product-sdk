@@ -1671,12 +1671,12 @@ if (import.meta.vitest) {
             tag: "Domain",
             value: { tag: "V1", value: { tag: "NotConnected" } },
         };
-        function rejectingWith(error: unknown) {
+        function rejectingWith(rejected: unknown) {
             return {
                 match: async (
                     _onOk: (value: unknown) => unknown,
                     onErr: (error: unknown) => unknown,
-                ) => onErr(error),
+                ) => onErr(rejected),
             };
         }
         const rejecting = rejectingWith(domainError);

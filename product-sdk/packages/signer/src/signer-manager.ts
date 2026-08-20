@@ -8,7 +8,6 @@ import {
     AccountNotFoundError,
     DestroyedError,
     HostDisconnectedError,
-    HostRejectedError,
     HostUnavailableError,
     SigningFailedError,
     type SignerError,
@@ -1091,11 +1090,14 @@ if (import.meta.vitest) {
             expect(fakeHostProvider.getUserId).toHaveBeenCalledTimes(1);
             manager.destroy();
         });
+    });
 
+    describe("SignerManager ring VRF", () => {
         test("passes a host error through with its cause intact", async () => {
             // Looks like it tests a pass-through, and that is the point: a
             // catch added here later would flatten the error again and undo
             // the whole change, silently, at the layer consumers use.
+            const { HostRejectedError } = await import("./errors.js");
             const raw = { tag: "Domain", value: { tag: "V1", value: { tag: "NotAllowlisted" } } };
             const fakeHostProvider = {
                 type: "host" as const,
