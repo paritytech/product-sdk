@@ -24,8 +24,10 @@
  * And the other direction, from an account:
  *
  * ```ts
+ * import { getChainAPI } from "@parity/product-sdk-chain-client";
  * import { displayUsername, lookupUsername } from "@parity/product-sdk-individuality";
  *
+ * const chain = await getChainAPI("paseo");
  * const usernames = await lookupUsername(chain, { account: rootAddress });
  * if (usernames.ok && usernames.value !== null) {
  *     console.log(displayUsername(usernames.value));

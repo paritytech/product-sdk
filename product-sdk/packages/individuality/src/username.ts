@@ -64,8 +64,12 @@ export type UsernameCredibility =
           /**
            * When the authorization was last refreshed, in seconds since the epoch.
            * Stale past `PersonAuthDuration` whether or not `demoted` is set.
+           *
+           * Narrowed from the chain's `u64` to `number`, so the record stays
+           * JSON-serializable and matches every other numeric in this package. A
+           * seconds timestamp is exact in a double until year 285 million.
            */
-          lastUpdate: bigint;
+          lastUpdate: number;
           demoted: boolean;
       };
 
@@ -147,7 +151,7 @@ function decodeCredibility(raw: RawConsumerInfo["credibility"]): UsernameCredibi
             return {
                 tag: "Person",
                 alias: raw.value.alias,
-                lastUpdate: raw.value.last_update,
+                lastUpdate: Number(raw.value.last_update),
                 demoted: raw.value.demoted,
             };
         default:
@@ -301,11 +305,12 @@ if (import.meta.vitest) {
     });
 
     /** Seconds since the epoch, fixed so assertions stay deterministic. */
-    const LAST_UPDATE = 1_770_000_000n;
+    const RAW_LAST_UPDATE = 1_770_000_000n;
+    const LAST_UPDATE = 1_770_000_000;
 
     const person = (demoted = false) => ({
         type: "Person",
-        value: { alias: ALIAS, last_update: LAST_UPDATE, demoted },
+        value: { alias: ALIAS, last_update: RAW_LAST_UPDATE, demoted },
     });
 
     /** A decoded record; override the full username per test. */
@@ -342,6 +347,22 @@ if (import.meta.vitest) {
                 alias: ALIAS,
                 lastUpdate: LAST_UPDATE,
                 demoted: false,
+            });
+        });
+
+        test("the decoded record survives JSON, including a person's timestamp", () => {
+            // The u64 arrives as a bigint, which JSON.stringify refuses. Products
+            // log, cache and bridge this record, so the narrowing is load bearing.
+            const decoded = decodeConsumerInfo(raw({ credibility: person() }));
+            expect(JSON.parse(JSON.stringify(decoded))).toEqual({
+                liteUsername: "bigtava.07",
+                fullUsername: null,
+                credibility: {
+                    tag: "Person",
+                    alias: ALIAS,
+                    lastUpdate: LAST_UPDATE,
+                    demoted: false,
+                },
             });
         });
 

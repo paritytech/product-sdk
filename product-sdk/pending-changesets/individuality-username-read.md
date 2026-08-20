@@ -39,8 +39,8 @@ compiler:
   a weaker statement than it looks, though: the chain sets the flag only when somebody submits
   `demote_auth_expired`, and nothing submits it automatically, so it also covers a person whose
   authorization expired and who has not been demoted yet. `credibility.lastUpdate` is surfaced for
-  exactly that: compare it against the chain's `PersonAuthDuration` to tell a current authorization
-  from a stale one. This package does not read that constant, so it hands back the timestamp rather
+  exactly that: seconds since the epoch, as a `number`, to compare against the chain's
+  `PersonAuthDuration` and tell a current authorization from a stale one. This package does not read that constant, so it hands back the timestamp rather
   than a verdict.
 - **An empty username is a decode error**, in both fields, and a name that is not valid UTF-8 fails
   loudly rather than becoming U+FFFD. Empty is impossible on chain, and reading an empty full
