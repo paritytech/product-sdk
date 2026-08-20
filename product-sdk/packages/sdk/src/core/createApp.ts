@@ -35,7 +35,7 @@ import {
 import { accountIdBytes } from "@parity/product-sdk-address";
 import { getAccountsProvider } from "@parity/product-sdk-host";
 import {
-    accountIdToHex,
+    accountIdBytesToHex,
     type PeopleUsernameQueryApi,
     resolvePeopleUsernameOwner,
 } from "../identity/dotns.js";
@@ -327,14 +327,12 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
                 throw new Error(`No account owns DotNS username "${username}"`);
             }
 
-            const signer = accountsProvider.getLegacyAccountSigner({
-                publicKey: accountIdBytes(owner),
-                name: username,
-            });
-            // The public result stays hex; only the resolver's return type changed.
-            // Converted outside the try, so an address failure is never reported
-            // as a signing failure.
-            const accountId = accountIdToHex(owner);
+            const publicKey = accountIdBytes(owner);
+            // This field is hex, not the SS58 the resolver now returns. Converted
+            // here and not in the try, so an address failure is not reported as a
+            // signing failure.
+            const accountId = accountIdBytesToHex(publicKey);
+            const signer = accountsProvider.getLegacyAccountSigner({ publicKey, name: username });
 
             try {
                 return {

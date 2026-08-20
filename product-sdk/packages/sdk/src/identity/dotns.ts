@@ -202,7 +202,8 @@ export function accountIdHexToBytes(accountId: `0x${string}`): Uint8Array {
     return bytes;
 }
 
-function accountIdBytesToHex(bytes: Uint8Array): `0x${string}` {
+/** Throws on any input that is not exactly 32 bytes, rather than padding it. */
+export function accountIdBytesToHex(bytes: Uint8Array): `0x${string}` {
     if (bytes.length !== 32) {
         throw new Error(`Expected 32-byte AccountId, got ${bytes.length} bytes`);
     }
@@ -210,10 +211,10 @@ function accountIdBytesToHex(bytes: Uint8Array): `0x${string}` {
 }
 
 /**
- * An SS58 address as its raw 32-byte account id in `0x` hex.
+ * The inverse of {@link accountIdHexToBytes}.
  *
- * The inverse of {@link accountIdHexToBytes}. Exported so callers that have to
- * report the hex form share this module's 32-byte check rather than copying it.
+ * No in-repo caller: this is the migration path for consumers, after
+ * `resolvePeopleUsernameOwner` changed from hex to SS58. Not dead code.
  */
 export function accountIdToHex(address: string): `0x${string}` {
     return accountIdBytesToHex(accountIdBytes(address));
