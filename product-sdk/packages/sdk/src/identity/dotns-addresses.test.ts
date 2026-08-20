@@ -104,13 +104,13 @@ function walkChain(options: WalkOptions = {}) {
 }
 
 /** Addresses lowercased for comparison: viem checksums every one it decodes. */
-const lower = (a: Record<string, string>) =>
-    Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v.toLowerCase()]));
+const lower = (a: object): Record<string, string> =>
+    Object.fromEntries(Object.entries(a).map(([k, v]) => [k, String(v).toLowerCase()]));
 
 function expectAddresses(actual: { ok: boolean; value?: unknown }, expected: DotNsAddresses) {
     expect(actual.ok).toBe(true);
     if (!actual.ok) return;
-    expect(lower(actual.value as Record<string, string>)).toEqual(lower(expected));
+    expect(lower(actual.value as object)).toEqual(lower(expected));
 }
 
 /** Walks performed, counted by `TARGET` since exactly one walk calls it exactly once. */
@@ -397,9 +397,10 @@ describe("verifyDotNsAddresses", () => {
 
     test("casing does not count as a disagreement", async () => {
         // Chain reads come back lowercase; the pinned table is EIP-55.
-        const lowered = Object.fromEntries(
-            Object.entries(DOTNS_ADDRESSES).map(([k, v]) => [k, v.toLowerCase()]),
-        ) as DotNsAddresses;
+        const lowered: Partial<DotNsAddresses> = {};
+        for (const [role, address] of Object.entries(DOTNS_ADDRESSES)) {
+            lowered[role as keyof DotNsAddresses] = address.toLowerCase() as `0x${string}`;
+        }
         const { runtime, gatewayApi } = agreeing(lowered);
         expect((await verifyDotNsAddresses({ runtime, gatewayApi })).ok).toBe(true);
     });
