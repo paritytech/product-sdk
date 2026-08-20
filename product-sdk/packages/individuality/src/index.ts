@@ -4,10 +4,11 @@
  * @parity/product-sdk-individuality — read a person's standing on the
  * individuality chain, and act as that person on it.
  *
- * Two halves. The **read** half answers one question: for a DotNS username, what
- * is that person's personhood state, as of one pinned finalized block? The
- * **write** half is `withAsPerson`, which wraps a signer so a call dispatches
- * under a person origin instead of an account origin.
+ * Two halves. The **read** half goes in both directions: for a DotNS username,
+ * what is that person's personhood state, as of one pinned finalized block? And
+ * for an account, what usernames does it hold? The **write** half is
+ * `withAsPerson`, which wraps a signer so a call dispatches under a person origin
+ * instead of an account origin.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -19,6 +20,19 @@
  *     console.error(result.error);
  * } else if (result.value.tag === "Resolved" && result.value.state.tag === "Member") {
  *     console.log(`member for ${result.value.state.activeWeeks} weeks`);
+ * }
+ * ```
+ *
+ * And the other direction, from an account:
+ *
+ * ```ts
+ * import { getChainAPI } from "@parity/product-sdk-chain-client";
+ * import { displayUsername, lookupUsername } from "@parity/product-sdk-individuality";
+ *
+ * const chain = await getChainAPI("paseo");
+ * const usernames = await lookupUsername(chain, { account: rootAddress });
+ * if (usernames.ok && usernames.value !== null) {
+ *     console.log(displayUsername(usernames.value));
  * }
  * ```
  *
@@ -71,6 +85,24 @@ export type { RawParticipant, RawRecognition, RawStreak } from "./decode.js";
 // The pinned batched read.
 export { readPersonhoodState } from "./read.js";
 export type { IndividualityChain, RawAccountAlias, ReadPersonhoodStateOptions } from "./read.js";
+
+// The account to username direction, over `Resources.Consumers`. A lite name is
+// always present; a full one appears once the person claimed a bare name, which
+// is also exactly when they stop being eligible to claim.
+export {
+    canClaimFullUsername,
+    decodeConsumerInfo,
+    displayUsername,
+    lookupUsername,
+    usernameBase,
+} from "./username.js";
+export type {
+    ConsumersChain,
+    ConsumerUsernames,
+    LookupUsernameOptions,
+    RawConsumerInfo,
+    UsernameCredibility,
+} from "./username.js";
 
 // The write half: wrap a signer so the call runs under a person origin. Returns
 // a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx`.

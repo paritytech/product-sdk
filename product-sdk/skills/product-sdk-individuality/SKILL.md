@@ -2,20 +2,23 @@
 name: product-sdk-individuality
 description: >
   Use when reading a person's personhood or membership standing on the individuality chain
-  from a DotNS username, or when sending a transaction that must run under a person origin
-  instead of an account origin. Covers readPersonhoodState and its Result return, the
-  seven-state PersonhoodState union, why UsernameUnowned is a success value rather than an
-  error, using the pure derivation without a chain client, the decode helpers for raw
-  Score.Participants values, and withAsPerson for the AsPerson transaction extension
-  including the RestrictOrigins requirement that otherwise fails every call.
+  from a DotNS username, when reading the usernames an account holds, or when sending a
+  transaction that must run under a person origin instead of an account origin. Covers
+  readPersonhoodState and lookupUsername, their Result returns, the seven-state
+  PersonhoodState union, why UsernameUnowned and a missing consumer record are both success
+  values rather than errors, using the pure derivation without a chain client, the decode
+  helpers for raw Score.Participants and Resources.Consumers values, and withAsPerson for the
+  AsPerson transaction extension including the RestrictOrigins requirement that otherwise
+  fails every call.
 ---
 
 # Product SDK Individuality
 
-Two halves:
+Two halves, and the read half goes both ways:
 
-- **Read** — for a DotNS username, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
-- **Write** — send a call that dispatches under a *person* origin instead of an account origin, via `withAsPerson`.
+- **Read a person** - for a DotNS username, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
+- **Read an account** - for an account, what usernames does it hold, via `lookupUsername`?
+- **Write** - send a call that dispatches under a *person* origin instead of an account origin, via `withAsPerson`.
 
 Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/product-sdk/individuality`)
 
@@ -25,7 +28,7 @@ Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/pro
 
 > **`UsernameUnowned` IS A SUCCESS VALUE**, not an error. The chain was asked and answered that nobody owns that username, so it arrives as `ok({ tag: "UsernameUnowned", ... })`.
 
-> **ALL READS SHARE ONE FINALIZED BLOCK.** Two of the six underlying values move on a session cadence, so mixing blocks would silently mix eras. The block used is reported back on every result.
+> **THE PERSONHOOD READ SHARES ONE FINALIZED BLOCK.** Two of its six underlying values move on a session cadence, so mixing blocks would silently mix eras. `readPersonhoodState` pins one block and reports it back on every result. The account to username read is a single read that cannot mix eras, so it pins nothing by default and reports no block: see [Account to Username](#account-to-username).
 
 ## Quick Start
 
@@ -51,6 +54,62 @@ if (!result.ok) {
 ```
 
 This package does **not** resolve a chain. It takes an already-connected client, so the environment choice stays with you — see the `product-sdk-chain-connection` skill for `getChainAPI`.
+
+## Account to Username
+
+The other direction, and the one a results or profile screen needs. `lookupUsername(chain, { account })`
+reads `Resources.Consumers`, which is keyed by account and carries both names plus the credibility.
+The account is what a paired session already gives you as `rootAddress`.
+
+```ts
+import { getChainAPI } from "@parity/product-sdk-chain-client";
+import { displayUsername, lookupUsername } from "@parity/product-sdk-individuality";
+
+const chain = await getChainAPI("paseo");
+const result = await lookupUsername(chain, { account: rootAddress });
+
+if (!result.ok) {
+  console.error(result.error);
+} else if (result.value === null) {
+  console.log("this account has no consumer record");
+} else {
+  console.log(displayUsername(result.value)); // the claimed name, else the lite one
+}
+```
+
+> **NO RECORD IS `ok(null)`**, not an error. The chain was asked and answered.
+
+> **THIS READ REPORTS NO BLOCK.** With no `at` it reads the finalized head at call time, so the answer
+> is final, but nothing tells you which block it came from and two calls can land either side of a
+> block boundary. When a username has to agree with a personhood answer, pass `at` the `at.blockHash`
+> from the `readPersonhoodState` result.
+
+Four things the chain guarantees, all worth knowing before you render any of this:
+
+| | |
+|---|---|
+| `liteUsername` | always present, always `<letters>.<digits>`, for example `example.07` |
+| `fullUsername` | the claimed bare name, letters only, no dot. Present exactly when the person claimed one |
+| eligibility | `canClaimFullUsername(record)` is `fullUsername === null`, which is the literal precondition the claim extrinsic checks |
+| `credibility` | `{ tag: "Lite" }` before a claim, `{ tag: "Person", alias, lastUpdate, demoted }` after |
+
+**A `demoted` person is still a `Person`, and still has their full username.** Demotion rewrites only
+that flag, so `credibility.tag === "Person"` on its own does **not** mean "in good standing".
+
+**And neither does `demoted: false`.** The chain sets that flag only when somebody submits
+`demote_auth_expired`, and nothing submits it automatically, so a person whose authorization expired
+days ago still reads as `demoted: false` until someone bothers. Use `credibility.lastUpdate`, seconds
+since the epoch, against the chain's `PersonAuthDuration` if you need to know whether the
+authorization is current. This package does not read that constant, so it hands back the timestamp
+rather than a verdict.
+
+`usernameBase("example.07")` gives `"example"`, the name a claim would suggest. It is a suggestion,
+not an entitlement: an account may hold a reservation for a different name, and the reservation is
+what the chain honours.
+
+`displayUsername` is the same rule the host applies when it computes
+`account.getUserId().primaryUsername` from this record at session-pairing time. For the signed-in
+user the two should agree; if they disagree, the session snapshot is older than the chain.
 
 ## The Seven States
 
