@@ -18,6 +18,8 @@ export type DotNsErrorReason =
     | "NameUnavailable" // already registered
     | "NameReserved" // governance-held, or a base stem held by another user
     | "OwnerStatusInsufficient" // the owner lacks the personhood tier the label requires
+    | "AddressDiscovery" // the gateway walk could not locate the deployment
+    | "AddressMismatch" // a discovered address disagrees with the one in use
     | "RegistryCall" // the on-chain contract call failed
     | "Decode"; // the contract returned something we couldn't decode
 

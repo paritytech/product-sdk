@@ -103,6 +103,16 @@ function walkChain(options: WalkOptions = {}) {
     return { runtime, gatewayApi };
 }
 
+/** Addresses lowercased for comparison: viem checksums every one it decodes. */
+const lower = (a: Record<string, string>) =>
+    Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v.toLowerCase()]));
+
+function expectAddresses(actual: { ok: boolean; value?: unknown }, expected: DotNsAddresses) {
+    expect(actual.ok).toBe(true);
+    if (!actual.ok) return;
+    expect(lower(actual.value as Record<string, string>)).toEqual(lower(expected));
+}
+
 /** Walks performed, counted by `TARGET` since exactly one walk calls it exactly once. */
 const walkCount = (runtime: { calls: ReadonlyArray<{ functionName?: string }> }) =>
     runtime.calls.filter((c) => c.functionName === "TARGET").length;
@@ -152,8 +162,7 @@ describe("DOTNS_REGISTRY_KEYS", () => {
 describe("discoverDotNsAddresses", () => {
     test("walks pallet to dispatcher to controller to registry", async () => {
         const { runtime, gatewayApi } = walkChain();
-        const r = await discoverDotNsAddresses({ runtime, gatewayApi });
-        expect(r).toEqual({ ok: true, value: DISCOVERED });
+        expectAddresses(await discoverDotNsAddresses({ runtime, gatewayApi }), DISCOVERED);
     });
 
     test("reads every role from the chain, never from the pinned table", async () => {
@@ -172,9 +181,9 @@ describe("discoverDotNsAddresses", () => {
         // PAPI decodes H160 as a fixed-size binary wrapper, and the wrapper class
         // has changed across majors. Both shapes must work.
         const wrapped = walkChain({ dispatcher: { asHex: () => DISPATCHER } });
-        expect(await discoverDotNsAddresses(wrapped)).toEqual({ ok: true, value: DISCOVERED });
+        expectAddresses(await discoverDotNsAddresses(wrapped), DISCOVERED);
         const plain = walkChain({ dispatcher: DISPATCHER });
-        expect(await discoverDotNsAddresses(plain)).toEqual({ ok: true, value: DISCOVERED });
+        expectAddresses(await discoverDotNsAddresses(plain), DISCOVERED);
     });
 
     test("the five registry reads run concurrently, not one after another", async () => {
@@ -244,7 +253,7 @@ describe("discoverDotNsAddresses", () => {
             ...(api.query as object),
             DotnsGateway: { DispatcherAddress: { getValue: async () => DISPATCHER } },
         };
-        expect(await discoverDotNsAddresses({ runtime })).toEqual({ ok: true, value: DISCOVERED });
+        expectAddresses(await discoverDotNsAddresses({ runtime }), DISCOVERED);
     });
 
     test("a runtime without the pallet fails legibly instead of throwing", async () => {
@@ -279,7 +288,7 @@ describe("resolveDotNsAddresses", () => {
     test("addressSource discovered walks the gateway", async () => {
         const { runtime, gatewayApi } = walkChain();
         const r = await resolveDotNsAddresses({ runtime, gatewayApi, addressSource: "discovered" });
-        expect(r).toEqual({ ok: true, value: DISCOVERED });
+        expectAddresses(r, DISCOVERED);
     });
 
     test("a per-field override wins over a discovered address too", async () => {
@@ -290,7 +299,7 @@ describe("resolveDotNsAddresses", () => {
             addressSource: "discovered",
             registryAddress: addr("c1"),
         });
-        expect(r).toEqual({ ok: true, value: { ...DISCOVERED, registry: addr("c1") } });
+        expectAddresses(r, { ...DISCOVERED, registry: addr("c1") });
     });
 
     test("the cache holds the walk, not the merged result", async () => {
@@ -301,8 +310,8 @@ describe("resolveDotNsAddresses", () => {
         const base = { runtime, gatewayApi, addressSource: "discovered" } as const;
         const one = await resolveDotNsAddresses({ ...base, registryAddress: addr("c1") });
         const two = await resolveDotNsAddresses({ ...base, registryAddress: addr("c2") });
-        expect(one).toEqual({ ok: true, value: { ...DISCOVERED, registry: addr("c1") } });
-        expect(two).toEqual({ ok: true, value: { ...DISCOVERED, registry: addr("c2") } });
+        expectAddresses(one, { ...DISCOVERED, registry: addr("c1") });
+        expectAddresses(two, { ...DISCOVERED, registry: addr("c2") });
         expect(walkCount(runtime)).toBe(1);
     });
 
@@ -323,7 +332,7 @@ describe("resolveDotNsAddresses", () => {
             resolveDotNsAddresses(opts),
         ]);
         expect(walkCount(runtime)).toBe(1);
-        for (const r of results) expect(r).toEqual({ ok: true, value: DISCOVERED });
+        for (const r of results) expectAddresses(r, DISCOVERED);
     });
 
     test("a failed walk is not cached, so a later call retries", async () => {
@@ -339,7 +348,7 @@ describe("resolveDotNsAddresses", () => {
 
         expect((await resolveDotNsAddresses(opts)).ok).toBe(false);
         pallet.value = DISPATCHER;
-        expect(await resolveDotNsAddresses(opts)).toEqual({ ok: true, value: DISCOVERED });
+        expectAddresses(await resolveDotNsAddresses(opts), DISCOVERED);
     });
 
     test("pinned and discovered are cached apart on one runtime", async () => {
@@ -348,9 +357,10 @@ describe("resolveDotNsAddresses", () => {
             ok: true,
             value: { ...DOTNS_ADDRESSES },
         });
-        expect(
+        expectAddresses(
             await resolveDotNsAddresses({ runtime, gatewayApi, addressSource: "discovered" }),
-        ).toEqual({ ok: true, value: DISCOVERED });
+            DISCOVERED,
+        );
     });
 });
 
@@ -401,8 +411,8 @@ describe("verifyDotNsAddresses", () => {
         if (r.ok) return;
         expect(r.error.reason).toBe("AddressMismatch");
         expect(r.error.message).toContain("registry");
-        expect(r.error.message).toContain(DOTNS_ADDRESSES.registry);
-        expect(r.error.message).toContain(addr("d1"));
+        expect(r.error.message.toLowerCase()).toContain(DOTNS_ADDRESSES.registry.toLowerCase());
+        expect(r.error.message.toLowerCase()).toContain(addr("d1"));
     });
 
     test("lists every disagreeing role, not just the first", async () => {

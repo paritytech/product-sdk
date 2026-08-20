@@ -857,7 +857,7 @@ describe("resolveTld", () => {
 
     test("an absent getter falls back to .dot, because that TLD was compiled in", async () => {
         // Pre-b4096968 deployments had no tld() and no way to be anything but
-        // `.dot`. Verified against Paseo Asset Hub Previewnet.
+        // `.dot`. No live deployment is known to still be one.
         const runtime = registryRuntime({ tld: NO_GETTER, tldNode: NO_GETTER });
         expect(await resolveTld({ runtime })).toEqual({ ok: true, value: DOT_TLD });
     });
@@ -1055,8 +1055,8 @@ describe("the deployment's TLD reaches every entry point", () => {
     });
 
     test("a legacy deployment with no tld() getter still resolves .dot names", async () => {
-        // Paseo Asset Hub Previewnet: both getters revert empty, and `dim2` is
-        // owned there under the `.dot` root. The fix must not break it.
+        // Guards the pre-b4096968 shape, which Previewnet was thought to have
+        // until it reported `.test`. Kept: nothing proves the shape is extinct.
         const runtime = createFakeContractRuntime({
             abi: [...ALL_ABIS, ...DOTNS_PROTOCOL_REGISTRY_ABI],
             onQuery: ({ functionName }) => {

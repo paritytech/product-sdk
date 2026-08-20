@@ -12,7 +12,7 @@
  *
  * **Names are rooted at the network's TLD, which is per deployment.** It is
  * fixed when `DotnsProtocolRegistry.initialize` runs, has no setter, and is
- * published as `tld()`. `.paseo` on Paseo Asset Hub Next V2, `.dot` on
+ * published as `tld()`. `.paseo` on Paseo Asset Hub Next V2, `.test` on
  * Previewnet, and operators can choose others. Every entry point that hashes a
  * name therefore asks the chain first, through {@link resolveTld}, and callers
  * can supply `opts.tld` to skip the read. Hashing under the wrong root returns a
@@ -65,6 +65,7 @@ import {
 } from "./dotns-abis.js";
 import { DotNsError } from "./dotns-errors.js";
 import {
+    type DotNsGatewayQueryApi,
     type RuntimeCache,
     cachedPerRuntime,
     isZero,
@@ -117,6 +118,29 @@ export interface DotNsClientOptions {
      * the whole set is CREATE3-deterministic.
      */
     protocolRegistryAddress?: HexString;
+    /**
+     * Where the addresses come from. `"pinned"` (the default) uses the
+     * {@link DOTNS_ADDRESSES} table; `"discovered"` walks the gateway on the
+     * chain `runtime` points at, so nothing is trusted from this bundle.
+     *
+     * Pinned is the default because the table is currently correct and a walk
+     * costs four round trips on the first call. Discovery is the honest choice
+     * once a deployment has moved, and its trust root is
+     * `DotnsGateway.DispatcherAddress` — a governance-set value on the chain the
+     * caller already trusts for every name read. Per-field address overrides win
+     * over either source.
+     */
+    addressSource?: "pinned" | "discovered";
+    /**
+     * Typed API for the chain hosting the `DotnsGateway` pallet, needed only by
+     * `"discovered"`.
+     *
+     * Optional because `runtime.api` is usually the same chain and is used when
+     * it carries the pallet. `ContractRuntime` does not declare that storage, so
+     * it is probed rather than assumed; on a chain without the pallet, discovery
+     * fails with `AddressDiscovery` instead of throwing.
+     */
+    gatewayApi?: DotNsGatewayQueryApi;
     /**
      * The deployment's TLD, when you already know it.
      *
@@ -218,8 +242,8 @@ function isEmptyRevert(value: unknown): boolean {
  *     via the protocol registry"). Before that commit the TLD was a
  *     compile-time constant and `.dot` was the only value it could hold, so
  *     this is the one case where the fallback is provably right rather than
- *     merely plausible. Verified against Paseo Asset Hub Previewnet, where both
- *     getters revert empty and `dim2` is owned under the `.dot` root;
+ *     merely plausible. No live deployment is known to still take this
+ *     branch: Previewnet was cited for it, but reports `.test`;
  *   - anything else → `err`. A dispatch failure, a revert carrying a reason, an
  *     undecodable answer, or a TLD we cannot use.
  *
@@ -369,7 +393,9 @@ export async function resolveDotNs(
         return err(nameError(name, normalized, tld));
     }
     const node = namehash(normalized, tld);
-    const registryAddr = opts.registryAddress ?? DOTNS_ADDRESSES.registry;
+    const addrs = await resolveDotNsAddresses(opts);
+    if (!addrs.ok) return addrs;
+    const registryAddr = addrs.value.registry;
     const origin = readOrigin(opts);
     log.debug("resolveDotNs", { name: normalized, node, registry: registryAddr });
 
@@ -414,7 +440,7 @@ export async function resolveDotNs(
         // way; before this, the read and write paths disagreed about what a
         // pointer meant.
         const resolverAddr = resolverRes.value as HexString;
-        const forwardAddr = opts.resolverAddress ?? DOTNS_ADDRESSES.resolver;
+        const forwardAddr = addrs.value.resolver;
         if (!sameAddress(resolverAddr, forwardAddr)) {
             return ok({ name: normalized, owner });
         }
@@ -450,7 +476,9 @@ export async function reverseDotNs(
     address: string,
     opts: DotNsClientOptions,
 ): Promise<Result<string | null, DotNsError>> {
-    const reverseAddr = opts.reverseResolverAddress ?? DOTNS_ADDRESSES.reverseResolver;
+    const addrs = await resolveDotNsAddresses(opts);
+    if (!addrs.ok) return addrs;
+    const reverseAddr = addrs.value.reverseResolver;
     log.debug("reverseDotNs", { address, reverseResolver: reverseAddr });
     try {
         const reverse = contractOf(
@@ -508,7 +536,9 @@ export async function isDotNsAvailable(
     }
     // The registrar takes the bare label, without the TLD suffix.
     const label = stripSuffix(normalized, tld.suffix);
-    const controllerAddr = opts.registrarControllerAddress ?? DOTNS_ADDRESSES.registrarController;
+    const addrs = await resolveDotNsAddresses(opts);
+    if (!addrs.ok) return addrs;
+    const controllerAddr = addrs.value.registrarController;
     log.debug("isDotNsAvailable", { name: normalized, label, controller: controllerAddr });
 
     try {
@@ -517,11 +547,7 @@ export async function isDotNsAvailable(
             controllerAddr as HexString,
             DOTNS_REGISTRAR_CONTROLLER_ABI,
         );
-        const popRules = contractOf(
-            opts.runtime,
-            (opts.popRulesAddress ?? DOTNS_ADDRESSES.popRules) as HexString,
-            DOTNS_POP_RULES_ABI,
-        );
+        const popRules = contractOf(opts.runtime, addrs.value.popRules, DOTNS_POP_RULES_ABI);
         const origin = readOrigin(opts);
         const [res, classified] = await Promise.all([
             controller.available.query(label, { origin }),
@@ -589,8 +615,10 @@ export async function setDotNsRecord(
         return err(new DotNsError("MissingOrigin", "setDotNsRecord needs opts.origin (SS58)"));
     }
     const node = namehash(normalized, tld);
-    const registryAddr = opts.registryAddress ?? DOTNS_ADDRESSES.registry;
-    const resolverAddr = opts.resolverAddress ?? DOTNS_ADDRESSES.resolver;
+    const addrs = await resolveDotNsAddresses(opts);
+    if (!addrs.ok) return addrs;
+    const registryAddr = addrs.value.registry;
+    const resolverAddr = addrs.value.resolver;
     try {
         const registry = contractOf(opts.runtime, registryAddr as HexString, DOTNS_REGISTRY_ABI);
         const currentRes = await registry.resolver.query(node, { origin });
@@ -745,8 +773,10 @@ export async function prepareDotNsRegistration(
     }
     // The registrar takes the bare label, without the TLD suffix.
     const label = stripSuffix(normalized, tld.suffix);
-    const controllerAddr = opts.registrarControllerAddress ?? DOTNS_ADDRESSES.registrarController;
-    const popRulesAddr = opts.popRulesAddress ?? DOTNS_ADDRESSES.popRules;
+    const addrs = await resolveDotNsAddresses(opts);
+    if (!addrs.ok) return addrs;
+    const controllerAddr = addrs.value.registrarController;
+    const popRulesAddr = addrs.value.popRules;
     const secret = `0x${bytesToHex(randomBytes(32))}` as HexString;
     const registration = { label, owner: args.owner, secret, reserved: args.reserved ?? false };
     // register compares msg.sender against the owner; msg.sender is derived
