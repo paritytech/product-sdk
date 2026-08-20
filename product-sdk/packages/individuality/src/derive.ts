@@ -30,18 +30,28 @@ function countSetBits(value: number): number {
 }
 
 /**
+ * Misses the window currently holds: the games inside it that were absences.
+ *
+ * Mirrors the runtime's `misses_in_window(window)` on the history exactly as
+ * stored. The window is clamped to the one-byte history width, so a wider
+ * policy counts eight games and no more.
+ */
+export function missesInWindow(history: number, window: number): number {
+    const clamped = window >= HISTORY_BITS ? HISTORY_BITS : Math.max(window, 0);
+    const mask = (1 << clamped) - 1;
+    return clamped - countSetBits(history & mask);
+}
+
+/**
  * Misses a next-game absence would leave inside the window, mirroring the
  * runtime: `store_attendance(false)` (shift left, so bit 0 becomes the miss)
  * followed by `misses_in_window(window)`.
  *
- * The window is clamped to the one-byte history width; a JS number is not a
- * `u8`, so the shift is masked back down explicitly.
+ * A JS number is not a `u8`, so the shift is masked back down explicitly before
+ * the window is counted.
  */
 function projectedMisses(history: number, window: number): number {
-    const next = (history << 1) & 0xff;
-    const clamped = window >= HISTORY_BITS ? HISTORY_BITS : Math.max(window, 0);
-    const mask = (1 << clamped) - 1;
-    return clamped - countSetBits(next & mask);
+    return missesInWindow((history << 1) & 0xff, window);
 }
 
 /**
@@ -135,6 +145,48 @@ if (import.meta.vitest) {
         personhoodThreshold: 5,
         policy: { allowedMisses: 1, window: 8 },
         ...overrides,
+    });
+
+    describe("missesInWindow", () => {
+        // Mirrors the runtime's `store_attendance`, so the vectors below can be
+        // written the way the pallet writes them: from a default history
+        // forward, one game at a time.
+        const store = (history: number, attended: boolean) =>
+            ((history << 1) | (attended ? 1 : 0)) & 0xff;
+
+        // The pallet defaults the history to all-attended so a new participant
+        // is not penalised for games played before they joined.
+        const DEFAULT_HISTORY = 0xff;
+
+        test("agrees with the runtime on its own vectors", () => {
+            const clean = DEFAULT_HISTORY;
+            expect([missesInWindow(clean, 8), missesInWindow(clean, 6)]).toEqual([0, 0]);
+            expect(missesInWindow(clean, 1)).toBe(0);
+
+            const oneMiss = store(clean, false);
+            expect([
+                missesInWindow(oneMiss, 1),
+                missesInWindow(oneMiss, 2),
+                missesInWindow(oneMiss, 8),
+            ]).toEqual([1, 1, 1]);
+
+            const missThenAttend = store(oneMiss, true);
+            expect([missesInWindow(missThenAttend, 2), missesInWindow(missThenAttend, 1)]).toEqual([
+                1, 0,
+            ]);
+
+            const aged = store(store(store(oneMiss, true), true), true);
+            expect([missesInWindow(aged, 3), missesInWindow(aged, 4)]).toEqual([0, 1]);
+        });
+
+        test("clamps the window to the one-byte history width", () => {
+            // The runtime debug-asserts a window of 8 or less and then clamps;
+            // the policy arrives here straight off the chain, so clamp too.
+            expect(missesInWindow(0x00, 8)).toBe(8);
+            expect(missesInWindow(0x00, 99)).toBe(8);
+            expect(missesInWindow(0x00, 0)).toBe(0);
+            expect(missesInWindow(DEFAULT_HISTORY, -3)).toBe(0);
+        });
     });
 
     describe("derivePersonhoodState", () => {

@@ -2,21 +2,21 @@
 name: product-sdk-individuality
 description: >
   Use when reading a person's personhood or membership standing on the individuality chain
-  from a DotNS username, when reading the usernames an account holds, or when sending a
-  transaction that must run under a person origin instead of an account origin. Covers
-  readPersonhoodState and lookupUsername, their Result returns, the seven-state
-  PersonhoodState union, why UsernameUnowned and a missing consumer record are both success
-  values rather than errors, using the pure derivation without a chain client, the decode
-  helpers for raw Score.Participants and Resources.Consumers values, and withAsPerson for the
-  AsPerson transaction extension including the RestrictOrigins requirement that otherwise
-  fails every call.
+  from a DotNS username or an account address, when reading the usernames an account holds, or
+  when sending a transaction that must run under a person origin instead of an account origin.
+  Covers readPersonhoodState and its two input forms, the raw metrics it returns alongside the
+  state, lookupUsername, their Result returns, the seven-state PersonhoodState union, why
+  UsernameUnowned and a missing consumer record are both success values rather than errors, using
+  the pure derivation without a chain client, the decode helpers for raw Score.Participants and
+  Resources.Consumers values, and withAsPerson for the AsPerson transaction extension including
+  the RestrictOrigins requirement that otherwise fails every call.
 ---
 
 # Product SDK Individuality
 
 Two halves, and the read half goes both ways:
 
-- **Read a person** - for a DotNS username, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
+- **Read a person** - for a DotNS username or an account address, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
 - **Read an account** - for an account, what usernames does it hold, via `lookupUsername`?
 - **Write** - send a call that dispatches under a *person* origin instead of an account origin, via `withAsPerson`.
 
@@ -54,6 +54,19 @@ if (!result.ok) {
 ```
 
 This package does **not** resolve a chain. It takes an already-connected client, so the environment choice stays with you — see the `product-sdk-chain-connection` skill for `getChainAPI`.
+
+## Two Ways In
+
+Pass a username **or** an account, never both. An account is the cheaper form: it skips the `Resources.UsernameOwnerOf` lookup rather than adding one, which is what a profile or results screen usually wants, because it already holds an address and not a name.
+
+```ts
+await readPersonhoodState(chain, { username: "alice.dot" });   // resolves the owner first
+await readPersonhoodState(chain, { account: accountAddress }); // one round trip less
+```
+
+Two consequences of the account form. `UsernameUnowned` is unreachable, since nothing was looked up, so an account with no records is `Resolved` with `NotEnrolled`. And `accountAddress` on the result is your own input echoed back, so it proves nothing about the chain: with a username, the account came from `Resources.UsernameOwnerOf`.
+
+Passing both, or neither, is an `err` result and costs no round trip. The option type rejects the obvious literal, but not `{ username: maybeName, account: maybeAccount }` where both are `string | undefined`, so the rule is enforced at runtime.
 
 ## Account to Username
 
@@ -139,15 +152,36 @@ type PersonhoodResult =
   | {
       tag: "Resolved";
       at: FinalizedSnapshot;          // { blockHash, blockNumber }
-      accountAddress: string;         // owner of the DotNS username
+      accountAddress: string;         // the username's owner, or the account you passed
       alias: string | null;           // contextual People alias, or null
       state: PersonhoodState;
+      metrics: PersonhoodMetrics;     // the numbers behind the state, in every state
     };
 ```
 
 `at` is on both arms, so you can cache against it or compare two results and know which is newer. The whole union sits inside `result.value`.
 
 The alias is read from **both** `People.AccountToAlias` and `PeopleLite.AccountToAlias`, preferring the former. A Lite person's alias lives in the second, and without it the alias-keyed participant lookup would never run for them.
+
+## The Metrics
+
+Every `Resolved` result carries `metrics` as well as `state`, from the same pinned block and at no extra read:
+
+```ts
+interface PersonhoodMetrics {
+  score: number | null;          // null with no participant record
+  personhoodThreshold: number;   // the score at which personhood is reached
+  misses: number | null;         // absences in the current window, null with no record
+  allowedMisses: number;         // how many of `window` may be absences
+  window: number;                // how many recent games the policy looks at
+}
+```
+
+Why it exists: the state variants only carry numbers where the derivation needed them, so `Candidate` has a score and `Member` does not. A progress bar wants the score in every state, and `metrics` is that, with no switch on the tag.
+
+> **`metrics.misses` IS NOT `Caution.misses`.** The metric is what the window holds **now**. `Caution.misses` is a projection, what it would hold after **one more absence**, because that is what the grace policy is evaluated against. On a history of `0b11001111` they are 2 and 3. A screen showing "you have missed 2 of the last 8 games" wants the metric.
+
+If you do your own reads instead, `missesInWindow(history, window)` is exported so you can produce the same number, and the attendance history defaults to all-attended on chain, so a new participant reads as zero misses rather than eight.
 
 ## Cancellation
 
@@ -284,7 +318,7 @@ Two things to know either way, because they are the traps that cost the most tim
 1. **Forgetting to check `result.ok` first** — the answer is inside `result.value`, and a `result.tag` check on the outer object is always undefined.
 2. **Treating `UsernameUnowned` as an error** — it is a valid answer on the ok channel.
 3. **Comparing `score` to `personhoodThreshold` to decide membership** — the chain owns `reachedPersonhood`; both numbers are reported, never compared. Someone sitting exactly on the threshold is still `Candidate`.
-4. **Reading `Caution.misses` as misses already taken** — it is a *projection* of what the window would hold after one more absence.
+4. **Reading `Caution.misses` as misses already taken** — it is a *projection* of what the window would hold after one more absence. `metrics.misses` is the count already taken.
 5. **Assuming `window === 0` behaves like other windows** — it means no grace at all, so the next absence suspends regardless of the count. `Caution` there can carry a `misses` value *below* `allowedMisses`.
 6. **Using this to gate value server-side** — see the first callout.
 7. **Normalizing the username first** — it is UTF-8 encoded as-is. Pass the exact byte string the chain stores, `.dot` suffix included.
