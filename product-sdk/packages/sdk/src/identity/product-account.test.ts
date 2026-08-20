@@ -120,6 +120,7 @@ describe("the identity export surface", () => {
             "isValidDotNsName",
             "normalizeDotNsName",
             "accountIdHexToBytes",
+            "accountIdToHex",
             "deriveContextAlias",
             "verifyContextAlias",
         ]) {

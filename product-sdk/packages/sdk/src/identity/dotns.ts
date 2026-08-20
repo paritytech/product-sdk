@@ -158,11 +158,17 @@ export function normalizeDotNsName(name: string, suffix: string): string {
 // throwing skeletons that used to sit here. See that module + the design doc.
 
 /**
- * Resolve a People / People Lite username to its owning `AccountId32`.
+ * Resolve a People / People Lite username to its owning account.
  *
  * Queries `Resources.UsernameOwnerOf` on the caller-supplied typed-api fragment.
- * The returned value is the raw 32-byte account id as a `0x`-prefixed hex
- * string, or `null` when no owner is registered for that username.
+ * The returned value is the SS58 address the storage yields, or `null` when no
+ * owner is registered for that username.
+ *
+ * Returns SS58 rather than hex because that is both the form the storage yields
+ * and the form `Resources.Consumers` is keyed by, so reading an account's
+ * usernames from this result needs no conversion. Callers that want the raw
+ * 32-byte key use `accountIdBytes` from `@parity/product-sdk-address`, and
+ * {@link accountIdToHex} for the hex form.
  *
  * The `username` is UTF-8 encoded as-is — no normalization is applied. Pass
  * the exact byte string the chain stores (typically with the `.dot` suffix).
@@ -174,13 +180,11 @@ export function normalizeDotNsName(name: string, suffix: string): string {
 export async function resolvePeopleUsernameOwner(
     username: string,
     peopleApi: PeopleUsernameQueryApi,
-): Promise<`0x${string}` | null> {
+): Promise<SS58String | null> {
     const owner = await peopleApi.query.Resources.UsernameOwnerOf.getValue(
         new TextEncoder().encode(username),
     );
-    if (!owner) return null;
-
-    return accountIdBytesToHex(accountIdBytes(owner));
+    return owner ?? null;
 }
 
 function assertHex(value: string): `0x${string}` {
@@ -198,9 +202,20 @@ export function accountIdHexToBytes(accountId: `0x${string}`): Uint8Array {
     return bytes;
 }
 
-function accountIdBytesToHex(bytes: Uint8Array): `0x${string}` {
+/** Throws on any input that is not exactly 32 bytes, rather than padding it. */
+export function accountIdBytesToHex(bytes: Uint8Array): `0x${string}` {
     if (bytes.length !== 32) {
         throw new Error(`Expected 32-byte AccountId, got ${bytes.length} bytes`);
     }
     return `0x${bytesToHex(bytes)}`;
+}
+
+/**
+ * The inverse of {@link accountIdHexToBytes}.
+ *
+ * No in-repo caller: this is the migration path for consumers, after
+ * `resolvePeopleUsernameOwner` changed from hex to SS58. Not dead code.
+ */
+export function accountIdToHex(address: string): `0x${string}` {
+    return accountIdBytesToHex(accountIdBytes(address));
 }

@@ -17,6 +17,7 @@ export {
     isResolvableDotNsName,
     normalizeDotNsName,
     accountIdHexToBytes,
+    accountIdToHex,
     resolvePeopleUsernameOwner,
 } from "./dotns.js";
 export type { PeopleUsernameChain, PeopleUsernameQueryApi } from "./dotns.js";
