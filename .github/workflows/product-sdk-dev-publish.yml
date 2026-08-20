@@ -1,0 +1,170 @@
+name: "product-sdk: Dev publish"
+
+# Manually-triggered publish of an UNRELEASED branch to npm under the `dev`
+# dist-tag, so a consumer can integrate against in-flight SDK work without
+# waiting for a release wave.
+#
+# Modelled on bulletin-deploy, which publishes the same way: a version like
+# `0.15.2-dev.1282.0` is "the 0th dev cut of PR 1282, ahead of 0.15.2", carried
+# on the `dev` tag so `npm install` (which resolves `@latest`) can never pick it
+# up by accident.
+#
+# The maintainer triggers this from the Actions UI:
+#   Actions → "product-sdk: Dev publish" → Run workflow → pr: 312, iteration: 0
+#
+# Why this cannot reuse product-sdk-release.yml: that workflow consumes
+# changesets, commits `chore: version packages`, tags, and publishes to
+# `@latest`. All four are wrong for a throwaway cut off a feature branch. This
+# one writes nothing back to the repo — the version bump lives only in the
+# runner's working tree.
+#
+# Why it stages `pending-changesets/`: this repo parks in-flight changesets
+# there precisely so they do NOT ship on the next push to main (see
+# pending-changesets/README.md). A dev cut is the one moment we DO want them
+# applied, so they are copied into `.changeset/` on the runner and never
+# committed.
+
+on:
+    workflow_dispatch:
+        inputs:
+            pr:
+                description: "PR number this cut comes from (e.g. 312). Names the version: 0.16.0-dev.<pr>.<iteration>."
+                type: string
+                required: true
+            iteration:
+                description: "Bump for each re-cut of the same PR. Start at 0."
+                type: string
+                required: true
+                default: "0"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: product-sdk-dev-publish-${{ inputs.pr }}
+    cancel-in-progress: false
+
+defaults:
+    run:
+        working-directory: product-sdk
+
+jobs:
+    dev-publish:
+        name: "Publish dev.${{ inputs.pr }}.${{ inputs.iteration }}"
+        runs-on: parity-default
+        timeout-minutes: 20
+        permissions:
+            contents: read
+            # Trusted publishing: npm mints a short-lived credential from this
+            # token rather than a long-lived NPM_TOKEN, and attaches provenance.
+            id-token: write
+        steps:
+            - name: Validate inputs
+              env:
+                  PR: ${{ inputs.pr }}
+                  ITERATION: ${{ inputs.iteration }}
+              run: |
+                  set -euo pipefail
+                  # Both land inside an npm version string, so they are digits
+                  # only. Anything else could smuggle a second dist-tag or an
+                  # extra semver segment past the prerelease check below.
+                  [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be digits, got '$PR'"; exit 1; }
+                  [[ "$ITERATION" =~ ^[0-9]+$ ]] || { echo "::error::iteration must be digits, got '$ITERATION'"; exit 1; }
+
+            - name: Refuse to cut a dev release from main
+              if: github.ref == 'refs/heads/main'
+              run: |
+                  echo "::error::main publishes through product-sdk-release.yml. A dev cut is for unmerged branches."
+                  exit 1
+
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+              with:
+                  persist-credentials: false
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+              with:
+                  version: 10
+
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: "22"
+                  registry-url: "https://registry.npmjs.org"
+                  cache: "pnpm"
+                  cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+            # Node 22 bundles npm 10. Trusted publishing (OIDC) needs npm >=
+            # 11.5.1 — older npm ignores the id-token, looks for a token that
+            # isn't there, and fails the publish. Same pin bulletin-deploy uses.
+            - run: npm install -g npm@11.17.0
+
+            - run: pnpm install --frozen-lockfile
+
+            # The whole point of a dev cut: apply the changesets that are
+            # deliberately parked out of the release path. Copied, not moved —
+            # nothing is committed from this runner.
+            - name: Stage pending changesets
+              run: |
+                  set -euo pipefail
+                  shopt -s nullglob
+                  staged=0
+                  for f in pending-changesets/*.md; do
+                    [ "$(basename "$f")" = "README.md" ] && continue
+                    cp "$f" ".changeset/$(basename "$f")"
+                    staged=$((staged + 1))
+                  done
+                  if [ "$staged" -eq 0 ] && ! ls .changeset/*.md 2>/dev/null | grep -qv README.md; then
+                    echo "::error::No changesets to publish. Add one under pending-changesets/ first."
+                    exit 1
+                  fi
+                  echo "::notice::Staged $staged pending changeset(s)"
+
+            # `--snapshot` bypasses the normal version bump and stamps every
+            # affected package with a prerelease built from the tag. The
+            # template is pinned to `{tag}` alone so the version is reproducible
+            # from the inputs — the default appends a timestamp, which would
+            # make the same PR+iteration publish two different versions.
+            - name: Version as a snapshot
+              env:
+                  PR: ${{ inputs.pr }}
+                  ITERATION: ${{ inputs.iteration }}
+              run: |
+                  set -euo pipefail
+                  pnpm changeset version \
+                    --snapshot "dev.${PR}.${ITERATION}" \
+                    --snapshot-prerelease-template '{tag}'
+
+            # A snapshot version MUST carry a prerelease segment. Without one,
+            # `changeset publish` would push to `@latest` and a dev cut would
+            # silently become the version every consumer installs.
+            - name: Assert every publishable version is a prerelease
+              run: |
+                  set -euo pipefail
+                  fail=0
+                  for pkg in packages/*/package.json; do
+                    private=$(jq -r '.private // false' "$pkg")
+                    [ "$private" = "true" ] && continue
+                    name=$(jq -r '.name' "$pkg")
+                    version=$(jq -r '.version' "$pkg")
+                    case "$version" in
+                      *-dev.*) ;;
+                      *) echo "::error::$name is $version, not a dev prerelease"; fail=1 ;;
+                    esac
+                  done
+                  [ "$fail" -eq 0 ]
+
+            - run: pnpm build
+
+            # `--tag dev` is what keeps `@latest` untouched. Consumers opt in
+            # explicitly with `npm install @parity/product-sdk-host@dev` or by
+            # pinning the exact version.
+            - name: Publish under the dev dist-tag
+              run: pnpm changeset publish --tag dev --no-git-tag
+
+            - name: Report what shipped
+              run: |
+                  set -euo pipefail
+                  for pkg in packages/*/package.json; do
+                    private=$(jq -r '.private // false' "$pkg")
+                    [ "$private" = "true" ] && continue
+                    echo "::notice::$(jq -r '.name' "$pkg")@$(jq -r '.version' "$pkg")"
+                  done
