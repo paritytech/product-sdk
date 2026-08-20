@@ -168,6 +168,17 @@ jobs:
             # template is pinned to `{tag}` alone so the version is reproducible
             # from the inputs — the default appends a timestamp, which would
             # make the same PR+iteration publish two different versions.
+            # The baseline the assertion below diffs against, captured
+            # before anything mutates a package.json.
+            - name: Record versions before the bump
+              run: |
+                  set -euo pipefail
+                  for pkg in packages/*/package.json; do
+                    private=$(jq -r '.private // false' "$pkg")
+                    [ "$private" = "true" ] && continue
+                    echo "$(jq -r '.name' "$pkg") $(jq -r '.version' "$pkg")"
+                  done > "$RUNNER_TEMP/versions-before.txt"
+
             - name: Version as a snapshot
               env:
                   PR: ${{ steps.cut.outputs.pr }}
@@ -181,20 +192,38 @@ jobs:
             # A snapshot version MUST carry a prerelease segment. Without one,
             # `changeset publish` would push to `@latest` and a dev cut would
             # silently become the version every consumer installs.
-            - name: Assert every publishable version is a prerelease
+            #
+            # Scoped to what CHANGED, not to every package. A snapshot bump only
+            # touches packages the changesets name; the rest keep their released
+            # versions, and `changeset publish` skips them because those
+            # versions are already on the registry. Asserting over all packages
+            # therefore fails on ones this cut never publishes. The property
+            # that actually has to hold is narrower: everything this cut ships
+            # is a prerelease.
+            - name: Assert everything this cut publishes is a prerelease
               run: |
                   set -euo pipefail
                   fail=0
+                  changed=0
                   for pkg in packages/*/package.json; do
                     private=$(jq -r '.private // false' "$pkg")
                     [ "$private" = "true" ] && continue
                     name=$(jq -r '.name' "$pkg")
                     version=$(jq -r '.version' "$pkg")
+                    before=$(awk -v n="$name" '$1 == n { print $2 }' "$RUNNER_TEMP/versions-before.txt")
+                    [ "$version" = "$before" ] && continue
+                    changed=$((changed + 1))
                     case "$version" in
-                      *-dev.*) ;;
+                      *-dev.*) echo "::notice::$name $before -> $version" ;;
                       *) echo "::error::$name is $version, not a dev prerelease"; fail=1 ;;
                     esac
                   done
+                  # A cut that bumps nothing would publish nothing and report
+                  # success, which reads as "it shipped".
+                  if [ "$changed" -eq 0 ]; then
+                    echo "::error::The snapshot bump changed no versions - nothing to publish."
+                    fail=1
+                  fi
                   [ "$fail" -eq 0 ]
 
             - run: pnpm build
@@ -211,5 +240,11 @@ jobs:
                   for pkg in packages/*/package.json; do
                     private=$(jq -r '.private // false' "$pkg")
                     [ "$private" = "true" ] && continue
-                    echo "::notice::$(jq -r '.name' "$pkg")@$(jq -r '.version' "$pkg")"
+                    name=$(jq -r '.name' "$pkg")
+                    version=$(jq -r '.version' "$pkg")
+                    # Unchanged packages were skipped by `changeset publish`;
+                    # listing them here would claim a release that never went out.
+                    before=$(awk -v n="$name" '$1 == n { print $2 }' "$RUNNER_TEMP/versions-before.txt")
+                    [ "$version" = "$before" ] && continue
+                    echo "::notice::$name@$version"
                   done
