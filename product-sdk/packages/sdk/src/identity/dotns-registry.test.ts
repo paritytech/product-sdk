@@ -14,6 +14,7 @@ import { ss58ToH160 } from "@parity/product-sdk-address";
 import type { SS58String } from "polkadot-api";
 import { describe, expect, test } from "vitest";
 import {
+    DOTNS_POP_CONTROLLER_ABI,
     DOTNS_POP_RULES_ABI,
     DOTNS_PROTOCOL_REGISTRY_ABI,
     DOTNS_REGISTRAR_CONTROLLER_ABI,
@@ -21,9 +22,11 @@ import {
     DOTNS_RESOLVER_ABI,
     DOTNS_RESOLVER_WRITE_ABI,
     DOTNS_REVERSE_RESOLVER_ABI,
+    DOTNS_ROOT_GATEWAY_DISPATCHER_ABI,
     DOTNS_ADDRESSES,
     POP_STATUS,
 } from "./dotns-abis.js";
+import { DOTNS_REGISTRY_KEYS, type DotNsGatewayQueryApi } from "./dotns-addresses.js";
 import { DotNsError } from "./dotns-errors.js";
 import {
     isDotNsAvailable,
@@ -1150,5 +1153,157 @@ describe("the resolver pointer is an allowlist, not a denylist", () => {
             resolverAddress: custom,
         });
         expect(r).toEqual({ ok: true, value: { address: TARGET, name: "dim2.dot", owner: OWNER } });
+    });
+});
+
+describe("the discovered addresses reach every entry point", () => {
+    // The wiring these tests exist for: a client asking for discovery must not
+    // then read the TLD, or any name, from the pinned table. Reading one from
+    // each source is the same mismatch the issue is about, one layer down.
+    const DISPATCHER = `0x${"b1".repeat(20)}`;
+    const POP_CONTROLLER = `0x${"b2".repeat(20)}`;
+    const D_REGISTRY = `0x${"a1".repeat(20)}`;
+    const D_RESOLVER = `0x${"a3".repeat(20)}`;
+    const D_CONTROLLER = `0x${"a4".repeat(20)}`;
+    const D_POP_RULES = `0x${"a5".repeat(20)}`;
+    const D_PROTOCOL_REGISTRY = `0x${"a6".repeat(20)}`;
+    const D_REVERSE = `0x${"a2".repeat(20)}`;
+
+    const DISCOVERED: Record<string, string> = {
+        [DOTNS_REGISTRY_KEYS.registry]: D_REGISTRY,
+        [DOTNS_REGISTRY_KEYS.reverseResolver]: D_REVERSE,
+        [DOTNS_REGISTRY_KEYS.resolver]: D_RESOLVER,
+        [DOTNS_REGISTRY_KEYS.registrarController]: D_CONTROLLER,
+        [DOTNS_REGISTRY_KEYS.popRules]: D_POP_RULES,
+    };
+
+    const gatewayApi = {
+        query: { DotnsGateway: { DispatcherAddress: { getValue: async () => DISPATCHER } } },
+    } as DotNsGatewayQueryApi;
+
+    /**
+     * A chain where the discovered contracts answer and the pinned ones stay
+     * silent, so anything still calling a pinned address reads `undefined`.
+     */
+    function discoveringRuntime(answers: Record<string, unknown> = {}) {
+        return createFakeContractRuntime({
+            abi: [
+                ...ALL_ABIS,
+                ...DOTNS_PROTOCOL_REGISTRY_ABI,
+                ...DOTNS_ROOT_GATEWAY_DISPATCHER_ABI,
+                ...DOTNS_POP_CONTROLLER_ABI,
+            ],
+            onQuery: ({ dest, functionName, args }) => {
+                const at = dest.toLowerCase();
+                if (functionName === "TARGET") return POP_CONTROLLER;
+                if (functionName === "protocolRegistry") return D_PROTOCOL_REGISTRY;
+                if (functionName === "get") return DISCOVERED[String(args?.[0])] ?? ZERO;
+                if (at !== D_PROTOCOL_REGISTRY.toLowerCase() && functionName === "tld") {
+                    return undefined; // only the discovered registry knows the TLD
+                }
+                if (functionName === "tld" || functionName === "tldNode") {
+                    return functionName === "tld" ? ".paseo" : dotNsTld(".paseo").node;
+                }
+                if (functionName && functionName in answers) return answers[functionName];
+                return undefined;
+            },
+        });
+    }
+
+    const destsFor = (runtime: ReturnType<typeof discoveringRuntime>, fn: string) =>
+        runtime.calls.filter((c) => c.functionName === fn).map((c) => c.dest.toLowerCase());
+
+    test("resolveTld reads the TLD from the discovered protocol registry", async () => {
+        const runtime = discoveringRuntime();
+        const r = await resolveTld({ runtime, gatewayApi, addressSource: "discovered" });
+        expect(r).toEqual({ ok: true, value: dotNsTld(".paseo") });
+        expect(destsFor(runtime, "tld")).toEqual([D_PROTOCOL_REGISTRY.toLowerCase()]);
+        expect(destsFor(runtime, "tld")).not.toContain(
+            DOTNS_ADDRESSES.protocolRegistry.toLowerCase(),
+        );
+    });
+
+    test("resolveDotNs reads the discovered registry", async () => {
+        const runtime = discoveringRuntime({ owner: OWNER, resolver: ZERO });
+        const r = await resolveDotNs("dim2.paseo", {
+            runtime,
+            gatewayApi,
+            addressSource: "discovered",
+        });
+        expect(r).toEqual({ ok: true, value: { name: "dim2.paseo", owner: OWNER } });
+        expect(destsFor(runtime, "owner")).toEqual([D_REGISTRY.toLowerCase()]);
+    });
+
+    test("resolveDotNs asks the discovered forward resolver", async () => {
+        const runtime = discoveringRuntime({
+            owner: OWNER,
+            resolver: D_RESOLVER,
+            addressOf: TARGET,
+        });
+        const r = await resolveDotNs("dim2.paseo", {
+            runtime,
+            gatewayApi,
+            addressSource: "discovered",
+        });
+        expect(r).toEqual({
+            ok: true,
+            value: { address: TARGET, name: "dim2.paseo", owner: OWNER },
+        });
+        expect(destsFor(runtime, "addressOf")).toEqual([D_RESOLVER.toLowerCase()]);
+    });
+
+    test("reverseDotNs reads the discovered reverse resolver", async () => {
+        const runtime = discoveringRuntime({ nameOf: "dim2.paseo" });
+        const r = await reverseDotNs(OWNER, { runtime, gatewayApi, addressSource: "discovered" });
+        expect(r).toEqual({ ok: true, value: "dim2.paseo" });
+        expect(destsFor(runtime, "nameOf")).toEqual([D_REVERSE.toLowerCase()]);
+    });
+
+    test("isDotNsAvailable reads the discovered controller and pop rules", async () => {
+        const runtime = discoveringRuntime({ available: true, classifyName: OPEN });
+        const r = await isDotNsAvailable("dim2.paseo", {
+            runtime,
+            gatewayApi,
+            addressSource: "discovered",
+        });
+        expect(r).toEqual({ ok: true, value: true });
+        expect(destsFor(runtime, "available")).toEqual([D_CONTROLLER.toLowerCase()]);
+        expect(destsFor(runtime, "classifyName")).toEqual([D_POP_RULES.toLowerCase()]);
+    });
+
+    test("setDotNsRecord writes through the discovered registry and resolver", async () => {
+        const runtime = discoveringRuntime({ resolver: ZERO });
+        const r = await setDotNsRecord(
+            { name: "dim2.paseo", address: TARGET },
+            { runtime, gatewayApi, addressSource: "discovered", origin: SIGNER },
+        );
+        expect(r.ok).toBe(true);
+        expect(destsFor(runtime, "resolver")).toEqual([D_REGISTRY.toLowerCase()]);
+    });
+
+    test("prepareDotNsRegistration reads the discovered controller", async () => {
+        const runtime = discoveringRuntime({
+            available: true,
+            makeCommitment: `0x${"ab".repeat(32)}`,
+            priceWithoutCheck: [1n, POP_STATUS.NoStatus, POP_STATUS.PopFull, ""],
+            transferFloor: 0n,
+            minCommitmentAge: 60n,
+            maxCommitmentAge: 86400n,
+        });
+        const r = await prepareDotNsRegistration(
+            { name: "dim2.paseo", owner: OWNER },
+            { runtime, gatewayApi, addressSource: "discovered", origin: SIGNER },
+        );
+        expect(r.ok).toBe(true);
+        expect(destsFor(runtime, "available")).toEqual([D_CONTROLLER.toLowerCase()]);
+        expect(destsFor(runtime, "priceWithoutCheck")).toEqual([D_POP_RULES.toLowerCase()]);
+    });
+
+    test("the walk runs once, no matter how many entry points are called", async () => {
+        const runtime = discoveringRuntime({ owner: OWNER, resolver: ZERO, nameOf: "dim2.paseo" });
+        const opts = { runtime, gatewayApi, addressSource: "discovered" } as const;
+        await resolveDotNs("dim2.paseo", opts);
+        await reverseDotNs(OWNER, opts);
+        expect(runtime.calls.filter((c) => c.functionName === "TARGET")).toHaveLength(1);
     });
 });
