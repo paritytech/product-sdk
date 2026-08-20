@@ -294,12 +294,14 @@ export async function verifyDotNsAddresses(
     );
     if (!discovered.ok) return discovered;
 
-    // A discovered client already calls whatever the walk found, so there is
-    // nothing left to disagree with. Comparing it against the pinned table would
-    // report drift the client is not exposed to, and name an address it never uses.
-    if (opts.addressSource === "discovered") return ok(withOverrides(discovered.value, opts));
-
-    const inUse = withOverrides(DOTNS_ADDRESSES, opts);
+    // Compare what this client actually calls, which is the pinned table or the
+    // walk depending on the source, with the caller's overrides on top either
+    // way. A discovered client can still drift, through an override that
+    // disagrees with the chain; it is only the pinned base that cannot apply.
+    const inUse = withOverrides(
+        opts.addressSource === "discovered" ? discovered.value : DOTNS_ADDRESSES,
+        opts,
+    );
     const drift = (Object.keys(inUse) as (keyof DotNsAddresses)[])
         .filter((role) => !sameAddress(inUse[role], discovered.value[role]))
         .map((role) => `${role}: using ${inUse[role]}, chain says ${discovered.value[role]}`);

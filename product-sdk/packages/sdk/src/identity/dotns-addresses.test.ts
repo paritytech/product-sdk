@@ -452,6 +452,31 @@ describe("verifyDotNsAddresses", () => {
         if (v.ok) expect(v.value.registry.toLowerCase()).toBe(moved);
     });
 
+    test("a discovered client is still checked against its own overrides", async () => {
+        // The hole the first pass at this left: short circuiting for discovered
+        // clients skipped override drift, so verify reported ok while the client
+        // called an address the chain disagreed with. A false all clear is worse
+        // than the false alarm it replaced.
+        const wrong = addr("f1");
+        const { runtime, gatewayApi } = agreeing();
+        const opts = {
+            runtime,
+            gatewayApi,
+            addressSource: "discovered",
+            registryAddress: wrong,
+        } as const;
+
+        const inUse = await resolveDotNsAddresses(opts);
+        expect(inUse.ok && inUse.value.registry.toLowerCase()).toBe(wrong);
+
+        const v = await verifyDotNsAddresses(opts);
+        expect(v.ok).toBe(false);
+        if (!v.ok) {
+            expect(v.error.reason).toBe("AddressMismatch");
+            expect(v.error.message.toLowerCase()).toContain(wrong);
+        }
+    });
+
     test("verifying then using the client is one walk, not two", async () => {
         const { runtime, gatewayApi } = agreeing();
         const opts = { runtime, gatewayApi, addressSource: "discovered" } as const;
