@@ -25,5 +25,7 @@ Replace by intent:
 - A context-scoped identifier that was never an account: `blake2b256` from
   `@parity/product-sdk/crypto`. Same bytes, without the address packaging that invited the mistake.
 
-If you used an alias purely as an opaque identifier, the `blake2b256` route gives byte-identical
-output, so stored values stay valid.
+If you used an alias purely as an opaque identifier, the same 32 bytes are still available as
+`blake2b256(parentPublicKey || context)`. That is the hash, not either address form the old helper
+returned, so re-encode to match what you stored: `ss58Encode(blake2b256(...), 42)` reproduces the
+old `address`, and `deriveH160(blake2b256(...))` reproduces the old `h160Address`. Both are exact.
