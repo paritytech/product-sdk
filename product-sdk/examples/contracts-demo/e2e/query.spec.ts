@@ -49,7 +49,7 @@ const FRESH_SHOP_KEY = ("0x" + randomBytes(32).toString("hex")) as `0x${string}`
 // assertions (uint256 0, string[] [], string "") fail. This is stale chain
 // state, not an SDK regression: the wrap.ts "PAPI 2.x boundary" unit tests that
 // cover this exact decode all pass. Re-enable once the contract is redeployed
-// and the address + cdm.json are updated. Tracking: <issue link>.
+// and the address + cdm.json are updated. Tracking: #322
 test.describe.skip("@parity/product-sdk-contracts via Host API — query", () => {
     test("getReportCount(fresh shopKey) decodes uint256 → 0 (deterministic)", async ({
         testHost,
