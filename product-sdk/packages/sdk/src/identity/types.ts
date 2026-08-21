@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Identity module types
- *
- * Types for DotNS name resolution
  */
 
 /** DotNS name resolution result */
