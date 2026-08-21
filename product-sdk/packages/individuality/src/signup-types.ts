@@ -88,7 +88,11 @@ export interface GameSignUpRequirement {
     phase: GamePhase | null;
     /** Unix seconds. `null` between games. */
     registrationEnds: number | null;
-    /** Whether a sign-up call works at all, with or without draw entry. */
+    /**
+     * Whether the **chain** would accept a sign-up, with or without draw entry.
+     * Not whether this package can build one: an `Alias` registrant needs
+     * `sign_up_with_alias`, which cannot be assembled, and still reads `true`.
+     */
     canSignUp: boolean;
     /** Never true when {@link canSignUp} is false: the draws ride on the sign-up. */
     canEnterDraws: boolean;
@@ -96,7 +100,7 @@ export interface GameSignUpRequirement {
     variant: AirdropVrfVariant | null;
     /** `Game.airdrops_scheduled`. The `airdrops` list must have exactly this many entries. */
     airdropsScheduled: number;
-    /** Ids for indices `0..airdropsScheduled`, in the order entries must be supplied. */
+    /** Ids for airdrop indices `0` to `airdropsScheduled - 1`, in supply order. */
     eventIds: string[];
     /** Empty exactly when both {@link canSignUp} and {@link canEnterDraws} hold. */
     blockers: SignUpBlocker[];

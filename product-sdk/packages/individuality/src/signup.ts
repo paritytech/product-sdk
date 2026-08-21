@@ -50,10 +50,12 @@
  *
  * Only the `Account` variant is buildable. `signup-types.ts` says why.
  */
+import { Enum } from "polkadot-api";
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex } from "@parity/product-sdk-utils";
 import { gameAirdropEventIds } from "./airdrop-ids.js";
 import type { AirdropRegistrant } from "./airdrop-types.js";
+import type { PersonhoodParticipant } from "./types.js";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
@@ -81,6 +83,18 @@ const DRAW_ONLY = {
     NotSr25519: true,
 } satisfies Record<SignUpBlocker["tag"], boolean>;
 
+/**
+ * The `AccountOrPerson` key both reads take.
+ *
+ * Two things keep the umbrella contract test honest here, both verified by
+ * breaking them. The narrow type catches a descriptor re-pin that renames an arm.
+ * Property syntax on the two `getValue`s catches widening this back to
+ * `{ type: string }`, which method syntax would accept, since method parameters
+ * are bivariant. Without either, a renamed arm reads nothing and looks like an
+ * absent record.
+ */
+type PlayerKey = { type: "Account"; value: string } | { type: "Person"; value: string };
+
 /** The chain's `AirdropVrfs`. `Alias` is never constructed, only declared. */
 type AirdropVrfsArg =
     | { type: "Account"; value: { pre_output: string; proof: string }[] }
@@ -98,18 +112,18 @@ export interface SignUpChain<Tx = unknown> extends PinnedChain {
             Game: {
                 /** Absent for a player who has never signed up. */
                 Players: {
-                    getValue(
-                        key: { type: string; value: unknown },
+                    getValue: (
+                        key: PlayerKey,
                         options: ReadAt,
-                    ): Promise<{ registered: boolean } | undefined>;
+                    ) => Promise<{ registered: boolean } | undefined>;
                 };
             };
             Score: {
                 Participants: {
-                    getValue(
-                        key: { type: string; value: unknown },
+                    getValue: (
+                        key: PlayerKey,
                         options: ReadAt,
-                    ): Promise<RawParticipant | undefined>;
+                    ) => Promise<RawParticipant | undefined>;
                 };
             };
         };
@@ -144,13 +158,13 @@ export interface ReadGameSignUpRequirementOptions {
     signal?: AbortSignal;
 }
 
-function playerKey(registrant: AirdropRegistrant): { type: string; value: unknown } {
+function playerKey(registrant: AirdropRegistrant): PlayerKey {
     // `AccountOrPerson` spells the alias arm `Person` where the airdrop pallet's
     // registration entry spells it `Alias`. Same identity, two names, and the
     // wrong one reads nothing rather than failing.
     return registrant.tag === "Account"
-        ? { type: "Account", value: registrant.accountAddress }
-        : { type: "Person", value: registrant.alias };
+        ? Enum("Account", registrant.accountAddress)
+        : Enum("Person", registrant.alias);
 }
 
 /**
@@ -255,7 +269,7 @@ export async function readGameSignUpRequirement(
     }
 }
 
-function isRecognized(recognition: string): boolean {
+function isRecognized(recognition: PersonhoodParticipant["recognition"]): boolean {
     // `Suspended` is not recognized, which is why this is not a "not
     // NotRecognized" check.
     return recognition === "Recognized" || recognition === "ExternallyRecognized";
@@ -280,6 +294,10 @@ export interface MintAccountAirdropVrfsOptions {
     eventIds: string[];
     /** The signing account's sr25519 key, 32 bytes. */
     publicKey: Uint8Array;
+    /**
+     * Checked between draws only. `AirdropVrfSigner` takes no signal, so a
+     * signature already being prompted for cannot be cancelled, unlike the reads.
+     */
     signal?: AbortSignal;
 }
 
@@ -294,6 +312,20 @@ export interface MintAccountAirdropVrfsOptions {
  * VRF verification does not exist in this workspace, and the failure it guards
  * against is the wrong key, which the transcript binds and the width checks catch.
  */
+/**
+ * The adapter is caller-written and usually unwraps a `Result`, so resolving with
+ * the `Result` itself is a likelier mistake than rejecting. Unchecked it reaches
+ * the builder and throws a `TypeError` there, outside any `Result` channel.
+ */
+function checkSignature(value: AccountVrfSignature): AccountVrfSignature {
+    if (!(value?.preOutput instanceof Uint8Array) || !(value?.proof instanceof Uint8Array)) {
+        throw new ProductIndividualityError(
+            "the VRF signer returned no signature; unwrap the Result before resolving",
+        );
+    }
+    return value;
+}
+
 export async function mintAccountAirdropVrfs(
     signer: AirdropVrfSigner,
     options: MintAccountAirdropVrfsOptions,
@@ -303,7 +335,9 @@ export async function mintAccountAirdropVrfs(
         for (const eventId of options.eventIds) {
             options.signal?.throwIfAborted();
             const transcript = airdropVrfTranscript({ eventId, publicKey: options.publicKey });
-            signatures.push(await signer.signVrf(transcript.label, transcript.items));
+            signatures.push(
+                checkSignature(await signer.signVrf(transcript.label, transcript.items)),
+            );
         }
         return ok(signatures);
     } catch (cause) {

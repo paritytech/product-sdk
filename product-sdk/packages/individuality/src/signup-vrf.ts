@@ -98,7 +98,9 @@ export function airdropVrfTranscript(options: {
             { label: ascii("domain"), value: airdropVrfDomain(options.eventId) },
             {
                 label: ascii("signer"),
-                value: sized(options.publicKey, PUBLIC_KEY_BYTES, "signer key"),
+                // Copied: the other two items allocate, so this is the only path
+                // where a caller mutating its buffer would change the transcript.
+                value: Uint8Array.from(sized(options.publicKey, PUBLIC_KEY_BYTES, "signer key")),
             },
         ],
     };

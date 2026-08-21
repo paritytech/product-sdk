@@ -31,7 +31,11 @@
  * `@ts-expect-error` would report as unused and this file would fail.
  */
 import type { getChainAPI } from "@parity/product-sdk-chain-client";
-import type { RingVRFProof as HostRingVRFProof } from "@parity/product-sdk-host";
+import type {
+    RingVRFProof as HostRingVRFProof,
+    VrfSignature as HostVrfSignature,
+    VrfTranscriptItem as HostVrfTranscriptItem,
+} from "@parity/product-sdk-host";
 import type {
     AirdropChain,
     ClaimChain,
@@ -40,6 +44,8 @@ import type {
     IndividualityChain,
     PrizeStatusChain,
     SignUpChain,
+    AccountVrfSignature,
+    VrfTranscriptItem as IndividualityVrfTranscriptItem,
     RingVRFProof as AsPersonRingVRFProof,
 } from "@parity/product-sdk-individuality";
 import { expect, test } from "vitest";
@@ -279,6 +285,39 @@ type AccountVrfHasPreOutputAndProof = Assert<
             : false
         : false
 >;
+
+// The VRF types are local copies of the host's, declared here for the same reason
+// `AsPersonRingVRFProof` is: so the package keeps no host dependency. Those host
+// types are mapped straight off truapi's wire types, so a rename there changes them
+// with no line of this repo touched, and the break would land as a runtime
+// TypeError rather than a failed typecheck.
+type HostVrfSignatureSatisfiesLocal = Assert<
+    HostVrfSignature extends AccountVrfSignature ? true : false
+>;
+type HostVrfItemSatisfiesLocal = Assert<
+    HostVrfTranscriptItem extends IndividualityVrfTranscriptItem ? true : false
+>;
+
+// Negative controls, so the two above cannot pass vacuously.
+type RejectsSignatureMissingProof = Assert<
+    { preOutput: Uint8Array } extends AccountVrfSignature ? false : true
+>;
+type RejectsItemMissingValue = Assert<
+    { label: Uint8Array } extends IndividualityVrfTranscriptItem ? false : true
+>;
+
+// `Game.Players`: the variant spelling the read keys by, and the one field it uses.
+// Sibling reads got exactly these pins.
+type PlayersEntry = PaseoClient["individuality"]["query"]["Game"]["Players"];
+type PlayersKey = Parameters<PlayersEntry["getValue"]>[0];
+type PlayersKeyIsAccountOrPerson = Assert<
+    PlayersKey extends { type: "Account" | "Person" } ? true : false
+>;
+type RejectsAliasSpelling = Assert<
+    { type: "Alias"; value: string } extends PlayersKey ? false : true
+>;
+type PlayersValue = NonNullable<Awaited<ReturnType<PlayersEntry["getValue"]>>>;
+type PlayersHasRegistered = Assert<"registered" extends keyof PlayersValue ? true : false>;
 
 test("the individuality chain contract is asserted at compile time", () => {
     // The type assertions above are the test. This keeps vitest from reporting

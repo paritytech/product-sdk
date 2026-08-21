@@ -100,7 +100,8 @@ belongs to, so this cannot be read — pass `keyType` (`"sr25519" | "ed25519" | 
 `NotSr25519` blocker, or omit it and own the check. For the same reason the transcript's `signer` item must be the account that
 signs the sign-up, not any other key the player holds.
 
-`airdropVrfTranscript` is exported for a caller minting VRFs some other way. Both the transcript
+`airdropVrfTranscript`, `airdropVrfDomain` and `AIRDROP_VRF_TRANSCRIPT_LABEL` are exported for a
+caller minting VRFs some other way. Both the transcript
 label and its domain prefix are module-level `pub const`s in the airdrop pallet, so unlike
 `Game`'s event-id base neither reaches metadata; the pinned test vectors are the only guard, the
 same situation the `PeopleAirdrops` event-id base is in.
@@ -112,6 +113,9 @@ binds and this code checks without any crypto. VRFs are minted sequentially rath
 parallel: each is a signing operation, and firing sixteen at once is hidden by an `AutoSigning`
 allowance right up until a product ships without one.
 
-**Paseo only.** Devnet's pinned metadata predates the multi-airdrop sign-up, and the umbrella's
-contract test asserts that a devnet client *fails* `SignUpChain` so a re-pin breaks the
-assertion rather than leaving the surface quietly unsupported.
+**Paseo only.** Devnet's pinned metadata predates the multi-airdrop sign-up: its call takes
+`airdrop`, singular, so `airdrops` would encode as `undefined` and enter no draw, silently. The
+umbrella contract test asserts a devnet client fails `GameChain & SignUpChain`. `SignUpChain`
+alone cannot reject devnet, since a `tx` argument is checked against a supertype and
+excess-property checking does not apply between named types; `GameChain` is the half that rejects
+it, by needing `airdrops_scheduled`.

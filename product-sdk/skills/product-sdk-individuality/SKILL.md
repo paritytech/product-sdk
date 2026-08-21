@@ -367,6 +367,8 @@ await submitAndWatch(
 );
 ```
 
+> **PASEO ONLY, AND DEVNET FAILS SILENTLY.** Devnet's call takes `airdrop`, singular, where paseo takes `airdrops`. PAPI encodes the object it is handed, so on devnet `airdrops` drops to `undefined` and the player signs up entering **no draw at all**, with no error on any channel. The umbrella contract test asserts a devnet client fails `GameChain & SignUpChain` so a re-pin breaks a build rather than a product.
+
 > **THE VARIANT IS NOT YOURS TO PICK.** The chain reads `Score` recognition and rejects the other with `InvalidAirdropVrfVariantForRecognition`: not recognized takes `Account`, recognized takes `Alias`. `is_recognized()` covers only `Recognized` and `ExternallyRecognized`, so a **`Suspended` player takes the account path**. Recognition is only half the gate: the account arm also destructures the origin, so a **person** who is not recognized satisfies neither arm and cannot enter any draw.
 
 > **A RECOGNIZED PLAYER CANNOT ENTER THE DRAWS AT ALL.** `Alias` needs a ring-VRF proof at `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and hosts only sign at `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, which they compute themselves. That is a chain or host change, not more SDK code. It arrives as the `AliasVrfsUnavailable` blocker, and such a player **can** still sign up with an account, passing no draws.
