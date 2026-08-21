@@ -3,10 +3,9 @@
 /**
  * @parity/product-sdk/identity
  *
- * Identity utilities: DotNS name resolution, plus the deprecated context-alias
- * helpers.
+ * Identity utilities: DotNS name resolution and registry access.
  *
- * For real Ring VRF aliases and proofs, use `SignerManager`'s
+ * For Ring VRF aliases and proofs, use `SignerManager`'s
  * `getProductAccountAlias` and `createRingVRFProof` from
  * `@parity/product-sdk-signer`.
  */
@@ -17,6 +16,7 @@ export {
     isResolvableDotNsName,
     normalizeDotNsName,
     accountIdHexToBytes,
+    accountIdToHex,
     resolvePeopleUsernameOwner,
 } from "./dotns.js";
 export type { PeopleUsernameChain, PeopleUsernameQueryApi } from "./dotns.js";
@@ -48,13 +48,18 @@ export {
 export type { DotNsTld } from "./dotns-namehash.js";
 export { POP_STATUS, DOTNS_ADDRESSES } from "./dotns-abis.js";
 
-// Context alias utilities (deprecated)
-export { deriveContextAlias, verifyContextAlias } from "./product-account.js";
+// Where those addresses come from: the pinned table, or the gateway walk.
+export {
+    DOTNS_REGISTRY_KEYS,
+    discoverDotNsAddresses,
+    resolveDotNsAddresses,
+    verifyDotNsAddresses,
+} from "./dotns-addresses.js";
+export type { DotNsAddresses, DotNsGatewayQueryApi } from "./dotns-addresses.js";
 
 // Types
 export type {
     DotNsRecord,
-    ContextAliasInfo,
     VerificationResult,
     OnChainIdentity,
 } from "./types.js";

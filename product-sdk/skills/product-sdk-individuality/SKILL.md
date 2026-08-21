@@ -2,20 +2,26 @@
 name: product-sdk-individuality
 description: >
   Use when reading a person's personhood or membership standing on the individuality chain
-  from a DotNS username, or when sending a transaction that must run under a person origin
-  instead of an account origin. Covers readPersonhoodState and its Result return, the
-  seven-state PersonhoodState union, why UsernameUnowned is a success value rather than an
-  error, using the pure derivation without a chain client, the decode helpers for raw
-  Score.Participants values, and withAsPerson for the AsPerson transaction extension
-  including the RestrictOrigins requirement that otherwise fails every call.
+  from a DotNS username or an account address, when reading the usernames an account holds, or
+  when sending a transaction that must run under a person origin instead of an account origin.
+  Covers readPersonhoodState and its two input forms, the raw metrics it returns alongside the
+  state, lookupUsername, their Result returns, the seven-state PersonhoodState union, why
+  UsernameUnowned and a missing consumer record are both success values rather than errors, using
+  the pure derivation without a chain client, the decode helpers for raw Score.Participants and
+  Resources.Consumers values, and withAsPerson for the AsPerson transaction extension including
+  the RestrictOrigins requirement that otherwise fails every call. Also covers the game surface:
+  reading the current game and its prize draws, whether you won one and claiming it, and signing
+  up for a game with its airdrop VRFs, including which sign-up paths the chain and the hosts
+  cannot currently support.
 ---
 
 # Product SDK Individuality
 
-Two halves:
+Two halves, and the read half goes both ways:
 
-- **Read** — for a DotNS username, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
-- **Write** — send a call that dispatches under a *person* origin instead of an account origin, via `withAsPerson`.
+- **Read a person** - for a DotNS username or an account address, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
+- **Read an account** - for an account, what usernames does it hold, via `lookupUsername`?
+- **Write** - send a call that dispatches under a *person* origin instead of an account origin, via `withAsPerson`.
 
 Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/product-sdk/individuality`)
 
@@ -25,7 +31,7 @@ Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/pro
 
 > **`UsernameUnowned` IS A SUCCESS VALUE**, not an error. The chain was asked and answered that nobody owns that username, so it arrives as `ok({ tag: "UsernameUnowned", ... })`.
 
-> **ALL READS SHARE ONE FINALIZED BLOCK.** Two of the six underlying values move on a session cadence, so mixing blocks would silently mix eras. The block used is reported back on every result.
+> **THE PERSONHOOD READ SHARES ONE FINALIZED BLOCK.** Two of its six underlying values move on a session cadence, so mixing blocks would silently mix eras. `readPersonhoodState` pins one block and reports it back on every result. The account to username read is a single read that cannot mix eras, so it pins nothing by default and reports no block: see [Account to Username](#account-to-username).
 
 ## Quick Start
 
@@ -51,6 +57,75 @@ if (!result.ok) {
 ```
 
 This package does **not** resolve a chain. It takes an already-connected client, so the environment choice stays with you — see the `product-sdk-chain-connection` skill for `getChainAPI`.
+
+## Two Ways In
+
+Pass a username **or** an account, never both. An account is the cheaper form: it skips the `Resources.UsernameOwnerOf` lookup rather than adding one, which is what a profile or results screen usually wants, because it already holds an address and not a name.
+
+```ts
+await readPersonhoodState(chain, { username: "alice.dot" });   // resolves the owner first
+await readPersonhoodState(chain, { account: accountAddress }); // one round trip less
+```
+
+Two consequences of the account form. `UsernameUnowned` is unreachable, since nothing was looked up, so an account with no records is `Resolved` with `NotEnrolled`. And `accountAddress` on the result is your own input echoed back, so it proves nothing about the chain: with a username, the account came from `Resources.UsernameOwnerOf`.
+
+Passing both, or neither, is an `err` result and costs no round trip. The option type rejects the obvious literal, but not `{ username: maybeName, account: maybeAccount }` where both are `string | undefined`, so the rule is enforced at runtime.
+
+## Account to Username
+
+The other direction, and the one a results or profile screen needs. `lookupUsername(chain, { account })`
+reads `Resources.Consumers`, which is keyed by account and carries both names plus the credibility.
+The account is what a paired session already gives you as `rootAddress`.
+
+```ts
+import { getChainAPI } from "@parity/product-sdk-chain-client";
+import { displayUsername, lookupUsername } from "@parity/product-sdk-individuality";
+
+const chain = await getChainAPI("paseo");
+const result = await lookupUsername(chain, { account: rootAddress });
+
+if (!result.ok) {
+  console.error(result.error);
+} else if (result.value === null) {
+  console.log("this account has no consumer record");
+} else {
+  console.log(displayUsername(result.value)); // the claimed name, else the lite one
+}
+```
+
+> **NO RECORD IS `ok(null)`**, not an error. The chain was asked and answered.
+
+> **THIS READ REPORTS NO BLOCK.** With no `at` it reads the finalized head at call time, so the answer
+> is final, but nothing tells you which block it came from and two calls can land either side of a
+> block boundary. When a username has to agree with a personhood answer, pass `at` the `at.blockHash`
+> from the `readPersonhoodState` result.
+
+Four things the chain guarantees, all worth knowing before you render any of this:
+
+| | |
+|---|---|
+| `liteUsername` | always present, always `<letters>.<digits>`, for example `example.07` |
+| `fullUsername` | the claimed bare name, letters only, no dot. Present exactly when the person claimed one |
+| eligibility | `canClaimFullUsername(record)` is `fullUsername === null`, which is the literal precondition the claim extrinsic checks |
+| `credibility` | `{ tag: "Lite" }` before a claim, `{ tag: "Person", alias, lastUpdate, demoted }` after |
+
+**A `demoted` person is still a `Person`, and still has their full username.** Demotion rewrites only
+that flag, so `credibility.tag === "Person"` on its own does **not** mean "in good standing".
+
+**And neither does `demoted: false`.** The chain sets that flag only when somebody submits
+`demote_auth_expired`, and nothing submits it automatically, so a person whose authorization expired
+days ago still reads as `demoted: false` until someone bothers. Use `credibility.lastUpdate`, seconds
+since the epoch, against the chain's `PersonAuthDuration` if you need to know whether the
+authorization is current. This package does not read that constant, so it hands back the timestamp
+rather than a verdict.
+
+`usernameBase("example.07")` gives `"example"`, the name a claim would suggest. It is a suggestion,
+not an entitlement: an account may hold a reservation for a different name, and the reservation is
+what the chain honours.
+
+`displayUsername` is the same rule the host applies when it computes
+`account.getUserId().primaryUsername` from this record at session-pairing time. For the signed-in
+user the two should agree; if they disagree, the session snapshot is older than the chain.
 
 ## The Seven States
 
@@ -80,15 +155,36 @@ type PersonhoodResult =
   | {
       tag: "Resolved";
       at: FinalizedSnapshot;          // { blockHash, blockNumber }
-      accountAddress: string;         // owner of the DotNS username
+      accountAddress: string;         // the username's owner, or the account you passed
       alias: string | null;           // contextual People alias, or null
       state: PersonhoodState;
+      metrics: PersonhoodMetrics;     // the numbers behind the state, in every state
     };
 ```
 
 `at` is on both arms, so you can cache against it or compare two results and know which is newer. The whole union sits inside `result.value`.
 
 The alias is read from **both** `People.AccountToAlias` and `PeopleLite.AccountToAlias`, preferring the former. A Lite person's alias lives in the second, and without it the alias-keyed participant lookup would never run for them.
+
+## The Metrics
+
+Every `Resolved` result carries `metrics` as well as `state`, from the same pinned block and at no extra read:
+
+```ts
+interface PersonhoodMetrics {
+  score: number | null;          // null with no participant record
+  personhoodThreshold: number;   // the score at which personhood is reached
+  misses: number | null;         // absences in the current window, null with no record
+  allowedMisses: number;         // how many of `window` may be absences
+  window: number;                // how many recent games the policy looks at
+}
+```
+
+Why it exists: the state variants only carry numbers where the derivation needed them, so `Candidate` has a score and `Member` does not. A progress bar wants the score in every state, and `metrics` is that, with no switch on the tag.
+
+> **`metrics.misses` IS NOT `Caution.misses`.** The metric is what the window holds **now**. `Caution.misses` is a projection, what it would hold after **one more absence**, because that is what the grace policy is evaluated against. On a history of `0b11001111` they are 2 and 3. A screen showing "you have missed 2 of the last 8 games" wants the metric.
+
+If you do your own reads instead, `missesInWindow(history, window)` is exported so you can produce the same number, and the attendance history defaults to all-attended on chain, so a new participant reads as zero misses rather than eight.
 
 ## Cancellation
 
@@ -150,6 +246,158 @@ if (!result.ok) {
 ```
 
 Both implement the cross-package `SdkError` marker, so `isSdkError(e)` from `@parity/product-sdk-errors` recognizes them. Error messages are fixed strings and never interpolate chain data.
+
+## The Game and Its Prize Draws
+
+Reading the game, its draws, and whether you won one. Every read pins a single finalized block and reports it, for the same reason the personhood read does.
+
+```ts
+import { readCurrentGame, readPrizeStatus } from "@parity/product-sdk-individuality";
+
+const game = await readCurrentGame(chain);
+if (game.ok && game.value.tag === "Running") {
+  console.log(game.value.game.phase, game.value.game.nextDeadline);
+}
+
+const status = await readPrizeStatus(chain, {
+  registrant: { tag: "Account", accountAddress },
+});
+if (status.ok && status.value.tag === "Draws") {
+  for (const draw of status.value.draws) {
+    if (draw.outcome.tag === "Won") console.log(draw.eventId, draw.phase);
+  }
+}
+```
+
+> **PASEO ONLY.** The committed devnet metadata predates this work: one optional prize per schedule instead of a draw list, no `airdrops_scheduled`, and a 28-byte event-id base against paseo's 27. A devnet client fails `GameChain` and the umbrella contract test asserts that on purpose.
+
+> **NO GAME RUNNING IS A SUCCESS VALUE.** One game exists at a time and each is killed when it ends, so `BetweenGames` and `NoGame` are the normal state, not errors. Both carry `lastGameIndex`, which is the index a late claim is keyed by.
+
+> **A DRAW NOT IN STORAGE IS A SUCCESS VALUE TOO.** It arrives as `phase: "Gone"`, the steady state for every past draw once the lifecycle cleans it up. It is not evidence the draw existed: an id that was never scheduled answers identically.
+
+### Claiming a prize
+
+```ts
+import { readClaimEligibility, claimPrizeTx, confirmClaim } from "@parity/product-sdk-individuality";
+import { submitAndWatch } from "@parity/product-sdk-tx";
+
+const check = await readClaimEligibility(chain, { gameIndex, airdropIndex, registrant });
+if (check.ok && check.value.claimable) {
+  await submitAndWatch(claimPrizeTx(chain, { gameIndex, airdropIndex, beneficiary }), signer);
+}
+```
+
+> **`claim_airdrop` HAS SIX GATES AND ONLY TWO ARE ABOUT PERSONHOOD.** Checking recognition alone still gets you `NotClaiming`, `ClaimingWindowClosed`, `AssetNotEnabled` or `NoSuchWinner` from the chain with nothing local to explain them. `ClaimEligibility.blockers` reports every cause, not the first, so a UI does not send someone to fix the wrong thing.
+
+The nine reasons a claim can be blocked, in the shape the seven personhood states use above:
+
+| `blockers[].tag` | Means |
+|---|---|
+| `NotAParticipant` | No `Score.Participants` record at all |
+| `NotRecognized` | Neither recognized nor over the personhood threshold |
+| `Suspended` | Recognition is suspended, which is not the same as never having had it |
+| `DidNotAttendThisGame` | `last_attended_game` is not this game. Covers never attended, attended an earlier one, or played again since. Compare `lastAttendedGame` to the game index to tell which |
+| `DrawNotClaiming` | The draw is not taking claims. `phase` says where it is instead |
+| `ClaimWindowClosed` | Past the draw's `end_time` |
+| `PrizeAssetDisabled` | The prize asset was disabled for airdrops. Nothing the player can do |
+| `NoPrize` | No winning entry, which includes already claimed |
+| `OutcomeUnchecked` | The draw was read without a registrant, so winning was never checked |
+
+`AirdropPhase` is `Upcoming`, `Registering`, `Drawing`, `Claiming`, `Settling` or `Gone`, where `Gone` is the row's absence rather than a chain status. `confirmClaim` answers `Claimed`, `Pending` or `Unknown`, the last when the row is gone but the draw has also left `Claiming`, so the lifecycle may have swept it instead.
+
+> **A REFUSED CLAIM COSTS A FEE.** `Pays::No` applies only on success, so a claim this library green-lights and the chain rejects costs the player money. That is why all six gates are pre-checked.
+
+> **THE DEADLINE IS NOT A TIMESTAMP.** Attending the next game overwrites `last_attended_game` and closes the claim, usually well before the draw's `end_time`. `ClaimWindow` reports `closesOnNextAttendance` next to `endTime` because a countdown alone misleads.
+
+> **THERE IS NO SUBSCRIPTION, AND NONE IS NEEDED.** A successful claim removes the `Winners` row, so `confirmClaim` re-reads it: a ticket still present means the claim has not landed. That survives a reload, a dropped socket and a closed tab, which a watch does not. Persist the ticket when you claim, it is the only local evidence separating "claimed" from "never won".
+
+### Game and Prize Gotchas
+
+- **`NotWon` means three things.** Not drawn yet, did not win, or won and already claimed, since claiming removes the row. `phase` separates the first from the rest; only a kept ticket or the `PrizeClaimed` event separates the last two.
+- **A past game's draw count is unreadable.** `airdrops_scheduled` lives on `Game.Game`, which holds only the running game, but claims outlive their game. Capture the count while the game runs and pass it as `game: { index, airdropsScheduled }`. There is no probe fallback, because a cleaned-up draw and one that never existed answer identically.
+- **The prize is a foreign asset.** `prize.assetId` is an XCM location, so formatting `assetAmount` with the chain's own `tokenDecimals` is wrong. Read `Assets.Metadata` for that id.
+- **`winnerCapPermill` is parts per million**, not a count and not a percent.
+- **`Status` counters are absent, not zero,** in the states that have not computed them. A `Finalizing` draw did have participants; the chain stopped reporting the figure.
+- **A running game's boundaries are stored, an upcoming one's are projected.** Governance can move the phase durations, so re-deriving a running game's boundaries would contradict storage. `GameTimeline` appears only on an upcoming schedule.
+- **`readDrawRegistration` is a prefix scan.** It answers "am I in tonight's draw" before the draw runs, which no point read can, but its cost grows with the participant count. Not for polling.
+- **`Score.Participants` spells the alias variant `Person`** where the airdrop registration entry calls it `Alias`. The wrong spelling reads nothing and looks like a missing record.
+
+### Signing Up for the Game
+
+Sign-up and draw entry are one extrinsic: `sign_up_with_account` takes `airdrops: Option<AirdropVrfs>`, one VRF per scheduled draw. Read the requirement, mint the VRFs, build the call. **Gate the sign-up on `canSignUp` and only the minting on `canEnterDraws`**, or a recognized player is never signed up at all.
+
+```ts
+import {
+  readGameSignUpRequirement,
+  mintAccountAirdropVrfs,
+  signUpWithAccountTx,
+} from "@parity/product-sdk-individuality";
+import { submitAndWatch } from "@parity/product-sdk-tx";
+
+// `accounts.signVrf` takes the account first and returns a Result, so it needs
+// this adapter. `txSigner` is the ordinary PolkadotSigner, not the same object.
+const vrfSigner = {
+  signVrf: (label, items) =>
+    accounts.signVrf(account, label, items).match(
+      (sig) => sig,
+      (cause) => { throw cause },
+    ),
+};
+
+const req = await readGameSignUpRequirement(chain, { registrant, keyType: "sr25519" });
+if (!req.ok || !req.value.canSignUp) return;
+
+let airdrops;
+if (req.value.canEnterDraws) {
+  const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
+    eventIds: req.value.eventIds,
+    publicKey: account.publicKey,
+  });
+  if (!vrfs.ok) return;
+  airdrops = vrfs.value;
+}
+
+await submitAndWatch(
+  signUpWithAccountTx(chain, {
+    identifierKey,
+    airdrops,
+    airdropsScheduled: req.value.airdropsScheduled,
+  }),
+  txSigner,
+);
+```
+
+> **PASEO ONLY, AND DEVNET FAILS SILENTLY.** Devnet's call takes `airdrop`, singular, where paseo takes `airdrops`. PAPI encodes the object it is handed, so on devnet `airdrops` drops to `undefined` and the player signs up entering **no draw at all**, with no error on any channel. The umbrella contract test asserts a devnet client fails `GameChain & SignUpChain` so a re-pin breaks a build rather than a product.
+
+> **THE VARIANT IS NOT YOURS TO PICK.** The chain reads `Score` recognition and rejects the other with `InvalidAirdropVrfVariantForRecognition`: not recognized takes `Account`, recognized takes `Alias`. `is_recognized()` covers only `Recognized` and `ExternallyRecognized`, so a **`Suspended` player takes the account path**. Recognition is only half the gate: the account arm also destructures the origin, so a **person** who is not recognized satisfies neither arm and cannot enter any draw.
+
+> **A RECOGNIZED PLAYER CANNOT ENTER THE DRAWS AT ALL.** `Alias` needs a ring-VRF proof at `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and hosts only sign at `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, which they compute themselves. That is a chain or host change, not more SDK code. It arrives as the `AliasVrfsUnavailable` blocker, and such a player **can** still sign up with an account, passing no draws.
+
+> **`sign_up_with_alias` CANNOT BE ASSEMBLED EITHER.** Its `sig`, the statement-account proof, is a bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it. `withAsPerson` gives the origin; that argument has no source. The example in the write section shows the origin, not a working flow.
+
+The eight reasons a sign-up or its draw entry can be blocked:
+
+| Tag | Means |
+|---|---|
+| `NoGameRunning` | `Game.Game` is empty, the normal state between games |
+| `NotInRegistration` | The game left its registration phase |
+| `RegistrationEnded` | Past `registrationEnds`, still in the phase: the offchain worker moves phases on its own schedule |
+| `AlreadyRegistered` | `Game.Players[who].registered` is set |
+| `AliasVrfsUnavailable` | Draws only. Recognized, so the chain wants proofs no host can mint |
+| `AccountVrfsNeedAnAccount` | Draws only. A person who is not recognized: the account arm needs an account origin, the alias arm needs recognition, so the chain takes neither |
+| `NoDrawsScheduled` | Draws only. Nothing scheduled, so anything but `None` fails the count check |
+| `NotSr25519` | Draws only, and only if you passed `keyType`. Another scheme cannot mint `Account` VRFs |
+
+The first four stop the extrinsic; the last four stop only the draw entry. `canSignUp` and `canEnterDraws` are the split.
+
+### Sign-Up Gotchas
+
+- **Derive the event ids from one block.** An id built from one game's index and another's count addresses a draw that does not exist. Use the `eventIds` the read returns.
+- **The entry count must equal `airdropsScheduled` exactly.** A mismatch fails the whole sign-up, deposit included. `Some([])` is not `None`: omit `airdrops` to enter no draw.
+- **Only sr25519 accounts can take the account path.** The pallet reinterprets the account id **as** the public key, and nothing on chain records the scheme, so the SDK cannot check it unless you pass `keyType`.
+- **The transcript binds the signing key.** The `signer` item must be the account that signs the sign-up, not another key the player holds.
+- **A rejected sign-up costs a fee.** `Pays::No` applies on success only, and the airdrop registration rides inside the same extrinsic, so one bad VRF entry loses the game sign-up too. Read the blockers before submitting.
+- **No local VRF verification exists.** One bad entry fails everything, but schnorrkel verification is not in this workspace. What it would catch is the wrong key, which the transcript already binds.
 
 ## Acting As a Person (Write)
 
@@ -225,7 +473,7 @@ Two things to know either way, because they are the traps that cost the most tim
 1. **Forgetting to check `result.ok` first** — the answer is inside `result.value`, and a `result.tag` check on the outer object is always undefined.
 2. **Treating `UsernameUnowned` as an error** — it is a valid answer on the ok channel.
 3. **Comparing `score` to `personhoodThreshold` to decide membership** — the chain owns `reachedPersonhood`; both numbers are reported, never compared. Someone sitting exactly on the threshold is still `Candidate`.
-4. **Reading `Caution.misses` as misses already taken** — it is a *projection* of what the window would hold after one more absence.
+4. **Reading `Caution.misses` as misses already taken** — it is a *projection* of what the window would hold after one more absence. `metrics.misses` is the count already taken.
 5. **Assuming `window === 0` behaves like other windows** — it means no grace at all, so the next absence suspends regardless of the count. `Caution` there can carry a `misses` value *below* `allowedMisses`.
 6. **Using this to gate value server-side** — see the first callout.
 7. **Normalizing the username first** — it is UTF-8 encoded as-is. Pass the exact byte string the chain stores, `.dot` suffix included.

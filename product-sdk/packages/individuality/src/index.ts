@@ -4,10 +4,11 @@
  * @parity/product-sdk-individuality — read a person's standing on the
  * individuality chain, and act as that person on it.
  *
- * Two halves. The **read** half answers one question: for a DotNS username, what
- * is that person's personhood state, as of one pinned finalized block? The
- * **write** half is `withAsPerson`, which wraps a signer so a call dispatches
- * under a person origin instead of an account origin.
+ * Two halves. The **read** half goes in both directions: for a DotNS username or
+ * an account, what is that person's personhood state, as of one pinned finalized
+ * block? And for an account, what usernames does it hold? The **write** half is
+ * `withAsPerson`, which wraps a signer so a call dispatches under a person origin
+ * instead of an account origin.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -17,8 +18,24 @@
  * const result = await readPersonhoodState(chain, { username: "alice.dot" });
  * if (!result.ok) {
  *     console.error(result.error);
- * } else if (result.value.tag === "Resolved" && result.value.state.tag === "Member") {
- *     console.log(`member for ${result.value.state.activeWeeks} weeks`);
+ * } else if (result.value.tag === "Resolved") {
+ *     const { state, metrics } = result.value;
+ *     console.log(state.tag, metrics.score, "of", metrics.personhoodThreshold);
+ * }
+ *
+ * const byAccount = await readPersonhoodState(chain, { account: aliceAddress });
+ * ```
+ *
+ * And the other direction, from an account:
+ *
+ * ```ts
+ * import { getChainAPI } from "@parity/product-sdk-chain-client";
+ * import { displayUsername, lookupUsername } from "@parity/product-sdk-individuality";
+ *
+ * const chain = await getChainAPI("paseo");
+ * const usernames = await lookupUsername(chain, { account: rootAddress });
+ * if (usernames.ok && usernames.value !== null) {
+ *     console.log(displayUsername(usernames.value));
  * }
  * ```
  *
@@ -49,6 +66,10 @@
  *     signer,
  * );
  * ```
+ *
+ * The origin works, the call does not: `sig`, the statement-account proof, is a
+ * bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it.
+ * `signup-types.ts` has the sign-up blockers.
  */
 
 // The seven-state union, its wrappers, and the pinned-block coordinates.
@@ -56,13 +77,16 @@ export type {
     AbsenceGracePolicy,
     FinalizedSnapshot,
     PersonhoodInputs,
+    PersonhoodMetrics,
     PersonhoodParticipant,
     PersonhoodResult,
     PersonhoodState,
 } from "./types.js";
 
-// The pure derivation, for a snapshot the caller already holds.
-export { derivePersonhoodState } from "./derive.js";
+// The pure derivation, for a snapshot the caller already holds. `missesInWindow`
+// comes with it, or a caller reproducing `metrics.misses` reaches for the
+// projected count the grace policy uses instead.
+export { derivePersonhoodState, missesInWindow } from "./derive.js";
 
 // Raw storage values to domain shapes, for callers doing their own reads.
 export { decodeAbsenceGracePolicy, toPersonhoodParticipant } from "./decode.js";
@@ -71,6 +95,181 @@ export type { RawParticipant, RawRecognition, RawStreak } from "./decode.js";
 // The pinned batched read.
 export { readPersonhoodState } from "./read.js";
 export type { IndividualityChain, RawAccountAlias, ReadPersonhoodStateOptions } from "./read.js";
+
+// The account to username direction, over `Resources.Consumers`. A lite name is
+// always present; a full one appears once the person claimed a bare name, which
+// is also exactly when they stop being eligible to claim.
+export {
+    canClaimFullUsername,
+    decodeConsumerInfo,
+    displayUsername,
+    lookupUsername,
+    usernameBase,
+} from "./username.js";
+export type {
+    ConsumersChain,
+    ConsumerUsernames,
+    LookupUsernameOptions,
+    RawConsumerInfo,
+    UsernameCredibility,
+} from "./username.js";
+
+// The prize-draw half: derive a draw's event id, then read the draw at one
+// pinned block. Two pallets schedule draws through the same `Airdrop` mechanism,
+// so the reads are keyed by event id and know nothing about which one did.
+export type {
+    AirdropAssetId,
+    AirdropDraw,
+    AirdropEvent,
+    AirdropOutcome,
+    AirdropPhase,
+    AirdropPrize,
+    AirdropRegistrant,
+    AirdropStatusTag,
+} from "./airdrop-types.js";
+
+// The derivations. Pure, so they work against an index you already hold. Prefer
+// `readGameAirdropEventIds` over the pinned base: the chain exposes `Game`'s base
+// as a constant, and a hardcoded copy would derive ids for draws that do not
+// exist if it ever moved. `PeopleAirdrops`' base is not exposed, so that one is
+// pinned here and guarded by vectors.
+export {
+    GAME_AIRDROP_EVENT_ID_BASE,
+    MAX_GAME_AIRDROPS,
+    PEOPLE_AIRDROPS_EVENT_ID_BASE,
+    gameAirdropEventId,
+    gameAirdropEventIds,
+    peopleAirdropsEventId,
+} from "./airdrop-ids.js";
+
+// Raw `Airdrop` storage values to domain shapes, for callers doing their own
+// reads. `airdropPhase` is the `Status`-to-UI-phase collapse on its own.
+export {
+    airdropPhase,
+    statusTag,
+    toAirdropEvent,
+    toRawRegistrationEntry,
+} from "./airdrop-decode.js";
+export type {
+    RawActiveEvent,
+    RawAirdropEventInfo,
+    RawAirdropPrize,
+    RawAirdropStatus,
+    RawRegistrationEntry,
+} from "./airdrop-decode.js";
+
+// The pinned draw read. `readDrawRegistration` is the prefix scan that answers
+// "am I in this draw" before it runs — separate because its cost grows with the
+// draw's participant count, where everything else here is a point read.
+export {
+    readAirdropDraw,
+    readDrawRegistration,
+    readGameAirdropEventIds,
+} from "./airdrop-read.js";
+export type {
+    AirdropChain,
+    DrawRegistration,
+    ReadAirdropDrawOptions,
+    ReadGameAirdropEventIdsOptions,
+} from "./airdrop-read.js";
+
+// The composed read behind `getDailyPrizeStatus`: a game's draws and this
+// identity's outcome in each, all at one pinned block. A caller cannot assemble
+// this from the two reads above without pinning two blocks.
+export { readPrizeStatus } from "./prize-status.js";
+export type {
+    CapturedGame,
+    PrizeStatus,
+    PrizeStatusChain,
+    ReadPrizeStatusOptions,
+} from "./prize-status.js";
+
+// The game half: what game is running, what phase it is in, and what is
+// scheduled next. Between games is a success value, not an empty result.
+export type {
+    CurrentGame,
+    CurrentGameResult,
+    GamePhase,
+    GamePhaseDurations,
+    GameScheduledAirdrop,
+    GameSchedulePreview,
+    GameTimeline,
+} from "./game-types.js";
+
+// Raw `Game` storage values to domain shapes, plus the phase-boundary
+// arithmetic. `gameTimeline` mirrors the runtime's own `GameTimes` trait and is
+// only correct for a game that does not exist yet — a created game stores its
+// boundaries, and re-deriving them contradicts storage once the durations move.
+export {
+    gameTimeline,
+    toCurrentGame,
+    toGamePhaseDurations,
+    toGameSchedulePreview,
+} from "./game-decode.js";
+export type {
+    RawGameAirdrop,
+    RawGameInfo,
+    RawGameSchedule,
+    RawGameState,
+    RawPhaseDurations,
+} from "./game-decode.js";
+
+// The pinned current-game read.
+export { readCurrentGame } from "./game-read.js";
+export type { GameChain, ReadCurrentGameOptions } from "./game-read.js";
+
+// Signing up for the game, and entering its prize draws in the same call. The
+// requirement read comes first because the event ids depend on the game index and
+// the draw count together, and the entry count must match `airdrops_scheduled`
+// exactly. Only the `Account` variant is buildable: the `Alias` one needs a
+// ring-VRF proof at a chain-chosen context, and every context a host will sign
+// under is derived from the product id. `signup-types.ts` has the detail.
+export type {
+    AccountVrfSignature,
+    AirdropVrfVariant,
+    GameSignUpRequirement,
+    SignUpBlocker,
+} from "./signup-types.js";
+export {
+    airdropVrfDomain,
+    airdropVrfTranscript,
+    AIRDROP_VRF_TRANSCRIPT_LABEL,
+} from "./signup-vrf.js";
+export type { VrfTranscript, VrfTranscriptItem } from "./signup-vrf.js";
+export {
+    mintAccountAirdropVrfs,
+    readGameSignUpRequirement,
+    signUpWithAccountTx,
+} from "./signup.js";
+export type {
+    AirdropVrfSigner,
+    MintAccountAirdropVrfsOptions,
+    ReadGameSignUpRequirementOptions,
+    SignUpChain,
+    SignUpWithAccountOptions,
+} from "./signup.js";
+
+// Claiming a prize. `claim_airdrop` has six gates and only two are about
+// personhood, so the predicate is exported separately from the read that feeds
+// it. Submission stays with `@parity/product-sdk-tx`: `claimPrizeTx` returns the
+// unsigned call. `confirmClaim` re-reads whether a claim landed, which is how the
+// flow survives a reload — a successful claim removes the `Winners` row.
+export type {
+    ClaimBlocker,
+    ClaimEligibility,
+    ClaimEligibilityResult,
+    ClaimOutcome,
+    ClaimWindow,
+} from "./claim-types.js";
+export { deriveClaimEligibility } from "./claim-derive.js";
+export type { ClaimInputs } from "./claim-derive.js";
+export { claimPrizeTx, confirmClaim, readClaimEligibility } from "./claim.js";
+export type {
+    ClaimChain,
+    ClaimTarget,
+    ConfirmClaimOptions,
+    ReadClaimEligibilityOptions,
+} from "./claim.js";
 
 // The write half: wrap a signer so the call runs under a person origin. Returns
 // a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx`.
