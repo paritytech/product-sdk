@@ -1,5 +1,12 @@
 # @parity/product-sdk-keys
 
+## 0.3.20
+
+### Patch Changes
+
+- Updated dependencies [f987fd7]
+  - @parity/product-sdk-address@0.2.0
+
 ## 0.3.19
 
 ### Patch Changes
