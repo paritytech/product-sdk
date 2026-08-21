@@ -3,21 +3,43 @@
 /**
  * Signing up for the game, and entering its prize draws in the same call.
  *
- * Three steps, in order, each needing the previous one's output:
+ * Two signers: no object satisfies both this package and `submitAndWatch`.
+ * `publicKey` must be the key `vrfSigner` binds, or the VRFs verify against
+ * nothing.
  *
  * ```ts
+ * const vrfSigner = {
+ *     signVrf: (label, items) =>
+ *         accounts.signVrf(account, label, items).match(
+ *             (sig) => sig,
+ *             (cause) => {
+ *                 throw cause;
+ *             },
+ *         ),
+ * };
+ *
  * const req = await readGameSignUpRequirement(chain, { registrant });
- * if (req.ok && req.value.canEnterDraws) {
- *     const vrfs = await mintAccountAirdropVrfs(signer, {
+ * if (!req.ok || !req.value.canSignUp) return;
+ *
+ * // A recognized player has canSignUp true and canEnterDraws false, and must
+ * // still be signed up.
+ * let airdrops;
+ * if (req.value.canEnterDraws) {
+ *     const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
  *         eventIds: req.value.eventIds,
  *         publicKey: account.publicKey,
  *     });
- *     if (vrfs.ok) {
- *         // Throws on a wrong-width identifier key, the one input a caller owns.
- *         const tx = signUpWithAccountTx(chain, { identifierKey, airdrops: vrfs.value });
- *         await submitAndWatch(tx, signer, { waitFor: "finalized" });
- *     }
+ *     if (!vrfs.ok) return;
+ *     airdrops = vrfs.value;
  * }
+ *
+ * // Throws on a wrong-width key or a count mismatch.
+ * const tx = signUpWithAccountTx(chain, {
+ *     identifierKey,
+ *     airdrops,
+ *     airdropsScheduled: req.value.airdropsScheduled,
+ * });
+ * await submitAndWatch(tx, txSigner, { waitFor: "finalized" });
  * ```
  *
  * Submission stays with `@parity/product-sdk-tx`, as for `claimPrizeTx`.
@@ -240,8 +262,13 @@ function isRecognized(recognition: string): boolean {
 }
 
 /**
+ * An sr25519 VRF over one draw's transcript.
+ *
+ * Wire this to `AccountsProvider.signVrf(account, label, items)`. Neither host
+ * call satisfies it directly, since both take the account first, so the adapter
+ * closes over it and unwraps the `Result`. The module doc has one.
+ *
  * Structural, so the package keeps no dependency on `@parity/product-sdk-host`.
- * `AccountsProvider.signVrf` satisfies it once its `ResultAsync` is unwrapped.
  */
 export interface AirdropVrfSigner {
     signVrf(transcriptLabel: Uint8Array, items: VrfTranscriptItem[]): Promise<AccountVrfSignature>;
@@ -291,8 +318,14 @@ export interface SignUpWithAccountOptions {
      * never interpreted by the chain; it is how co-players reach each other.
      */
     identifierKey: Uint8Array;
-    /** Omit to enter no draw. Length must equal `airdropsScheduled`. */
+    /** Omit to enter no draw. Length must equal {@link airdropsScheduled}. */
     airdrops?: AccountVrfSignature[];
+    /**
+     * From {@link GameSignUpRequirement}, checked against `airdrops` when both are
+     * given. A mismatch fails the whole sign-up on chain with the deposit taken,
+     * and is reachable by re-reading the requirement between minting and building.
+     */
+    airdropsScheduled?: number;
 }
 
 const IDENTIFIER_KEY_BYTES = 65;
@@ -306,8 +339,9 @@ const VRF_PROOF_BYTES = 64;
  * No `Alias` argument: a recognized player needs one that cannot be produced, and
  * an argument that always fails on chain is worse than none.
  *
- * @throws ProductIndividualityError on a wrong-width key or signature, checked
- *   because the chain's own failure rejects the sign-up with nothing to inspect.
+ * @throws ProductIndividualityError on a wrong-width key or signature, or an
+ *   airdrop count that disagrees with `airdropsScheduled`. Checked because the
+ *   chain's own failure rejects the sign-up with nothing to inspect.
  */
 export function signUpWithAccountTx<Tx>(
     chain: SignUpChain<Tx>,
@@ -316,6 +350,16 @@ export function signUpWithAccountTx<Tx>(
     if (options.identifierKey.length !== IDENTIFIER_KEY_BYTES) {
         throw new ProductIndividualityError(
             `game sign-up identifier key must be ${IDENTIFIER_KEY_BYTES} bytes`,
+        );
+    }
+    const count = options.airdrops?.length;
+    if (
+        options.airdropsScheduled !== undefined &&
+        count !== undefined &&
+        count !== options.airdropsScheduled
+    ) {
+        throw new ProductIndividualityError(
+            `game sign-up needs one airdrop VRF per scheduled draw, got ${count} for ${options.airdropsScheduled}`,
         );
     }
 
@@ -732,6 +776,34 @@ if (import.meta.vitest) {
                 identifier_key: `0x${"22".repeat(65)}`,
                 airdrops: { type: "Account", value: [] },
             });
+        });
+
+        test("rejects an airdrop count that disagrees with the schedule", () => {
+            // Both sides optional, so only a stated disagreement throws.
+            const { chain } = fakeChain();
+            const one = [{ preOutput: new Uint8Array(32), proof: new Uint8Array(64) }];
+
+            expect(() =>
+                signUpWithAccountTx(chain, {
+                    identifierKey: IDENTIFIER,
+                    airdrops: one,
+                    airdropsScheduled: 2,
+                }),
+            ).toThrow(ProductIndividualityError);
+
+            expect(() =>
+                signUpWithAccountTx(chain, {
+                    identifierKey: IDENTIFIER,
+                    airdrops: one,
+                    airdropsScheduled: 1,
+                }),
+            ).not.toThrow();
+            expect(() =>
+                signUpWithAccountTx(chain, { identifierKey: IDENTIFIER, airdrops: one }),
+            ).not.toThrow();
+            expect(() =>
+                signUpWithAccountTx(chain, { identifierKey: IDENTIFIER, airdropsScheduled: 2 }),
+            ).not.toThrow();
         });
 
         test("rejects a wrong-width identifier key and signature", () => {

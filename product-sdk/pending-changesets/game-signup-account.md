@@ -13,20 +13,38 @@ import {
 } from "@parity/product-sdk-individuality";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
+// `accounts.signVrf` takes the account first and returns a Result, so it needs an
+// adapter. `txSigner` is the ordinary PolkadotSigner, not the same object.
+const vrfSigner = {
+    signVrf: (label, items) =>
+        accounts.signVrf(account, label, items).match(
+            (sig) => sig,
+            (cause) => { throw cause },
+        ),
+};
+
 const req = await readGameSignUpRequirement(chain, {
     registrant: { tag: "Account", accountAddress },
     keyType: "sr25519",
 });
-if (req.ok && req.value.canEnterDraws) {
-    const vrfs = await mintAccountAirdropVrfs(signer, {
+if (!req.ok || !req.value.canSignUp) return;
+
+let airdrops;
+if (req.value.canEnterDraws) {
+    const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
         eventIds: req.value.eventIds,
         publicKey: account.publicKey,
     });
-    if (vrfs.ok) {
-        const tx = signUpWithAccountTx(chain, { identifierKey, airdrops: vrfs.value });
-        await submitAndWatch(tx, signer, { waitFor: "finalized" });
-    }
+    if (!vrfs.ok) return;
+    airdrops = vrfs.value;
 }
+
+const tx = signUpWithAccountTx(chain, {
+    identifierKey,
+    airdrops,
+    airdropsScheduled: req.value.airdropsScheduled,
+});
+await submitAndWatch(tx, txSigner, { waitFor: "finalized" });
 ```
 
 **Registering for the game and entering its prize draws are one extrinsic.**
@@ -61,6 +79,9 @@ agree, so this needs a chain or host change rather than more SDK code. It surfac
 `AliasVrfsUnavailable` blocker, and it is why `signUpWithAccountTx` offers no `Alias` argument:
 an argument that always fails on chain is worse than no argument. **Such a player can still sign
 up** — with no draw entry — which is the whole difference the blocker makes.
+
+**Gate the sign-up on `canSignUp`, and only the draw entry on `canEnterDraws`.** A recognized
+player has `canSignUp: true` and `canEnterDraws: false`, so gating both drops them silently.
 
 **Read the requirement first; it is not optional.** Event ids are derived from the game index
 *and* the draw count, which must come from the same block, and the entry count must equal

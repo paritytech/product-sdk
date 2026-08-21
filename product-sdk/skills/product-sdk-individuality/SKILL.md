@@ -324,7 +324,7 @@ The nine reasons a claim can be blocked, in the shape the seven personhood state
 
 ### Signing Up for the Game
 
-Sign-up and draw entry are one extrinsic: `sign_up_with_account` takes `airdrops: Option<AirdropVrfs>`, one VRF per scheduled draw. Read the requirement, mint the VRFs, build the call.
+Sign-up and draw entry are one extrinsic: `sign_up_with_account` takes `airdrops: Option<AirdropVrfs>`, one VRF per scheduled draw. Read the requirement, mint the VRFs, build the call. **Gate the sign-up on `canSignUp` and only the minting on `canEnterDraws`**, or a recognized player is never signed up at all.
 
 ```ts
 import {
@@ -334,19 +334,37 @@ import {
 } from "@parity/product-sdk-individuality";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
+// `accounts.signVrf` takes the account first and returns a Result, so it needs
+// this adapter. `txSigner` is the ordinary PolkadotSigner, not the same object.
+const vrfSigner = {
+  signVrf: (label, items) =>
+    accounts.signVrf(account, label, items).match(
+      (sig) => sig,
+      (cause) => { throw cause },
+    ),
+};
+
 const req = await readGameSignUpRequirement(chain, { registrant, keyType: "sr25519" });
-if (req.ok && req.value.canEnterDraws) {
-  const vrfs = await mintAccountAirdropVrfs(signer, {
+if (!req.ok || !req.value.canSignUp) return;
+
+let airdrops;
+if (req.value.canEnterDraws) {
+  const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
     eventIds: req.value.eventIds,
     publicKey: account.publicKey,
   });
-  if (vrfs.ok) {
-    await submitAndWatch(
-      signUpWithAccountTx(chain, { identifierKey, airdrops: vrfs.value }),
-      signer,
-    );
-  }
+  if (!vrfs.ok) return;
+  airdrops = vrfs.value;
 }
+
+await submitAndWatch(
+  signUpWithAccountTx(chain, {
+    identifierKey,
+    airdrops,
+    airdropsScheduled: req.value.airdropsScheduled,
+  }),
+  txSigner,
+);
 ```
 
 > **THE VARIANT IS NOT YOURS TO PICK.** The chain reads `Score` recognition and rejects the other with `InvalidAirdropVrfVariantForRecognition`: not recognized takes `Account`, recognized takes `Alias`. `is_recognized()` covers only `Recognized` and `ExternallyRecognized`, so a **`Suspended` player takes the account path**. Recognition is only half the gate: the account arm also destructures the origin, so a **person** who is not recognized satisfies neither arm and cannot enter any draw.
