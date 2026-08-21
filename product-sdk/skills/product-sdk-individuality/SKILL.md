@@ -346,7 +346,7 @@ if (req.ok && req.value.canEnterDraws) {
 }
 ```
 
-> **THE VARIANT IS NOT YOURS TO PICK.** The chain reads `Score` recognition and rejects the other with `InvalidAirdropVrfVariantForRecognition`: not recognized takes `Account`, recognized takes `Alias`. `is_recognized()` covers only `Recognized` and `ExternallyRecognized`, so a **`Suspended` player takes the account path**.
+> **THE VARIANT IS NOT YOURS TO PICK.** The chain reads `Score` recognition and rejects the other with `InvalidAirdropVrfVariantForRecognition`: not recognized takes `Account`, recognized takes `Alias`. `is_recognized()` covers only `Recognized` and `ExternallyRecognized`, so a **`Suspended` player takes the account path**. Recognition is only half the gate: the account arm also destructures the origin, so a **person** who is not recognized satisfies neither arm and cannot enter any draw.
 
 > **A RECOGNIZED PLAYER CANNOT ENTER THE DRAWS AT ALL.** `Alias` needs a ring-VRF proof at `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and hosts only sign at `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, which they compute themselves. That is a chain or host change, not more SDK code. It arrives as the `AliasVrfsUnavailable` blocker, and such a player **can** still sign up with an account, passing no draws.
 
@@ -361,10 +361,11 @@ The seven reasons a sign-up or its draw entry can be blocked:
 | `RegistrationEnded` | Past `registrationEnds`, still in the phase: the offchain worker moves phases on its own schedule |
 | `AlreadyRegistered` | `Game.Players[who].registered` is set |
 | `AliasVrfsUnavailable` | Draws only. Recognized, so the chain wants proofs no host can mint |
+| `AccountVrfsNeedAnAccount` | Draws only. A person who is not recognized: the account arm needs an account origin, the alias arm needs recognition, so the chain takes neither |
 | `NoDrawsScheduled` | Draws only. Nothing scheduled, so anything but `None` fails the count check |
 | `NotSr25519` | Draws only, and only if you passed `keyType`. Another scheme cannot mint `Account` VRFs |
 
-The first four stop the extrinsic; the last three stop only the draw entry. `canSignUp` and `canEnterDraws` are the split.
+The first four stop the extrinsic; the last four stop only the draw entry. `canSignUp` and `canEnterDraws` are the split.
 
 ### Sign-Up Gotchas
 
@@ -372,6 +373,7 @@ The first four stop the extrinsic; the last three stop only the draw entry. `can
 - **The entry count must equal `airdropsScheduled` exactly.** A mismatch fails the whole sign-up, deposit included. `Some([])` is not `None`: omit `airdrops` to enter no draw.
 - **Only sr25519 accounts can take the account path.** The pallet reinterprets the account id **as** the public key, and nothing on chain records the scheme, so the SDK cannot check it unless you pass `keyType`.
 - **The transcript binds the signing key.** The `signer` item must be the account that signs the sign-up, not another key the player holds.
+- **A rejected sign-up costs a fee.** `Pays::No` applies on success only, and the airdrop registration rides inside the same extrinsic, so one bad VRF entry loses the game sign-up too. Read the blockers before submitting.
 - **No local VRF verification exists.** One bad entry fails everything, but schnorrkel verification is not in this workspace. What it would catch is the wrong key, which the transcript already binds.
 
 ## Acting As a Person (Write)

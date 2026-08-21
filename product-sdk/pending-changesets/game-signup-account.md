@@ -45,6 +45,13 @@ scheduled draw, in airdrop-index order. Pass nothing to sign up without entering
 `Suspended` is *not* recognized, so a suspended player stays on the account path — the check is
 `is_recognized()`, not "anything but `NotRecognized`".
 
+**Recognition is only half the gate.** The account arm also destructures the origin, so a
+**person** who is not recognized satisfies neither arm: the account variant wants an account
+origin, the alias variant wants recognition. Such a player can sign up but can enter no draw,
+which is the `AccountVrfsNeedAnAccount` blocker. Worth knowing because a rejected sign-up costs a
+fee, `Pays::No` applies on success only, and the airdrop registration rides inside the same
+extrinsic, so a refused draw entry loses the game sign-up with it.
+
 **A recognized player cannot enter the draws through any SDK or host available today.** The
 `Alias` variant needs a ring-VRF proof at the context
 `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and every context a host will sign
@@ -62,12 +69,14 @@ ids derived from a stale index address draws that do not exist.
 `GameSignUpRequirement.blockers` reports every cause rather than the first, and separates the
 ones that stop the extrinsic (`NoGameRunning`, `NotInRegistration`, `RegistrationEnded`,
 `AlreadyRegistered`) from the ones that stop only the draws (`AliasVrfsUnavailable`,
-`NoDrawsScheduled`, `NotSr25519`).
+`AccountVrfsNeedAnAccount`, `NoDrawsScheduled`, `NotSr25519`). Each tag names a condition that
+holds on its own: a game that scheduled no draws reports `NoDrawsScheduled`, not a variant the
+player could not have supplied anyway.
 
 **Only sr25519 accounts can take the account path**, because the pallet reinterprets the account
 id *as* the sr25519 public key. Nothing on chain records which scheme a 32-byte account id
-belongs to, so this cannot be read — pass `keyType` and get a `NotSr25519` blocker, or omit it
-and own the check. For the same reason the transcript's `signer` item must be the account that
+belongs to, so this cannot be read — pass `keyType` (`"sr25519" | "ed25519" | "ecdsa"`) and get a
+`NotSr25519` blocker, or omit it and own the check. For the same reason the transcript's `signer` item must be the account that
 signs the sign-up, not any other key the player holds.
 
 `airdropVrfTranscript` is exported for a caller minting VRFs some other way. Both the transcript

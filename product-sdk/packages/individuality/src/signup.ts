@@ -13,6 +13,7 @@
  *         publicKey: account.publicKey,
  *     });
  *     if (vrfs.ok) {
+ *         // Throws on a wrong-width identifier key, the one input a caller owns.
  *         const tx = signUpWithAccountTx(chain, { identifierKey, airdrops: vrfs.value });
  *         await submitAndWatch(tx, signer, { waitFor: "finalized" });
  *     }
@@ -42,6 +43,21 @@ import type {
     GameSignUpRequirement,
     SignUpBlocker,
 } from "./signup-types.js";
+
+/**
+ * Which blockers stop only the draw entry. Exhaustive so a new tag fails to
+ * compile until classified, rather than silently blocking the extrinsic.
+ */
+const DRAW_ONLY = {
+    NoGameRunning: false,
+    NotInRegistration: false,
+    RegistrationEnded: false,
+    AlreadyRegistered: false,
+    AliasVrfsUnavailable: true,
+    AccountVrfsNeedAnAccount: true,
+    NoDrawsScheduled: true,
+    NotSr25519: true,
+} satisfies Record<SignUpBlocker["tag"], boolean>;
 
 /** The chain's `AirdropVrfs`. `Alias` is never constructed, only declared. */
 type AirdropVrfsArg =
@@ -100,7 +116,7 @@ export interface ReadGameSignUpRequirementOptions {
      * Only `"sr25519"` can mint `Account` VRFs, and no chain read reveals the
      * scheme. Pass it for a `NotSr25519` blocker, omit it and the check is yours.
      */
-    keyType?: string;
+    keyType?: "sr25519" | "ed25519" | "ecdsa";
     /** Unix **seconds**; defaults to the device clock. */
     now?: number;
     signal?: AbortSignal;
@@ -150,7 +166,8 @@ export async function readGameSignUpRequirement(
         }
 
         if (game.tag === "BetweenGames") {
-            blockers.push({ tag: "NoGameRunning" });
+            // Only `NoGameRunning`: anything gathered above is about draw entry,
+            // and there is no draw here.
             return ok({
                 at: snapshot,
                 gameIndex: null,
@@ -161,7 +178,7 @@ export async function readGameSignUpRequirement(
                 variant: null,
                 airdropsScheduled: 0,
                 eventIds: [],
-                blockers,
+                blockers: [{ tag: "NoGameRunning" }],
             });
         }
 
@@ -174,11 +191,15 @@ export async function readGameSignUpRequirement(
             blockers.push({ tag: "RegistrationEnded", registrationEnds });
         }
 
+        // What the chain demands, which stays `Account` for an unrecognized person
+        // who cannot supply it. The blocker says why not.
         const variant: AirdropVrfVariant = recognized ? "Alias" : "Account";
-        if (recognized) {
-            blockers.push({ tag: "AliasVrfsUnavailable" });
-        } else if (airdropsScheduled === 0) {
+        if (airdropsScheduled === 0) {
             blockers.push({ tag: "NoDrawsScheduled" });
+        } else if (recognized) {
+            blockers.push({ tag: "AliasVrfsUnavailable" });
+        } else if (registrant.tag === "Alias") {
+            blockers.push({ tag: "AccountVrfsNeedAnAccount" });
         }
 
         const eventIds =
@@ -190,10 +211,8 @@ export async function readGameSignUpRequirement(
                       airdropsScheduled,
                   });
 
-        // The rest stop only the draws. This split is what lets a recognized
-        // player sign up.
-        const drawOnly = new Set(["AliasVrfsUnavailable", "NoDrawsScheduled", "NotSr25519"]);
-        const canSignUp = blockers.every((blocker) => drawOnly.has(blocker.tag));
+        // This split is what lets a recognized player sign up.
+        const canSignUp = blockers.every((blocker) => DRAW_ONLY[blocker.tag]);
 
         return ok({
             at: snapshot,
@@ -367,7 +386,7 @@ if (import.meta.vitest) {
             player?: unknown;
         } = {},
     ) {
-        const calls: { tx: unknown[] } = { tx: [] };
+        const calls: { tx: unknown[]; keys: Record<string, unknown> } = { tx: [], keys: {} };
         const chain = {
             raw: {
                 individuality: {
@@ -390,10 +409,22 @@ if (import.meta.vitest) {
                         },
                         GameSchedules: { getValue: async () => [] },
                         StoredPhaseDurations: { getValue: async () => undefined },
-                        Players: { getValue: async () => overrides.player },
+                        // Both doubles record the key: `playerKey` is the only
+                        // logic here that fails silently, by reading nothing.
+                        Players: {
+                            getValue: async (key: unknown) => {
+                                calls.keys.players = key;
+                                return overrides.player;
+                            },
+                        },
                     },
                     Score: {
-                        Participants: { getValue: async () => overrides.participant },
+                        Participants: {
+                            getValue: async (key: unknown) => {
+                                calls.keys.participants = key;
+                                return overrides.participant;
+                            },
+                        },
                     },
                 },
                 tx: {
@@ -412,6 +443,15 @@ if (import.meta.vitest) {
     }
 
     const registrant = { tag: "Account", accountAddress: ACCOUNT } as const;
+    const ALIAS = `0x${"dd".repeat(32)}`;
+    const RECOGNIZED = {
+        score: 10,
+        streak: { type: "Attended", value: 1 },
+        attendance_history: 1,
+        reached_personhood: true,
+        recognition: { type: "Recognized", value: `0x${"cc".repeat(32)}` },
+        last_attended_game: 6,
+    };
 
     describe("readGameSignUpRequirement", () => {
         test("an unrecognized player in registration can sign up and enter the draws", async () => {
@@ -433,16 +473,7 @@ if (import.meta.vitest) {
 
         test("a recognized player may sign up but not enter the draws", async () => {
             // The whole point of splitting sign-up blockers from draw blockers.
-            const { chain } = fakeChain({
-                participant: {
-                    score: 10,
-                    streak: { type: "Attended", value: 1 },
-                    attendance_history: 1,
-                    reached_personhood: true,
-                    recognition: { type: "Recognized", value: `0x${"cc".repeat(32)}` },
-                    last_attended_game: 6,
-                },
-            });
+            const { chain } = fakeChain({ participant: RECOGNIZED });
             const value = unwrapOk(
                 await readGameSignUpRequirement(chain, { registrant, now: 1_000 }),
             );
@@ -506,6 +537,82 @@ if (import.meta.vitest) {
 
             expect(value.canSignUp).toBe(false);
             expect(value.blockers).toEqual([{ tag: "AlreadyRegistered" }]);
+        });
+
+        test("keys both reads by AccountOrPerson, spelling the alias arm Person", async () => {
+            // Both entries take the same key, and the airdrop registration entry
+            // spells this arm `Alias`.
+            const account = fakeChain();
+            await readGameSignUpRequirement(account.chain, { registrant, now: 1_000 });
+            expect(account.calls.keys.players).toEqual({ type: "Account", value: ACCOUNT });
+            expect(account.calls.keys.participants).toEqual({ type: "Account", value: ACCOUNT });
+
+            const alias = fakeChain();
+            await readGameSignUpRequirement(alias.chain, {
+                registrant: { tag: "Alias", alias: ALIAS },
+                now: 1_000,
+            });
+            expect(alias.calls.keys.players).toEqual({ type: "Person", value: ALIAS });
+            expect(alias.calls.keys.participants).toEqual({ type: "Person", value: ALIAS });
+        });
+
+        test("an unrecognized person cannot enter the draws with either variant", async () => {
+            // The chain rejects the whole sign-up here, and the fee is paid.
+            const { chain } = fakeChain();
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, {
+                    registrant: { tag: "Alias", alias: ALIAS },
+                    now: 1_000,
+                }),
+            );
+
+            expect(value.variant).toBe("Account");
+            expect(value.canSignUp).toBe(true);
+            expect(value.canEnterDraws).toBe(false);
+            expect(value.blockers).toEqual([{ tag: "AccountVrfsNeedAnAccount" }]);
+        });
+
+        test("a recognized person still reports the alias blocker, not the origin one", async () => {
+            const { chain } = fakeChain({ participant: RECOGNIZED });
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, {
+                    registrant: { tag: "Alias", alias: ALIAS },
+                    now: 1_000,
+                }),
+            );
+
+            expect(value.blockers).toEqual([{ tag: "AliasVrfsUnavailable" }]);
+        });
+
+        test("a game with no draws says so, whatever the recognition", async () => {
+            // The truthful cause: there is nothing to enter, whatever the variant.
+            for (const participant of [undefined, RECOGNIZED]) {
+                const { chain } = fakeChain({
+                    game: { ...RUNNING_GAME, airdrops_scheduled: 0 },
+                    participant,
+                });
+                const value = unwrapOk(
+                    await readGameSignUpRequirement(chain, { registrant, now: 1_000 }),
+                );
+
+                expect(value.blockers).toEqual([{ tag: "NoDrawsScheduled" }]);
+                expect(value.canSignUp).toBe(true);
+                expect(value.eventIds).toEqual([]);
+            }
+        });
+
+        test("between games reports only NoGameRunning", async () => {
+            // Draw-entry blockers name nothing actionable with no game.
+            const { chain } = fakeChain({ game: undefined });
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, {
+                    registrant,
+                    keyType: "ed25519",
+                    now: 1_000,
+                }),
+            );
+
+            expect(value.blockers).toEqual([{ tag: "NoGameRunning" }]);
         });
 
         test("a known non-sr25519 key blocks the draws, not the sign-up", async () => {

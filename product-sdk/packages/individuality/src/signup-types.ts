@@ -43,6 +43,9 @@ export interface AccountVrfSignature {
  *
  * Several of these stop only the draws. {@link GameSignUpRequirement} is what
  * separates the two, not this type.
+ *
+ * A tag must name a condition that is true on its own, or it sends the player to
+ * fix the wrong thing.
  */
 export type SignUpBlocker =
     /** `Game.Game` is empty → `Game.NoGame`. */
@@ -59,6 +62,11 @@ export type SignUpBlocker =
     | { tag: "AlreadyRegistered" }
     /** Draws only. Recognized, so the chain wants `Alias` proofs no host can mint. */
     | { tag: "AliasVrfsUnavailable" }
+    /**
+     * Draws only. The account arm needs an account origin, the alias arm needs
+     * recognition, so an unrecognized person satisfies neither. They can sign up.
+     */
+    | { tag: "AccountVrfsNeedAnAccount" }
     /** Draws only. No draws scheduled, so anything but `None` fails the count check. */
     | { tag: "NoDrawsScheduled" }
     /**
