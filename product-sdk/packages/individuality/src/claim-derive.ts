@@ -36,21 +36,28 @@ export interface ClaimInputs {
 }
 
 /**
- * Recognition and `reachedPersonhood` are independent routes through this gate.
- * Testing the flag before the variant wrongly blocks an externally-recognized
- * player whose flag is unset.
+ * Recognition and `reachedPersonhood` are independent routes through this gate,
+ * mirroring the runtime's `is_recognized() || reached_personhood`
+ * (pallet-game `claim_airdrop`; `Recognition::is_recognized()` in pallet-score
+ * is true only for `Recognized`/`ExternallyRecognized`). `reachedPersonhood`
+ * therefore rescues *any* recognition, including `Suspended` — a suspended
+ * player who has reached personhood can still claim on chain. The blocker tag
+ * only names the recognition state when neither route passes.
  */
 function personhoodBlocker(participant: PersonhoodParticipant | null): ClaimBlocker | null {
     if (participant === null) {
         return { tag: "NotAParticipant" };
     }
-    if (participant.recognition === "Suspended") {
-        return { tag: "Suspended" };
-    }
     const recognized =
         participant.recognition === "Recognized" ||
         participant.recognition === "ExternallyRecognized";
-    return recognized || participant.reachedPersonhood ? null : { tag: "NotRecognized" };
+    if (recognized || participant.reachedPersonhood) {
+        return null;
+    }
+    // Neither route passes: report the specific recognition state as the reason.
+    return participant.recognition === "Suspended"
+        ? { tag: "Suspended" }
+        : { tag: "NotRecognized" };
 }
 
 /** Decide whether one prize can be claimed. Never throws. */
@@ -205,18 +212,24 @@ if (import.meta.vitest) {
             expect(check({ participant: null }).blockers).toHaveLength(1);
         });
 
-        test("suspended is its own blocker, not NotRecognized", () => {
-            const result = check({ participant: participant({ recognition: "Suspended" }) });
+        test("suspended without personhood is its own blocker, not NotRecognized", () => {
+            // reachedPersonhood must be false to reach the blocker: with it set,
+            // the runtime's `|| reached_personhood` rescues a suspended player.
+            const result = check({
+                participant: participant({ recognition: "Suspended", reachedPersonhood: false }),
+            });
             expect(result.blockers).toEqual([{ tag: "Suspended" }]);
         });
 
-        test("suspended blocks even with the personhood flag set", () => {
-            // The runtime's `is_recognized()` is false for Suspended, and the
-            // `||` cannot rescue it, so neither can this.
+        test("personhood rescues a suspended player, matching the runtime's ||", () => {
+            // `Recognition::is_recognized()` is false for Suspended, but the
+            // runtime gate is `is_recognized() || reached_personhood`, so the
+            // personhood flag rescues a suspended player — they can still claim.
             const result = check({
                 participant: participant({ recognition: "Suspended", reachedPersonhood: true }),
             });
-            expect(result.claimable).toBe(false);
+            expect(result.claimable).toBe(true);
+            expect(result.blockers).toEqual([]);
         });
 
         test("neither recognized nor at personhood", () => {
