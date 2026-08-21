@@ -28,6 +28,9 @@
  * );
  * ```
  *
+ * The origin works, the call does not: `sig`, the statement-account proof, is a
+ * bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it.
+ *
  * Order inside `signTx` is not arbitrary, and getting it wrong produces a bad
  * proof with nothing local to read:
  *
