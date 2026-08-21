@@ -161,9 +161,6 @@ export async function readGameSignUpRequirement(
         if (player?.registered === true) {
             blockers.push({ tag: "AlreadyRegistered" });
         }
-        if (options.keyType !== undefined && options.keyType !== "sr25519" && !recognized) {
-            blockers.push({ tag: "NotSr25519", keyType: options.keyType });
-        }
 
         if (game.tag === "BetweenGames") {
             // Only `NoGameRunning`: anything gathered above is about draw entry,
@@ -193,6 +190,9 @@ export async function readGameSignUpRequirement(
 
         // What the chain demands, which stays `Account` for an unrecognized person
         // who cannot supply it. The blocker says why not.
+        //
+        // Every draw-entry blocker lives in this one chain, below the count check,
+        // so none of them can name a reason for a draw that does not exist.
         const variant: AirdropVrfVariant = recognized ? "Alias" : "Account";
         if (airdropsScheduled === 0) {
             blockers.push({ tag: "NoDrawsScheduled" });
@@ -200,6 +200,8 @@ export async function readGameSignUpRequirement(
             blockers.push({ tag: "AliasVrfsUnavailable" });
         } else if (registrant.tag === "Alias") {
             blockers.push({ tag: "AccountVrfsNeedAnAccount" });
+        } else if (options.keyType !== undefined && options.keyType !== "sr25519") {
+            blockers.push({ tag: "NotSr25519", keyType: options.keyType });
         }
 
         const eventIds =
@@ -613,6 +615,21 @@ if (import.meta.vitest) {
             );
 
             expect(value.blockers).toEqual([{ tag: "NoGameRunning" }]);
+        });
+
+        test("a game with no draws does not also blame the key", async () => {
+            // The key blocker used to sit above the game read, so it named a
+            // reason for draws that were never scheduled.
+            const { chain } = fakeChain({ game: { ...RUNNING_GAME, airdrops_scheduled: 0 } });
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, {
+                    registrant,
+                    keyType: "ed25519",
+                    now: 1_000,
+                }),
+            );
+
+            expect(value.blockers).toEqual([{ tag: "NoDrawsScheduled" }]);
         });
 
         test("a known non-sr25519 key blocks the draws, not the sign-up", async () => {

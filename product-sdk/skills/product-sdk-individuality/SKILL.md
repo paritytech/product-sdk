@@ -9,7 +9,10 @@ description: >
   UsernameUnowned and a missing consumer record are both success values rather than errors, using
   the pure derivation without a chain client, the decode helpers for raw Score.Participants and
   Resources.Consumers values, and withAsPerson for the AsPerson transaction extension including
-  the RestrictOrigins requirement that otherwise fails every call.
+  the RestrictOrigins requirement that otherwise fails every call. Also covers the game surface:
+  reading the current game and its prize draws, whether you won one and claiming it, and signing
+  up for a game with its airdrop VRFs, including which sign-up paths the chain and the hosts
+  cannot currently support.
 ---
 
 # Product SDK Individuality
@@ -352,7 +355,7 @@ if (req.ok && req.value.canEnterDraws) {
 
 > **`sign_up_with_alias` CANNOT BE ASSEMBLED EITHER.** Its `sig`, the statement-account proof, is a bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it. `withAsPerson` gives the origin; that argument has no source. The example in the write section shows the origin, not a working flow.
 
-The seven reasons a sign-up or its draw entry can be blocked:
+The eight reasons a sign-up or its draw entry can be blocked:
 
 | Tag | Means |
 |---|---|
