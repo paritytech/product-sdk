@@ -1,0 +1,626 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
+/**
+ * Signing up for the game, and entering its prize draws in the same call.
+ *
+ * Three steps, in order, each needing the previous one's output:
+ *
+ * ```ts
+ * const req = await readGameSignUpRequirement(chain, { registrant });
+ * if (req.ok && req.value.canEnterDraws) {
+ *     const vrfs = await mintAccountAirdropVrfs(signer, {
+ *         eventIds: req.value.eventIds,
+ *         publicKey: account.publicKey,
+ *     });
+ *     if (vrfs.ok) {
+ *         const tx = signUpWithAccountTx(chain, { identifierKey, airdrops: vrfs.value });
+ *         await submitAndWatch(tx, signer, { waitFor: "finalized" });
+ *     }
+ * }
+ * ```
+ *
+ * Submission stays with `@parity/product-sdk-tx`, as for `claimPrizeTx`.
+ *
+ * **The requirement read is not optional.** `eventIds` needs the game index and
+ * the draw count from the same block, and the entry count must equal
+ * `airdrops_scheduled` exactly or the whole sign-up fails, deposit included.
+ *
+ * Only the `Account` variant is buildable. `signup-types.ts` says why.
+ */
+import { err, normalizeError, ok, type Result } from "@parity/result";
+import { bytesToHex } from "@parity/product-sdk-utils";
+import { gameAirdropEventIds } from "./airdrop-ids.js";
+import type { AirdropRegistrant } from "./airdrop-types.js";
+import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
+import { ProductIndividualityError } from "./errors.js";
+import { runGameRead, type GameChain } from "./game-read.js";
+import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { airdropVrfTranscript, type VrfTranscriptItem } from "./signup-vrf.js";
+import type {
+    AccountVrfSignature,
+    AirdropVrfVariant,
+    GameSignUpRequirement,
+    SignUpBlocker,
+} from "./signup-types.js";
+
+/** The chain's `AirdropVrfs`. `Alias` is never constructed, only declared. */
+type AirdropVrfsArg =
+    | { type: "Account"; value: { pre_output: string; proof: string }[] }
+    | { type: "Alias"; value: { proofs: Uint8Array[]; ring_index: number; revision: number } };
+
+/**
+ * The sign-up call, plus the reads that decide what it may carry. Composed with
+ * {@link GameChain}, which supplies the game. Matched by hand against the paseo
+ * descriptors on 2026-08-21.
+ */
+export interface SignUpChain<Tx = unknown> extends PinnedChain {
+    individuality: {
+        constants: { Game: { airdrop_event_id_base(): Promise<string> } };
+        query: {
+            Game: {
+                /** Absent for a player who has never signed up. */
+                Players: {
+                    getValue(
+                        key: { type: string; value: unknown },
+                        options: ReadAt,
+                    ): Promise<{ registered: boolean } | undefined>;
+                };
+            };
+            Score: {
+                Participants: {
+                    getValue(
+                        key: { type: string; value: unknown },
+                        options: ReadAt,
+                    ): Promise<RawParticipant | undefined>;
+                };
+            };
+        };
+        tx: {
+            Game: {
+                sign_up_with_account(args: {
+                    identifier_key: string;
+                    /**
+                     * Both arms, though only `Account` is built. PAPI `tx` entries
+                     * are function-typed properties, so this argument is checked
+                     * contravariantly: naming only `Account` is narrower than the
+                     * chain's and the real client stops satisfying the interface.
+                     */
+                    airdrops?: AirdropVrfsArg;
+                }): Tx;
+            };
+        };
+    };
+}
+
+/** Options for {@link readGameSignUpRequirement}. */
+export interface ReadGameSignUpRequirementOptions {
+    /** Keys both reads, and must be the identity that will sign. */
+    registrant: AirdropRegistrant;
+    /**
+     * Only `"sr25519"` can mint `Account` VRFs, and no chain read reveals the
+     * scheme. Pass it for a `NotSr25519` blocker, omit it and the check is yours.
+     */
+    keyType?: string;
+    /** Unix **seconds**; defaults to the device clock. */
+    now?: number;
+    signal?: AbortSignal;
+}
+
+function playerKey(registrant: AirdropRegistrant): { type: string; value: unknown } {
+    // `AccountOrPerson` spells the alias arm `Person` where the airdrop pallet's
+    // registration entry spells it `Alias`. Same identity, two names, and the
+    // wrong one reads nothing rather than failing.
+    return registrant.tag === "Account"
+        ? { type: "Account", value: registrant.accountAddress }
+        : { type: "Person", value: registrant.alias };
+}
+
+/**
+ * What this player may do about the running game, at one pinned block. Between
+ * games is not a failure, it is a `NoGameRunning` blocker on the success channel.
+ */
+export async function readGameSignUpRequirement(
+    chain: GameChain & SignUpChain,
+    options: ReadGameSignUpRequirementOptions,
+): Promise<Result<GameSignUpRequirement, ProductIndividualityError>> {
+    try {
+        const { registrant, signal } = options;
+        const snapshot = await pinBlock(chain, signal);
+        const at = readAt(snapshot, signal);
+        const key = playerKey(registrant);
+
+        const [game, rawParticipant, player] = await Promise.all([
+            runGameRead(chain, { signal }, snapshot),
+            chain.individuality.query.Score.Participants.getValue(key, at),
+            chain.individuality.query.Game.Players.getValue(key, at),
+        ]);
+
+        // No `Score` record onboards as `NotRecognized`, the same default
+        // `validate_register_for_airdrop` takes.
+        const recognized =
+            rawParticipant !== undefined &&
+            isRecognized(toPersonhoodParticipant(rawParticipant).recognition);
+
+        const blockers: SignUpBlocker[] = [];
+        if (player?.registered === true) {
+            blockers.push({ tag: "AlreadyRegistered" });
+        }
+        if (options.keyType !== undefined && options.keyType !== "sr25519" && !recognized) {
+            blockers.push({ tag: "NotSr25519", keyType: options.keyType });
+        }
+
+        if (game.tag === "BetweenGames") {
+            blockers.push({ tag: "NoGameRunning" });
+            return ok({
+                at: snapshot,
+                gameIndex: null,
+                phase: null,
+                registrationEnds: null,
+                canSignUp: false,
+                canEnterDraws: false,
+                variant: null,
+                airdropsScheduled: 0,
+                eventIds: [],
+                blockers,
+            });
+        }
+
+        const { index, phase, registrationEnds, airdropsScheduled } = game.game;
+        if (phase !== "Registration") {
+            blockers.push({ tag: "NotInRegistration", phase });
+        } else if ((options.now ?? Math.floor(Date.now() / 1000)) >= registrationEnds) {
+            // The chain checks the clock as well as the state, and the phase moves
+            // on an offchain worker's schedule rather than at the deadline.
+            blockers.push({ tag: "RegistrationEnded", registrationEnds });
+        }
+
+        const variant: AirdropVrfVariant = recognized ? "Alias" : "Account";
+        if (recognized) {
+            blockers.push({ tag: "AliasVrfsUnavailable" });
+        } else if (airdropsScheduled === 0) {
+            blockers.push({ tag: "NoDrawsScheduled" });
+        }
+
+        const eventIds =
+            airdropsScheduled === 0
+                ? []
+                : gameAirdropEventIds({
+                      base: await chain.individuality.constants.Game.airdrop_event_id_base(),
+                      gameIndex: index,
+                      airdropsScheduled,
+                  });
+
+        // The rest stop only the draws. This split is what lets a recognized
+        // player sign up.
+        const drawOnly = new Set(["AliasVrfsUnavailable", "NoDrawsScheduled", "NotSr25519"]);
+        const canSignUp = blockers.every((blocker) => drawOnly.has(blocker.tag));
+
+        return ok({
+            at: snapshot,
+            gameIndex: index,
+            phase,
+            registrationEnds,
+            canSignUp,
+            canEnterDraws: canSignUp && blockers.length === 0,
+            variant,
+            airdropsScheduled,
+            eventIds,
+            blockers,
+        });
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+function isRecognized(recognition: string): boolean {
+    // `Suspended` is not recognized, which is why this is not a "not
+    // NotRecognized" check.
+    return recognition === "Recognized" || recognition === "ExternallyRecognized";
+}
+
+/**
+ * Structural, so the package keeps no dependency on `@parity/product-sdk-host`.
+ * `AccountsProvider.signVrf` satisfies it once its `ResultAsync` is unwrapped.
+ */
+export interface AirdropVrfSigner {
+    signVrf(transcriptLabel: Uint8Array, items: VrfTranscriptItem[]): Promise<AccountVrfSignature>;
+}
+
+/** Options for {@link mintAccountAirdropVrfs}. */
+export interface MintAccountAirdropVrfsOptions {
+    /** In airdrop-index order: entry `i` is checked against airdrop index `i`. */
+    eventIds: string[];
+    /** The signing account's sr25519 key, 32 bytes. */
+    publicKey: Uint8Array;
+    signal?: AbortSignal;
+}
+
+/**
+ * One VRF per scheduled draw, minted through the host.
+ *
+ * Sequential, not parallel: each is a user-visible signing operation, and firing
+ * sixteen at once is hidden by an `AutoSigning` allowance until a product ships
+ * without one.
+ *
+ * No local verification, though one bad entry fails the whole sign-up. Schnorrkel
+ * VRF verification does not exist in this workspace, and the failure it guards
+ * against is the wrong key, which the transcript binds and the width checks catch.
+ */
+export async function mintAccountAirdropVrfs(
+    signer: AirdropVrfSigner,
+    options: MintAccountAirdropVrfsOptions,
+): Promise<Result<AccountVrfSignature[], ProductIndividualityError>> {
+    try {
+        const signatures: AccountVrfSignature[] = [];
+        for (const eventId of options.eventIds) {
+            options.signal?.throwIfAborted();
+            const transcript = airdropVrfTranscript({ eventId, publicKey: options.publicKey });
+            signatures.push(await signer.signVrf(transcript.label, transcript.items));
+        }
+        return ok(signatures);
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Options for {@link signUpWithAccountTx}. */
+export interface SignUpWithAccountOptions {
+    /**
+     * `CommunicationIdentifier`, exactly 65 bytes. Stored against the account and
+     * never interpreted by the chain; it is how co-players reach each other.
+     */
+    identifierKey: Uint8Array;
+    /** Omit to enter no draw. Length must equal `airdropsScheduled`. */
+    airdrops?: AccountVrfSignature[];
+}
+
+const IDENTIFIER_KEY_BYTES = 65;
+const VRF_PRE_OUTPUT_BYTES = 32;
+const VRF_PROOF_BYTES = 64;
+
+/**
+ * Build `Game.sign_up_with_account`, unsigned. `Pays::No` on success, though a new
+ * or archived player still pays a deposit.
+ *
+ * No `Alias` argument: a recognized player needs one that cannot be produced, and
+ * an argument that always fails on chain is worse than none.
+ *
+ * @throws ProductIndividualityError on a wrong-width key or signature, checked
+ *   because the chain's own failure rejects the sign-up with nothing to inspect.
+ */
+export function signUpWithAccountTx<Tx>(
+    chain: SignUpChain<Tx>,
+    options: SignUpWithAccountOptions,
+): Tx {
+    if (options.identifierKey.length !== IDENTIFIER_KEY_BYTES) {
+        throw new ProductIndividualityError(
+            `game sign-up identifier key must be ${IDENTIFIER_KEY_BYTES} bytes`,
+        );
+    }
+
+    return chain.individuality.tx.Game.sign_up_with_account({
+        identifier_key: `0x${bytesToHex(options.identifierKey)}`,
+        // `undefined` is PAPI's `None`. An empty `Account` list is a different
+        // thing, and fails the count check against any game with draws.
+        airdrops:
+            options.airdrops === undefined
+                ? undefined
+                : {
+                      type: "Account",
+                      value: options.airdrops.map((signature) => ({
+                          pre_output: `0x${bytesToHex(
+                              sizedSignaturePart(
+                                  signature.preOutput,
+                                  VRF_PRE_OUTPUT_BYTES,
+                                  "pre-output",
+                              ),
+                          )}`,
+                          proof: `0x${bytesToHex(
+                              sizedSignaturePart(signature.proof, VRF_PROOF_BYTES, "proof"),
+                          )}`,
+                      })),
+                  },
+    });
+}
+
+function sizedSignaturePart(bytes: Uint8Array, length: number, what: string): Uint8Array {
+    if (bytes.length !== length) {
+        throw new ProductIndividualityError(`airdrop VRF ${what} must be ${length} bytes`);
+    }
+    return bytes;
+}
+
+if (import.meta.vitest) {
+    const { describe, expect, test, vi } = import.meta.vitest;
+    const { unwrapOk, unwrapErr } = await import("@parity/result");
+
+    const ACCOUNT = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+    const BASE = "pop:game:airdrop:          ";
+    const KEY = new Uint8Array(32).fill(0x11);
+    const IDENTIFIER = new Uint8Array(65).fill(0x22);
+
+    const RUNNING_GAME = {
+        index: 7,
+        registration_ends: 2_000,
+        shuffle_deadline: 3_000,
+        game_date: 4_000,
+        report_ends: 5_000,
+        state: { type: "Registration", value: { next_player_index: 0 } },
+        max_group_size: 6,
+        rounds: 3,
+        pending_attendance: 0,
+        airdrops_scheduled: 2,
+    };
+
+    const DURATIONS = {
+        registration: 100,
+        shuffle: 100,
+        post_shuffle_margin: 100,
+        reporting: 100,
+        player_process: 100,
+    };
+
+    function fakeChain(
+        overrides: {
+            game?: unknown;
+            participant?: unknown;
+            player?: unknown;
+        } = {},
+    ) {
+        const calls: { tx: unknown[] } = { tx: [] };
+        const chain = {
+            raw: {
+                individuality: {
+                    getFinalizedBlock: async () => ({ hash: `0x${"aa".repeat(32)}`, number: 42 }),
+                },
+            },
+            individuality: {
+                constants: {
+                    Game: {
+                        airdrop_event_id_base: async () => BASE,
+                        DefaultPhaseDurations: async () => DURATIONS,
+                    },
+                },
+                query: {
+                    Game: {
+                        GameIndex: { getValue: async () => 7 },
+                        Game: {
+                            getValue: async () =>
+                                "game" in overrides ? overrides.game : RUNNING_GAME,
+                        },
+                        GameSchedules: { getValue: async () => [] },
+                        StoredPhaseDurations: { getValue: async () => undefined },
+                        Players: { getValue: async () => overrides.player },
+                    },
+                    Score: {
+                        Participants: { getValue: async () => overrides.participant },
+                    },
+                },
+                tx: {
+                    Game: {
+                        sign_up_with_account: (args: unknown) => {
+                            calls.tx.push(args);
+                            return args;
+                        },
+                    },
+                },
+            },
+        };
+        // The structural interfaces are wider than this double in ways the read
+        // never touches, which is the point of them being structural.
+        return { chain: chain as unknown as GameChain & SignUpChain<unknown>, calls };
+    }
+
+    const registrant = { tag: "Account", accountAddress: ACCOUNT } as const;
+
+    describe("readGameSignUpRequirement", () => {
+        test("an unrecognized player in registration can sign up and enter the draws", async () => {
+            const { chain } = fakeChain();
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, { registrant, now: 1_000 }),
+            );
+
+            expect(value.canSignUp).toBe(true);
+            expect(value.canEnterDraws).toBe(true);
+            expect(value.variant).toBe("Account");
+            expect(value.blockers).toEqual([]);
+            expect(value.airdropsScheduled).toBe(2);
+            expect(value.eventIds).toHaveLength(2);
+            // Ids come from the same block's index and count, and differ only in
+            // the airdrop-index byte.
+            expect(value.eventIds[0]).not.toBe(value.eventIds[1]);
+        });
+
+        test("a recognized player may sign up but not enter the draws", async () => {
+            // The whole point of splitting sign-up blockers from draw blockers.
+            const { chain } = fakeChain({
+                participant: {
+                    score: 10,
+                    streak: { type: "Attended", value: 1 },
+                    attendance_history: 1,
+                    reached_personhood: true,
+                    recognition: { type: "Recognized", value: `0x${"cc".repeat(32)}` },
+                    last_attended_game: 6,
+                },
+            });
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, { registrant, now: 1_000 }),
+            );
+
+            expect(value.variant).toBe("Alias");
+            expect(value.canSignUp).toBe(true);
+            expect(value.canEnterDraws).toBe(false);
+            expect(value.blockers).toEqual([{ tag: "AliasVrfsUnavailable" }]);
+        });
+
+        test("a suspended player is not recognized, so it stays on the account path", async () => {
+            // `is_recognized()` is false for Suspended, so "not NotRecognized" is
+            // the wrong test and would send this player to an unbuildable variant.
+            const { chain } = fakeChain({
+                participant: {
+                    score: 1,
+                    streak: { type: "Absent", value: 2 },
+                    attendance_history: 0,
+                    reached_personhood: false,
+                    recognition: { type: "Suspended", value: `0x${"cc".repeat(32)}` },
+                    last_attended_game: 6,
+                },
+            });
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, { registrant, now: 1_000 }),
+            );
+
+            expect(value.variant).toBe("Account");
+            expect(value.canEnterDraws).toBe(true);
+        });
+
+        test("between games it reports NoGameRunning rather than failing", async () => {
+            const { chain } = fakeChain({ game: undefined });
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, { registrant, now: 1_000 }),
+            );
+
+            expect(value.canSignUp).toBe(false);
+            expect(value.gameIndex).toBeNull();
+            expect(value.eventIds).toEqual([]);
+            expect(value.blockers).toEqual([{ tag: "NoGameRunning" }]);
+        });
+
+        test("a deadline that has passed inside the registration phase still blocks", async () => {
+            // The offchain worker moves the phase in its own time, so the clock and
+            // the state disagree here, and the chain checks both.
+            const { chain } = fakeChain();
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, { registrant, now: 2_001 }),
+            );
+
+            expect(value.canSignUp).toBe(false);
+            expect(value.blockers).toEqual([{ tag: "RegistrationEnded", registrationEnds: 2_000 }]);
+        });
+
+        test("an already-registered player is blocked from signing up again", async () => {
+            const { chain } = fakeChain({ player: { registered: true } });
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, { registrant, now: 1_000 }),
+            );
+
+            expect(value.canSignUp).toBe(false);
+            expect(value.blockers).toEqual([{ tag: "AlreadyRegistered" }]);
+        });
+
+        test("a known non-sr25519 key blocks the draws, not the sign-up", async () => {
+            const { chain } = fakeChain();
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, {
+                    registrant,
+                    keyType: "ed25519",
+                    now: 1_000,
+                }),
+            );
+
+            expect(value.canSignUp).toBe(true);
+            expect(value.canEnterDraws).toBe(false);
+            expect(value.blockers).toEqual([{ tag: "NotSr25519", keyType: "ed25519" }]);
+        });
+    });
+
+    describe("mintAccountAirdropVrfs", () => {
+        test("signs once per event, in order, with the same key", async () => {
+            const seen: Uint8Array[] = [];
+            const signer: AirdropVrfSigner = {
+                signVrf: async (_label, items) => {
+                    seen.push(items[0].value);
+                    return { preOutput: new Uint8Array(32), proof: new Uint8Array(64) };
+                },
+            };
+
+            const ids = [`0x${"01".repeat(32)}`, `0x${"02".repeat(32)}`];
+            const result = await mintAccountAirdropVrfs(signer, { eventIds: ids, publicKey: KEY });
+
+            expect(unwrapOk(result)).toHaveLength(2);
+            // Each transcript's domain carries its own event id, which is the
+            // binding that stops one entry standing in for another.
+            expect(seen).toHaveLength(2);
+            expect(seen[0]).not.toEqual(seen[1]);
+        });
+
+        test("a host rejection becomes an error, not a short list", async () => {
+            // A partial list would be submitted and fail the count check on chain,
+            // costing the deposit for a failure that was already known here.
+            const signer: AirdropVrfSigner = {
+                signVrf: vi
+                    .fn()
+                    .mockResolvedValueOnce({
+                        preOutput: new Uint8Array(32),
+                        proof: new Uint8Array(64),
+                    })
+                    .mockRejectedValueOnce(new Error("host rejected")),
+            };
+
+            const result = await mintAccountAirdropVrfs(signer, {
+                eventIds: [`0x${"01".repeat(32)}`, `0x${"02".repeat(32)}`],
+                publicKey: KEY,
+            });
+
+            expect(unwrapErr(result)).toBeInstanceOf(ProductIndividualityError);
+        });
+    });
+
+    describe("signUpWithAccountTx", () => {
+        test("omits airdrops entirely when none are given", async () => {
+            const { chain, calls } = fakeChain();
+            signUpWithAccountTx(chain, { identifierKey: IDENTIFIER });
+
+            expect(calls.tx[0]).toEqual({
+                identifier_key: `0x${"22".repeat(65)}`,
+                airdrops: undefined,
+            });
+        });
+
+        test("wraps the signatures in the Account variant, hex-encoded", () => {
+            const { chain, calls } = fakeChain();
+            signUpWithAccountTx(chain, {
+                identifierKey: IDENTIFIER,
+                airdrops: [
+                    {
+                        preOutput: new Uint8Array(32).fill(0xaa),
+                        proof: new Uint8Array(64).fill(0xbb),
+                    },
+                ],
+            });
+
+            expect(calls.tx[0]).toEqual({
+                identifier_key: `0x${"22".repeat(65)}`,
+                airdrops: {
+                    type: "Account",
+                    value: [{ pre_output: `0x${"aa".repeat(32)}`, proof: `0x${"bb".repeat(64)}` }],
+                },
+            });
+        });
+
+        test("an empty list is not the same as none", () => {
+            // `Some([])` fails the count check against any game with draws, where
+            // `None` is always valid. Keeping them distinct is deliberate.
+            const { chain, calls } = fakeChain();
+            signUpWithAccountTx(chain, { identifierKey: IDENTIFIER, airdrops: [] });
+
+            expect(calls.tx[0]).toEqual({
+                identifier_key: `0x${"22".repeat(65)}`,
+                airdrops: { type: "Account", value: [] },
+            });
+        });
+
+        test("rejects a wrong-width identifier key and signature", () => {
+            const { chain } = fakeChain();
+            expect(() => signUpWithAccountTx(chain, { identifierKey: new Uint8Array(64) })).toThrow(
+                ProductIndividualityError,
+            );
+            expect(() =>
+                signUpWithAccountTx(chain, {
+                    identifierKey: IDENTIFIER,
+                    airdrops: [{ preOutput: new Uint8Array(31), proof: new Uint8Array(64) }],
+                }),
+            ).toThrow(ProductIndividualityError);
+        });
+    });
+}

@@ -214,6 +214,37 @@ export type {
 export { readCurrentGame } from "./game-read.js";
 export type { GameChain, ReadCurrentGameOptions } from "./game-read.js";
 
+// Signing up for the game, and entering its prize draws in the same call. The
+// requirement read comes first because the event ids depend on the game index and
+// the draw count together, and the entry count must match `airdrops_scheduled`
+// exactly. Only the `Account` variant is buildable: the `Alias` one needs a
+// ring-VRF proof at a chain-chosen context, and every context a host will sign
+// under is derived from the product id. `signup-types.ts` has the detail.
+export type {
+    AccountVrfSignature,
+    AirdropVrfVariant,
+    GameSignUpRequirement,
+    SignUpBlocker,
+} from "./signup-types.js";
+export {
+    airdropVrfDomain,
+    airdropVrfTranscript,
+    AIRDROP_VRF_TRANSCRIPT_LABEL,
+} from "./signup-vrf.js";
+export type { VrfTranscript, VrfTranscriptItem } from "./signup-vrf.js";
+export {
+    mintAccountAirdropVrfs,
+    readGameSignUpRequirement,
+    signUpWithAccountTx,
+} from "./signup.js";
+export type {
+    AirdropVrfSigner,
+    MintAccountAirdropVrfsOptions,
+    ReadGameSignUpRequirementOptions,
+    SignUpChain,
+    SignUpWithAccountOptions,
+} from "./signup.js";
+
 // Claiming a prize. `claim_airdrop` has six gates and only two are about
 // personhood, so the predicate is exported separately from the read that feeds
 // it. Submission stays with `@parity/product-sdk-tx`: `claimPrizeTx` returns the
