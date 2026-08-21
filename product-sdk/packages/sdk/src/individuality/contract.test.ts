@@ -31,7 +31,11 @@
  * `@ts-expect-error` would report as unused and this file would fail.
  */
 import type { getChainAPI } from "@parity/product-sdk-chain-client";
-import type { RingVRFProof as HostRingVRFProof } from "@parity/product-sdk-host";
+import type {
+    RingVRFProof as HostRingVRFProof,
+    VrfSignature as HostVrfSignature,
+    VrfTranscriptItem as HostVrfTranscriptItem,
+} from "@parity/product-sdk-host";
 import type {
     AirdropChain,
     ClaimChain,
@@ -39,6 +43,9 @@ import type {
     GameChain,
     IndividualityChain,
     PrizeStatusChain,
+    SignUpChain,
+    AccountVrfSignature,
+    VrfTranscriptItem as IndividualityVrfTranscriptItem,
     RingVRFProof as AsPersonRingVRFProof,
 } from "@parity/product-sdk-individuality";
 import { expect, test } from "vitest";
@@ -227,6 +234,90 @@ type ClaimAirdropTakesTheDocumentedArgs = Assert<
             : false
         : false
 >;
+
+// Game sign-up.
+type PaseoSatisfiesSignUpContract = Assert<PaseoClient extends SignUpChain ? true : false>;
+type RejectsBogusSignUpClient = Assert<
+    ClientWithoutIndividuality extends SignUpChain ? false : true
+>;
+
+// `SignUpChain` alone does not reject devnet and cannot: a `tx` argument is
+// checked contravariantly and excess-property checking does not apply between
+// named types, so an interface naming `airdrops` is satisfied by devnet's call,
+// which has only `airdrop`. `identifier_key` does not separate them either, since
+// `SizedHex<N>`'s brand is optional. Assert on the intersection the read takes,
+// where `GameChain` is the half that rejects devnet.
+type PaseoSatisfiesSignUpRead = Assert<PaseoClient extends GameChain & SignUpChain ? true : false>;
+type DevnetPredatesTheSignUpRead = Assert<
+    DevnetClient extends GameChain & SignUpChain ? false : true
+>;
+
+// The divergence itself: devnet's argument is `airdrop`, so `signUpWithAccountTx`
+// emitting `airdrops` would encode as `undefined` and enter no draw at all.
+type DevnetGameTx = DevnetClient["individuality"]["tx"]["Game"];
+type DevnetSignUpArgs = Parameters<DevnetGameTx["sign_up_with_account"]>[0];
+type DevnetHasNoAirdropsArg = Assert<"airdrops" extends keyof DevnetSignUpArgs ? false : true>;
+type DevnetHasTheSingularArg = Assert<"airdrop" extends keyof DevnetSignUpArgs ? true : false>;
+
+// Pinned by name for the same reason `claim_airdrop`'s are: PAPI encodes the
+// object it is handed, so a renamed field silently encodes as `undefined`.
+type SignUpWithAccountArgs = Parameters<GameTx["sign_up_with_account"]>[0];
+type SignUpWithAccountTakesTheDocumentedArgs = Assert<
+    "identifier_key" extends keyof SignUpWithAccountArgs
+        ? "airdrops" extends keyof SignUpWithAccountArgs
+            ? true
+            : false
+        : false
+>;
+
+// `None` is how a player enters no draw, and the only form a recognized player
+// can use at all.
+type AirdropsArg = SignUpWithAccountArgs["airdrops"];
+type AirdropsIsOptional = Assert<undefined extends AirdropsArg ? true : false>;
+
+// Extracted from the enum rather than restated, so a renamed field fails here
+// instead of on chain.
+type AccountVrfs = Extract<NonNullable<AirdropsArg>, { type: "Account" }>["value"][number];
+type AccountVrfHasPreOutputAndProof = Assert<
+    "pre_output" extends keyof AccountVrfs
+        ? "proof" extends keyof AccountVrfs
+            ? true
+            : false
+        : false
+>;
+
+// The VRF types are local copies of the host's, declared here for the same reason
+// `AsPersonRingVRFProof` is: so the package keeps no host dependency. Those host
+// types are mapped straight off truapi's wire types, so a rename there changes them
+// with no line of this repo touched, and the break would land as a runtime
+// TypeError rather than a failed typecheck.
+type HostVrfSignatureSatisfiesLocal = Assert<
+    HostVrfSignature extends AccountVrfSignature ? true : false
+>;
+type HostVrfItemSatisfiesLocal = Assert<
+    HostVrfTranscriptItem extends IndividualityVrfTranscriptItem ? true : false
+>;
+
+// Negative controls, so the two above cannot pass vacuously.
+type RejectsSignatureMissingProof = Assert<
+    { preOutput: Uint8Array } extends AccountVrfSignature ? false : true
+>;
+type RejectsItemMissingValue = Assert<
+    { label: Uint8Array } extends IndividualityVrfTranscriptItem ? false : true
+>;
+
+// `Game.Players`: the variant spelling the read keys by, and the one field it uses.
+// Sibling reads got exactly these pins.
+type PlayersEntry = PaseoClient["individuality"]["query"]["Game"]["Players"];
+type PlayersKey = Parameters<PlayersEntry["getValue"]>[0];
+type PlayersKeyIsAccountOrPerson = Assert<
+    PlayersKey extends { type: "Account" | "Person" } ? true : false
+>;
+type RejectsAliasSpelling = Assert<
+    { type: "Alias"; value: string } extends PlayersKey ? false : true
+>;
+type PlayersValue = NonNullable<Awaited<ReturnType<PlayersEntry["getValue"]>>>;
+type PlayersHasRegistered = Assert<"registered" extends keyof PlayersValue ? true : false>;
 
 test("the individuality chain contract is asserted at compile time", () => {
     // The type assertions above are the test. This keeps vitest from reporting

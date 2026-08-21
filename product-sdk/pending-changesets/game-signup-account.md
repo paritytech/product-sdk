@@ -1,0 +1,121 @@
+---
+"@parity/product-sdk-individuality": minor
+"@parity/product-sdk": minor
+---
+
+**Sign up for the game, and enter its prize draws in the same call.**
+
+```ts
+import {
+    readGameSignUpRequirement,
+    mintAccountAirdropVrfs,
+    signUpWithAccountTx,
+} from "@parity/product-sdk-individuality";
+import { submitAndWatch } from "@parity/product-sdk-tx";
+
+// `accounts.signVrf` takes the account first and returns a Result, so it needs an
+// adapter. `txSigner` is the ordinary PolkadotSigner, not the same object.
+const vrfSigner = {
+    signVrf: (label, items) =>
+        accounts.signVrf(account, label, items).match(
+            (sig) => sig,
+            (cause) => { throw cause },
+        ),
+};
+
+const req = await readGameSignUpRequirement(chain, {
+    registrant: { tag: "Account", accountAddress },
+    keyType: "sr25519",
+});
+if (!req.ok || !req.value.canSignUp) return;
+
+let airdrops;
+if (req.value.canEnterDraws) {
+    const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
+        eventIds: req.value.eventIds,
+        publicKey: account.publicKey,
+    });
+    if (!vrfs.ok) return;
+    airdrops = vrfs.value;
+}
+
+const tx = signUpWithAccountTx(chain, {
+    identifierKey,
+    airdrops,
+    airdropsScheduled: req.value.airdropsScheduled,
+});
+await submitAndWatch(tx, txSigner, { waitFor: "finalized" });
+```
+
+**Registering for the game and entering its prize draws are one extrinsic.**
+`sign_up_with_account` takes `airdrops: Option<AirdropVrfs>` holding exactly one VRF per
+scheduled draw, in airdrop-index order. Pass nothing to sign up without entering any draw.
+
+**The `AirdropVrfs` variant is not the caller's choice** — the chain picks it from the player's
+`Score` recognition and rejects the other one with
+`Game.InvalidAirdropVrfVariantForRecognition`:
+
+| `recognition.is_recognized()` | Required variant | Buildable |
+|---|---|---|
+| `false` — `NotRecognized`, `Suspended` | `Account` — sr25519 VRFs | yes |
+| `true` — `Recognized`, `ExternallyRecognized` | `Alias` — ring-VRF membership proofs | **no** |
+
+`Suspended` is *not* recognized, so a suspended player stays on the account path — the check is
+`is_recognized()`, not "anything but `NotRecognized`".
+
+**Recognition is only half the gate.** The account arm also destructures the origin, so a
+**person** who is not recognized satisfies neither arm: the account variant wants an account
+origin, the alias variant wants recognition. Such a player can sign up but can enter no draw,
+which is the `AccountVrfsNeedAnAccount` blocker. Worth knowing because a rejected sign-up costs a
+fee, `Pays::No` applies on success only, and the airdrop registration rides inside the same
+extrinsic, so a refused draw entry loses the game sign-up with it.
+
+**A recognized player cannot enter the draws through any SDK or host available today.** The
+`Alias` variant needs a ring-VRF proof at the context
+`blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and every context a host will sign
+under is `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, computed by the host itself
+from a `ProductProofContext` that admits nothing else. The two preimages cannot be made to
+agree, so this needs a chain or host change rather than more SDK code. It surfaces as the
+`AliasVrfsUnavailable` blocker, and it is why `signUpWithAccountTx` offers no `Alias` argument:
+an argument that always fails on chain is worse than no argument. **Such a player can still sign
+up** — with no draw entry — which is the whole difference the blocker makes.
+
+**Gate the sign-up on `canSignUp`, and only the draw entry on `canEnterDraws`.** A recognized
+player has `canSignUp: true` and `canEnterDraws: false`, so gating both drops them silently.
+
+**Read the requirement first; it is not optional.** Event ids are derived from the game index
+*and* the draw count, which must come from the same block, and the entry count must equal
+`airdrops_scheduled` exactly. A count mismatch fails the whole sign-up, deposit included, and
+ids derived from a stale index address draws that do not exist.
+`GameSignUpRequirement.blockers` reports every cause rather than the first, and separates the
+ones that stop the extrinsic (`NoGameRunning`, `NotInRegistration`, `RegistrationEnded`,
+`AlreadyRegistered`) from the ones that stop only the draws (`AliasVrfsUnavailable`,
+`AccountVrfsNeedAnAccount`, `NoDrawsScheduled`, `NotSr25519`). Each tag names a condition that
+holds on its own: a game that scheduled no draws reports `NoDrawsScheduled`, not a variant the
+player could not have supplied anyway.
+
+**Only sr25519 accounts can take the account path**, because the pallet reinterprets the account
+id *as* the sr25519 public key. Nothing on chain records which scheme a 32-byte account id
+belongs to, so this cannot be read — pass `keyType` (`"sr25519" | "ed25519" | "ecdsa"`) and get a
+`NotSr25519` blocker, or omit it and own the check. For the same reason the transcript's `signer` item must be the account that
+signs the sign-up, not any other key the player holds.
+
+`airdropVrfTranscript`, `airdropVrfDomain` and `AIRDROP_VRF_TRANSCRIPT_LABEL` are exported for a
+caller minting VRFs some other way. Both the transcript
+label and its domain prefix are module-level `pub const`s in the airdrop pallet, so unlike
+`Game`'s event-id base neither reaches metadata; the pinned test vectors are the only guard, the
+same situation the `PeopleAirdrops` event-id base is in.
+
+**There is no local VRF verification step.** dim2-spa verifies before submitting, because one
+bad entry fails the whole sign-up — but schnorrkel VRF verification has no implementation in
+this workspace, and the failure it guards against is the wrong signing key, which the transcript
+binds and this code checks without any crypto. VRFs are minted sequentially rather than in
+parallel: each is a signing operation, and firing sixteen at once is hidden by an `AutoSigning`
+allowance right up until a product ships without one.
+
+**Paseo only.** Devnet's pinned metadata predates the multi-airdrop sign-up: its call takes
+`airdrop`, singular, so `airdrops` would encode as `undefined` and enter no draw, silently. The
+umbrella contract test asserts a devnet client fails `GameChain & SignUpChain`. `SignUpChain`
+alone cannot reject devnet, since a `tx` argument is checked against a supertype and
+excess-property checking does not apply between named types; `GameChain` is the half that rejects
+it, by needing `airdrops_scheduled`.

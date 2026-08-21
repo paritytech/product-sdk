@@ -9,7 +9,10 @@ description: >
   UsernameUnowned and a missing consumer record are both success values rather than errors, using
   the pure derivation without a chain client, the decode helpers for raw Score.Participants and
   Resources.Consumers values, and withAsPerson for the AsPerson transaction extension including
-  the RestrictOrigins requirement that otherwise fails every call.
+  the RestrictOrigins requirement that otherwise fails every call. Also covers the game surface:
+  reading the current game and its prize draws, whether you won one and claiming it, and signing
+  up for a game with its airdrop VRFs, including which sign-up paths the chain and the hosts
+  cannot currently support.
 ---
 
 # Product SDK Individuality
@@ -318,6 +321,83 @@ The nine reasons a claim can be blocked, in the shape the seven personhood state
 - **A running game's boundaries are stored, an upcoming one's are projected.** Governance can move the phase durations, so re-deriving a running game's boundaries would contradict storage. `GameTimeline` appears only on an upcoming schedule.
 - **`readDrawRegistration` is a prefix scan.** It answers "am I in tonight's draw" before the draw runs, which no point read can, but its cost grows with the participant count. Not for polling.
 - **`Score.Participants` spells the alias variant `Person`** where the airdrop registration entry calls it `Alias`. The wrong spelling reads nothing and looks like a missing record.
+
+### Signing Up for the Game
+
+Sign-up and draw entry are one extrinsic: `sign_up_with_account` takes `airdrops: Option<AirdropVrfs>`, one VRF per scheduled draw. Read the requirement, mint the VRFs, build the call. **Gate the sign-up on `canSignUp` and only the minting on `canEnterDraws`**, or a recognized player is never signed up at all.
+
+```ts
+import {
+  readGameSignUpRequirement,
+  mintAccountAirdropVrfs,
+  signUpWithAccountTx,
+} from "@parity/product-sdk-individuality";
+import { submitAndWatch } from "@parity/product-sdk-tx";
+
+// `accounts.signVrf` takes the account first and returns a Result, so it needs
+// this adapter. `txSigner` is the ordinary PolkadotSigner, not the same object.
+const vrfSigner = {
+  signVrf: (label, items) =>
+    accounts.signVrf(account, label, items).match(
+      (sig) => sig,
+      (cause) => { throw cause },
+    ),
+};
+
+const req = await readGameSignUpRequirement(chain, { registrant, keyType: "sr25519" });
+if (!req.ok || !req.value.canSignUp) return;
+
+let airdrops;
+if (req.value.canEnterDraws) {
+  const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
+    eventIds: req.value.eventIds,
+    publicKey: account.publicKey,
+  });
+  if (!vrfs.ok) return;
+  airdrops = vrfs.value;
+}
+
+await submitAndWatch(
+  signUpWithAccountTx(chain, {
+    identifierKey,
+    airdrops,
+    airdropsScheduled: req.value.airdropsScheduled,
+  }),
+  txSigner,
+);
+```
+
+> **PASEO ONLY, AND DEVNET FAILS SILENTLY.** Devnet's call takes `airdrop`, singular, where paseo takes `airdrops`. PAPI encodes the object it is handed, so on devnet `airdrops` drops to `undefined` and the player signs up entering **no draw at all**, with no error on any channel. The umbrella contract test asserts a devnet client fails `GameChain & SignUpChain` so a re-pin breaks a build rather than a product.
+
+> **THE VARIANT IS NOT YOURS TO PICK.** The chain reads `Score` recognition and rejects the other with `InvalidAirdropVrfVariantForRecognition`: not recognized takes `Account`, recognized takes `Alias`. `is_recognized()` covers only `Recognized` and `ExternallyRecognized`, so a **`Suspended` player takes the account path**. Recognition is only half the gate: the account arm also destructures the origin, so a **person** who is not recognized satisfies neither arm and cannot enter any draw.
+
+> **A RECOGNIZED PLAYER CANNOT ENTER THE DRAWS AT ALL.** `Alias` needs a ring-VRF proof at `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and hosts only sign at `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, which they compute themselves. That is a chain or host change, not more SDK code. It arrives as the `AliasVrfsUnavailable` blocker, and such a player **can** still sign up with an account, passing no draws.
+
+> **`sign_up_with_alias` CANNOT BE ASSEMBLED EITHER.** Its `sig`, the statement-account proof, is a bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it. `withAsPerson` gives the origin; that argument has no source. The example in the write section shows the origin, not a working flow.
+
+The eight reasons a sign-up or its draw entry can be blocked:
+
+| Tag | Means |
+|---|---|
+| `NoGameRunning` | `Game.Game` is empty, the normal state between games |
+| `NotInRegistration` | The game left its registration phase |
+| `RegistrationEnded` | Past `registrationEnds`, still in the phase: the offchain worker moves phases on its own schedule |
+| `AlreadyRegistered` | `Game.Players[who].registered` is set |
+| `AliasVrfsUnavailable` | Draws only. Recognized, so the chain wants proofs no host can mint |
+| `AccountVrfsNeedAnAccount` | Draws only. A person who is not recognized: the account arm needs an account origin, the alias arm needs recognition, so the chain takes neither |
+| `NoDrawsScheduled` | Draws only. Nothing scheduled, so anything but `None` fails the count check |
+| `NotSr25519` | Draws only, and only if you passed `keyType`. Another scheme cannot mint `Account` VRFs |
+
+The first four stop the extrinsic; the last four stop only the draw entry. `canSignUp` and `canEnterDraws` are the split.
+
+### Sign-Up Gotchas
+
+- **Derive the event ids from one block.** An id built from one game's index and another's count addresses a draw that does not exist. Use the `eventIds` the read returns.
+- **The entry count must equal `airdropsScheduled` exactly.** A mismatch fails the whole sign-up, deposit included. `Some([])` is not `None`: omit `airdrops` to enter no draw.
+- **Only sr25519 accounts can take the account path.** The pallet reinterprets the account id **as** the public key, and nothing on chain records the scheme, so the SDK cannot check it unless you pass `keyType`.
+- **The transcript binds the signing key.** The `signer` item must be the account that signs the sign-up, not another key the player holds.
+- **A rejected sign-up costs a fee.** `Pays::No` applies on success only, and the airdrop registration rides inside the same extrinsic, so one bad VRF entry loses the game sign-up too. Read the blockers before submitting.
+- **No local VRF verification exists.** One bad entry fails everything, but schnorrkel verification is not in this workspace. What it would catch is the wrong key, which the transcript already binds.
 
 ## Acting As a Person (Write)
 
