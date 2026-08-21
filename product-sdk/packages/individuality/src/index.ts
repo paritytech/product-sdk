@@ -110,6 +110,132 @@ export type {
     UsernameCredibility,
 } from "./username.js";
 
+// The prize-draw half: derive a draw's event id, then read the draw at one
+// pinned block. Two pallets schedule draws through the same `Airdrop` mechanism,
+// so the reads are keyed by event id and know nothing about which one did.
+export type {
+    AirdropAssetId,
+    AirdropDraw,
+    AirdropEvent,
+    AirdropOutcome,
+    AirdropPhase,
+    AirdropPrize,
+    AirdropRegistrant,
+    AirdropStatusTag,
+} from "./airdrop-types.js";
+
+// The derivations. Pure, so they work against an index you already hold. Prefer
+// `readGameAirdropEventIds` over the pinned base: the chain exposes `Game`'s base
+// as a constant, and a hardcoded copy would derive ids for draws that do not
+// exist if it ever moved. `PeopleAirdrops`' base is not exposed, so that one is
+// pinned here and guarded by vectors.
+export {
+    GAME_AIRDROP_EVENT_ID_BASE,
+    MAX_GAME_AIRDROPS,
+    PEOPLE_AIRDROPS_EVENT_ID_BASE,
+    gameAirdropEventId,
+    gameAirdropEventIds,
+    peopleAirdropsEventId,
+} from "./airdrop-ids.js";
+
+// Raw `Airdrop` storage values to domain shapes, for callers doing their own
+// reads. `airdropPhase` is the `Status`-to-UI-phase collapse on its own.
+export {
+    airdropPhase,
+    statusTag,
+    toAirdropEvent,
+    toRawRegistrationEntry,
+} from "./airdrop-decode.js";
+export type {
+    RawActiveEvent,
+    RawAirdropEventInfo,
+    RawAirdropPrize,
+    RawAirdropStatus,
+    RawRegistrationEntry,
+} from "./airdrop-decode.js";
+
+// The pinned draw read. `readDrawRegistration` is the prefix scan that answers
+// "am I in this draw" before it runs — separate because its cost grows with the
+// draw's participant count, where everything else here is a point read.
+export {
+    readAirdropDraw,
+    readDrawRegistration,
+    readGameAirdropEventIds,
+} from "./airdrop-read.js";
+export type {
+    AirdropChain,
+    DrawRegistration,
+    ReadAirdropDrawOptions,
+    ReadGameAirdropEventIdsOptions,
+} from "./airdrop-read.js";
+
+// The composed read behind `getDailyPrizeStatus`: a game's draws and this
+// identity's outcome in each, all at one pinned block. A caller cannot assemble
+// this from the two reads above without pinning two blocks.
+export { readPrizeStatus } from "./prize-status.js";
+export type {
+    CapturedGame,
+    PrizeStatus,
+    PrizeStatusChain,
+    ReadPrizeStatusOptions,
+} from "./prize-status.js";
+
+// The game half: what game is running, what phase it is in, and what is
+// scheduled next. Between games is a success value, not an empty result.
+export type {
+    CurrentGame,
+    CurrentGameResult,
+    GamePhase,
+    GamePhaseDurations,
+    GameScheduledAirdrop,
+    GameSchedulePreview,
+    GameTimeline,
+} from "./game-types.js";
+
+// Raw `Game` storage values to domain shapes, plus the phase-boundary
+// arithmetic. `gameTimeline` mirrors the runtime's own `GameTimes` trait and is
+// only correct for a game that does not exist yet — a created game stores its
+// boundaries, and re-deriving them contradicts storage once the durations move.
+export {
+    gameTimeline,
+    toCurrentGame,
+    toGamePhaseDurations,
+    toGameSchedulePreview,
+} from "./game-decode.js";
+export type {
+    RawGameAirdrop,
+    RawGameInfo,
+    RawGameSchedule,
+    RawGameState,
+    RawPhaseDurations,
+} from "./game-decode.js";
+
+// The pinned current-game read.
+export { readCurrentGame } from "./game-read.js";
+export type { GameChain, ReadCurrentGameOptions } from "./game-read.js";
+
+// Claiming a prize. `claim_airdrop` has six gates and only two are about
+// personhood, so the predicate is exported separately from the read that feeds
+// it. Submission stays with `@parity/product-sdk-tx`: `claimPrizeTx` returns the
+// unsigned call. `confirmClaim` re-reads whether a claim landed, which is how the
+// flow survives a reload — a successful claim removes the `Winners` row.
+export type {
+    ClaimBlocker,
+    ClaimEligibility,
+    ClaimEligibilityResult,
+    ClaimOutcome,
+    ClaimWindow,
+} from "./claim-types.js";
+export { deriveClaimEligibility } from "./claim-derive.js";
+export type { ClaimInputs } from "./claim-derive.js";
+export { claimPrizeTx, confirmClaim, readClaimEligibility } from "./claim.js";
+export type {
+    ClaimChain,
+    ClaimTarget,
+    ConfirmClaimOptions,
+    ReadClaimEligibilityOptions,
+} from "./claim.js";
+
 // The write half: wrap a signer so the call runs under a person origin. Returns
 // a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx`.
 export { withAsPerson } from "./as-person-signer.js";

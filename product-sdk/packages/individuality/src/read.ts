@@ -36,11 +36,7 @@ import type {
     PersonhoodResult,
 } from "./types.js";
 
-/** Options every storage read is given, so all six agree on one block. */
-interface ReadAt {
-    at: string;
-    signal?: AbortSignal;
-}
+import type { ReadAt } from "./pinned.js";
 
 /** `AccountToAlias`, narrowed to the contextual alias the read keys on. */
 export interface RawAccountAlias {

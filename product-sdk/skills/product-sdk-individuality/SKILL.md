@@ -244,6 +244,81 @@ if (!result.ok) {
 
 Both implement the cross-package `SdkError` marker, so `isSdkError(e)` from `@parity/product-sdk-errors` recognizes them. Error messages are fixed strings and never interpolate chain data.
 
+## The Game and Its Prize Draws
+
+Reading the game, its draws, and whether you won one. Every read pins a single finalized block and reports it, for the same reason the personhood read does.
+
+```ts
+import { readCurrentGame, readPrizeStatus } from "@parity/product-sdk-individuality";
+
+const game = await readCurrentGame(chain);
+if (game.ok && game.value.tag === "Running") {
+  console.log(game.value.game.phase, game.value.game.nextDeadline);
+}
+
+const status = await readPrizeStatus(chain, {
+  registrant: { tag: "Account", accountAddress },
+});
+if (status.ok && status.value.tag === "Draws") {
+  for (const draw of status.value.draws) {
+    if (draw.outcome.tag === "Won") console.log(draw.eventId, draw.phase);
+  }
+}
+```
+
+> **PASEO ONLY.** The committed devnet metadata predates this work: one optional prize per schedule instead of a draw list, no `airdrops_scheduled`, and a 28-byte event-id base against paseo's 27. A devnet client fails `GameChain` and the umbrella contract test asserts that on purpose.
+
+> **NO GAME RUNNING IS A SUCCESS VALUE.** One game exists at a time and each is killed when it ends, so `BetweenGames` and `NoGame` are the normal state, not errors. Both carry `lastGameIndex`, which is the index a late claim is keyed by.
+
+> **A DRAW NOT IN STORAGE IS A SUCCESS VALUE TOO.** It arrives as `phase: "Gone"`, the steady state for every past draw once the lifecycle cleans it up. It is not evidence the draw existed: an id that was never scheduled answers identically.
+
+### Claiming a prize
+
+```ts
+import { readClaimEligibility, claimPrizeTx, confirmClaim } from "@parity/product-sdk-individuality";
+import { submitAndWatch } from "@parity/product-sdk-tx";
+
+const check = await readClaimEligibility(chain, { gameIndex, airdropIndex, registrant });
+if (check.ok && check.value.claimable) {
+  await submitAndWatch(claimPrizeTx(chain, { gameIndex, airdropIndex, beneficiary }), signer);
+}
+```
+
+> **`claim_airdrop` HAS SIX GATES AND ONLY TWO ARE ABOUT PERSONHOOD.** Checking recognition alone still gets you `NotClaiming`, `ClaimingWindowClosed`, `AssetNotEnabled` or `NoSuchWinner` from the chain with nothing local to explain them. `ClaimEligibility.blockers` reports every cause, not the first, so a UI does not send someone to fix the wrong thing.
+
+The nine reasons a claim can be blocked, in the shape the seven personhood states use above:
+
+| `blockers[].tag` | Means |
+|---|---|
+| `NotAParticipant` | No `Score.Participants` record at all |
+| `NotRecognized` | Neither recognized nor over the personhood threshold |
+| `Suspended` | Recognition is suspended, which is not the same as never having had it |
+| `DidNotAttendThisGame` | `last_attended_game` is not this game. Covers never attended, attended an earlier one, or played again since. Compare `lastAttendedGame` to the game index to tell which |
+| `DrawNotClaiming` | The draw is not taking claims. `phase` says where it is instead |
+| `ClaimWindowClosed` | Past the draw's `end_time` |
+| `PrizeAssetDisabled` | The prize asset was disabled for airdrops. Nothing the player can do |
+| `NoPrize` | No winning entry, which includes already claimed |
+| `OutcomeUnchecked` | The draw was read without a registrant, so winning was never checked |
+
+`AirdropPhase` is `Upcoming`, `Registering`, `Drawing`, `Claiming`, `Settling` or `Gone`, where `Gone` is the row's absence rather than a chain status. `confirmClaim` answers `Claimed`, `Pending` or `Unknown`, the last when the row is gone but the draw has also left `Claiming`, so the lifecycle may have swept it instead.
+
+> **A REFUSED CLAIM COSTS A FEE.** `Pays::No` applies only on success, so a claim this library green-lights and the chain rejects costs the player money. That is why all six gates are pre-checked.
+
+> **THE DEADLINE IS NOT A TIMESTAMP.** Attending the next game overwrites `last_attended_game` and closes the claim, usually well before the draw's `end_time`. `ClaimWindow` reports `closesOnNextAttendance` next to `endTime` because a countdown alone misleads.
+
+> **THERE IS NO SUBSCRIPTION, AND NONE IS NEEDED.** A successful claim removes the `Winners` row, so `confirmClaim` re-reads it: a ticket still present means the claim has not landed. That survives a reload, a dropped socket and a closed tab, which a watch does not. Persist the ticket when you claim, it is the only local evidence separating "claimed" from "never won".
+
+### Game and Prize Gotchas
+
+- **`NotWon` means three things.** Not drawn yet, did not win, or won and already claimed, since claiming removes the row. `phase` separates the first from the rest; only a kept ticket or the `PrizeClaimed` event separates the last two.
+- **A past game's draw count is unreadable.** `airdrops_scheduled` lives on `Game.Game`, which holds only the running game, but claims outlive their game. Capture the count while the game runs and pass it as `game: { index, airdropsScheduled }`. There is no probe fallback, because a cleaned-up draw and one that never existed answer identically.
+- **The prize is a foreign asset.** `prize.assetId` is an XCM location, so formatting `assetAmount` with the chain's own `tokenDecimals` is wrong. Read `Assets.Metadata` for that id.
+- **`winnerCapPermill` is parts per million**, not a count and not a percent.
+- **`Status` counters are absent, not zero,** in the states that have not computed them. A `Finalizing` draw did have participants; the chain stopped reporting the figure.
+- **A running game's boundaries are stored, an upcoming one's are projected.** Governance can move the phase durations, so re-deriving a running game's boundaries would contradict storage. `GameTimeline` appears only on an upcoming schedule.
+- **`readDrawRegistration` is a prefix scan.** It answers "am I in tonight's draw" before the draw runs, which no point read can, but its cost grows with the participant count. Not for polling.
+- **`Score.Participants` spells the alias variant `Person`** where the airdrop registration entry calls it `Alias`. The wrong spelling reads nothing and looks like a missing record.
+
 ## Acting As a Person (Write)
 
 `withAsPerson` wraps a signer so the call dispatches under a person origin. It returns a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx` and nothing about `submitAndWatch` changes.
