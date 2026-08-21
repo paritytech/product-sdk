@@ -60,7 +60,6 @@ export type { DotNsAddresses, DotNsGatewayQueryApi } from "./dotns-addresses.js"
 // Types
 export type {
     DotNsRecord,
-    ContextAliasInfo,
     VerificationResult,
     OnChainIdentity,
 } from "./types.js";

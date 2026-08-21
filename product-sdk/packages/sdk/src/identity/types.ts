@@ -3,7 +3,7 @@
 /**
  * Identity module types
  *
- * Types for DotNS name resolution and context-alias derivation
+ * Types for DotNS name resolution
  */
 
 /** DotNS name resolution result */
@@ -39,23 +39,6 @@ export interface DotNsRecord {
      * getter, so nothing populates this.
      */
     expiresAt?: number;
-}
-
-/**
- * Context alias info: a deterministic, context-bound alias derived from a parent account
- *
- * @deprecated Returned by `deriveContextAlias`, whose addresses no key can spend.
- *   Removal: `@parity/product-sdk` 0.23.0.
- */
-export interface ContextAliasInfo {
-    /** Alias SS58 address */
-    address: string;
-    /** H160 EVM address */
-    h160Address: `0x${string}`;
-    /** Parent account address */
-    parentAddress: string;
-    /** Context string used for derivation */
-    context: string;
 }
 
 /** Identity verification result */
