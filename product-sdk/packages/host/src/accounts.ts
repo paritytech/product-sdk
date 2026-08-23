@@ -342,21 +342,40 @@ export interface AccountsProvider {
 }
 
 /**
- * Derive the host's extrinsic-extension version from SCALE-encoded metadata:
- * v4 → 0, otherwise the latest supported version. `unifyMetadata` normalizes
- * v14/v15 so `.extrinsic.version` is an array.
+ * Map metadata's supported extrinsic formats to the host wire protocol.
  *
- * Indirected through {@link deps} so the SCALE decode (which needs a real
- * metadata blob) can be stubbed in unit tests while the rest of the `signTx`
- * flow — genesis extraction, extension mapping, the host call — is exercised.
+ * V5 General transactions have no envelope signature, so prefer V5 only when
+ * PAPI's version-zero extension pipeline exposes the `VerifyMultiSignature`
+ * slot the host uses to authorize a product-account transaction. If that slot
+ * is absent while V4 remains available, use V4's signed envelope instead.
+ *
+ * A V5-only runtime still maps to V5: the host may support another
+ * authorization pipeline, and otherwise returns the authoritative unsupported
+ * error. Unknown future versions retain the previous highest-version behavior.
  */
-function deriveTxExtVersion(metadata: Uint8Array): number {
-    const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
+function selectHostTxExtVersion(
+    versions: readonly number[],
+    versionZeroExtensionIds: readonly string[],
+): number {
     if (versions.length === 0) {
         throw new Error("No extrinsic version found in metadata");
     }
-    const latestVersion = versions.reduce((acc, v) => Math.max(acc, v), 0);
-    return latestVersion === 4 ? 0 : latestVersion;
+    if (versions.includes(5) && versionZeroExtensionIds.includes("VerifyMultiSignature")) {
+        return 5;
+    }
+    if (versions.includes(4)) {
+        return 0;
+    }
+    return versions.reduce((acc, version) => Math.max(acc, version), 0);
+}
+
+/** Derive the host's transaction-extension version from SCALE metadata. */
+function deriveTxExtVersion(metadata: Uint8Array): number {
+    const extrinsic = unifyMetadata(decAnyMetadata(metadata)).extrinsic;
+    return selectHostTxExtVersion(
+        extrinsic.version,
+        (extrinsic.signedExtensions[0] ?? []).map(({ identifier }) => identifier),
+    );
 }
 
 /** Internal seam so `import.meta.vitest` can stub the metadata decode. @internal */
@@ -586,6 +605,28 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
 
 if (import.meta.vitest) {
     const { test, expect, vi } = import.meta.vitest;
+
+    test("host signing uses V5 on a dual runtime with its signature extension", () => {
+        expect(selectHostTxExtVersion([4, 5], ["VerifyMultiSignature"])).toBe(5);
+    });
+
+    test("host signing falls back to V4 when dual-runtime V5 cannot carry its signature", () => {
+        expect(selectHostTxExtVersion([4, 5], ["CheckNonce", "AsPgas"])).toBe(0);
+    });
+
+    test("host signing uses V5 when V4 is unavailable", () => {
+        expect(selectHostTxExtVersion([5], ["AsPgas"])).toBe(5);
+    });
+
+    test("host signing maps a V4-only runtime to the wire sentinel", () => {
+        expect(selectHostTxExtVersion([4], ["CheckNonce"])).toBe(0);
+    });
+
+    test("host signing rejects metadata with no extrinsic version", () => {
+        expect(() => selectHostTxExtVersion([], [])).toThrow(
+            "No extrinsic version found in metadata",
+        );
+    });
 
     /** Minimal fake of the truapi account/signing domains used to test the adapter. */
     function makeFakeClient(opts: { onCall?: (method: string, args: unknown) => void } = {}) {

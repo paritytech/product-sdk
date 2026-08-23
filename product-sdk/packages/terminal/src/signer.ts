@@ -178,14 +178,36 @@ function buildCreateTransactionRequest(
 }
 
 /**
- * Transaction-extension version the mobile app must assemble:
- *  - Extrinsic V4 → `0` (the protocol mandates 0 for V4).
- *  - Extrinsic V5 → the runtime's version (highest the metadata advertises).
+ * Select the transaction format the paired host can authorize.
+ *
+ * PAPI builds values for metadata's version-zero extension pipeline. A V5
+ * General transaction has no envelope signature, so use it only when that
+ * pipeline exposes `VerifyMultiSignature`; otherwise retain V4's signed
+ * envelope when the runtime advertises it. V5-only and unknown future runtimes
+ * retain the prior highest-version behavior so the host remains authoritative.
  */
+function selectTxExtVersion(
+    versions: readonly number[],
+    versionZeroExtensionIds: readonly string[],
+): number {
+    if (versions.length === 0) {
+        throw new Error("No extrinsic version found in metadata");
+    }
+    if (versions.includes(5) && versionZeroExtensionIds.includes("VerifyMultiSignature")) {
+        return 5;
+    }
+    if (versions.includes(4)) {
+        return 0;
+    }
+    return versions.reduce((max, version) => Math.max(max, version), 0);
+}
+
 function txExtVersionFromMetadata(metadata: Uint8Array): number {
-    const decoded = unifyMetadata(decAnyMetadata(metadata));
-    const latestVersion = decoded.extrinsic.version.reduce((max, v) => Math.max(max, v), 0);
-    return latestVersion === 4 ? 0 : latestVersion;
+    const extrinsic = unifyMetadata(decAnyMetadata(metadata)).extrinsic;
+    return selectTxExtVersion(
+        extrinsic.version,
+        (extrinsic.signedExtensions[0] ?? []).map(({ identifier }) => identifier),
+    );
 }
 
 /**
@@ -548,6 +570,24 @@ if (import.meta.vitest) {
         // metadata decode → SSO round-trip is exercised by the manual smoke
         // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
         // a real phone.
+
+        test("selects V5 when the active pipeline can carry the account signature", () => {
+            expect(selectTxExtVersion([4, 5], ["VerifyMultiSignature"])).toBe(5);
+        });
+
+        test("falls back to V4 when dual-runtime V5 has no signature slot", () => {
+            expect(selectTxExtVersion([4, 5], ["CheckNonce", "AsPgas"])).toBe(0);
+        });
+
+        test("retains V5 when no V4 fallback exists", () => {
+            expect(selectTxExtVersion([5], ["AsPgas"])).toBe(5);
+        });
+
+        test("rejects metadata with no extrinsic version", () => {
+            expect(() => selectTxExtVersion([], [])).toThrow(
+                "No extrinsic version found in metadata",
+            );
+        });
 
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
 
