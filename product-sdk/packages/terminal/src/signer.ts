@@ -178,23 +178,18 @@ function buildCreateTransactionRequest(
 }
 
 /**
- * Select the transaction format the paired host can authorize.
+ * Select the transaction format the paired host must assemble.
  *
- * PAPI builds values for metadata's version-zero extension pipeline. A V5
- * General transaction has no envelope signature, so use it only when that
- * pipeline exposes `VerifyMultiSignature`; otherwise retain V4's signed
- * envelope when the runtime advertises it. V5-only and unknown future runtimes
- * retain the prior highest-version behavior so the host remains authoritative.
+ * V4 carries the account signature in its envelope. V5 General transactions
+ * delegate authorization to the runtime's extension pipeline, but metadata
+ * alone cannot prove that the paired host implements that pipeline. Prefer an
+ * advertised V4 until the host protocol can negotiate V5 authorization
+ * capabilities; V5-only and unknown future runtimes retain the previous
+ * highest-version behavior.
  */
-function selectTxExtVersion(
-    versions: readonly number[],
-    versionZeroExtensionIds: readonly string[],
-): number {
+function selectTxExtVersion(versions: readonly number[]): number {
     if (versions.length === 0) {
         throw new Error("No extrinsic version found in metadata");
-    }
-    if (versions.includes(5) && versionZeroExtensionIds.includes("VerifyMultiSignature")) {
-        return 5;
     }
     if (versions.includes(4)) {
         return 0;
@@ -203,11 +198,8 @@ function selectTxExtVersion(
 }
 
 function txExtVersionFromMetadata(metadata: Uint8Array): number {
-    const extrinsic = unifyMetadata(decAnyMetadata(metadata)).extrinsic;
-    return selectTxExtVersion(
-        extrinsic.version,
-        (extrinsic.signedExtensions[0] ?? []).map(({ identifier }) => identifier),
-    );
+    const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
+    return selectTxExtVersion(versions);
 }
 
 /**
@@ -571,22 +563,20 @@ if (import.meta.vitest) {
         // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
         // a real phone.
 
-        test("selects V5 when the active pipeline can carry the account signature", () => {
-            expect(selectTxExtVersion([4, 5], ["VerifyMultiSignature"])).toBe(5);
-        });
-
-        test("falls back to V4 when dual-runtime V5 has no signature slot", () => {
-            expect(selectTxExtVersion([4, 5], ["CheckNonce", "AsPgas"])).toBe(0);
+        test("prefers V4 on a dual V4/V5 runtime", () => {
+            expect(selectTxExtVersion([4, 5])).toBe(0);
         });
 
         test("retains V5 when no V4 fallback exists", () => {
-            expect(selectTxExtVersion([5], ["AsPgas"])).toBe(5);
+            expect(selectTxExtVersion([5])).toBe(5);
+        });
+
+        test("maps a V4-only runtime to the wire sentinel", () => {
+            expect(selectTxExtVersion([4])).toBe(0);
         });
 
         test("rejects metadata with no extrinsic version", () => {
-            expect(() => selectTxExtVersion([], [])).toThrow(
-                "No extrinsic version found in metadata",
-            );
+            expect(() => selectTxExtVersion([])).toThrow("No extrinsic version found in metadata");
         });
 
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
