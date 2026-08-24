@@ -108,7 +108,8 @@ jobs:
 
             - name: Install bulletin-deploy
               if: steps.gate.outputs.skip != 'true'
-              run: npm install -g bulletin-deploy
+              # Pinned: an upstream change would otherwise surface only on a release day.
+              run: npm install -g bulletin-deploy@0.15.2
 
             - name: Deploy to Bulletin Chain
               if: steps.gate.outputs.skip != 'true'
