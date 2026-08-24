@@ -108,7 +108,9 @@ jobs:
 
             - name: Install bulletin-deploy
               if: steps.gate.outputs.skip != 'true'
-              run: npm install -g bulletin-deploy
+              # Pinned: an upstream change would otherwise surface only on a release day.
+              # No automation bumps this, so check it if a release fails here.
+              run: npm install -g bulletin-deploy@0.15.2
 
             - name: Deploy to Bulletin Chain
               if: steps.gate.outputs.skip != 'true'
@@ -116,7 +118,7 @@ jobs:
               with:
                   timeout_minutes: 10
                   max_attempts: 3
-                  command: cd docs && bulletin-deploy ./out product-sdk.dot --js-merkle
+                  command: cd docs && bulletin-deploy ./out product-sdk --env paseo-next-v2 --js-merkle
 
             - name: Rebuild static site for GitHub Pages
               if: steps.gate.outputs.skip != 'true'
