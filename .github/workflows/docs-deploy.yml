@@ -116,7 +116,7 @@ jobs:
               with:
                   timeout_minutes: 10
                   max_attempts: 3
-                  command: cd docs && bulletin-deploy ./out product-sdk.dot --js-merkle
+                  command: cd docs && bulletin-deploy ./out product-sdk --js-merkle
 
             - name: Rebuild static site for GitHub Pages
               if: steps.gate.outputs.skip != 'true'
