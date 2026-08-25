@@ -30,7 +30,17 @@ import type {
     TestResult,
 } from "@playwright/test/reporter";
 
-type FailureKind = "infra" | "assertion";
+/**
+ * - `infra`     — a transport/timeout failure with no assertion involved.
+ * - `wait`      — a web-first assertion (`toHaveText`, `toContainText`, …) that
+ *                 exhausted its own timeout while polling. It reads like an
+ *                 assertion (`expect(` is in the message) but it failed on
+ *                 *time*, not on a synchronous mismatch, so a retry is
+ *                 legitimate — this is the shape of a slow chain connection.
+ * - `assertion` — a synchronous `expect` mismatch. The one a retry must not
+ *                 mask, because it means the value was genuinely wrong.
+ */
+type FailureKind = "infra" | "wait" | "assertion";
 
 interface RetriedAttempt {
     /** The test itself, so its final `outcome()` can be read in `onEnd`. */
@@ -43,11 +53,15 @@ interface RetriedAttempt {
 }
 
 /**
- * Best-effort classification of a failed attempt. A `timedOut` status, or an
- * error message mentioning the transport / chain, is infra. Anything else —
- * most importantly an `expect(...)` mismatch — is treated as a real assertion
- * failure, which is the conservative choice: we would rather over-report a
- * masked regression than let one slip through as "just flaky".
+ * Best-effort classification of a failed attempt.
+ *
+ * The load-bearing distinction is between a *synchronous* `expect` mismatch (a
+ * real regression — `assertion`) and a *web-first* assertion that timed out
+ * while polling (a slow-connection flake — `wait`). Both carry `expect(` in the
+ * message, so `expect(` alone can't tell them apart. The discriminator is
+ * Playwright's `Call log:` section: it is present only for a polled/awaited
+ * assertion that exhausted its timeout, never for a synchronous mismatch.
+ * Verified across the timeout-vs-mismatch shapes.
  */
 function classify(result: TestResult, error: TestError | undefined): FailureKind {
     if (result.status === "timedOut") return "infra";
@@ -59,23 +73,23 @@ function classify(result: TestResult, error: TestError | undefined): FailureKind
         .replace(/\x1b\[[0-9;]*m/g, "")
         .toLowerCase();
 
-    // Playwright's assertion failures carry one of these unambiguous markers.
-    // An assertion always wins over an infra signal — a mismatch whose *value*
-    // happens to contain the word "timeout" is still a real assertion failure,
-    // which is the conservative call (over-report a masked regression rather
-    // than wave one through as flaky).
-    const ASSERTION_SIGNALS = [
-        "expect(",
-        "\nexpected:",
-        "\nreceived:",
-        "tocontaintext",
-        "tohavetext",
-        "tobe(",
-        "toequal(",
-        "tohavelength",
-    ];
-    if (ASSERTION_SIGNALS.some((s) => haystack.includes(s))) return "assertion";
+    const isExpect = haystack.includes("expect(");
 
+    // A `Call log:` section means a polled/awaited matcher ran and ran out of
+    // time. With an `expect` that's a web-first assertion timing out (`wait`);
+    // without one it's a non-assertion wait (`infra`, e.g. `waitFor`).
+    if (haystack.includes("call log:")) {
+        return isExpect ? "wait" : "infra";
+    }
+
+    // No call log: a synchronous `expect` mismatch is a genuine assertion. This
+    // is the only shape a retry must never be allowed to mask.
+    if (isExpect) return "assertion";
+
+    // Neither an expect nor a call log — a thrown transport/connection error.
+    // Kept narrow: signals that are unambiguously infrastructure, not words like
+    // "network" that appear inside real error *values* (e.g. "Balance decoding
+    // failed for network Paseo" is a decode assertion, not an infra failure).
     const INFRA_SIGNALS = [
         "timeout",
         "timed out",
@@ -86,10 +100,7 @@ function classify(result: TestResult, error: TestError | undefined): FailureKind
         "socket hang up",
         "disconnected",
         "tracking stopped",
-        "rpc",
-        "network",
         "getaddrinfo",
-        "navigation",
     ];
     return INFRA_SIGNALS.some((s) => haystack.includes(s)) ? "infra" : "assertion";
 }
@@ -104,68 +115,92 @@ class RetryDiagnosticsReporter implements Reporter {
     private readonly retried: RetriedAttempt[] = [];
 
     onTestEnd(test: TestCase, result: TestResult): void {
-        // Playwright reports each attempt separately. The one that matters for
-        // masking is the *first* failure (retry === 0): that's the failure a
-        // later retry could hide. We record it here; whether the retry rescued
-        // it is read from `outcome()` later, in `onEnd`.
-        if (result.retry === 0 && result.status !== "passed" && result.status !== "skipped") {
-            const error = result.error ?? result.errors[0];
-            this.retried.push({
-                test,
-                title: test.titlePath().slice(1).join(" › "),
-                location: `${test.location.file}:${test.location.line}`,
-                firstFailureKind: classify(result, error),
-                firstFailureMessage: firstLine(error?.message),
-            });
+        // Record the *first* failed attempt (retry === 0) — that's the failure a
+        // later retry could hide. But only for tests that genuinely failed:
+        // `outcome() === "expected"` covers a `test.fail()` whose expected
+        // failure Playwright counts as a pass, which we must not list as a
+        // failure. Whether the retry rescued it is read from `outcome()` in
+        // `onEnd` (final only after every retry has run).
+        if (result.retry !== 0 || result.status === "passed" || result.status === "skipped") {
+            return;
         }
+        if (test.outcome() === "expected") return;
+
+        const error = result.error ?? result.errors[0];
+        this.retried.push({
+            test,
+            title: test.titlePath().slice(1).join(" › "),
+            location: `${test.location.file}:${test.location.line}`,
+            firstFailureKind: classify(result, error),
+            firstFailureMessage: firstLine(error?.message),
+        });
     }
 
-    /**
-     * `outcome()` is only final once every retry has run, so it's read here in
-     * `onEnd` rather than in `onTestEnd` (which fires per-attempt, before the
-     * retry exists). `flaky` = failed then passed on retry — the masked case.
-     */
+    /** `flaky` = failed first attempt, then passed on retry — the masked case. */
     private rescued(attempt: RetriedAttempt): boolean {
         return attempt.test.outcome() === "flaky";
     }
 
-    onEnd(result: FullResult): void | Promise<void> {
+    onEnd(result: FullResult): { status?: FullResult["status"] } | undefined {
         if (this.retried.length === 0) return;
 
-        // The case worth shouting about: a test that first failed an ASSERTION
-        // (not infra) and then went GREEN on retry. That green is suspect — the
-        // assertion may be a real, nondeterministic regression the retry masked.
+        const retriedCount = this.retried.filter((r) => r.test.results.length > 1).length;
+
+        // The case worth shouting about — and failing the run over: a test that
+        // first failed a *synchronous* ASSERTION (not a slow-connection `wait`,
+        // not infra) and then went GREEN on retry. That green is masking what is
+        // very likely a real, nondeterministic regression.
         const maskedAssertions = this.retried.filter(
             (r) => r.firstFailureKind === "assertion" && this.rescued(r),
         );
 
+        const TAG: Record<FailureKind, string> = {
+            infra: "INFRA    ",
+            wait: "WAIT     ",
+            assertion: "ASSERTION",
+        };
+
         console.log("");
         console.log("──────────────────────────────────────────────────────────────");
-        console.log(`  Retry diagnostics — ${this.retried.length} test(s) needed a retry`);
+        console.log(
+            `  Retry diagnostics — ${this.retried.length} test(s) failed first attempt` +
+                `, ${retriedCount} retried`,
+        );
         console.log("──────────────────────────────────────────────────────────────");
         for (const r of this.retried) {
-            const tag = r.firstFailureKind === "infra" ? "INFRA    " : "ASSERTION";
-            const outcome = this.rescued(r) ? "→ GREEN on retry" : "→ still failed";
-            console.log(`  [${tag}] ${outcome}  ${r.title}`);
+            const outcome = this.rescued(r)
+                ? "→ GREEN on retry"
+                : r.test.results.length > 1
+                  ? "→ still failed after retry"
+                  : "→ failed (not retried)";
+            console.log(`  [${TAG[r.firstFailureKind]}] ${outcome}  ${r.title}`);
             console.log(`            ${r.location}`);
             console.log(`            first failure: ${r.firstFailureMessage}`);
         }
+
+        let status = result.status;
         if (maskedAssertions.length > 0) {
             console.log("");
             console.log(
-                `  ⚠  ${maskedAssertions.length} test(s) first failed on an ASSERTION and then went`,
+                `  ⚠  ${maskedAssertions.length} test(s) first failed on a synchronous ASSERTION and`,
             );
             console.log(
-                "     GREEN on retry. A retry is meant for infrastructure flakiness, not for",
+                "     then went GREEN on retry. A retry is meant for infrastructure flakiness,",
             );
             console.log(
-                "     assertion mismatches — treat each of these as a possible regression the",
+                "     not for assertion mismatches — each of these is very likely a real",
             );
-            console.log("     retry masked, and investigate before trusting the green run.");
+            console.log("     regression the retry masked. Failing the run so it can't hide.");
+            // A collapsed green CI group would bury the warning above; overriding
+            // the status to `failed` turns the whole run red so it's seen.
+            if (status === "passed") status = "failed";
         }
+
         console.log("──────────────────────────────────────────────────────────────");
-        console.log(`  Run status: ${result.status}`);
+        console.log(`  Run status: ${status}`);
         console.log("");
+
+        return status === result.status ? undefined : { status };
     }
 }
 
