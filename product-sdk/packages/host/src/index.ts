@@ -53,6 +53,10 @@ export type {
     RemotePermission,
 } from "./truapi.js";
 
+// Host chain discovery.
+export { getHostChainInfo } from "./chain-discovery.js";
+export type { HostChainDiscovery, HostChainIdentifier } from "./chain-discovery.js";
+
 // Host-channel connection status — the transport's own signal. Distinct from
 // @parity/product-sdk-signer's ConnectionStatus, which tracks a signer provider.
 export { subscribeConnectionStatus } from "./transport.js";
@@ -72,7 +76,7 @@ export {
 export type { HostErrorPayload } from "./errors.js";
 
 // Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
-export { getAccountsProvider } from "./accounts.js";
+export { getAccountsProvider, findRingVrfKeyHandle } from "./accounts.js";
 export type {
     AccountsProvider,
     DerivationIndex,
@@ -81,8 +85,12 @@ export type {
     ProductAccountLookup,
     ContextualAlias,
     ProductProofContext,
+    RegisteredRingVrfKey,
     RingLocation,
     RingVRFProof,
+    RingVrfKeyDisclosure,
+    RingVrfKeyHandle,
+    RingVrfPublicKey,
     VrfSignature,
     VrfTranscriptItem,
 } from "./accounts.js";

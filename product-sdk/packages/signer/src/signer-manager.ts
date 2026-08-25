@@ -20,6 +20,10 @@ import type {
     ProductAccount,
     ProductAccountLookup,
     ProductProofContext,
+    RegisteredRingVrfKey,
+    RingVrfKeyDisclosure,
+    RingVrfKeyHandle,
+    RingVrfPublicKey,
     RingLocation,
     RingVRFProof,
     VrfSignature,
@@ -397,14 +401,60 @@ export class SignerManager {
     }
 
     /**
-     * Get a contextual alias for a proof context and ring via Ring VRF.
+     * Register a ring-VRF key owned by this product.
+     *
+     * Use {@link listRingVrfKeys} afterward to obtain the opaque handle needed
+     * by alias and proof requests.
+     */
+    async registerRingVrfKey(
+        index: number,
+        ring: RingLocation,
+    ): Promise<Result<RingVrfPublicKey, SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(
+                new HostUnavailableError(
+                    "Ring VRF key registration requires a host provider connection",
+                ),
+            );
+        }
+        return host.registerRingVrfKey(index, ring);
+    }
+
+    /**
+     * List ring-VRF keys registered by a product.
+     *
+     * Use the returned key handles, rather than hard-coding a derivation index,
+     * when requesting aliases or proofs.
+     */
+    async listRingVrfKeys(
+        owner: string,
+        disclosure: RingVrfKeyDisclosure = "Anonymized",
+    ): Promise<Result<RegisteredRingVrfKey[], SignerError>> {
+        if (this.isDestroyed) return err(new DestroyedError());
+
+        const host = this.getHostProvider();
+        if (!host) {
+            return err(
+                new HostUnavailableError(
+                    "Ring VRF key listing requires a host provider connection",
+                ),
+            );
+        }
+        return host.listRingVrfKeys(owner, disclosure);
+    }
+
+    /**
+     * Get a contextual alias for an explicitly selected ring-VRF key.
      *
      * Aliases prove account membership in a ring without revealing which
-     * account produced the alias; the host selects the member key. Only
-     * available when connected via the host provider — returns
-     * HOST_UNAVAILABLE otherwise.
+     * account produced the alias. Only available when connected via the host
+     * provider — returns HOST_UNAVAILABLE otherwise.
      */
     async getProductAccountAlias(
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
     ): Promise<Result<ContextualAlias, SignerError>> {
@@ -418,19 +468,20 @@ export class SignerManager {
                 ),
             );
         }
-        return host.getProductAccountAlias(context, location);
+        return host.getProductAccountAlias(keyHandle, context, location);
     }
 
     /**
      * Create a Ring VRF proof for anonymous operations.
      *
-     * Proves that a ring member at the given location produced the proof
-     * without revealing which member — the host selects the member key. The
-     * result carries the proof plus its verification values. Only available
-     * when connected via the host provider — returns HOST_UNAVAILABLE
-     * otherwise.
+     * Proves that the explicitly selected registered key belongs to the ring
+     * at the given location without revealing which member produced the proof.
+     * The result carries the proof plus its verification values. Only
+     * available when connected via the host provider — returns
+     * HOST_UNAVAILABLE otherwise.
      */
     async createRingVRFProof(
+        keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
@@ -443,7 +494,7 @@ export class SignerManager {
                 new HostUnavailableError("Ring VRF proofs require a host provider connection"),
             );
         }
-        return host.createRingVRFProof(context, location, message);
+        return host.createRingVRFProof(keyHandle, context, location, message);
     }
 
     /**
@@ -1037,6 +1088,51 @@ if (import.meta.vitest) {
                 expect(result.value.primaryUsername).toBe("alice.dot");
             }
             expect(fakeHostProvider.getUserId).toHaveBeenCalledTimes(1);
+            manager.destroy();
+        });
+    });
+
+    describe("SignerManager ring VRF", () => {
+        test("passes a host error through with its cause intact", async () => {
+            // Looks like it tests a pass-through, and that is the point: a
+            // catch added here later would flatten the error again and undo
+            // the whole change, silently, at the layer consumers use.
+            const { HostRejectedError } = await import("./errors.js");
+            const raw = { tag: "Domain", value: { tag: "V1", value: { tag: "NotAllowlisted" } } };
+            const fakeHostProvider = {
+                type: "host" as const,
+                connect: vi.fn().mockResolvedValue(ok([mockAccount()])),
+                disconnect: vi.fn(),
+                onStatusChange: vi.fn().mockReturnValue(() => {}),
+                onAccountsChange: vi.fn().mockReturnValue(() => {}),
+                createRingVRFProof: vi
+                    .fn()
+                    .mockResolvedValue(
+                        err(new HostRejectedError("rejected", false, { cause: raw })),
+                    ),
+            };
+
+            const manager = new SignerManager({
+                createProvider: (type) =>
+                    type === "host"
+                        ? (fakeHostProvider as unknown as SignerProvider)
+                        : mockProvider(),
+            });
+            await manager.connect("host");
+            await flush();
+
+            const result = await manager.createRingVRFProof(
+                {} as never,
+                {} as never,
+                {} as never,
+                new Uint8Array([1, 2, 3]),
+            );
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostRejectedError);
+                expect(result.error.cause).toBe(raw);
+            }
             manager.destroy();
         });
     });

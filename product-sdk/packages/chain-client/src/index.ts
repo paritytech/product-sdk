@@ -27,6 +27,9 @@ export type { ChainClient, ChainClientConfig, ChainEntry } from "./types.js";
 export { WellKnownChain } from "./well-known-chain.js";
 export type { WellKnownChainHash } from "./well-known-chain.js";
 
+// Chain-discovery validation errors
+export { EnvironmentMismatchError, GenesisMismatchError } from "./errors.js";
+
 // Re-export from host
 export {
     isInsideContainer,

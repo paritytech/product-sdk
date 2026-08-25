@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk",
-    "version": "0.21.0",
+    "version": "0.23.0",
     "description": "Unified SDK for building products in the Polkadot ecosystem - umbrella package",
     "type": "module",
     "sideEffects": false,
@@ -44,6 +44,10 @@
             "import": "./dist/identity/index.js",
             "types": "./dist/identity/index.d.ts"
         },
+        "./individuality": {
+            "import": "./dist/individuality/index.js",
+            "types": "./dist/individuality/index.d.ts"
+        },
         "./react": {
             "import": "./dist/react/index.js",
             "types": "./dist/react/index.d.ts"
@@ -75,6 +79,7 @@
         "@parity/product-sdk-contracts": "workspace:*",
         "@parity/product-sdk-crypto": "workspace:*",
         "@parity/product-sdk-host": "workspace:*",
+        "@parity/product-sdk-individuality": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-errors": "workspace:*",
