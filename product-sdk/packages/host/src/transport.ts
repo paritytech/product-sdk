@@ -111,8 +111,8 @@ export async function getClient(): Promise<TrUApiClient | null> {
 export type HostConnectionStatus = ConnectionStatus;
 
 /**
- * Correct one defect in the sandbox's status signal: `@parity/truapi` 0.7.0 never
- * clears its cached client when the pipe closes, so a subscriber arriving after a
+ * Correct one defect in the sandbox's status signal: `@parity/truapi` never clears
+ * its cached client when the pipe closes, so a subscriber arriving after a
  * disconnect re-derives `"connecting"` from the dead client — and because the
  * sandbox fans every change out to all listeners, that rewrites everyone's state
  * with no way back. Hold `"disconnected"` until a real `"connected"` arrives.
@@ -120,7 +120,10 @@ export type HostConnectionStatus = ConnectionStatus;
  * Applies to sandbox-sourced statuses only. A status pushed by the test seam is
  * deliberate and passes through, so a fake host can still drive a reconnect.
  *
- * Remove once truapi clears the cached client on close.
+ * Outstanding upstream, not tied to the version we happen to be on: `sandbox.js`
+ * is byte-identical from 0.7.0 through 0.9.0 (npm latest) and still unfixed on
+ * `paritytech/host-rust-core` main, the repo formerly named truapi. Remove once
+ * it clears the cached client on close.
  */
 function latchDisconnected(
     previous: HostConnectionStatus | null,

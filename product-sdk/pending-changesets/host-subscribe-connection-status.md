@@ -20,9 +20,10 @@ This is the **transport** channel — for the host's account-level connection, u
 `@parity/product-sdk-signer` already exports `ConnectionStatus` for a signer provider's lifecycle:
 same three states, different meaning.
 
-Also fixes a stuck status. `@parity/truapi` 0.7.0 never clears its cached client when the pipe
-closes, so a subscriber arriving after a disconnect reported `"connecting"` — permanently, and for
-every other subscriber too. This holds `"disconnected"` until a real `"connected"` arrives.
+Also fixes a stuck status. `@parity/truapi` never clears its cached client when the pipe closes, so
+a subscriber arriving after a disconnect reported `"connecting"` — permanently, and for every other
+subscriber too. This holds `"disconnected"` until a real `"connected"` arrives. Still unfixed as of
+`@parity/truapi` 0.9.0, so the workaround stays until a later release drops it.
 
 **Testing.** `@parity/product-sdk-host/testing` gains `emitConnectionStatus(status)`, also on
 `FakeHost`, so a product can drive its reconnecting / offline UI. `setTruApiClient` now notifies live
