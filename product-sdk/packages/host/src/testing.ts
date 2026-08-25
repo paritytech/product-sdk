@@ -26,9 +26,9 @@ import { errAsync, okAsync } from "neverthrow";
 
 import type { HostChainIdentifier } from "./chain-discovery.js";
 
-import { setTruApiClient } from "./transport.js";
+import { type HostConnectionStatus, emitConnectionStatus, setTruApiClient } from "./transport.js";
 
-export { setTruApiClient };
+export { setTruApiClient, emitConnectionStatus };
 
 /**
  * The public surface of a generated truapi domain client. `keyof` skips private
@@ -304,6 +304,12 @@ type TestFinishedHook = (fn: () => void) => void;
 export interface FakeHost extends Disposable {
     /** The injected fake client (also what `getTruApi()` returns). */
     client: TrUApiClient;
+    /**
+     * Push a status to `subscribeConnectionStatus` subscribers, so a product's
+     * reconnecting / offline UI can be exercised. `dispose()` already reports
+     * `"disconnected"`; use this to drive the states in between.
+     */
+    emitConnectionStatus(status: HostConnectionStatus): void;
     /** Clear the override. Idempotent; safe to call more than once. */
     dispose(): void;
     /** `using host = createFakeHost()` restores the real client at scope end. */
@@ -355,6 +361,7 @@ export function createFakeHost(options?: CreateFakeTruApiClientOptions): FakeHos
 
     return {
         client,
+        emitConnectionStatus,
         dispose,
         [Symbol.dispose]: dispose,
     };

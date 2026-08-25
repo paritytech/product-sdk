@@ -57,6 +57,11 @@ export type {
 export { getHostChainInfo } from "./chain-discovery.js";
 export type { HostChainDiscovery, HostChainIdentifier } from "./chain-discovery.js";
 
+// Host-channel connection status — the transport's own signal. Distinct from
+// @parity/product-sdk-signer's ConnectionStatus, which tracks a signer provider.
+export { subscribeConnectionStatus } from "./transport.js";
+export type { HostConnectionStatus } from "./transport.js";
+
 // Result type + typed host errors (the throw→Result boundary)
 export { ok, err } from "./result.js";
 export type { Result } from "./result.js";
