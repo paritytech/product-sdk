@@ -227,6 +227,7 @@ export function createHostPapiProvider(
         const activeFollows = new Map<string, TransportSubscription>();
         const activeBroadcasts = new Set<string>();
         const followOperations = new Map<string, Map<string, BufferedOperation>>();
+        const pendingOperationStarts = new Map<string, number>();
 
         function sendJsonRpcResponse(id: JsonRpcRequest["id"], result: unknown): void {
             onMessage({ jsonrpc: "2.0", id, result } as JsonRpcMessage);
@@ -257,6 +258,13 @@ export function createHostPapiProvider(
 
             let operation = operations.get(operationId);
             if (!operation) {
+                // A missing entry also means the operation already ended — the spec and
+                // PAPI's cancel path still emit then. With no start outstanding nothing
+                // can announce those, so buffering would strand them until unfollow.
+                if ((pendingOperationStarts.get(followSubscriptionId) ?? 0) === 0) {
+                    sendFollowEvent(followSubscriptionId, convertFollowEventToJsonRpc(item));
+                    return;
+                }
                 operation = { announced: false, items: [] };
                 operations.set(operationId, operation);
             }
@@ -301,6 +309,30 @@ export function createHostPapiProvider(
             }
         }
 
+        // Both arms must clear the count: a failed start never sends `Started`, and a
+        // stuck count buffers forever.
+        function startOperationRequest(id: JsonRpcRequest["id"], followSubscriptionId: string) {
+            const pending = pendingOperationStarts.get(followSubscriptionId);
+            if (pending !== undefined) {
+                pendingOperationStarts.set(followSubscriptionId, pending + 1);
+            }
+            const settle = () => {
+                const outstanding = pendingOperationStarts.get(followSubscriptionId);
+                if (outstanding === undefined) return;
+                pendingOperationStarts.set(followSubscriptionId, Math.max(0, outstanding - 1));
+            };
+            return {
+                ok: (response: { operation: OperationStartedResult }) => {
+                    settle();
+                    sendOperationStartedResponse(id, followSubscriptionId, response.operation);
+                },
+                err: (error: unknown) => {
+                    settle();
+                    hostError(id)(error);
+                },
+            };
+        }
+
         /** Reject an inbound request with the host's error reason as the JSON-RPC message. */
         const hostError = (id: JsonRpcRequest["id"]) => (error: unknown) =>
             sendJsonRpcError(id, JSON_RPC_INTERNAL_ERROR, formatHostError(error));
@@ -327,6 +359,7 @@ export function createHostPapiProvider(
                         if (item.tag === "Stop" && activeFollows.delete(followSubscriptionId)) {
                             ref.handle?.unsubscribe();
                             followOperations.delete(followSubscriptionId);
+                            pendingOperationStarts.delete(followSubscriptionId);
                         }
                         forwardFollowItem(followSubscriptionId, item);
                     };
@@ -355,12 +388,14 @@ export function createHostPapiProvider(
                     // item; synthesize one so the consumer refollows.
                     ref.handle.onInterrupt(() => {
                         followOperations.delete(followSubscriptionId);
+                        pendingOperationStarts.delete(followSubscriptionId);
                         if (activeFollows.delete(followSubscriptionId)) {
                             sendFollowEvent(followSubscriptionId, { event: "stop" });
                         }
                     });
                     activeFollows.set(followSubscriptionId, ref.handle);
                     followOperations.set(followSubscriptionId, new Map());
+                    pendingOperationStarts.set(followSubscriptionId, 0);
                     sendJsonRpcResponse(id, followSubscriptionId);
                     for (const item of pendingItems) {
                         forwardItem(followSubscriptionId, item);
@@ -375,6 +410,7 @@ export function createHostPapiProvider(
                         activeFollows.delete(followSubId);
                     }
                     followOperations.delete(followSubId);
+                    pendingOperationStarts.delete(followSubId);
                     sendJsonRpcResponse(id, null);
                     break;
                 }
@@ -390,17 +426,10 @@ export function createHostPapiProvider(
                 }
                 case "chainHead_v1_body": {
                     const [followSubscriptionId, hash] = params as [string, HexString];
+                    const bodyStart = startOperationRequest(id, followSubscriptionId);
                     chain
                         .getHeadBody({ genesisHash, followSubscriptionId, hash })
-                        .match(
-                            (response) =>
-                                sendOperationStartedResponse(
-                                    id,
-                                    followSubscriptionId,
-                                    response.operation,
-                                ),
-                            hostError(id),
-                        );
+                        .match(bodyStart.ok, bodyStart.err);
                     break;
                 }
                 case "chainHead_v1_storage": {
@@ -414,6 +443,7 @@ export function createHostPapiProvider(
                         key: item.key,
                         queryType: convertStorageType(item.type),
                     }));
+                    const storageStart = startOperationRequest(id, followSubscriptionId);
                     chain
                         .getHeadStorage({
                             genesisHash,
@@ -427,15 +457,7 @@ export function createHostPapiProvider(
                             // (`null.startsWith`). Coerce `null` → `undefined`.
                             childTrie: childTrie ?? undefined,
                         })
-                        .match(
-                            (response) =>
-                                sendOperationStartedResponse(
-                                    id,
-                                    followSubscriptionId,
-                                    response.operation,
-                                ),
-                            hostError(id),
-                        );
+                        .match(storageStart.ok, storageStart.err);
                     break;
                 }
                 case "chainHead_v1_call": {
@@ -445,6 +467,7 @@ export function createHostPapiProvider(
                         string,
                         HexString,
                     ];
+                    const callStart = startOperationRequest(id, followSubscriptionId);
                     chain
                         .callHead({
                             genesisHash,
@@ -453,15 +476,7 @@ export function createHostPapiProvider(
                             function: fn,
                             callParameters,
                         })
-                        .match(
-                            (response) =>
-                                sendOperationStartedResponse(
-                                    id,
-                                    followSubscriptionId,
-                                    response.operation,
-                                ),
-                            hostError(id),
-                        );
+                        .match(callStart.ok, callStart.err);
                     break;
                 }
                 case "chainHead_v1_unpin": {
@@ -570,6 +585,7 @@ export function createHostPapiProvider(
                 }
                 activeFollows.clear();
                 followOperations.clear();
+                pendingOperationStarts.clear();
                 for (const operationId of activeBroadcasts) {
                     // Fire-and-forget: the transport may already be torn down.
                     chain.stopTransaction({ genesisHash, operationId }).match(
@@ -851,6 +867,54 @@ if (import.meta.vitest) {
         expect(
             messages.map((message) => ("id" in message ? message.id : message.params.result.event)),
         ).toEqual([3, "operationStorageItems", "operationStorageDone"]);
+    });
+
+    test("forwards an operation event that arrives after the operation ended", () => {
+        let observer:
+            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
+            | undefined;
+        const client = makeFakeClient({
+            responses: {
+                callHead: { operation: { tag: "Started", value: { operationId: "op-late" } } },
+            },
+            captureObserver: (value) => {
+                observer = value;
+            },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_call",
+            params: ["p:41", "0xhash", "Test_call", "0x"],
+        });
+        observer?.next({
+            tag: "OperationCallDone",
+            value: { operationId: "op-late", output: "0x1" },
+        });
+        messages.length = 0;
+
+        observer?.next({
+            tag: "OperationStorageItems",
+            value: { operationId: "op-late", items: [{ key: "0x01", value: "0xabcd" }] },
+        });
+
+        expect(messages).toEqual([
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: {
+                    subscription: "p:41",
+                    result: {
+                        event: "operationStorageItems",
+                        operationId: "op-late",
+                        items: [{ key: "0x01", value: "0xabcd" }],
+                    },
+                },
+            },
+        ]);
     });
 
     test("chainSpec_v1_properties parses the JSON-encoded properties string", () => {
