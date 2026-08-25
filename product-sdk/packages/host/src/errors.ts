@@ -144,6 +144,33 @@ export class HostCallFailedError extends HostError {
     }
 }
 
+/**
+ * A host call reached the container and the host replied, but the reply could
+ * not be decoded — the SCALE codec ran off the end of the frame (typically a
+ * `RangeError: Offset is outside the bounds of the DataView`). This almost
+ * always means the host and the `@parity/truapi` client the product is built
+ * against disagree on the wire shape of that call: a protocol-version skew
+ * between the host app and the product bundle.
+ *
+ * Without this boundary the raw `RangeError` escapes the `Result` channel as an
+ * unhandled throw from inside the transport's message handler, giving a stack
+ * that names neither the call nor the cause. This names the call and preserves
+ * the original error as {@link cause}, so a bug report has somewhere to start.
+ */
+export class HostResponseDecodeError extends HostError {
+    /** The host-API call whose response failed to decode, e.g. `"createRingVRFProof"`. */
+    readonly call: string;
+
+    constructor(call: string, cause: unknown) {
+        super(
+            `Failed to decode the host's response to ${call}. The host app and the @parity/truapi version this product is built against are likely on different protocol versions.`,
+            { cause },
+        );
+        this.name = "HostResponseDecodeError";
+        this.call = call;
+    }
+}
+
 /** Check whether a value is any {@link HostError}. */
 export function isHostError(error: unknown): error is HostError {
     return error instanceof HostError;
@@ -192,9 +219,21 @@ if (import.meta.vitest) {
             expect(e.message).toBe("submit failed: timeout");
         });
 
+        test("HostResponseDecodeError names the call and preserves the cause", () => {
+            const cause = new RangeError("Offset is outside the bounds of the DataView");
+            const e = new HostResponseDecodeError("createRingVRFProof", cause);
+            expect(e).toBeInstanceOf(HostError);
+            expect(e.name).toBe("HostResponseDecodeError");
+            expect(e.call).toBe("createRingVRFProof");
+            expect(e.cause).toBe(cause);
+            expect(e.message).toContain("createRingVRFProof");
+            expect(e.message).toContain("protocol versions");
+        });
+
         test("isHostError narrows host errors only", () => {
             expect(isHostError(new HostUnavailableError())).toBe(true);
             expect(isHostError(new HostCallFailedError("x", { tag: "Denied" }))).toBe(true);
+            expect(isHostError(new HostResponseDecodeError("c", new Error("boom")))).toBe(true);
             expect(isHostError(new Error("plain"))).toBe(false);
             expect(isHostError("string")).toBe(false);
         });

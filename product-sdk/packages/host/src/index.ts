@@ -70,6 +70,7 @@ export {
     HostError,
     HostUnavailableError,
     HostCallFailedError,
+    HostResponseDecodeError,
     isHostError,
     formatHostError,
 } from "./errors.js";
@@ -79,6 +80,7 @@ export type { HostErrorPayload } from "./errors.js";
 export { getAccountsProvider, findRingVrfKeyHandle } from "./accounts.js";
 export type {
     AccountsProvider,
+    WithDecodeError,
     DerivationIndex,
     HostAccount,
     ProductAccount,
