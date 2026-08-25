@@ -632,7 +632,7 @@ if (import.meta.vitest) {
             const errors = opts.errors ?? {};
             if (name in errors) return errMatch(errors[name]);
             return {
-                match: (ok: (value: unknown) => unknown) => {
+                match: (ok: (value: unknown) => unknown, _err: (error: unknown) => unknown) => {
                     const resolve = () => ok(response);
                     if (opts.deferMatch?.(name, resolve)) return undefined;
                     return resolve();
@@ -910,6 +910,50 @@ if (import.meta.vitest) {
                     result: {
                         event: "operationStorageItems",
                         operationId: "op-late",
+                        items: [{ key: "0x01", value: "0xabcd" }],
+                    },
+                },
+            },
+        ]);
+    });
+
+    test("a failed operation start releases the follow's buffering", () => {
+        let observer:
+            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
+            | undefined;
+        const client = makeFakeClient({
+            errors: { callHead: { reason: "host unavailable" } },
+            captureObserver: (value) => {
+                observer = value;
+            },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_call",
+            params: ["p:41", "0xhash", "Test_call", "0x"],
+        });
+        messages.length = 0;
+
+        // A failed start never sends `Started`. If it left the count raised, every
+        // later event for an unknown operation would buffer for the life of the follow.
+        observer?.next({
+            tag: "OperationStorageItems",
+            value: { operationId: "op-unknown", items: [{ key: "0x01", value: "0xabcd" }] },
+        });
+
+        expect(messages).toEqual([
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: {
+                    subscription: "p:41",
+                    result: {
+                        event: "operationStorageItems",
+                        operationId: "op-unknown",
                         items: [{ key: "0x01", value: "0xabcd" }],
                     },
                 },
