@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-individuality",
-    "description": "Read a person's standing and usernames on the individuality chain, and dispatch calls under a person origin",
-    "version": "0.1.0",
+    "description": "Read a person's standing, usernames, game and prize draws on the individuality chain, sign up for a game, and dispatch calls under a person origin",
+    "version": "0.2.0",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
