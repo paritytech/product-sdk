@@ -11,7 +11,7 @@ export default defineConfig({
         timeout: 30_000,
     },
     retries: process.env.CI ? 1 : 0,
-    reporter: [["html", { open: "never" }], ["list"]],
+    reporter: [["html", { open: "never" }], ["list"], ["../e2e-retry-reporter.ts"]],
 
     use: {
         trace: "on-first-retry",
