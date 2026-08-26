@@ -8,7 +8,7 @@
  * `IndividualityChain`, and the same gap: a hand-written contract can drift from
  * the real chain silently, because the package's own test doubles satisfy it by
  * construction. See `../individuality/contract.test.ts` for why this assertion
- * has to live in the umbrella package to mean anything, and why it checks the
+ * has to live in `@parity/product-sdk` to mean anything, and why it checks the
  * sibling's built `dist` rather than its `src`.
  *
  * The `ItemDefs` line below is the one that earned this file. PAPI generates its

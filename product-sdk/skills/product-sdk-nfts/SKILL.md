@@ -13,7 +13,7 @@ description: >
 
 `@parity/product-sdk-nfts` reads the Scarcity catalogue on Asset Hub. Two functions, both pure
 reads, neither needing an identity, a purse or a second chain. Also available as
-`@parity/product-sdk/nfts` from the umbrella package.
+`@parity/product-sdk/nfts`, the same code re-exported from `@parity/product-sdk`.
 
 - `getCollections(chain, options?)` — every collection registered to accept claims. Powers a
   collection picker.
@@ -66,7 +66,7 @@ An app that keeps only the typed API in its own session type (a common shape: `{
 people }`) has to thread the client, or at least its `raw`, through to call these reads.
 
 The contract is structural on purpose — no genesis hash is pinned to read a catalogue — and it is
-checked at compile time from the umbrella package, in `packages/sdk/src/nfts/contract.test.ts`.
+checked at compile time from `@parity/product-sdk`, in `packages/sdk/src/nfts/contract.test.ts`.
 
 ## Pruned Descriptors
 

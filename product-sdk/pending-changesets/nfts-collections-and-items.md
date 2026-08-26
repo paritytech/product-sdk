@@ -51,8 +51,8 @@ and PAPI's error as the `cause`.
 `CollectionSetting::TransferableItems` and has no source in `Scarcity` — not in `ItemDefs`, not in
 any metadata key the live chain carries.
 
-**Paseo only.** `devnet-asset-hub` carries neither pallet, which the umbrella's
+**Paseo only.** `devnet-asset-hub` carries neither pallet, which `@parity/product-sdk`'s
 `src/nfts/contract.test.ts` pins as a negative control alongside the positive assertion that
 the real Paseo descriptor satisfies the package's structural chain contract.
 
-Also exported from the umbrella as `@parity/product-sdk/nfts`.
+Also exported from `@parity/product-sdk` as `@parity/product-sdk/nfts`.

@@ -11,7 +11,7 @@
  * `ChainClient<{ assetHub: paseo_asset_hub }>`, a future deployment, or a
  * hand-rolled test double.
  *
- * **Fidelity is checked at compile time, from the umbrella package.**
+ * **Fidelity is checked at compile time, from `@parity/product-sdk`.**
  * `packages/sdk/src/nfts/contract.test.ts` asserts that a real `getChainAPI`
  * client still satisfies this type, so a descriptor regeneration that changes an
  * entry fails `pnpm typecheck`. The guard cannot live here: inside this package
