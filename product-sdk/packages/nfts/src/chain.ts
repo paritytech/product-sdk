@@ -74,6 +74,14 @@ export interface NftsChain {
                         collection: number,
                         options: ReadAt,
                     ): Promise<RawCollection | undefined>;
+                    /**
+                     * A one-key map, so this dumps it whole — the only way to
+                     * enumerate collections that accept no claims, which
+                     * `NftClaims.CollectionMinters` by definition cannot name.
+                     * Costs an app nothing extra in descriptor pruning: same
+                     * whitelist entry as `getValue`, second accessor.
+                     */
+                    getEntries(options: ReadAt): Promise<Array<Entry<[number], RawCollection>>>;
                 };
                 /**
                  * A two-key map, so this scans one collection. See the note on

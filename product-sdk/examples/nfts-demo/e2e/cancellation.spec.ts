@@ -16,7 +16,7 @@ test.describe("@parity/product-sdk-nfts via Host API — cancellation", () => {
 
         const outcomes = await frame.locator("body").evaluate(async () => {
             const nfts = (window as unknown as Record<string, unknown>).__NFTS__ as {
-                getCollections: (
+                getClaimableCollections: (
                     chain: unknown,
                     options?: { signal?: AbortSignal },
                 ) => Promise<{ ok: boolean }>;
@@ -34,7 +34,7 @@ test.describe("@parity/product-sdk-nfts via Host API — cancellation", () => {
             controller.abort();
 
             // Booleans, not the results: Playwright cannot serialize an Error.
-            const registry = await nfts.getCollections(nfts.chain, {
+            const registry = await nfts.getClaimableCollections(nfts.chain, {
                 signal: controller.signal,
             });
             const catalogue = await nfts.getCollectionItems(nfts.chain, 0, {

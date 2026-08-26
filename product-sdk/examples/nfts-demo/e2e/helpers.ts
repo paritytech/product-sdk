@@ -9,7 +9,7 @@ import { expect, type FrameLocator } from "@playwright/test";
  * Waits for:
  *   1. Host connection established
  *   2. The chain client connected through the host
- *   3. `getCollections` reported a count — the app renders `-` until then
+ *   3. `getClaimableCollections` reported a count — the app renders `-` until then
  */
 export async function waitForAppReady(
     testHost: TestHost,

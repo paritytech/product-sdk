@@ -32,7 +32,7 @@ export type ItemSelection = { tag: "Random" } | { tag: "Contract"; address: stri
  * collection with no minter entry cannot be claimed into, so it does not belong
  * in a collection picker even though its catalogue exists.
  */
-export interface MintCollection {
+export interface ClaimableCollection {
     /** The Scarcity collection id. */
     id: number;
     /**
@@ -62,6 +62,40 @@ export interface MintCollection {
      * same account today, and this is the authoritative one.
      */
     owner: string | null;
+}
+
+/**
+ * A collection on chain, claimable or not.
+ *
+ * The superset {@link ClaimableCollection} is drawn from: every
+ * `Scarcity.Collections` record, with `selection` filled in for the ones
+ * `NftClaims.CollectionMinters` also names. One deployment carries six
+ * collections and registers one, so the difference is not marginal.
+ *
+ * `itemCount` and `owner` are non-null here, unlike on
+ * {@link ClaimableCollection}: this read enumerates the records themselves, so
+ * every entry it returns has one. The trade is the mirror image — a minter entry
+ * whose collection record is missing appears in
+ * {@link ClaimableCollection}-shaped reads and **cannot** appear here.
+ */
+export interface CollectionSummary {
+    /** The Scarcity collection id. */
+    id: number;
+    /** The collection's `name` metadata, or `null` when it sets none. */
+    name: string | null;
+    /** Live item definitions, from `Collections.item_count`. */
+    itemCount: number;
+    /** The collection's Scarcity owner. */
+    owner: string;
+    /**
+     * How a claim into this collection picks its item, or `null` when the
+     * collection accepts no claims.
+     *
+     * `null` *is* the "not claimable" signal — there is no separate boolean to
+     * drift out of sync with it. A collection with no `CollectionMinters` entry
+     * cannot be claimed into no matter how many items it holds.
+     */
+    selection: ItemSelection | null;
 }
 
 /**

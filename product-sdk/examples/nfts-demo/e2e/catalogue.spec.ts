@@ -4,8 +4,8 @@ import { test, expect } from "./fixtures";
 import { numberIn, waitForAppReady } from "./helpers";
 
 /**
- * The two reads in `@parity/product-sdk-nfts`, against live Paseo Next Asset Hub
- * through the Host API.
+ * The three reads in `@parity/product-sdk-nfts`, against live Paseo Next Asset
+ * Hub through the Host API.
  *
  * Live state decides the counts, so the assertions are about shape: a registry
  * pinned to one block and ascending by id, a catalogue that resolves `Found`,
@@ -18,8 +18,9 @@ import { numberIn, waitForAppReady } from "./helpers";
  * starts refusing connections mid-run.
  *
  * SDK surface tested:
- *   - getCollections     -> NftClaims.CollectionMinters + Scarcity.Collections/CollectionMetadata
- *   - getCollectionItems -> Scarcity.ItemDefs/ItemMetadata prefix scans, merged metadata
+ *   - getClaimableCollections -> NftClaims.CollectionMinters + Scarcity.Collections/CollectionMetadata
+ *   - getCollections       -> Scarcity.Collections dumped whole, annotated from the registry
+ *   - getCollectionItems      -> Scarcity.ItemDefs/ItemMetadata prefix scans, merged metadata
  *   - the structural chain contract, satisfied by a real ChainClient
  */
 test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () => {
@@ -28,7 +29,7 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
     }) => {
         const frame = await waitForAppReady(testHost);
 
-        // -- getCollections ------------------------------------------------
+        // -- getClaimableCollections ------------------------------------------------
         // Every value in one result comes from the same finalized block.
         expect(await numberIn(frame, "registry-block")).toBeGreaterThan(0);
 
@@ -47,6 +48,37 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
         expect(ids).toHaveLength(count);
         expect(ids).toEqual([...ids].sort((a, b) => a - b));
         await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("registered at #");
+
+        // -- getCollections ---------------------------------------------
+        // Its own pinned block: two reads are two snapshots.
+        expect(await numberIn(frame, "all-block")).toBeGreaterThan(0);
+
+        const allIdsText = await frame.locator('[data-testid="all-ids"]').textContent();
+        const allIds = allIdsText!
+            .trim()
+            .split(",")
+            .map((id) => Number(id));
+        expect(allIds).toEqual([...allIds].sort((a, b) => a - b));
+        expect(allIds).toHaveLength(await numberIn(frame, "all-count"));
+
+        // The relationship that holds whatever this chain currently carries:
+        // an id this read flags claimable came from `CollectionMinters`, so the
+        // registry above must also name it. Asserted in this direction only —
+        // the reverse can fail legitimately, when a minter entry outlives its
+        // `Scarcity.Collections` record and so cannot appear here at all.
+        const claimableHere = await numberIn(frame, "all-claimable-count");
+        expect(claimableHere).toBeLessThanOrEqual(count);
+
+        // `selection: null` is the "exists but accepts no claims" signal, and
+        // the two counts have to add up to the whole list.
+        const unclaimableText = (await frame
+            .locator('[data-testid="all-unclaimable-ids"]')
+            .textContent())!.trim();
+        const unclaimableIds =
+            unclaimableText === "(none)" ? [] : unclaimableText.split(",").map(Number);
+        expect(claimableHere + unclaimableIds.length).toBe(allIds.length);
+        for (const id of unclaimableIds) expect(allIds).toContain(id);
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("accepting no claims");
 
         // -- getCollectionItems, on the first registered collection --------
         await expect(frame.locator('[data-testid="catalogue-tag"]')).toHaveText("Found");

@@ -4,17 +4,24 @@
  * @parity/product-sdk-nfts — read Scarcity NFT collections and their item
  * catalogues on Asset Hub.
  *
- * Two reads today, both of them pure catalogue: which collections a claim can
- * mint into, and what is in one of them. Neither needs an identity, a purse, or
- * a second chain, which is why they came first.
+ * Three reads today, all of them pure catalogue: which collections a claim can
+ * mint into, every collection on chain whether it accepts claims or not, and
+ * what is in one of them. None needs an identity, a purse, or a second chain,
+ * which is why they came first.
+ *
+ * `getClaimableCollections` and `getCollections` are the subset and the
+ * superset of the same thing — there is one kind of collection, and a
+ * `NftClaims.CollectionMinters` entry is what makes one claimable. Pick the
+ * first for a picker; the second pays metadata for collections a claim cannot
+ * use.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
- * import { getCollections, getCollectionItems } from "@parity/product-sdk-nfts";
+ * import { getClaimableCollections, getCollectionItems } from "@parity/product-sdk-nfts";
  *
  * const chain = await getChainAPI("paseo");
  *
- * const registry = await getCollections(chain);
+ * const registry = await getClaimableCollections(chain);
  * if (registry.ok) {
  *     for (const collection of registry.value.collections) {
  *         console.log(collection.id, collection.name ?? "(unnamed)");
@@ -57,13 +64,10 @@
  *
  * # What this package deliberately does not do yet
  *
- * - **No runtime APIs.** The `ScarcityApi.metadata_batch` and
- *   `NftClaimsApi.preview_mints` these features were specced against do not
- *   exist on live Paseo Next Asset Hub (spec 2000036 exposes 27 runtime APIs,
- *   and neither is among them; the pinned descriptor code hash matches live, so
- *   this is not descriptor drift). Display metadata is read from the
- *   `CollectionMetadata` / `ItemMetadata` storage layers instead, which answers
- *   the same question. `previewClaim` has no storage equivalent and waits.
+ * - **No runtime APIs.** Display metadata is read from the `CollectionMetadata`
+ *   / `ItemMetadata` storage layers, which answer the same question and are
+ *   carried by the pinned descriptor. `previewClaim` has no storage equivalent,
+ *   so it waits on `NftClaimsApi.preview_mints` being reachable here.
  * - **No `transferability`.** It traces to `pallet_nfts`, not `Scarcity`, and has
  *   no source on chain — see {@link CollectionItem}.
  * - **Nothing purse-scoped.** `getOwnedNfts`, `getNextEmptyPurse` and
@@ -80,9 +84,16 @@
  *
  * @packageDocumentation
  */
-// The two reads, each pinning its own finalized block.
-export { getCollections } from "./collections.js";
-export type { CollectionsResult, GetCollectionsOptions } from "./collections.js";
+// The three reads, each pinning its own finalized block. Two list collections
+// and differ only in whether the claim registry filters them; the third reads
+// one collection's catalogue and filters by nothing.
+export { getClaimableCollections, getCollections } from "./collections.js";
+export type {
+    CollectionsResult,
+    ClaimableCollectionsResult,
+    GetCollectionsOptions,
+    GetClaimableCollectionsOptions,
+} from "./collections.js";
 export { getCollectionItems } from "./items.js";
 export type { GetCollectionItemsOptions } from "./items.js";
 
@@ -111,7 +122,8 @@ export type {
     FinalizedSnapshot,
     ImageRef,
     ItemSelection,
-    MintCollection,
+    ClaimableCollection,
+    CollectionSummary,
     RawBytes,
     ReadAt,
 } from "./types.js";

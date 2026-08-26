@@ -2,8 +2,10 @@
 name: product-sdk-nfts
 description: >
   Use when reading Scarcity NFT collections or their item catalogues on Asset Hub — which
-  collections a claim can mint into, and what one of them holds. Covers getCollections and
-  getCollectionItems, the chain client they require and why a TypedApi is not enough, the five
+  collections a claim can mint into, every collection on chain, and what one of them holds. Covers
+  getClaimableCollections, getCollections and getCollectionItems, the one storage map that
+  separates claimable from merely existing, the chain client they require and why a TypedApi is not
+  enough, the five
   descriptor entries they touch and what a pruned whitelist does, the open metadata schema and
   ImageRef's two readings, why a missing collection is a success value rather than an error, and
   the purse-scoped reads that do not exist yet.
@@ -11,23 +13,56 @@ description: >
 
 # Product SDK NFTs
 
-`@parity/product-sdk-nfts` reads the Scarcity catalogue on Asset Hub. Two functions, both pure
-reads, neither needing an identity, a purse or a second chain. Also available as
+`@parity/product-sdk-nfts` reads the Scarcity catalogue on Asset Hub. Three functions, all pure
+reads, none needing an identity, a purse or a second chain. Also available as
 `@parity/product-sdk/nfts`, the same code re-exported from `@parity/product-sdk`.
 
-- `getCollections(chain, options?)` — every collection registered to accept claims. Powers a
-  collection picker.
-- `getCollectionItems(chain, id, options?)` — one collection's full item catalogue.
+- `getClaimableCollections(chain, options?)` — collections registered to accept claims. Powers a
+  picker. Every entry has a `selection`.
+- `getCollections(chain, options?)` — every collection on chain, `selection` `null` where none is
+  registered. For browsing or auditing.
+- `getCollectionItems(chain, id, options?)` — one collection's full item catalogue. Applies **no**
+  registry filter; a collection nobody created comes back as `{ tag: "NotFound" }`.
+
+## One Kind Of Collection, Two Sets
+
+There is **one** kind of collection. Two maps in two pallets describe it:
+
+```
+Scarcity.Collections         id -> { owner, item_count, … }   the collection exists
+NftClaims.CollectionMinters  id -> { owner, selection }       the owner opted in via
+                                                              set_collection_minter
+```
+
+`CollectionMinters` is not a second type of collection — it is an opt-in flag plus config, and its
+keys are a **subset** of `Scarcity.Collections`' keys. So `getCollections` is the superset and
+`getClaimableCollections` is what the registry leaves of it. How much that removes is per
+deployment: one carries six collections and registers one, another registers most of what it
+carries, so neither read stands in for the other.
+
+Which to reach for:
+
+- **Picker / spending a credit** → `getClaimableCollections`. `getCollections` pays a metadata
+  read for every collection to hand back ones a claim cannot use.
+- **Browsing, gallery, audit** → `getCollections`. `selection === null` means "exists but accepts
+  no claims", and it is the only signal — there is no separate `claimable` boolean to drift.
+- **One known id** → `getCollectionItems`. No registry filter either.
+
+The two disagree in one edge case, in opposite directions. A minter entry whose
+`Scarcity.Collections` record is missing appears in `getClaimableCollections` with `itemCount` and
+`owner` `null`, and **cannot** appear in `getCollections`, which enumerates the records
+themselves. The runtime clears registrations through `pallet_scarcity::OnCollectionDeleted`, so it
+should not arise — it is reported rather than papered over.
 
 ## Quick Start
 
 ```typescript
 import { getChainAPI } from "@parity/product-sdk-chain-client";
-import { getCollections, getCollectionItems } from "@parity/product-sdk-nfts";
+import { getClaimableCollections, getCollectionItems } from "@parity/product-sdk-nfts";
 
 const chain = await getChainAPI("paseo");
 
-const registry = await getCollections(chain);
+const registry = await getClaimableCollections(chain);
 if (registry.ok) {
     for (const collection of registry.value.collections) {
         // id, name | null, selection, itemCount | null, owner | null
@@ -140,7 +175,7 @@ if (catalogue.value.tag === "NotFound") {
 catalogue.value.collection.items;
 ```
 
-`getCollections` is driven by `NftClaims.CollectionMinters`, not by `Scarcity.Collections`: a
+`getClaimableCollections` is driven by `NftClaims.CollectionMinters`, not by `Scarcity.Collections`: a
 collection with no minter entry cannot be claimed into, so it does not belong in a picker even
 though its catalogue exists. How much that removes is per deployment — one carries six collections
 and registers one, another registers most of what it carries — so do not assume the registry is
@@ -158,12 +193,9 @@ Every value in one result is read at a single pinned finalized block, reported a
   primitive shared across apps, which the wallet does not expose. App-scoped product-account
   derivation is not a substitute: it is keyed by `productId`, so nothing derived under it can be
   shared between two apps.
-- **`previewClaim`.** It needs `NftClaimsApi.preview_mints`, which live Paseo Next does not expose,
-  and has no storage equivalent.
-- **No runtime APIs at all.** `ScarcityApi.metadata_batch` and `NftClaimsApi.preview_mints` are
-  absent from live Paseo Next (spec 2000036 exposes 27 runtime APIs, neither among them), and the
-  pinned descriptor code hash matches live, so this is not drift. Storage answers the same question
-  for metadata.
+- **`previewClaim`.** It needs `NftClaimsApi.preview_mints`, which is not reachable through the
+  pinned descriptor, and has no storage equivalent. Display metadata needs no such API — the
+  `CollectionMetadata` / `ItemMetadata` storage layers answer the same question.
 
 ## Common Mistakes
 
@@ -179,7 +211,7 @@ Every value in one result is read at a single pinned finalized block, reported a
 6. **Checking `result.tag`** instead of `result.ok` first. The tag is inside `result.value`.
 7. **Reading `itemCount` as `items.length`** — they are separate writes and can disagree while a
    definition is being removed. Both are reported as the chain has them.
-8. **Assuming a `MintCollection` has a `Scarcity.Collections` record** — `itemCount` and `owner`
+8. **Assuming a `ClaimableCollection` has a `Scarcity.Collections` record** — `itemCount` and `owner`
    are `null` when it does not, which signals an inconsistency rather than an empty collection.
 9. **Parsing `attributes` values as numbers** without handling text that is not numeric.
 10. **Expecting `rarity` or `name` to be set** — most collections on a live deployment set neither.

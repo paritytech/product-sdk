@@ -45,10 +45,17 @@
     <div class="panel-main">
       <div class="meta">Chain: <span id="chain-status" data-testid="chain-status">disconnected</span></div>
 
-      <h2>Claim registry (getCollections)</h2>
+      <h2>Claim registry (getClaimableCollections)</h2>
       <div class="meta">Read at block: <span id="registry-block" data-testid="registry-block">-</span></div>
       <div class="meta">Registered collections: <span id="registry-count" data-testid="registry-count">-</span></div>
       <div class="meta">Ids: <span id="registry-ids" data-testid="registry-ids">-</span></div>
+
+      <h2>Every collection (getCollections)</h2>
+      <div class="meta">Read at block: <span id="all-block" data-testid="all-block">-</span></div>
+      <div class="meta">Collections on chain: <span id="all-count" data-testid="all-count">-</span></div>
+      <div class="meta">Ids: <span id="all-ids" data-testid="all-ids">-</span></div>
+      <div class="meta">Of those, claimable: <span id="all-claimable-count" data-testid="all-claimable-count">-</span></div>
+      <div class="result">Accepts no claims (selection null): <span id="all-unclaimable-ids" data-testid="all-unclaimable-ids">-</span></div>
 
       <h2>First registered collection</h2>
       <div class="meta">Id: <span id="collection-id" data-testid="collection-id">-</span></div>
