@@ -71,7 +71,7 @@ Creates a terminal adapter backed by the host-papp SDK.
 - `appId` -- the value you passed in (re-exposed so `createSessionSigner` can pull the productId from the adapter)
 - `sso` -- auth component (`.authenticate()`, `.abortAuthentication()`, status subscriptions)
 - `sessions` -- session manager (signing, disconnect)
-- `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Suppresses `@novasamatech/statement-store`'s noisy `Statement subscription error` log for ~50 ms after the call.
+- `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Drops `@novasamatech/statement-store`'s benign `Statement subscription error: DestroyedError` line for ~50 ms after the call — only that line; every other `console.error` passes through. The predicate it uses, `isBenignTeardownError`, is exported for consumers wiring their own subscription `onError` handlers.
 
 ### `createSessionSigner(session, adapter): PolkadotSigner`
 
@@ -243,7 +243,7 @@ For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing se
 | Override session storage dir | not supported (hard-coded `~/.polkadot-apps/`) | `createTerminalAdapter({ ..., storageDir })` option |
 | E2E test helper for sessions | none | `createTestSession` from `@parity/product-sdk-terminal/testing` |
 | Node version | any (bundled `ws`) | **≥21** (uses global `WebSocket`) |
-| `destroy()` shutdown noise | emitted `Statement subscription error` to stderr | suppressed; `console.error` muted for ~50 ms |
+| `destroy()` shutdown noise | emitted `Statement subscription error` to stderr | only the benign `DestroyedError` line dropped for ~50 ms; other `console.error` untouched |
 
 ### Why the signer API changed
 
