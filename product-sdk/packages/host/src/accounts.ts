@@ -342,21 +342,29 @@ export interface AccountsProvider {
 }
 
 /**
- * Derive the host's extrinsic-extension version from SCALE-encoded metadata:
- * v4 → 0, otherwise the latest supported version. `unifyMetadata` normalizes
- * v14/v15 so `.extrinsic.version` is an array.
+ * Map metadata's supported extrinsic formats to the host wire protocol.
  *
- * Indirected through {@link deps} so the SCALE decode (which needs a real
- * metadata blob) can be stubbed in unit tests while the rest of the `signTx`
- * flow — genesis extraction, extension mapping, the host call — is exercised.
+ * V4 carries the account signature in its envelope. V5 General transactions
+ * delegate authorization to the runtime's extension pipeline, but metadata
+ * alone does not say whether the connected host can implement that pipeline.
+ * Prefer an advertised V4 until the host protocol can negotiate V5
+ * authorization capabilities; V5-only and unknown future runtimes retain the
+ * previous highest-version behavior and the host remains authoritative.
  */
-function deriveTxExtVersion(metadata: Uint8Array): number {
-    const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
+function selectHostTxExtVersion(versions: readonly number[]): number {
     if (versions.length === 0) {
         throw new Error("No extrinsic version found in metadata");
     }
-    const latestVersion = versions.reduce((acc, v) => Math.max(acc, v), 0);
-    return latestVersion === 4 ? 0 : latestVersion;
+    if (versions.includes(4)) {
+        return 0;
+    }
+    return versions.reduce((acc, version) => Math.max(acc, version), 0);
+}
+
+/** Derive the host's transaction-extension version from SCALE metadata. */
+function deriveTxExtVersion(metadata: Uint8Array): number {
+    const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
+    return selectHostTxExtVersion(versions);
 }
 
 /** Internal seam so `import.meta.vitest` can stub the metadata decode. @internal */
@@ -586,6 +594,22 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
 
 if (import.meta.vitest) {
     const { test, expect, vi } = import.meta.vitest;
+
+    test("host signing prefers V4 on a dual V4/V5 runtime", () => {
+        expect(selectHostTxExtVersion([4, 5])).toBe(0);
+    });
+
+    test("host signing uses V5 when V4 is unavailable", () => {
+        expect(selectHostTxExtVersion([5])).toBe(5);
+    });
+
+    test("host signing maps a V4-only runtime to the wire sentinel", () => {
+        expect(selectHostTxExtVersion([4])).toBe(0);
+    });
+
+    test("host signing rejects metadata with no extrinsic version", () => {
+        expect(() => selectHostTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+    });
 
     /** Minimal fake of the truapi account/signing domains used to test the adapter. */
     function makeFakeClient(opts: { onCall?: (method: string, args: unknown) => void } = {}) {
