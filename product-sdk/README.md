@@ -51,7 +51,7 @@ pnpm check
 
 ## E2E Testing
 
-The `examples/` directory contains 9 demo apps that exercise the SDK packages via Playwright:
+The `examples/` directory contains 10 demo apps that exercise the SDK packages via Playwright:
 
 | Demo | Tests |
 |------|-------|
@@ -64,6 +64,7 @@ The `examples/` directory contains 9 demo apps that exercise the SDK packages vi
 | `contracts-demo` | Contract queries and submissions |
 | `cloud-storage-demo` | CID computation, upload, query |
 | `statement-store-demo` | Publish/subscribe, channels |
+| `nfts-demo` | Claim registry, collection catalogue, cancellation |
 
 ```bash
 # Install Playwright browsers (first time)
