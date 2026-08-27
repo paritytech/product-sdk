@@ -287,6 +287,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),
         resourceAllocation: notModeled("resourceAllocation"),
+        locale: notModeled("locale"),
         theme: notModeled("theme"),
     };
 
