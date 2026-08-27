@@ -1,5 +1,27 @@
 # @parity/product-sdk-host
 
+## 0.18.0
+
+### Minor Changes
+
+- 84134e0: **Surface a clear error when a host reply can't be decoded, instead of an opaque `RangeError`.**
+
+  When the host app and the `@parity/truapi` version a product is built against are on different protocol versions, a host call can return a frame the client's SCALE codec can't decode. The truapi client catches that decode throw in its message handler and turns it into a promise rejection, then wraps the call with `fromSafePromise`, which installs no rejection handler — so the rejection escaped the `Result` channel rather than landing on its err side, surfacing as a raw `RangeError: Offset is outside the bounds of the DataView` with a stack that named neither the call nor the cause (reported for `createRingVRFProof`).
+
+  The host boundaries now re-home that rejection onto the `Result` err channel (or, for the throwing helper, as a typed throw) as a new `HostResponseDecodeError` that names the failing call and preserves the original error as `cause`. This covers every path: `getAccountsProvider()`'s ten lookup methods, the flat public operations that fold through `mapHostResult` (`requestPermission`, `deriveEntropy`, `requestResourceAllocation`, …), and the adapter-object / signer methods that go through `unwrapHostResult`. Well-formed responses and each call's own typed `Err` values pass through untouched.
+
+  New exports: the `HostResponseDecodeError` class (extends `HostError`, so `isHostError` / `instanceof HostError` catch it) and the `WithDecodeError<E>` type alias. Every `AccountsProvider` lookup method's `err` type is widened to `WithDecodeError<…>`; consumers matching on the err channel gain one additional case.
+
+### Patch Changes
+
+- 84134e0: **Derive `txExtVersion` from the transaction-extension version map, not the extrinsic format version.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion` with the **transaction-extension** version the host must decode extension values under. It was being derived from `metadata.extrinsic.version` — the extrinsic _format_ versions (`4` / `5`) — which is a different concept (host-rust-core#528). For a V4 extrinsic the value is a fixed `0`; for a V5 general transaction it is a transaction-extension version from the runtime's v16 `transactionExtensionsByVersion` map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`), which the host and runtime agree is `5` — a value that must exist in that map, not the highest extrinsic format number.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `extrinsic.signedExtensions`: V4 → `0`, else the general transaction-extension version `5` if the runtime lists it (throwing otherwise, rather than sending a format number the host can't decode under).
+
+  No behaviour change on the chains the SDK ships against today: they all offer extrinsic V4, so `txExtVersion` was and remains `0`. The bug was latent — it only produced a wrong value (the format number `5`) on a hypothetical V5-only runtime, which is exactly the case this corrects.
+
 ## 0.17.0
 
 ### Minor Changes
