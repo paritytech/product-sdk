@@ -75,8 +75,8 @@ export type PeopleUsernameQueryApi = {
  * Whether `name` is a single registrable label under `suffix`.
  *
  * `suffix` is the deployment's own TLD, including its leading dot, as
- * `resolveTld` reports it — `".dot"` on Paseo Asset Hub Previewnet, `".paseo"`
- * on Next V2. It is required rather than defaulted, because a name is only
+ * `resolveTld` reports it — `".paseo"` on Paseo Asset Hub Next V2, `".test"`
+ * on Previewnet. It is required rather than defaulted, because a name is only
  * valid *relative to a deployment*: `alice.dot` is registrable on one network
  * and meaningless on the other, and a default would silently pick one.
  *
