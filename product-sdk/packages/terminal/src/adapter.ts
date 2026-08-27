@@ -81,11 +81,15 @@ export type TerminalAdapter = PappAdapter & {
      * queue. Draining those RPCs is not enough on its own: destroying the
      * client while a statement-subscription observable is still live makes
      * `@novasamatech/statement-store` log `Statement subscription error:
-     * DestroyedError` to `console.error` from a detached finalizer, often
-     * after this Promise resolves. So the disconnect and a short tail past
-     * it run under a scoped `console.error` filter that drops only that
-     * benign line ({@link isBenignTeardownError}) and restores itself
-     * afterward — every other `console.error` passes through.
+     * Client destroyed` to `console.error` synchronously inside the
+     * disconnect. So the disconnect runs under a scoped `console.error` filter
+     * that drops only that benign line ({@link isBenignTeardownError}),
+     * restored in a `finally` — every other `console.error` passes through.
+     *
+     * Limit: this covers the statement-subscription half only. An auth
+     * subscription still open at `destroy()` (released by `sso.abort()`, not
+     * `sessions.dispose()`) raises an unhandled `Error: Not connected` from the
+     * same teardown, which this does not suppress. Tracked as a follow-up.
      */
     destroy(): Promise<void>;
 };
@@ -207,17 +211,27 @@ function wrapLazyClient(inner: LazyClient): TrackedLazyClient {
 /**
  * Whether `error` is the benign teardown noise `@novasamatech/statement-store`
  * emits when a statement subscription's observable errors because the client
- * was destroyed underneath it (`DestroyedError: Client destroyed`).
+ * was destroyed underneath it — the raw-client's `DestroyedError: Client
+ * destroyed`.
  *
- * Exported so consumers wiring their own subscription `onError` handlers, or
- * their own `console.error` guards, can drop this one line without reinventing
- * the regex. {@link createTerminalAdapter}'s own `destroy()` already suppresses
- * it (see {@link suppressBenignTeardownErrors}); this is for code paths outside
- * that window.
+ * Matches on the message text only. Matching the `DestroyedError` *name* would
+ * also swallow `@parity/product-sdk-signer`'s own `DestroyedError` (a direct
+ * dependency, message "SignerManager has been destroyed"), so a real signer
+ * failure during teardown would vanish — and this predicate is exported, so it
+ * would carry that to consumers. `Client destroyed` is unique to the upstream
+ * line.
+ *
+ * Exported so a consumer's own `console.error` guard can drop this line without
+ * reinventing the match. {@link createTerminalAdapter}'s own `destroy()` already
+ * suppresses it (see {@link suppressBenignTeardownErrors}); this is for code
+ * paths outside that window.
  */
 export function isBenignTeardownError(error: unknown): boolean {
-    const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    return /DestroyedError|Client destroyed/.test(text);
+    // Read the message without stringifying the whole value: `String()` on a
+    // null-prototype object throws, and `console.error` is usually called from a
+    // `catch`, so the wrapper must never throw where the real one would print.
+    const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+    return /Client destroyed/.test(message);
 }
 
 /**
@@ -225,15 +239,17 @@ export function isBenignTeardownError(error: unknown): boolean {
  * returning a restore function.
  *
  * The noise comes from an unconditional `console.error('Statement subscription
- * error:', …)` inside `@novasamatech/statement-store`'s rpc adapter, fired from
- * a detached rxjs finalizer when `disconnect()` destroys the client while a
- * subscription is still live. Draining the tracked unsubscribe RPCs does not
- * cover that observable's error emission, so the ordering-only approach still
- * lets one line through — hence a scoped suppression.
+ * error:', …)` inside `@novasamatech/statement-store`'s rpc adapter, emitted
+ * synchronously while `disconnect()` destroys the client with a subscription
+ * observable still live. Draining the tracked unsubscribe RPCs does not cover
+ * that observable's error emission, so the ordering-only approach still lets
+ * one line through — hence a scoped suppression.
  *
- * Deliberately narrow: only calls whose first argument matches the benign
- * pattern are dropped; every other `console.error` passes through untouched, so
- * a genuine error during teardown is still visible.
+ * Deliberately narrow: the upstream call passes a plain string first and the
+ * error second, so the wrapper checks *every* argument ({@link isBenignTeardownError}
+ * on any of them) and drops the call only when the benign error is present.
+ * Every other `console.error` passes through untouched, so a genuine error
+ * during teardown is still visible.
  */
 function suppressBenignTeardownErrors(): () => void {
     const original = console.error;
@@ -263,13 +279,19 @@ function suppressBenignTeardownErrors(): () => void {
  *
  * Draining the unsubscribe RPCs does not stop `@novasamatech/statement-store`
  * from logging `Statement subscription error: DestroyedError` when the client
- * is destroyed while a subscription observable is still live — that log fires
- * from a detached finalizer, often after this function resolves. So the
- * disconnect (and a short tail past it) runs under a scoped
- * {@link suppressBenignTeardownErrors}; only the benign line is dropped.
+ * is destroyed while a subscription observable is still live. That log is
+ * synchronous inside `disconnect()`, so the call runs under a scoped
+ * {@link suppressBenignTeardownErrors} restored in a `finally` — no timer, and
+ * nothing to leak if two `destroy()`s overlap. Only the benign line is dropped.
  *
  * If the disconnect call itself throws, log and continue rather than
  * propagating — caller can `await destroy()` without `try/catch`.
+ *
+ * Known limit: this closes the statement-subscription half. An auth
+ * subscription still established at `destroy()` (released only by
+ * `sso.abort()`, not `sessions.dispose()`) raises an unhandled
+ * `Error: Not connected` from the same teardown, which this does not catch.
+ * Tracked as a follow-up.
  */
 async function teardown(
     sessions: { dispose(): void },
@@ -283,16 +305,14 @@ async function teardown(
         lazyClient.disconnect();
     } catch (e) {
         log.warn("lazyClient.disconnect threw during destroy", { error: e });
+    } finally {
+        // The benign log is emitted synchronously inside `disconnect()`, so by
+        // here it has already been swallowed — restore immediately. Restoring in
+        // `finally` (not a `setTimeout`) is what keeps overlapping destroys from
+        // stranding the patch: each call reverts before the next inspects it.
+        restore();
     }
-    // The finalizer that logs the benign error can fire a few microtasks after
-    // `disconnect()` returns, so keep the suppression up for a short tail, then
-    // restore. Unref so the timer never keeps a CLI process alive.
-    const timer = setTimeout(restore, TEARDOWN_SUPPRESS_TAIL_MS);
-    (timer as { unref?: () => void }).unref?.();
 }
-
-/** How long the benign-error suppression outlasts `disconnect()`. */
-const TEARDOWN_SUPPRESS_TAIL_MS = 50;
 
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
@@ -580,14 +600,42 @@ if (import.meta.vitest) {
             spy.mockRestore();
         });
 
-        test("restores console.error after teardown", async () => {
+        test("restores console.error by the time teardown resolves", async () => {
             const before = console.error;
             const fake = fakeLazyClient();
             const wrapped = wrapLazyClient(fake.client);
 
             await teardown({ dispose: () => {} }, wrapped);
-            // The tail timer restores on the next macrotask; wait past it.
-            await new Promise((r) => setTimeout(r, TEARDOWN_SUPPRESS_TAIL_MS + 10));
+
+            // Restore is synchronous in a `finally`, no timer to wait on.
+            expect(console.error).toBe(before);
+        });
+
+        test("two overlapping destroys do not strand the console.error patch", async () => {
+            // Each teardown restores in `finally`, so even interleaved calls
+            // leave the real console.error reachable — no wrapper left installed.
+            const before = console.error;
+            const makeFake = () =>
+                wrapLazyClient({
+                    getClient: (() =>
+                        ({}) as ReturnType<LazyClient["getClient"]>) as LazyClient["getClient"],
+                    getRequestFn: (() => () => Promise.resolve()) as LazyClient["getRequestFn"],
+                    getSubscribeFn: () =>
+                        ((_m, _p, _om, _oe) => () => {}) as ReturnType<
+                            LazyClient["getSubscribeFn"]
+                        >,
+                    disconnect: () => {
+                        console.error(
+                            "Statement subscription error:",
+                            new Error("DestroyedError: Client destroyed"),
+                        );
+                    },
+                } as LazyClient);
+
+            await Promise.all([
+                teardown({ dispose: () => {} }, makeFake()),
+                teardown({ dispose: () => {} }, makeFake()),
+            ]);
 
             expect(console.error).toBe(before);
         });
@@ -606,6 +654,22 @@ if (import.meta.vitest) {
             expect(isBenignTeardownError(new Error("connection refused"))).toBe(false);
             expect(isBenignTeardownError("BadProof")).toBe(false);
             expect(isBenignTeardownError(undefined)).toBe(false);
+        });
+
+        test("does not swallow the signer's own DestroyedError", () => {
+            // `@parity/product-sdk-signer`'s DestroyedError shares the name but
+            // not the message, so matching on the name (not the message) would
+            // silently drop a real signer failure during teardown.
+            const signerError = new Error("SignerManager has been destroyed");
+            signerError.name = "DestroyedError";
+            expect(isBenignTeardownError(signerError)).toBe(false);
+        });
+
+        test("does not throw on a value String() would reject", () => {
+            // `console.error` is usually called from a `catch`, and a
+            // null-prototype object prints fine there but throws under `String()`.
+            expect(() => isBenignTeardownError(Object.create(null))).not.toThrow();
+            expect(isBenignTeardownError(Object.create(null))).toBe(false);
         });
     });
 }
