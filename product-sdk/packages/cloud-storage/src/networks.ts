@@ -6,6 +6,7 @@
  * Each environment pairs its genesis hash with a per-environment PAPI descriptor.
  */
 import { paseo_bulletin as paseoBulletinDescriptor } from "@parity/product-sdk-descriptors/paseo-bulletin";
+import { previewnet_bulletin as previewnetBulletinDescriptor } from "@parity/product-sdk-descriptors/previewnet-bulletin";
 import { devnet_bulletin as devnetBulletinDescriptor } from "@parity/product-sdk-descriptors/devnet-bulletin";
 
 export interface CloudStorageNetwork {
@@ -27,6 +28,14 @@ export const CloudStorageNetworks = {
     paseo: {
         genesisHash: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
         descriptor: paseoBulletinDescriptor,
+    },
+    previewnet: {
+        genesisHash: "0x1144acd27f0e5b2c88da7dc12c111e396983dec036ccfb42da5bbb0dd7104e89",
+        // Previewnet Bulletin runs the same Bulletin runtime as Paseo but is a
+        // separate deployment with its own genesis; the descriptor type is
+        // pinned to the canonical Paseo one so the network interface stays
+        // uniform across environments.
+        descriptor: previewnetBulletinDescriptor as typeof paseoBulletinDescriptor,
     },
     devnet: {
         genesisHash: "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
@@ -51,6 +60,16 @@ if (import.meta.vitest) {
         test("paseo descriptor has matching genesis", () => {
             expect(CloudStorageNetworks.paseo.descriptor.genesis).toBe(
                 CloudStorageNetworks.paseo.genesisHash,
+            );
+        });
+
+        test("previewnet has a valid genesis hash", () => {
+            expect(CloudStorageNetworks.previewnet.genesisHash).toMatch(/^0x[a-f0-9]{64}$/);
+        });
+
+        test("previewnet descriptor has matching genesis", () => {
+            expect(CloudStorageNetworks.previewnet.descriptor.genesis).toBe(
+                CloudStorageNetworks.previewnet.genesisHash,
             );
         });
 
