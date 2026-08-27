@@ -13,8 +13,8 @@
  *   node("bob.alice.paseo") = node(node(tldNode, "alice"), "bob")
  *
  * The root is **per network**, not a constant. `DotnsProtocolRegistry.initialize`
- * fixes it once from a deploy-time label — `.dot` on Paseo Asset Hub Previewnet,
- * `.paseo` on Next V2 — and publishes it as `tld()` / `tldNode()`. Hashing under
+ * fixes it once from a deploy-time label — `.paseo` on Paseo Asset Hub Next V2,
+ * `.test` on Previewnet — and publishes it as `tld()` / `tldNode()`. Hashing under
  * the wrong root yields a node the chain has never written to, so every lookup
  * reports "unregistered" with no error anywhere. That is why {@link namehash}
  * takes the root rather than assuming one; `resolveTld` in `./dotns-registry.js`
