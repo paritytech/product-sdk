@@ -56,17 +56,27 @@ type Assert<T extends true> = T;
 
 type PaseoClient = Awaited<ReturnType<typeof getChainAPI<"paseo">>>;
 type DevnetClient = Awaited<ReturnType<typeof getChainAPI<"devnet">>>;
+// Previewnet runs a Paseo runtime kept a step ahead of paseo-next-v2, so it
+// satisfies every individuality contract paseo does — including the game
+// surface devnet predates. These assertions are a compile-time guard on the
+// re-added descriptor. The only shape drift is `PeopleLite.LitePeople`'s method
+// enum gaining a `Fee` variant, which the contracts type as `unknown` and absorb.
+type PreviewnetClient = Awaited<ReturnType<typeof getChainAPI<"previewnet">>>;
 
-// These four aliases are the test. Each fails to typecheck if its condition
+// These aliases are the test. Each fails to typecheck if its condition
 // breaks, so they need no export and no runtime reference.
 type PaseoSatisfiesContract = Assert<PaseoClient extends IndividualityChain ? true : false>;
 type DevnetSatisfiesContract = Assert<DevnetClient extends IndividualityChain ? true : false>;
+type PreviewnetSatisfiesContract = Assert<
+    PreviewnetClient extends IndividualityChain ? true : false
+>;
 
 // `ConsumersChain` needs this more than the batch contract does: its value shape
 // was derived from the pallet and the codegen rather than read off the emitted
 // descriptor, so these two lines are what make that derivation a checked fact.
 type PaseoSatisfiesConsumers = Assert<PaseoClient extends ConsumersChain ? true : false>;
 type DevnetSatisfiesConsumers = Assert<DevnetClient extends ConsumersChain ? true : false>;
+type PreviewnetSatisfiesConsumers = Assert<PreviewnetClient extends ConsumersChain ? true : false>;
 
 // Separate from the personhood contract: reading draws needs neither `Resources`
 // nor `PeopleLite`. Both chains satisfy it, which is weaker than it looks — devnet's
@@ -74,10 +84,15 @@ type DevnetSatisfiesConsumers = Assert<DevnetClient extends ConsumersChain ? tru
 // length check in `airdrop-ids.ts` catches that.
 type PaseoSatisfiesAirdropContract = Assert<PaseoClient extends AirdropChain ? true : false>;
 type DevnetSatisfiesAirdropContract = Assert<DevnetClient extends AirdropChain ? true : false>;
+type PreviewnetSatisfiesAirdropContract = Assert<
+    PreviewnetClient extends AirdropChain ? true : false
+>;
 
 // Same again for the current-game contract, which shares no entry with either of
 // the other two — but paseo only, and that asymmetry is the point.
 type PaseoSatisfiesGameContract = Assert<PaseoClient extends GameChain ? true : false>;
+// Previewnet is ahead of paseo, so it carries the game surface too (unlike devnet).
+type PreviewnetSatisfiesGameContract = Assert<PreviewnetClient extends GameChain ? true : false>;
 
 // Devnet's metadata predates the multi-airdrop game work — the 28-byte base above is
 // one symptom, `game-types.ts` lists the rest — so the game surface is paseo-only.
@@ -129,6 +144,9 @@ type EventIdBaseIsAString = Assert<AirdropEventIdBase extends string ? true : fa
 // that has to hold — and on paseo only, since it inherits `GameChain`.
 type PaseoSatisfiesPrizeStatusContract = Assert<
     PaseoClient extends PrizeStatusChain ? true : false
+>;
+type PreviewnetSatisfiesPrizeStatusContract = Assert<
+    PreviewnetClient extends PrizeStatusChain ? true : false
 >;
 type DevnetPredatesThePrizeStatusContract = Assert<
     DevnetClient extends PrizeStatusChain ? false : true
@@ -219,6 +237,7 @@ type RejectsSignUpArgsMissingSig = Assert<"sig" extends keyof SignUpArgsWithoutS
 // The claim is the one contract here that touches `tx` as well as storage. Paseo
 // only, like the game surface it composes with.
 type PaseoSatisfiesClaimContract = Assert<PaseoClient extends ClaimChain ? true : false>;
+type PreviewnetSatisfiesClaimContract = Assert<PreviewnetClient extends ClaimChain ? true : false>;
 type RejectsBogusClaimClient = Assert<ClientWithoutIndividuality extends ClaimChain ? false : true>;
 
 // `claim_airdrop`'s three arguments, pinned by name. `ClaimChain` types them
@@ -248,6 +267,9 @@ type RejectsBogusSignUpClient = Assert<
 // `SizedHex<N>`'s brand is optional. Assert on the intersection the read takes,
 // where `GameChain` is the half that rejects devnet.
 type PaseoSatisfiesSignUpRead = Assert<PaseoClient extends GameChain & SignUpChain ? true : false>;
+type PreviewnetSatisfiesSignUpRead = Assert<
+    PreviewnetClient extends GameChain & SignUpChain ? true : false
+>;
 type DevnetPredatesTheSignUpRead = Assert<
     DevnetClient extends GameChain & SignUpChain ? false : true
 >;
