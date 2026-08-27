@@ -6,12 +6,14 @@
  */
 
 /**
- * Bulletin Chain RPC endpoints per network environment. `paseo` (Paseo Next v2)
- * and `devnet` (public Paseo testnet) are populated today; `polkadot` and
- * `kusama` are reserved for when those Bulletin deployments go live.
+ * Bulletin Chain RPC endpoints per network environment. `paseo` (Paseo Next v2),
+ * `previewnet` (zombienet, a step ahead of paseo), and `devnet` (public Paseo
+ * testnet) are populated today; `polkadot` and `kusama` are reserved for when
+ * those Bulletin deployments go live.
  */
 export const BULLETIN_RPCS = {
     paseo: ["wss://paseo-bulletin-next-rpc.polkadot.io"],
+    previewnet: ["wss://previewnet.substrate.dev/bulletin"],
     devnet: ["wss://bulletin-paseo.tservices.es:8443"],
     polkadot: [] as string[],
     kusama: [] as string[],
@@ -27,6 +29,11 @@ if (import.meta.vitest) {
         test("BULLETIN_RPCS has paseo endpoint", () => {
             expect(BULLETIN_RPCS.paseo.length).toBeGreaterThan(0);
             expect(BULLETIN_RPCS.paseo[0]).toMatch(/^wss:\/\//);
+        });
+
+        test("BULLETIN_RPCS has previewnet endpoint", () => {
+            expect(BULLETIN_RPCS.previewnet.length).toBeGreaterThan(0);
+            expect(BULLETIN_RPCS.previewnet[0]).toMatch(/^wss:\/\//);
         });
 
         test("BULLETIN_RPCS has devnet endpoint", () => {

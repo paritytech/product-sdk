@@ -178,14 +178,28 @@ function buildCreateTransactionRequest(
 }
 
 /**
- * Transaction-extension version the mobile app must assemble:
- *  - Extrinsic V4 → `0` (the protocol mandates 0 for V4).
- *  - Extrinsic V5 → the runtime's version (highest the metadata advertises).
+ * Select the transaction format the paired host must assemble.
+ *
+ * V4 carries the account signature in its envelope. V5 General transactions
+ * delegate authorization to the runtime's extension pipeline, but metadata
+ * alone cannot prove that the paired host implements that pipeline. Prefer an
+ * advertised V4 until the host protocol can negotiate V5 authorization
+ * capabilities; V5-only and unknown future runtimes retain the previous
+ * highest-version behavior.
  */
+function selectTxExtVersion(versions: readonly number[]): number {
+    if (versions.length === 0) {
+        throw new Error("No extrinsic version found in metadata");
+    }
+    if (versions.includes(4)) {
+        return 0;
+    }
+    return versions.reduce((max, version) => Math.max(max, version), 0);
+}
+
 function txExtVersionFromMetadata(metadata: Uint8Array): number {
-    const decoded = unifyMetadata(decAnyMetadata(metadata));
-    const latestVersion = decoded.extrinsic.version.reduce((max, v) => Math.max(max, v), 0);
-    return latestVersion === 4 ? 0 : latestVersion;
+    const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
+    return selectTxExtVersion(versions);
 }
 
 /**
@@ -548,6 +562,22 @@ if (import.meta.vitest) {
         // metadata decode → SSO round-trip is exercised by the manual smoke
         // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
         // a real phone.
+
+        test("prefers V4 on a dual V4/V5 runtime", () => {
+            expect(selectTxExtVersion([4, 5])).toBe(0);
+        });
+
+        test("retains V5 when no V4 fallback exists", () => {
+            expect(selectTxExtVersion([5])).toBe(5);
+        });
+
+        test("maps a V4-only runtime to the wire sentinel", () => {
+            expect(selectTxExtVersion([4])).toBe(0);
+        });
+
+        test("rejects metadata with no extrinsic version", () => {
+            expect(() => selectTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+        });
 
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
 
