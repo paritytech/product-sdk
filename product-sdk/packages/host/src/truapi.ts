@@ -28,6 +28,7 @@ import {
     type HostError,
     type HostErrorPayload,
     HostCallFailedError,
+    HostResponseDecodeError,
     HostUnavailableError,
     formatHostError,
 } from "./errors.js";
@@ -36,6 +37,66 @@ import { getClient, subscribeWithInterrupt } from "./transport.js";
 import type { HostSubscription, Statement, StatementProof } from "./types.js";
 
 const log = createLogger("host");
+
+/**
+ * `result.match(onOk, onErr)`, but a decode-time rejection is routed through
+ * `onDecode` instead of rejecting the returned promise.
+ *
+ * The truapi client decodes each response inside the value it resolves, and
+ * wraps the whole call with `ResultAsync.fromSafePromise`, which installs no
+ * rejection handler. So when the host's reply doesn't match the client's codec
+ * — a protocol-version skew, or a channel that closed mid-call — the resulting
+ * rejection escapes the `Result` channel entirely and `.match` never sees it,
+ * surfacing as a raw `RangeError` rather than reaching `onErr`. Catching the
+ * `.match` promise re-homes that rejection as a typed
+ * {@link HostResponseDecodeError} that names the call. Both
+ * {@link unwrapHostResult} and {@link mapHostResult} route through here, so
+ * every boundary — throwing and Result-returning — is covered, not just the
+ * accounts adapter.
+ */
+async function matchGuarded<T, E, A, B>(
+    result: ResultAsync<T, E>,
+    label: string,
+    onOk: (value: T) => A,
+    onErr: (error: E) => B,
+    onDecode: (error: HostResponseDecodeError) => B,
+): Promise<A | B> {
+    // `.match` rejects for two reasons: the underlying `ResultAsync` rejected (a
+    // decode failure — what we want to catch), or `onOk`/`onErr` themselves threw
+    // (e.g. `unwrapHostResult`'s err path deliberately throws). Wrap the handler
+    // throws in a sentinel so the `catch` can tell them apart and only re-home a
+    // genuine underlying rejection; a handler throw is rethrown unchanged.
+    try {
+        return await result.match(
+            (value) => {
+                try {
+                    return onOk(value);
+                } catch (thrown) {
+                    throw new HandlerThrow(thrown);
+                }
+            },
+            (error) => {
+                try {
+                    return onErr(error);
+                } catch (thrown) {
+                    throw new HandlerThrow(thrown);
+                }
+            },
+        );
+    } catch (cause) {
+        if (cause instanceof HandlerThrow) throw cause.thrown;
+        return onDecode(
+            cause instanceof HostResponseDecodeError
+                ? cause
+                : new HostResponseDecodeError(label, cause),
+        );
+    }
+}
+
+/** Marks a throw that came from a caller's `onOk`/`onErr`, not the underlying `ResultAsync`. */
+class HandlerThrow {
+    constructor(readonly thrown: unknown) {}
+}
 
 /**
  * Await a host `ResultAsync`, returning its Ok value or throwing a diagnostic
@@ -49,10 +110,17 @@ const log = createLogger("host");
  * throw convention. The flat public operations use {@link mapHostResult} instead.
  */
 export function unwrapHostResult<T, E>(result: ResultAsync<T, E>, label: string): Promise<T> {
-    return result.match(
+    return matchGuarded(
+        result,
+        label,
         (value) => value,
         (error: E) => {
             throw new Error(`${label}: ${formatHostError(error)}`, { cause: error });
+        },
+        // A response the client can't decode would otherwise reject with a raw
+        // `RangeError`; throw it as a typed, named error instead.
+        (decodeError) => {
+            throw decodeError;
         },
     );
 }
@@ -69,9 +137,15 @@ export function mapHostResult<T, U>(
     map: (value: T) => U,
     label: string,
 ): Promise<Result<U, HostError>> {
-    return result.match(
+    // A response the client can't decode would otherwise reject this promise
+    // with a raw `RangeError`; return it as a typed err instead, matching the
+    // `Result` contract these flat public operations advertise.
+    return matchGuarded<T, HostErrorPayload, Result<U, HostError>, Result<U, HostError>>(
+        result,
+        label,
         (value) => ok(map(value)),
         (error) => err(new HostCallFailedError(label, error)),
+        (decodeError) => err(decodeError),
     );
 }
 
@@ -271,7 +345,7 @@ export interface ResultAsync<T, E> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 if (import.meta.vitest) {
-    const { test, expect } = import.meta.vitest;
+    const { test, expect, describe } = import.meta.vitest;
 
     test("getTruApi returns null outside a container", async () => {
         const api = await getTruApi();
@@ -309,5 +383,67 @@ if (import.meta.vitest) {
 
     test("createProofAuthorized is callable", () => {
         expect(typeof createProofAuthorized).toBe("function");
+    });
+
+    // The decode boundary these two helpers share. The truapi client's real
+    // `ResultAsync` *rejects* its underlying promise on a decode failure, which
+    // `.match` surfaces as a rejected promise — modelled here by a fake whose
+    // `.match` rejects. Ok and typed-err doubles mirror neverthrow's `.match`.
+    const okLike = <T>(value: T): ResultAsync<T, never> => ({
+        match: async (onOk) => onOk(value),
+    });
+    const errLike = <E>(error: E): ResultAsync<never, E> => ({
+        match: async (_onOk, onErr) => onErr(error),
+    });
+    const rejectLike = (cause: unknown): ResultAsync<never, never> => ({
+        match: () => Promise.reject(cause),
+    });
+
+    describe("mapHostResult decode boundary", () => {
+        test("a decode rejection becomes err(HostResponseDecodeError) naming the call", async () => {
+            const cause = new RangeError("Offset is outside the bounds of the DataView");
+            const result = await mapHostResult(rejectLike(cause), (v) => v, "createRingVRFProof");
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostResponseDecodeError);
+                expect((result.error as HostResponseDecodeError).call).toBe("createRingVRFProof");
+                expect((result.error as HostResponseDecodeError).cause).toBe(cause);
+            }
+        });
+
+        test("an ok value maps through", async () => {
+            const result = await mapHostResult(okLike(41), (v: number) => v + 1, "getUserId");
+            expect(result.ok && result.value).toBe(42);
+        });
+
+        test("a typed host err becomes HostCallFailedError, not a decode error", async () => {
+            const result = await mapHostResult(errLike({ tag: "Denied" }), (v) => v, "getUserId");
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.error).toBeInstanceOf(HostCallFailedError);
+                expect(result.error).not.toBeInstanceOf(HostResponseDecodeError);
+            }
+        });
+    });
+
+    describe("unwrapHostResult decode boundary", () => {
+        test("a decode rejection throws HostResponseDecodeError naming the call", async () => {
+            const cause = new RangeError("Offset is outside the bounds of the DataView");
+            await expect(unwrapHostResult(rejectLike(cause), "signVrf")).rejects.toMatchObject({
+                name: "HostResponseDecodeError",
+                call: "signVrf",
+                cause,
+            });
+        });
+
+        test("an ok value passes through", async () => {
+            expect(await unwrapHostResult(okLike("hi"), "getUserId")).toBe("hi");
+        });
+
+        test("a typed host err still throws a diagnostic Error, not a decode error", async () => {
+            await expect(
+                unwrapHostResult(errLike({ tag: "Denied" }), "getUserId"),
+            ).rejects.not.toBeInstanceOf(HostResponseDecodeError);
+        });
     });
 }

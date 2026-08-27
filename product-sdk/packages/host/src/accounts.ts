@@ -225,6 +225,14 @@ export type VrfTranscriptItem = { [K in keyof WireVrfTranscriptItem]: Uint8Array
 export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
 
 /**
+ * A call's declared `Err` channel, plus {@link HostResponseDecodeError}: any
+ * host reply can fail to decode if the host and the product's `@parity/truapi`
+ * client are on different protocol versions, so every decoded call can surface
+ * it in addition to its own typed errors.
+ */
+export type WithDecodeError<E> = E | HostResponseDecodeError;
+
+/**
  * Accounts provider handle, backed by `truApi.account.*` / `truApi.signing.*`.
  * Surfaces the user's wallet accounts, app-scoped product accounts, Ring VRF,
  * user identity, connection status, and `PolkadotSigner` factories.
@@ -237,14 +245,6 @@ export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
  * cannot be decoded at all (a host/client protocol-version skew) — see
  * {@link WithDecodeError}.
  */
-/**
- * A call's declared `Err` channel, plus {@link HostResponseDecodeError}: any
- * host reply can fail to decode if the host and the product's `@parity/truapi`
- * client are on different protocol versions, so every decoded call can surface
- * it in addition to its own typed errors.
- */
-export type WithDecodeError<E> = E | HostResponseDecodeError;
-
 export interface AccountsProvider {
     getUserId(): ResultAsync<
         { primaryUsername: string },
@@ -425,13 +425,13 @@ function toWireProductAccountId({
 /**
  * Route a thrown/rejected response-decode error onto the `Result` err channel.
  *
- * The truapi client builds each call's `ResultAsync` with
- * `ResultAsync.fromSafePromise`, which assumes the underlying promise never
- * rejects — but `decodeResponse` runs inside that promise and *can* throw when
- * the host's reply doesn't match the client's codec (a version skew), so the
- * `RangeError` escapes the `Result` channel as an unhandled throw from the
- * transport's message handler. Wrapping the call re-homes that throw as a
- * typed {@link HostResponseDecodeError} that names the call, while ok values
+ * The truapi client catches a decode throw in its message handler and turns it
+ * into a promise rejection, then wraps each call with
+ * `ResultAsync.fromSafePromise`, which installs no rejection handler — so when
+ * the host's reply doesn't match the client's codec (a version skew), that
+ * rejection escapes the `Result` channel rather than landing on its err side,
+ * surfacing as a raw `RangeError`. Wrapping the call re-homes that rejection as
+ * a typed {@link HostResponseDecodeError} that names the call, while ok values
  * and the call's own typed `Err` values pass through untouched.
  */
 function guardDecode<T, E>(
@@ -671,14 +671,13 @@ if (import.meta.vitest) {
 
     /** Minimal fake of the truapi account/signing domains used to test the adapter. */
     function makeFakeClient(opts: { onCall?: (method: string, args: unknown) => void } = {}) {
-        const okMatch = (value: unknown) => ({
-            // neverthrow ResultAsync surface used by the adapter: .map + .match.
-            map: (fn: (v: unknown) => unknown) => okMatch(fn(value)),
-            match: (ok: (v: unknown) => unknown, _err: (e: unknown) => unknown) => ok(value),
-        });
+        // A real neverthrow `okAsync`, not a hand-rolled `{ map, match }` stub:
+        // a stub with no `.then` would be passed through un-awaited by
+        // `guardDecode`'s `Promise.resolve(result)`, so the tests would bypass
+        // the guard's real path. A genuine `ResultAsync` exercises it.
         const method = (name: string, response: unknown) => (args: unknown) => {
             opts.onCall?.(name, args);
-            return okMatch(response);
+            return okAsync(response);
         };
         return {
             account: {

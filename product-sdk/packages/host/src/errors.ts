@@ -145,17 +145,22 @@ export class HostCallFailedError extends HostError {
 }
 
 /**
- * A host call reached the container and the host replied, but the reply could
- * not be decoded — the SCALE codec ran off the end of the frame (typically a
- * `RangeError: Offset is outside the bounds of the DataView`). This almost
- * always means the host and the `@parity/truapi` client the product is built
- * against disagree on the wire shape of that call: a protocol-version skew
- * between the host app and the product bundle.
+ * A host call could not be processed to completion: the `ResultAsync` the
+ * truapi client returns rejected instead of resolving to an ok/err. The usual
+ * cause is a response the client's SCALE codec can't decode (a
+ * `RangeError: Offset is outside the bounds of the DataView`) because the host
+ * and the `@parity/truapi` version the product is built against disagree on the
+ * wire shape of that call — a protocol-version skew. A host channel that closed
+ * mid-call looks identical from here, so this does not assert the skew; the
+ * real error is preserved on {@link cause}.
  *
- * Without this boundary the raw `RangeError` escapes the `Result` channel as an
- * unhandled throw from inside the transport's message handler, giving a stack
- * that names neither the call nor the cause. This names the call and preserves
- * the original error as {@link cause}, so a bug report has somewhere to start.
+ * The truapi client catches the decode throw in its message handler and turns
+ * it into a promise rejection, then wraps the call with
+ * `ResultAsync.fromSafePromise`, which installs no rejection handler — so the
+ * rejection escapes the `Result` channel rather than landing on its err side.
+ * Without this boundary that surfaces as a raw `RangeError` with a stack naming
+ * neither the call nor the cause. This names the call, so a bug report has
+ * somewhere to start.
  */
 export class HostResponseDecodeError extends HostError {
     /** The host-API call whose response failed to decode, e.g. `"createRingVRFProof"`. */
@@ -163,7 +168,7 @@ export class HostResponseDecodeError extends HostError {
 
     constructor(call: string, cause: unknown) {
         super(
-            `Failed to decode the host's response to ${call}. The host app and the @parity/truapi version this product is built against are likely on different protocol versions.`,
+            `Could not process the host's response to ${call}: ${formatHostError(cause)}. The usual cause is a protocol-version skew between the host app and the @parity/truapi version this product is built against; a host channel that closed mid-call looks the same.`,
             { cause },
         );
         this.name = "HostResponseDecodeError";
@@ -219,7 +224,7 @@ if (import.meta.vitest) {
             expect(e.message).toBe("submit failed: timeout");
         });
 
-        test("HostResponseDecodeError names the call and preserves the cause", () => {
+        test("HostResponseDecodeError names the call, interpolates the cause, and preserves it", () => {
             const cause = new RangeError("Offset is outside the bounds of the DataView");
             const e = new HostResponseDecodeError("createRingVRFProof", cause);
             expect(e).toBeInstanceOf(HostError);
@@ -227,7 +232,9 @@ if (import.meta.vitest) {
             expect(e.call).toBe("createRingVRFProof");
             expect(e.cause).toBe(cause);
             expect(e.message).toContain("createRingVRFProof");
-            expect(e.message).toContain("protocol versions");
+            // The rendered cause is in the message, not just on `.cause`.
+            expect(e.message).toContain("Offset is outside the bounds of the DataView");
+            expect(e.message).toContain("protocol-version skew");
         });
 
         test("isHostError narrows host errors only", () => {
