@@ -1,5 +1,70 @@
 # @parity/product-sdk-host
 
+## 0.17.0
+
+### Minor Changes
+
+- 46e3592: **Export `subscribeConnectionStatus` for host-channel connection state.**
+
+  Watching whether the host channel is up previously meant importing `@parity/truapi/sandbox`
+  directly. The callback fires synchronously with the current status and again on every change;
+  the returned function unsubscribes. Repeats of the status you already hold are suppressed.
+
+  ```ts
+  import {
+    subscribeConnectionStatus,
+    type HostConnectionStatus,
+  } from "@parity/product-sdk-host";
+
+  const unsubscribe = subscribeConnectionStatus((status) => setStatus(status));
+  ```
+
+  This is the **transport** channel — for the host's account-level connection, use
+  `AccountsProvider.subscribeAccountConnectionStatus`. The type is `HostConnectionStatus` because
+  `@parity/product-sdk-signer` already exports `ConnectionStatus` for a signer provider's lifecycle:
+  same three states, different meaning.
+
+  Also fixes a stuck status. `@parity/truapi` never clears its cached client when the pipe closes, so
+  a subscriber arriving after a disconnect reported `"connecting"` — permanently, and for every other
+  subscriber too. This holds `"disconnected"` until a real `"connected"` arrives. Still unfixed as of
+  `@parity/truapi` 0.9.0, so the workaround stays until a later release drops it.
+
+  **Testing.** `@parity/product-sdk-host/testing` gains `emitConnectionStatus(status)`, also on
+  `FakeHost`, so a product can drive its reconnecting / offline UI. `setTruApiClient` now notifies live
+  subscribers when it injects or clears a client.
+
+  **Breaking for implementors.** `emitConnectionStatus` is a required member of the exported `FakeHost`
+  interface, so hand-rolled test doubles must add it. Callers of `createFakeHost()` are unaffected.
+
+- 46e3592: **Re-add `previewnet` as a first-class environment.**
+
+  Previewnet was dropped when its identity endpoints weren't secured for public use and its runtime matched paseo. Both have changed: the endpoints are secured, and previewnet now runs a Paseo runtime kept a step ahead of paseo-next-v2 (asset-hub `2000039` vs `2000036`, individuality `1000036` vs `1000032`), so products can build against upcoming runtime changes weeks early.
+
+  - `@parity/product-sdk-descriptors` re-adds the `./previewnet-asset-hub`, `./previewnet-bulletin`, and `./previewnet-individuality` subpath exports, generated fresh against the live endpoints with real (non-zero) `codeHash` values so previewnet is covered by descriptor-drift detection like every other chain.
+  - `@parity/product-sdk-chain-client` re-adds `"previewnet"` to the `Environment` union; `getChainAPI("previewnet")` resolves again, routing to the `previewnet.substrate.dev` endpoints for asset-hub, bulletin, and people (individuality).
+  - `@parity/product-sdk-cloud-storage` re-adds the `previewnet` entry to `CloudStorageNetworks`.
+  - `@parity/product-sdk-host` re-adds `BULLETIN_RPCS.previewnet`.
+
+  Consumers on paseo or a production environment are unaffected; this is purely additive.
+
+### Patch Changes
+
+- 46e3592: **Preserve chain-head operation ordering over TrUAPI.**
+
+  TrUAPI request responses and follow-subscription events travel independently, so a fast body, call, or storage operation can finish before its `Started(operationId)` response reaches the PAPI bridge. The host provider now buffers those early operation events by follow subscription and operation id, emits the JSON-RPC start response first, and then replays the events in arrival order. Buffers are released when the operation, follow subscription, or provider closes. This prevents PAPI from dropping an early completion and waiting indefinitely. No public API changes or consumer migration are required.
+
+- 46e3592: **Use the signed V4 envelope when a runtime also advertises V5.**
+
+  Product-account signers now prefer an advertised Extrinsic V4 format because metadata alone cannot prove that the connected host implements a runtime's V5 authorization pipeline. V5-only runtimes continue to use V5, preserving explicit host capability errors and future authorization support.
+
+- 46e3592: Update `@parity/truapi` to 0.10.0. No SDK API changes: the bump is additive on
+  truapi's side and nothing in `@parity/product-sdk-host` consumes the new surface
+  yet. 0.10.0 adds `createWebSocketProvider(url)` / `connectWebSocketHost(url)` for
+  hosts that serve protocol frames over a WebSocket (so a plain browser tab against
+  such a host is detected as hosted and shares the cached client), and exports the
+  `PREVIEWNET_INDIVIDUALITY` / `PREVIEWNET_ASSET_HUB` well-known chains. Bumping
+  keeps the catalog current with the latest published client.
+
 ## 0.16.0
 
 ### Minor Changes
