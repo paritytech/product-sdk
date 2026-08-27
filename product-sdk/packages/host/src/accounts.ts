@@ -341,30 +341,57 @@ export interface AccountsProvider {
     ): HostSubscription;
 }
 
+/** The transaction-extension version used by V5 general transactions. */
+const GENERAL_TX_EXT_VERSION = 5;
+
 /**
- * Map metadata's supported extrinsic formats to the host wire protocol.
+ * Choose the wire `txExtVersion` — the **transaction-extension** version the
+ * host must assemble under, which is distinct from the extrinsic *format*
+ * version (4 / 5).
  *
- * V4 carries the account signature in its envelope. V5 General transactions
- * delegate authorization to the runtime's extension pipeline, but metadata
- * alone does not say whether the connected host can implement that pipeline.
- * Prefer an advertised V4 until the host protocol can negotiate V5
- * authorization capabilities; V5-only and unknown future runtimes retain the
- * previous highest-version behavior and the host remains authoritative.
+ * - `formatVersions` — `metadata.extrinsic.version`, the extrinsic *formats* the
+ *   runtime accepts (e.g. `[4]`, `[5]`, `[4, 5]`).
+ * - `txExtVersions` — the keys of `metadata.extrinsic.signedExtensions`, the
+ *   transaction-extension versions the runtime supports (its v16
+ *   `transactionExtensionsByVersion`; always includes `0`).
+ *
+ * A V4 signed extrinsic always uses transaction-extension version `0` (a fixed
+ * sentinel, independent of what the extension map contains). Prefer V4 while it
+ * is offered — it carries the account signature in its envelope, and the host
+ * can build it. Only when V4 is absent do we fall to a V5 general transaction,
+ * whose transaction-extension version is `5` (the key the runtime and host
+ * agree on for the general format); require it to actually be present in the
+ * map rather than assuming it.
+ *
+ * Passing the extrinsic *format* number here was the bug (host-rust-core#528):
+ * `5` is both a format version and the general extension version, so it looked
+ * right, but the two are unrelated in general and the host decodes extension
+ * values by this number.
  */
-function selectHostTxExtVersion(versions: readonly number[]): number {
-    if (versions.length === 0) {
+function selectHostTxExtVersion(
+    formatVersions: readonly number[],
+    txExtVersions: readonly number[],
+): number {
+    if (formatVersions.length === 0) {
         throw new Error("No extrinsic version found in metadata");
     }
-    if (versions.includes(4)) {
+    if (formatVersions.includes(4)) {
         return 0;
     }
-    return versions.reduce((acc, version) => Math.max(acc, version), 0);
+    if (txExtVersions.includes(GENERAL_TX_EXT_VERSION)) {
+        return GENERAL_TX_EXT_VERSION;
+    }
+    throw new Error(
+        `Runtime offers no V4 extrinsic and no transaction-extension version ${GENERAL_TX_EXT_VERSION} ` +
+            `(supported: ${txExtVersions.join(", ") || "none"}); cannot select a txExtVersion the host can assemble.`,
+    );
 }
 
 /** Derive the host's transaction-extension version from SCALE metadata. */
 function deriveTxExtVersion(metadata: Uint8Array): number {
-    const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
-    return selectHostTxExtVersion(versions);
+    const extrinsic = unifyMetadata(decAnyMetadata(metadata)).extrinsic;
+    const txExtVersions = Object.keys(extrinsic.signedExtensions).map(Number);
+    return selectHostTxExtVersion(extrinsic.version, txExtVersions);
 }
 
 /** Internal seam so `import.meta.vitest` can stub the metadata decode. @internal */
@@ -595,20 +622,31 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
 if (import.meta.vitest) {
     const { test, expect, vi } = import.meta.vitest;
 
-    test("host signing prefers V4 on a dual V4/V5 runtime", () => {
-        expect(selectHostTxExtVersion([4, 5])).toBe(0);
+    test("host signing prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
+        // txExtVersion 0 regardless of what the extension map lists.
+        expect(selectHostTxExtVersion([4, 5], [0])).toBe(0);
     });
 
-    test("host signing uses V5 when V4 is unavailable", () => {
-        expect(selectHostTxExtVersion([5])).toBe(5);
+    test("host signing uses the general tx-ext version 5 when V4 is unavailable", () => {
+        // The value comes from the extension-version map, not the format list.
+        expect(selectHostTxExtVersion([5], [0, 5])).toBe(5);
     });
 
     test("host signing maps a V4-only runtime to the wire sentinel", () => {
-        expect(selectHostTxExtVersion([4])).toBe(0);
+        expect(selectHostTxExtVersion([4], [0])).toBe(0);
+    });
+
+    test("host signing does not confuse extrinsic format 5 with a tx-ext version", () => {
+        // V5-only runtime that only supports tx-ext version 0 (no general
+        // extension set): the old code returned 5 (the format number); now this
+        // must throw rather than send an unsupported txExtVersion.
+        expect(() => selectHostTxExtVersion([5], [0])).toThrow(/no.*version 5/i);
     });
 
     test("host signing rejects metadata with no extrinsic version", () => {
-        expect(() => selectHostTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+        expect(() => selectHostTxExtVersion([], [0])).toThrow(
+            "No extrinsic version found in metadata",
+        );
     });
 
     /** Minimal fake of the truapi account/signing domains used to test the adapter. */

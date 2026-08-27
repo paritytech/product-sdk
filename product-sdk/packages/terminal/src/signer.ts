@@ -177,29 +177,55 @@ function buildCreateTransactionRequest(
     };
 }
 
+/** The transaction-extension version used by V5 general transactions. */
+const GENERAL_TX_EXT_VERSION = 5;
+
 /**
- * Select the transaction format the paired host must assemble.
+ * Choose the wire `txExtVersion` — the **transaction-extension** version the
+ * paired host must assemble under, which is distinct from the extrinsic
+ * *format* version (4 / 5).
  *
- * V4 carries the account signature in its envelope. V5 General transactions
- * delegate authorization to the runtime's extension pipeline, but metadata
- * alone cannot prove that the paired host implements that pipeline. Prefer an
- * advertised V4 until the host protocol can negotiate V5 authorization
- * capabilities; V5-only and unknown future runtimes retain the previous
- * highest-version behavior.
+ * - `formatVersions` — `metadata.extrinsic.version`, the extrinsic *formats* the
+ *   runtime accepts (e.g. `[4]`, `[5]`, `[4, 5]`).
+ * - `txExtVersions` — the keys of `metadata.extrinsic.signedExtensions`, the
+ *   transaction-extension versions the runtime supports (its v16
+ *   `transactionExtensionsByVersion`; always includes `0`).
+ *
+ * A V4 signed extrinsic always uses transaction-extension version `0` (a fixed
+ * sentinel). Prefer V4 while it is offered — it carries the account signature
+ * in its envelope and the host can build it. Only when V4 is absent do we fall
+ * to a V5 general transaction, whose transaction-extension version is `5` (the
+ * key the runtime and host agree on for the general format); require it to be
+ * present in the map rather than assuming it.
+ *
+ * Passing the extrinsic *format* number here was the bug (host-rust-core#528):
+ * `5` is both a format version and the general extension version, so it looked
+ * right, but the two are unrelated in general and the host decodes extension
+ * values by this number.
  */
-function selectTxExtVersion(versions: readonly number[]): number {
-    if (versions.length === 0) {
+function selectTxExtVersion(
+    formatVersions: readonly number[],
+    txExtVersions: readonly number[],
+): number {
+    if (formatVersions.length === 0) {
         throw new Error("No extrinsic version found in metadata");
     }
-    if (versions.includes(4)) {
+    if (formatVersions.includes(4)) {
         return 0;
     }
-    return versions.reduce((max, version) => Math.max(max, version), 0);
+    if (txExtVersions.includes(GENERAL_TX_EXT_VERSION)) {
+        return GENERAL_TX_EXT_VERSION;
+    }
+    throw new Error(
+        `Runtime offers no V4 extrinsic and no transaction-extension version ${GENERAL_TX_EXT_VERSION} ` +
+            `(supported: ${txExtVersions.join(", ") || "none"}); cannot select a txExtVersion the host can assemble.`,
+    );
 }
 
 function txExtVersionFromMetadata(metadata: Uint8Array): number {
-    const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
-    return selectTxExtVersion(versions);
+    const extrinsic = unifyMetadata(decAnyMetadata(metadata)).extrinsic;
+    const txExtVersions = Object.keys(extrinsic.signedExtensions).map(Number);
+    return selectTxExtVersion(extrinsic.version, txExtVersions);
 }
 
 /**
@@ -563,20 +589,26 @@ if (import.meta.vitest) {
         // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
         // a real phone.
 
-        test("prefers V4 on a dual V4/V5 runtime", () => {
-            expect(selectTxExtVersion([4, 5])).toBe(0);
+        test("prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
+            expect(selectTxExtVersion([4, 5], [0])).toBe(0);
         });
 
-        test("retains V5 when no V4 fallback exists", () => {
-            expect(selectTxExtVersion([5])).toBe(5);
+        test("uses the general tx-ext version 5 when no V4 fallback exists", () => {
+            expect(selectTxExtVersion([5], [0, 5])).toBe(5);
         });
 
         test("maps a V4-only runtime to the wire sentinel", () => {
-            expect(selectTxExtVersion([4])).toBe(0);
+            expect(selectTxExtVersion([4], [0])).toBe(0);
+        });
+
+        test("does not confuse extrinsic format 5 with a tx-ext version", () => {
+            expect(() => selectTxExtVersion([5], [0])).toThrow(/no.*version 5/i);
         });
 
         test("rejects metadata with no extrinsic version", () => {
-            expect(() => selectTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+            expect(() => selectTxExtVersion([], [0])).toThrow(
+                "No extrinsic version found in metadata",
+            );
         });
 
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
