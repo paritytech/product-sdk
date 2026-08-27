@@ -54,7 +54,7 @@ client.destroy();
 
 | | `getChainAPI` (Preset) | `createChainClient` (BYOD) |
 |---|---|---|
-| **When** | Known environments (paseo, devnet; polkadot and kusama reserved), or whatever the host reports when called with no argument | Custom chains or a subset of chains |
+| **When** | Known environments (paseo, devnet; polkadot and kusama reserved), or whatever the host reports when called with no argument | Custom chains or a subset of chains, as long as the host routes them |
 | **Descriptors** | Built-in, lazy-loaded | You import and provide them |
 | **Chains** | Always assetHub + bulletin + individuality | Any combination you choose |
 | **Bundle size** | Slightly larger (~6.3 MB for all 3 chains) | Minimal (only what you import) |
@@ -63,8 +63,11 @@ client.destroy();
 
 **Use `createChainClient`** when you need:
 - Only one chain (e.g., just Asset Hub for contracts)
-- Chains not in the preset list
+- Chains not in the preset list, and the host routes them
 - Minimal bundle size
+
+**Descriptors decide what is typed, the host decides what is reachable.** There is no
+WebSocket fallback, so check with `isChainSupported(genesisHash)` from `@parity/product-sdk-host`.
 
 ## Querying Chain State
 
@@ -168,7 +171,7 @@ destroyAll();
 
 2. **Using unavailable environments** — Only `"paseo"` and `"devnet"` work. `"polkadot"` and `"kusama"` throw.
 
-3. **Not cleaning up** — Call `client.destroy()` when done to close WebSocket connections.
+3. **Not cleaning up** — Call `client.destroy()` when done to close the host provider connections.
 
 4. **Barrel importing descriptors** — Use subpath imports: `@parity/product-sdk-descriptors/paseo-bulletin`, NOT `@parity/product-sdk-descriptors`.
 
