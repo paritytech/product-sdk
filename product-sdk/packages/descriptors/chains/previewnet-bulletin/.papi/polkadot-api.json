@@ -1,0 +1,12 @@
+{
+    "version": 0,
+    "descriptorPath": "generated",
+    "entries": {
+        "previewnet_bulletin": {
+            "wsUrl": "wss://previewnet.substrate.dev/bulletin",
+            "metadata": "../../.papi/metadata/previewnet_bulletin.scale",
+            "genesis": "0x1144acd27f0e5b2c88da7dc12c111e396983dec036ccfb42da5bbb0dd7104e89",
+            "codeHash": "0x5f6f2d48325e874a80f178e2c78c654b7bb916e881aa2a4160ebd1c6b27eef6c"
+        }
+    }
+}

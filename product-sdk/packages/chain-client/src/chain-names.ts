@@ -17,7 +17,7 @@ export const CHAIN_IDENTIFIERS = {
 } as const satisfies Record<string, HostChainIdentifier>;
 
 /** Every known environment. The public {@link Environment} union derives from it. */
-export const ENVIRONMENTS = ["polkadot", "kusama", "paseo", "devnet"] as const;
+export const ENVIRONMENTS = ["polkadot", "kusama", "paseo", "previewnet", "devnet"] as const;
 
 if (import.meta.vitest) {
     const { test, expect } = import.meta.vitest;
