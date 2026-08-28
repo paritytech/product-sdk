@@ -7,7 +7,7 @@ on:
       - "product-sdk/**"
       - ".github/workflows/product-sdk-e2e.yml"
   pull_request:
-    branches: [main]
+    branches: [main, "feat/nfts"]
     paths:
       - "product-sdk/**"
       - ".github/workflows/product-sdk-e2e.yml"
