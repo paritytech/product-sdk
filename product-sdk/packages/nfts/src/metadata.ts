@@ -31,6 +31,38 @@ import type { ImageRef, RawBytes } from "./types.js";
 
 const HEX = "0123456789abcdef";
 
+/**
+ * The `name` metadata key as bytes, encoded once.
+ *
+ * Exact-key reads take the key as a plain `Uint8Array`, so a paged read builds
+ * this once rather than per collection per page.
+ */
+export const NAME_KEY: Uint8Array = new TextEncoder().encode("name");
+
+/**
+ * The metadata keys a paged read can fetch by exact key.
+ *
+ * The three the typed fields come from. Encoded once, since a page asks for all
+ * of them for every item in its window.
+ *
+ * This is the whole of what a page can resolve without a prefix scan: the open
+ * bag on {@link CollectionItem.attributes} has no fixed key list to ask for, so
+ * these are the fields a page carries. They are a convention rather than a
+ * schema — see the module doc — which is exactly why the bag exists as well.
+ */
+export const TYPED_KEYS = {
+    name: NAME_KEY,
+    image: new TextEncoder().encode("image"),
+    rarity: new TextEncoder().encode("rarity"),
+} as const;
+
+/**
+ * Reused across entries: a whole-map metadata dump decodes one key per row, and
+ * a fresh `TextDecoder` per row is pure allocation. Stateless for non-streaming
+ * `decode` calls, so sharing it is safe.
+ */
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
 /** Accepts either PAPI shape for a byte string. */
 export function toBytes(raw: RawBytes): Uint8Array {
     if (raw instanceof Uint8Array) return raw;
@@ -75,7 +107,7 @@ function isText(decoded: string): boolean {
  */
 export function asText(bytes: Uint8Array): string | null {
     try {
-        const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        const decoded = UTF8.decode(bytes);
         return isText(decoded) ? decoded : null;
     } catch {
         return null;
@@ -90,8 +122,9 @@ export function asText(bytes: Uint8Array): string | null {
  * reading `name` gets `"Hollow Beacon #0"` and one reading `image` gets a hex
  * digest, without the pallet having to declare which is which.
  *
- * Numbers are never parsed. The live chain's `energy` is the two bytes `"21"`,
- * so a value that looks numeric is still just text here.
+ * Numbers are never parsed, and nothing is lost by that. The live chain's
+ * `energy` holds the two ASCII characters `2` and `1` — the chain stored text
+ * there, not a binary number — so a value that looks numeric really is text.
  */
 export function decodeMetadataValue(raw: RawBytes): string {
     const bytes = toBytes(raw);
@@ -116,7 +149,10 @@ export function decodeMetadataKey(raw: RawBytes): string {
  * unexporting later would be a breaking change where exporting later is not.
  */
 export function mergeMetadata(...layers: Array<Record<string, string>>): Record<string, string> {
-    return Object.assign({}, ...layers);
+    // Prototype-free for the same reason the layers are: `Object.assign` assigns,
+    // so a `__proto__` key would reach the target's setter rather than land as a
+    // key of the merged bag.
+    return Object.assign(Object.create(null), ...layers);
 }
 
 /**
@@ -197,7 +233,8 @@ if (import.meta.vitest) {
         });
 
         test("a numeric-looking value stays text", () => {
-            // `energy` is the two bytes "21", not a SCALE integer.
+            // The live chain stores `energy` as the ASCII characters "2"
+            // and "1": text, not a binary number.
             expect(decodeMetadataValue(utf8("21"))).toBe("21");
         });
 

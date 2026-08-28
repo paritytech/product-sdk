@@ -6,7 +6,7 @@
  * Deliberately structural rather than a pinned descriptor, the same approach as
  * `IndividualityChain` in `@parity/product-sdk-individuality` and for the same
  * reason: the SDK should not pin a genesis hash to read a catalogue. Anything
- * exposing these five storage entries **and** the raw client's
+ * exposing these six storage entries **and** the raw client's
  * `getFinalizedBlock` satisfies it — a real
  * `ChainClient<{ assetHub: paseo_asset_hub }>`, a future deployment, or a
  * hand-rolled test double.
@@ -31,6 +31,7 @@
  * `descriptors/chains/paseo-asset-hub/.papi/polkadot-api.json` pins:
  *
  * ```
+ * Scarcity.NextCollectionId     value             -> u32   (exclusive end of the id space)
  * Scarcity.Collections          map u32           -> { owner, pending_owner, next_item_index, item_count, metadata_count, ... }
  * Scarcity.ItemDefs             map (u32, u32)    -> { supply, live_supply, metadata_count, deposit }
  * Scarcity.CollectionMetadata   map (u32, Vec<u8>)      -> { value, deposit }
@@ -56,7 +57,7 @@ export interface Entry<Keys extends unknown[], Value> {
 }
 
 /**
- * The client these reads take: five storage entries, and the raw client they pin
+ * The client these reads take: six storage entries, and the raw client they pin
  * a block with.
  *
  * A client from `getChainAPI(...)` or
@@ -69,58 +70,127 @@ export interface NftsChain {
     assetHub: {
         query: {
             Scarcity: {
+                /**
+                 * The exclusive upper bound of the collection id space.
+                 *
+                 * `create_collection` takes no id — the runtime allocates from
+                 * this counter — and `delete_collection` documents that "deleted
+                 * collection identifiers are never reused". So ids run
+                 * sequentially from 0, the space is `[0, NextCollectionId)`, and
+                 * one unkeyed read bounds it. That is what makes an id window a
+                 * page rather than a guess.
+                 */
+                NextCollectionId: {
+                    getValue(options: ReadAt): Promise<number>;
+                };
                 Collections: {
                     getValue(
                         collection: number,
                         options: ReadAt,
                     ): Promise<RawCollection | undefined>;
                     /**
-                     * A one-key map, so this dumps it whole — the only way to
-                     * enumerate collections that accept no claims, which
-                     * `NftClaims.CollectionMinters` by definition cannot name.
-                     * Costs an app nothing extra in descriptor pruning: same
-                     * whitelist entry as `getValue`, second accessor.
+                     * Many records in one round trip, in the order the keys were
+                     * given, `undefined` where a record is missing.
+                     *
+                     * What the claimable read joins its registry against: the
+                     * ids come from `CollectionMinters`, so they are known up
+                     * front and there is no reason to spend a round trip each.
                      */
-                    getEntries(options: ReadAt): Promise<Array<Entry<[number], RawCollection>>>;
+                    getValues(
+                        keys: Array<[number]>,
+                        options: ReadAt,
+                    ): Promise<Array<RawCollection | undefined>>;
                 };
                 /**
-                 * A two-key map, so this scans one collection. See the note on
-                 * the module doc before "simplifying" it to a full dump.
+                 * A two-key map, read by exact `(collection, item)` key so a
+                 * catalogue page fetches only its own window. See the module doc
+                 * on why this is a genuine two-key map and not an array key.
                  */
                 ItemDefs: {
-                    getEntries(
-                        collection: number,
+                    /**
+                     * An explicit window of item indices, in one round trip.
+                     *
+                     * How a catalogue page reads definitions. `delete_item`
+                     * documents that item indices are never reused, so a window
+                     * is a page here for the same reason it is for collection
+                     * ids.
+                     */
+                    getValues(
+                        keys: Array<[number, number]>,
                         options: ReadAt,
-                    ): Promise<Array<Entry<[number, number], RawItemDef>>>;
+                    ): Promise<Array<RawItemDef | undefined>>;
                 };
+                /**
+                 * Read two ways, because the two callers want different slices.
+                 *
+                 * A catalogue read wants one collection's defaults, so it scans by
+                 * prefix. A listing page wants the `name` of specific collections,
+                 * which it asks for by exact key. Both are the same descriptor
+                 * whitelist entry.
+                 */
                 CollectionMetadata: {
                     getEntries(
                         collection: number,
                         options: ReadAt,
                     ): Promise<Array<Entry<[number, RawBytes], RawMetadataEntry>>>;
+                    /**
+                     * Exact `(collection, key)` lookups, in the order given.
+                     *
+                     * How a page reads names: one round trip for exactly the
+                     * rows wanted, rather than a dump that carries every key of
+                     * every collection when only `name` is asked for.
+                     *
+                     * The key is a plain `Uint8Array`, not a PAPI `Binary` —
+                     * PAPI 2.x generates `[number, Uint8Array]` for this
+                     * `Vec<u8>` key, the same split {@link RawBytes} exists for.
+                     * So this needs no `polkadot-api` dependency.
+                     */
+                    getValues(
+                        keys: Array<[number, Uint8Array]>,
+                        options: ReadAt,
+                    ): Promise<Array<RawMetadataEntry | undefined>>;
                 };
                 /**
-                 * Scanned by collection rather than per item: one round trip
-                 * brings back every key of every item, which is what keeps a
-                 * catalogue read at four reads regardless of how many items it
-                 * holds.
+                 * Read both ways. A page asks for the keys it can name by exact
+                 * key; `attributes: true` scans one collection instead, because the
+                 * open bag's keys cannot be named in advance.
                  */
                 ItemMetadata: {
                     getEntries(
                         collection: number,
                         options: ReadAt,
                     ): Promise<Array<Entry<[number, number, RawBytes], RawMetadataEntry>>>;
+                    /**
+                     * Exact `(collection, item, key)` lookups, in the order given.
+                     *
+                     * This is what makes a catalogue page affordable. The entry is
+                     * a three-key map, so the typed keys of many items come back
+                     * in one round trip — where the open `attributes` bag, whose
+                     * keys are not known in advance, would need a prefix scan per
+                     * item. That asymmetry is why a page carries typed fields and
+                     * not the bag.
+                     */
+                    getValues(
+                        keys: Array<[number, number, Uint8Array]>,
+                        options: ReadAt,
+                    ): Promise<Array<RawMetadataEntry | undefined>>;
                 };
             };
             NftClaims: {
                 /**
-                 * Dumped whole, deliberately. This map *is* the registry of
-                 * claimable collections — "a collection with no entry cannot be
-                 * claimed into" — so it is small by design and there is no
-                 * prefix to scan by.
+                 * The registry: "a collection with no entry cannot be claimed
+                 * into". Keyed by collection id, so a page probes it over a window
+                 * of ids rather than dumping it.
                  */
                 CollectionMinters: {
-                    getEntries(options: ReadAt): Promise<Array<Entry<[number], RawMinter>>>;
+                    /**
+                     * Keyed by collection id, so a page fills in `selection` for
+                     * its window without dumping the registry.
+                     */
+                    getValues(
+                        keys: Array<[number]>,
+                        options: ReadAt,
+                    ): Promise<Array<RawMinter | undefined>>;
                 };
             };
         };
@@ -143,12 +213,22 @@ export interface NftsChain {
  * The abort check lives here because `getFinalizedBlock` takes no options and so
  * cannot carry a signal itself — without it an already-cancelled read would
  * still cost a round trip.
+ *
+ * Pass `given` to address a block a caller already has. Two reads pin their own
+ * blocks by default, which is right for two unrelated questions and wrong for
+ * one question asked in pages: a paged walk over its own snapshots is not a
+ * walk of any single chain state.
  */
 export async function pinBlock(
     chain: NftsChain,
     signal: AbortSignal | undefined,
+    given?: FinalizedSnapshot,
 ): Promise<FinalizedSnapshot> {
     signal?.throwIfAborted();
+    // A caller that already has a snapshot is joining it rather than opening a
+    // new one — several reads, or several pages of one read, addressing a single
+    // block. It costs no round trip, and the abort check above still applies.
+    if (given !== undefined) return given;
     const block = await chain.raw.assetHub.getFinalizedBlock();
     return { blockHash: block.hash, blockNumber: block.number };
 }
@@ -192,6 +272,27 @@ if (import.meta.vitest) {
             controller.abort();
             await expect(pinBlock(chain, controller.signal)).rejects.toThrow();
             expect(fetches()).toBe(0);
+        });
+    });
+
+    describe("pinBlock with a given snapshot", () => {
+        test("joins it without a round trip", async () => {
+            const { chain, fetches } = fakeChain();
+            const given = { blockHash: `0x${"aa".repeat(32)}`, blockNumber: 12 };
+            expect(await pinBlock(chain, undefined, given)).toEqual(given);
+            expect(fetches()).toBe(0);
+        });
+
+        test("an aborted signal still throws before anything else", async () => {
+            const { chain } = fakeChain();
+            const controller = new AbortController();
+            controller.abort();
+            await expect(
+                pinBlock(chain, controller.signal, {
+                    blockHash: BLOCK.hash,
+                    blockNumber: BLOCK.number,
+                }),
+            ).rejects.toThrow();
         });
     });
 

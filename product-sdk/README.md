@@ -14,6 +14,7 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-cloud-storage` | Upload and retrieve data via Cloud Storage (currently backed by the Polkadot Bulletin Chain) |
 | `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |
 | `@parity/product-sdk-individuality` | Read a person's personhood state, usernames, and the game and its prize draws, sign up for a game, and dispatch calls under a person origin |
+| `@parity/product-sdk-nfts` | Read Scarcity NFT collections and their item catalogues on Asset Hub |
 | `@parity/product-sdk-keys` | Hierarchical key derivation, session keys, and sr25519 product-account derivation |
 | `@parity/product-sdk-local-storage` | Key-value local storage with automatic host/browser backend detection |
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |

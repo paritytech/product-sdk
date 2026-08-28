@@ -42,8 +42,6 @@ export interface ClaimableCollection {
      * note on {@link CollectionItem.attributes}.
      */
     name: string | null;
-    /** How a claim into this collection picks its item. */
-    selection: ItemSelection;
     /**
      * Live item definitions in the collection, from `Collections.item_count`.
      *
@@ -62,6 +60,8 @@ export interface ClaimableCollection {
      * same account today, and this is the authoritative one.
      */
     owner: string | null;
+    /** How a claim into this collection picks its item. */
+    selection: ItemSelection;
 }
 
 /**
@@ -78,7 +78,7 @@ export interface ClaimableCollection {
  * whose collection record is missing appears in
  * {@link ClaimableCollection}-shaped reads and **cannot** appear here.
  */
-export interface CollectionSummary {
+export interface Collection {
     /** The Scarcity collection id. */
     id: number;
     /** The collection's `name` metadata, or `null` when it sets none. */
@@ -133,7 +133,15 @@ export interface CollectionItem {
     /** The item's `rarity` metadata, or `null` when unset. */
     rarity: string | null;
     /**
-     * Every metadata key on the item, collection defaults merged underneath.
+     * Every metadata key on the item, collection defaults merged underneath, or
+     * `null` when the read was not asked for them.
+     *
+     * **`null` is "not fetched", not "no metadata".** An empty object would claim
+     * the item carries no metadata, which is a different statement. Pass
+     * `attributes: true` to `getCollectionItems` to fill this in; it costs a
+     * prefix scan of the whole collection's item metadata, because these keys are
+     * open and cannot be asked for by name the way `name`, `image` and `rarity`
+     * can.
      *
      * **The schema is open.** `Scarcity` stores metadata as untyped
      * `Vec<u8>` → `Vec<u8>` in three layers (`CollectionMetadata`,
@@ -146,32 +154,36 @@ export interface CollectionItem {
      * shape.
      *
      * Values are decoded as UTF-8 when the bytes are valid printable UTF-8, and
-     * as `0x`-hex otherwise. Numbers are **not** parsed: one live item's `energy`
-     * is the two bytes `"21"`, text and not a SCALE-encoded integer, so a caller
-     * wanting a number parses it and decides what a malformed one means.
+     * as `0x`-hex otherwise. Numbers are **not** parsed, and nothing is lost by
+     * that: the live chain's `energy` holds the two ASCII characters `2` and
+     * `1`, so the chain stored the text "21" there rather than a binary number.
+     * A caller wanting a number parses the string and decides what a malformed
+     * one means.
      *
      * `transferability` is absent on purpose. The field appears in earlier
      * `pallet_nfts`-based designs (`CollectionSetting::TransferableItems`) and
      * has no source in `Scarcity` — neither `ItemDefs` nor any metadata key on
      * the live chain carries it.
      */
-    attributes: Record<string, string>;
+    attributes: Record<string, string> | null;
 }
 
-/** A collection's full item catalogue. */
+/** One page of a collection's item catalogue. */
 export interface CollectionDetail {
     id: number;
     /** The collection's `name` metadata, or `null` when it sets none. */
     name: string | null;
     /**
-     * Live item definitions, from `Collections.item_count`.
+     * Live item definitions in the whole collection, from
+     * `Collections.item_count`.
      *
-     * Normally `items.length`. It can exceed it while a definition is being
-     * removed, since the count and the entries are separate writes — reported as
-     * the chain has it rather than recomputed.
+     * The size of the catalogue, not of this page — compare `items.length`. It
+     * can also disagree with the definitions on chain while one is being removed,
+     * since the count and the entries are separate writes; reported as the chain
+     * has it rather than recomputed.
      */
     itemCount: number;
-    /** The definitions themselves, ascending by index. */
+    /** The definitions in this page, ascending by index. */
     items: CollectionItem[];
 }
 
@@ -182,13 +194,44 @@ export interface CollectionDetail {
  * record, the chain says so, and that answer travels on the `ok` channel.
  */
 export type CollectionItemsResult =
-    | { tag: "Found"; at: FinalizedSnapshot; collection: CollectionDetail }
+    | {
+          tag: "Found";
+          at: FinalizedSnapshot;
+          /**
+           * The exclusive upper bound of this collection's item index space, from
+           * `Collections.next_item_index`.
+           *
+           * Counts every item ever defined here, since `delete_item` never reuses
+           * an index; `collection.itemCount` counts the ones still alive. Named as
+           * the listing reads name theirs, and carried at the same depth, so one
+           * pager works against any read here.
+           */
+          idCeiling: number;
+          /**
+           * The `fromId` a next page should use, or `null` at the end of the index
+           * space.
+           *
+           * The only end signal — a page can be short of `limit` without being
+           * the last one.
+           */
+          nextId: number | null;
+          collection: CollectionDetail;
+      }
     | { tag: "NotFound"; at: FinalizedSnapshot; id: number };
 
 /** `Scarcity.Collections`, narrowed to the fields these reads use. */
 export interface RawCollection {
     owner: string;
     item_count: number;
+    /**
+     * The exclusive end of this collection's item index space.
+     *
+     * Distinct from `item_count`: indices are allocated sequentially and never
+     * reused, so this counts every item ever defined while `item_count` counts
+     * the live ones. A paged catalogue read walks against this, which is why it
+     * needs no extra read to learn where the space ends.
+     */
+    next_item_index: number;
 }
 
 /** `Scarcity.ItemDefs`. */

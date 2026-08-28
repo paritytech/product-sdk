@@ -25,6 +25,7 @@
 
 import { createChainClient } from "@parity/product-sdk-chain-client";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
+import type { FinalizedSnapshot } from "@parity/product-sdk-nfts";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 import {
     getCollections,
@@ -45,6 +46,11 @@ const $allCount = getEl<HTMLSpanElement>("all-count");
 const $allIds = getEl<HTMLSpanElement>("all-ids");
 const $allClaimableCount = getEl<HTMLSpanElement>("all-claimable-count");
 const $allUnclaimableIds = getEl<HTMLSpanElement>("all-unclaimable-ids");
+const $allIdCeiling = getEl<HTMLSpanElement>("all-id-ceiling");
+const $pagedPages = getEl<HTMLSpanElement>("paged-pages");
+const $pagedIds = getEl<HTMLSpanElement>("paged-ids");
+const $pagedAgrees = getEl<HTMLSpanElement>("paged-agrees");
+const $pagedBlocks = getEl<HTMLSpanElement>("paged-blocks");
 const $collectionId = getEl<HTMLSpanElement>("collection-id");
 const $collectionName = getEl<HTMLSpanElement>("collection-name");
 const $collectionSelection = getEl<HTMLSpanElement>("collection-selection");
@@ -87,7 +93,10 @@ function describeError(error: unknown): string {
  */
 async function readAllCollections(): Promise<void> {
     if (!chain) return;
-    const all = await getCollections(chain);
+    // A page, not the chain. `limit` defaults to 100 and this asks explicitly,
+    // because a panel labelled "every collection" that silently shows the first
+    // hundred is the misreading worth designing out of the demo.
+    const all = await getCollections(chain, { limit: 100 });
     if (!all.ok) {
         $allCount.textContent = "error";
         log(`getCollections failed: ${describeError(all.error)}`, "err");
@@ -104,15 +113,75 @@ async function readAllCollections(): Promise<void> {
     $allUnclaimableIds.textContent = unclaimable.map((c) => c.id).join(",") || "(none)";
 
     log(
-        `getCollections: ${collections.length} on chain at #${at.blockNumber}, ` +
-            `${unclaimable.length} accepting no claims`,
+        `getCollections: ${collections.length} in this page at #${at.blockNumber}, ` +
+            `${unclaimable.length} accepting no claims, ` +
+            `${all.value.nextId === null ? "no further pages" : `next page from ${all.value.nextId}`}`,
         "ok",
+    );
+
+    await readPaged(new Map(collections.map((c) => [c.id, c.name])), at);
+}
+
+/**
+ * Walk the id space in small pages and check the result against the bigger page.
+ *
+ * Page size 2 so a chain carrying a handful of collections still takes several
+ * pages, exercising `nextId` and `fromId` against a live chain rather than
+ * returning everything in one window. `at` is the other half: pinning is only
+ * observably doing its job on a chain that is producing blocks.
+ */
+async function readPaged(
+    onePage: Map<number, string | null>,
+    snapshot: FinalizedSnapshot,
+): Promise<void> {
+    if (!chain) return;
+
+    const ids: number[] = [];
+    const names = new Map<number, string | null>();
+    let fromId: number | null = 0;
+    let pages = 0;
+    const blocks = new Set<number>();
+
+    while (fromId !== null && pages < 50) {
+        // `at` pins every page to the block the first read used, so this walk and
+        // the list it is checked against describe one chain state.
+        const page = await getCollections(chain, { fromId, limit: 2, at: snapshot });
+        if (!page.ok) {
+            $pagedPages.textContent = "error";
+            log(`paged getCollections failed: ${describeError(page.error)}`, "err");
+            return;
+        }
+        for (const collection of page.value.collections) {
+            ids.push(collection.id);
+            names.set(collection.id, collection.name);
+        }
+        $allIdCeiling.textContent = String(page.value.idCeiling);
+        blocks.add(page.value.at.blockNumber);
+        fromId = page.value.nextId;
+        pages += 1;
+    }
+    $pagedBlocks.textContent = String(blocks.size);
+
+    $pagedPages.textContent = String(pages);
+    $pagedIds.textContent = ids.join(",") || "-";
+
+    // Same ids, and the same name for each — so a walk in small pages sees what
+    // one page big enough for the whole chain sees.
+    const sameIds = ids.length === onePage.size && ids.every((id) => onePage.has(id));
+    const sameNames = ids.every((id) => names.get(id) === onePage.get(id));
+    $pagedAgrees.textContent = sameIds && sameNames ? "yes" : "no";
+    log(
+        `paged walk: ${ids.length} collections over ${pages} pages, ` +
+            `agrees with the single page: ${sameIds && sameNames}`,
+        sameIds && sameNames ? "ok" : "err",
     );
 }
 
 async function readCatalogue(id: number): Promise<void> {
     if (!chain) return;
-    const catalogue = await getCollectionItems(chain, id);
+    // Paged, like everything else here: `limit` decides the response size, and
+    // `attributes` is what a page trades away for that.
+    const catalogue = await getCollectionItems(chain, id, { limit: 50, attributes: true });
     if (!catalogue.ok) {
         $catalogueTag.textContent = "error";
         log(`getCollectionItems(${id}) failed: ${describeError(catalogue.error)}`, "err");
@@ -171,7 +240,7 @@ async function read(): Promise<void> {
         await readCatalogue(first.id);
 
         // The miss is a success value, and reading it is the only way to see that.
-        const missing = await getCollectionItems(chain, MISSING_COLLECTION);
+        const missing = await getCollectionItems(chain, MISSING_COLLECTION, { limit: 1 });
         $missingTag.textContent = missing.ok ? missing.value.tag : "error";
     } finally {
         $btnRefresh.disabled = false;

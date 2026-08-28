@@ -19,7 +19,11 @@ import { numberIn, waitForAppReady } from "./helpers";
  *
  * SDK surface tested:
  *   - getClaimableCollections -> NftClaims.CollectionMinters + Scarcity.Collections/CollectionMetadata
- *   - getCollections       -> Scarcity.Collections dumped whole, annotated from the registry
+ *   - getCollections       -> Scarcity.NextCollectionId + an exact-key window, annotated from
+ *                              the registry. Every read here is paged; `limit` defaults rather
+ *                              than meaning "everything"
+ *   - getCollections paged -> a small-page walk pinned with `at`, cross-checked against a
+ *                              single larger page
  *   - getCollectionItems      -> Scarcity.ItemDefs/ItemMetadata prefix scans, merged metadata
  *   - the structural chain contract, satisfied by a real ChainClient
  */
@@ -79,6 +83,34 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
         expect(claimableHere + unclaimableIds.length).toBe(allIds.length);
         for (const id of unclaimableIds) expect(allIds).toContain(id);
         await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("accepting no claims");
+
+        // -- getCollections, paged by id window ----------------------------
+        // The id space is bounded by `NextCollectionId`, which is exclusive, so
+        // it is at least as large as the highest live id plus one.
+        const ceiling = await numberIn(frame, "all-id-ceiling");
+        expect(ceiling).toBeGreaterThanOrEqual(allIds.length);
+        expect(ceiling).toBeGreaterThan(Math.max(...allIds));
+
+        // Several pages at limit 2, so `nextId` is actually followed rather than
+        // the whole chain arriving in one window.
+        expect(await numberIn(frame, "paged-pages")).toBeGreaterThan(1);
+
+        const pagedIdsText = await frame.locator('[data-testid="paged-ids"]').textContent();
+        const pagedIds = pagedIdsText!
+            .trim()
+            .split(",")
+            .map((id) => Number(id));
+        // Paging must find exactly what the single page found, in the same order.
+        expect(pagedIds).toEqual(allIds);
+
+        // A walk in pages of two sees exactly what one page big enough for the
+        // whole chain sees — same ids, same name for each — so `fromId` / `nextId`
+        // are stepping the id space rather than skipping or repeating.
+        await expect(frame.locator('[data-testid="paged-agrees"]')).toHaveText("yes");
+
+        // The walk passed `at`, so every page read at one block however many
+        // blocks the chain produced while it ran.
+        expect(await numberIn(frame, "paged-blocks")).toBe(1);
 
         // -- getCollectionItems, on the first registered collection --------
         await expect(frame.locator('[data-testid="catalogue-tag"]')).toHaveText("Found");
