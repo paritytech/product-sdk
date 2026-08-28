@@ -590,25 +590,41 @@ if (import.meta.vitest) {
         // a real phone.
 
         test("prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
-            expect(selectTxExtVersion([4, 5], [0])).toBe(0);
+            expect(selectTxExtVersion([4, 5])).toBe(0);
         });
 
-        test("uses the general tx-ext version 5 when no V4 fallback exists", () => {
-            expect(selectTxExtVersion([5], [0, 5])).toBe(5);
+        test("uses the V5 selector when the runtime offers no V4", () => {
+            expect(selectTxExtVersion([5])).toBe(5);
         });
 
         test("maps a V4-only runtime to the wire sentinel", () => {
-            expect(selectTxExtVersion([4], [0])).toBe(0);
+            expect(selectTxExtVersion([4])).toBe(0);
         });
 
-        test("does not confuse extrinsic format 5 with a tx-ext version", () => {
-            expect(() => selectTxExtVersion([5], [0])).toThrow(/no.*version 5/i);
+        test("prefers V5 over a format it does not know", () => {
+            // max(formats) would send 6, which no host accepts.
+            expect(selectTxExtVersion([5, 6])).toBe(5);
+        });
+
+        test("rejects a runtime offering neither format 4 nor 5", () => {
+            expect(() => selectTxExtVersion([6])).toThrow(/no extrinsic format 4 or 5/i);
         });
 
         test("rejects metadata with no extrinsic version", () => {
-            expect(() => selectTxExtVersion([], [0])).toThrow(
-                "No extrinsic version found in metadata",
-            );
+            expect(() => selectTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+        });
+
+        test("txExtVersionFromMetadata reads the format list out of every tracked chain's metadata", async () => {
+            const { readFileSync, readdirSync } = await import("node:fs");
+            const dir = new URL("../../descriptors/.papi/metadata/", import.meta.url);
+            const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
+
+            expect(blobs).toHaveLength(11);
+            // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
+            for (const name of blobs) {
+                const metadata = new Uint8Array(readFileSync(new URL(name, dir)));
+                expect(txExtVersionFromMetadata(metadata), name).toBe(0);
+            }
         });
 
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);

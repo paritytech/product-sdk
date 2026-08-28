@@ -705,30 +705,41 @@ if (import.meta.vitest) {
     const { test, expect, vi, describe } = import.meta.vitest;
 
     test("host signing prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
-        // txExtVersion 0 regardless of what the extension map lists.
-        expect(selectHostTxExtVersion([4, 5], [0])).toBe(0);
+        expect(selectHostTxExtVersion([4, 5])).toBe(0);
     });
 
-    test("host signing uses the general tx-ext version 5 when V4 is unavailable", () => {
-        // The value comes from the extension-version map, not the format list.
-        expect(selectHostTxExtVersion([5], [0, 5])).toBe(5);
+    test("host signing uses the V5 selector when the runtime offers no V4", () => {
+        expect(selectHostTxExtVersion([5])).toBe(5);
     });
 
     test("host signing maps a V4-only runtime to the wire sentinel", () => {
-        expect(selectHostTxExtVersion([4], [0])).toBe(0);
+        expect(selectHostTxExtVersion([4])).toBe(0);
     });
 
-    test("host signing does not confuse extrinsic format 5 with a tx-ext version", () => {
-        // V5-only runtime that only supports tx-ext version 0 (no general
-        // extension set): the old code returned 5 (the format number); now this
-        // must throw rather than send an unsupported txExtVersion.
-        expect(() => selectHostTxExtVersion([5], [0])).toThrow(/no.*version 5/i);
+    test("host signing prefers V5 over a format it does not know", () => {
+        // max(formats) would send 6, which no host accepts.
+        expect(selectHostTxExtVersion([5, 6])).toBe(5);
+    });
+
+    test("host signing rejects a runtime offering neither format 4 nor 5", () => {
+        expect(() => selectHostTxExtVersion([6])).toThrow(/no extrinsic format 4 or 5/i);
     });
 
     test("host signing rejects metadata with no extrinsic version", () => {
-        expect(() => selectHostTxExtVersion([], [0])).toThrow(
-            "No extrinsic version found in metadata",
-        );
+        expect(() => selectHostTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+    });
+
+    test("deriveTxExtVersion reads the format list out of every tracked chain's metadata", async () => {
+        const { readFileSync, readdirSync } = await import("node:fs");
+        const dir = new URL("../../descriptors/.papi/metadata/", import.meta.url);
+        const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
+
+        expect(blobs).toHaveLength(11);
+        // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
+        for (const name of blobs) {
+            const metadata = new Uint8Array(readFileSync(new URL(name, dir)));
+            expect(deriveTxExtVersion(metadata), name).toBe(0);
+        }
     });
 
     /** Minimal fake of the truapi account/signing domains used to test the adapter. */
