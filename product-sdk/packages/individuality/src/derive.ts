@@ -53,6 +53,26 @@ export function missesInWindow(history: number, window: number): number {
 function projectedMisses(history: number, window: number): number {
     return missesInWindow((history << 1) & 0xff, window);
 }
+/**
+ * Project candidate progress using the runtime's streak-weighted scoring.
+ *
+ * An absence resets the next attended streak to one. Otherwise the next game
+ * increments the current attended streak before adding it to the score.
+ */
+function candidateGamesRemaining(
+    participant: PersonhoodParticipant,
+    personhoodThreshold: number,
+): number {
+    let score = participant.score;
+    let streak = participant.streak.tag === "Attended" ? participant.streak.count : 0;
+    let games = 0;
+    while (score < personhoodThreshold) {
+        streak += 1;
+        score += streak;
+        games += 1;
+    }
+    return games;
+}
 
 /**
  * Derive a person's membership standing from one pinned snapshot.
@@ -109,6 +129,10 @@ export function derivePersonhoodState(snapshot: PersonhoodInputs): PersonhoodSta
                       tag: "Candidate",
                       score: participant.score,
                       personhoodThreshold: snapshot.personhoodThreshold,
+                      gamesRemaining: candidateGamesRemaining(
+                          participant,
+                          snapshot.personhoodThreshold,
+                      ),
                   };
 
         default:
@@ -213,7 +237,7 @@ if (import.meta.vitest) {
                         }),
                     }),
                 ),
-            ).toEqual({ tag: "Candidate", score: 7, personhoodThreshold: 5 });
+            ).toEqual({ tag: "Candidate", score: 7, personhoodThreshold: 5, gamesRemaining: 0 });
         });
 
         test("reports Candidate with the participant's score against the snapshot threshold", () => {
@@ -228,7 +252,7 @@ if (import.meta.vitest) {
                         }),
                     }),
                 ),
-            ).toEqual({ tag: "Candidate", score: 3, personhoodThreshold: 5 });
+            ).toEqual({ tag: "Candidate", score: 3, personhoodThreshold: 5, gamesRemaining: 1 });
         });
 
         test("is MembershipReady once personhood is reached before recognition", () => {
@@ -399,7 +423,7 @@ if (import.meta.vitest) {
                         }),
                     }),
                 ),
-            ).toEqual({ tag: "Candidate", score: 5, personhoodThreshold: 5 });
+            ).toEqual({ tag: "Candidate", score: 5, personhoodThreshold: 5, gamesRemaining: 0 });
         });
 
         test("handles the attendance-history byte boundaries", () => {
@@ -422,6 +446,105 @@ if (import.meta.vitest) {
                 window: 8,
                 lastAttendedGame: 42,
             });
+        });
+        // --- gamesRemaining nonlinear cases ---------------------------------
+
+        test("gamesRemaining: score 0 / threshold 6 / Attended streak → 3", () => {
+            // streak=0: future adds 1+2+3 = 6; 3 games needed.
+            expect(
+                derivePersonhoodState(
+                    snapshot({
+                        personhoodThreshold: 6,
+                        participant: participant({
+                            recognition: "NotRecognized",
+                            reachedPersonhood: false,
+                            score: 0,
+                            streak: { tag: "Attended", count: 0 },
+                        }),
+                    }),
+                ),
+            ).toEqual({ tag: "Candidate", score: 0, personhoodThreshold: 6, gamesRemaining: 3 });
+        });
+
+        test("gamesRemaining: score 3 / threshold 10 / Attended streak 2 → 2", () => {
+            // streak=2: future adds 3+4 = 7; total 3+7=10; 2 games needed.
+            expect(
+                derivePersonhoodState(
+                    snapshot({
+                        personhoodThreshold: 10,
+                        participant: participant({
+                            recognition: "NotRecognized",
+                            reachedPersonhood: false,
+                            score: 3,
+                            streak: { tag: "Attended", count: 2 },
+                        }),
+                    }),
+                ),
+            ).toEqual({ tag: "Candidate", score: 3, personhoodThreshold: 10, gamesRemaining: 2 });
+        });
+
+        test("gamesRemaining: score 6 / threshold 10 / Absent streak → 3", () => {
+            // Absent streak: future starts at 1; 1+2+3 = 6; total 6+6=12≥10; 3 games needed.
+            expect(
+                derivePersonhoodState(
+                    snapshot({
+                        personhoodThreshold: 10,
+                        participant: participant({
+                            recognition: "NotRecognized",
+                            reachedPersonhood: false,
+                            score: 6,
+                            streak: { tag: "Absent", count: 3 },
+                        }),
+                    }),
+                ),
+            ).toEqual({ tag: "Candidate", score: 6, personhoodThreshold: 10, gamesRemaining: 3 });
+        });
+
+        test("gamesRemaining: score 6 / threshold 10 / Attended streak 4 → 1", () => {
+            // streak=4: future adds 5 = 5; total 6+5=11≥10; 1 game needed.
+            expect(
+                derivePersonhoodState(
+                    snapshot({
+                        personhoodThreshold: 10,
+                        participant: participant({
+                            recognition: "NotRecognized",
+                            reachedPersonhood: false,
+                            score: 6,
+                            streak: { tag: "Attended", count: 4 },
+                        }),
+                    }),
+                ),
+            ).toEqual({ tag: "Candidate", score: 6, personhoodThreshold: 10, gamesRemaining: 1 });
+        });
+
+        test("gamesRemaining: score at or above threshold → 0 regardless of streak", () => {
+            expect(
+                derivePersonhoodState(
+                    snapshot({
+                        personhoodThreshold: 10,
+                        participant: participant({
+                            recognition: "NotRecognized",
+                            reachedPersonhood: false,
+                            score: 10,
+                            streak: { tag: "Absent", count: 99 },
+                        }),
+                    }),
+                ),
+            ).toEqual({ tag: "Candidate", score: 10, personhoodThreshold: 10, gamesRemaining: 0 });
+            // High score with a long attended streak: also 0, not negative.
+            expect(
+                derivePersonhoodState(
+                    snapshot({
+                        personhoodThreshold: 3,
+                        participant: participant({
+                            recognition: "NotRecognized",
+                            reachedPersonhood: false,
+                            score: 7,
+                            streak: { tag: "Attended", count: 20 },
+                        }),
+                    }),
+                ),
+            ).toEqual({ tag: "Candidate", score: 7, personhoodThreshold: 3, gamesRemaining: 0 });
         });
     });
 }
