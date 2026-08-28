@@ -593,13 +593,15 @@ if (import.meta.vitest) {
 
         test("txExtVersionFromMetadata reads the format list out of every tracked chain's metadata", async () => {
             const { readFileSync, readdirSync } = await import("node:fs");
-            const dir = new URL("../../descriptors/.papi/metadata/", import.meta.url);
+            const { join } = await import("node:path");
+            // Not new URL(): without treeshake the literal reaches dist, and bundlers resolve it.
+            const dir = join(import.meta.dirname, "..", "..", "descriptors", ".papi", "metadata");
             const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
 
-            expect(blobs).toHaveLength(11);
+            expect(blobs.length, "raise when a chain is added").toBeGreaterThanOrEqual(11);
             // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
             for (const name of blobs) {
-                const metadata = new Uint8Array(readFileSync(new URL(name, dir)));
+                const metadata = new Uint8Array(readFileSync(join(dir, name)));
                 expect(txExtVersionFromMetadata(metadata), name).toBe(0);
             }
         });

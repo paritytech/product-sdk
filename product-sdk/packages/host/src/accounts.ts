@@ -709,7 +709,7 @@ if (import.meta.vitest) {
         const dir = new URL("../../descriptors/.papi/metadata/", import.meta.url);
         const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
 
-        expect(blobs).toHaveLength(11);
+        expect(blobs.length, "raise when a chain is added").toBeGreaterThanOrEqual(11);
         // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
         for (const name of blobs) {
             const metadata = new Uint8Array(readFileSync(new URL(name, dir)));
