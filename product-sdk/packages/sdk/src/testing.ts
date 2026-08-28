@@ -138,11 +138,6 @@ function makeFakeLocalStorage(): LocalStorageApi {
         async remove(key) {
             await host.clear(key);
         },
-        async clear() {
-            // Unlike the production adapter (a no-op in container mode), the fake
-            // actually empties, so tests get real isolation.
-            host.reset();
-        },
     };
 }
 
@@ -257,7 +252,7 @@ if (import.meta.vitest) {
             expect(accounts).toHaveLength(2);
         });
 
-        test("localStorage round-trips and clear empties it", async () => {
+        test("localStorage round-trips and remove deletes a key", async () => {
             const app = createFakeApp();
             await app.localStorage.set("k", "v");
             await app.localStorage.setJSON("o", { n: 1 });
@@ -265,8 +260,10 @@ if (import.meta.vitest) {
             expect(await app.localStorage.getJSON("o")).toEqual({ n: 1 });
             expect(await app.localStorage.get("missing")).toBeNull();
 
-            await app.localStorage.clear();
+            await app.localStorage.remove("k");
             expect(await app.localStorage.get("k")).toBeNull();
+            // Untouched keys stay — there is no clear-all.
+            expect(await app.localStorage.getJSON("o")).toEqual({ n: 1 });
         });
 
         test("cloudStorage round-trips upload -> fetch; computeCid matches upload", async () => {

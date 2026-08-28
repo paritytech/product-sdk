@@ -82,10 +82,15 @@ export interface LocalStorageApi {
     getJSON<T = unknown>(key: string): Promise<T | null>;
     /** Set a JSON value by key */
     setJSON<T = unknown>(key: string, value: T): Promise<void>;
-    /** Remove a value by key */
+    /**
+     * Remove a value by key.
+     *
+     * There is no `clear()`: host localStorage exposes no key enumeration
+     * (only per-key read / write / remove), so a clear-all cannot be
+     * implemented — it was a silent no-op in a host container. Remove keys
+     * individually with {@link remove}.
+     */
     remove(key: string): Promise<void>;
-    /** Clear all values */
-    clear(): Promise<void>;
 }
 
 /** Chain API exposed by the SDK */

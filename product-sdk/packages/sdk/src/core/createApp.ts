@@ -131,10 +131,6 @@ export async function createApp(config: AppConfig): Promise<App> {
         getJSON: <T>(key: string) => localKvStore.getJSON<T>(key),
         setJSON: <T>(key: string, value: T) => localKvStore.setJSON(key, value),
         remove: (key) => localKvStore.remove(key),
-        clear: async () => {
-            // LocalKvStore doesn't have clear - this is a no-op
-            log.debug("clear() is not supported in container storage mode");
-        },
     };
 
     // Create wallet API adapter
