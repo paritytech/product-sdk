@@ -371,57 +371,32 @@ export interface AccountsProvider {
     ): HostSubscription;
 }
 
-/** The transaction-extension version used by V5 general transactions. */
-const GENERAL_TX_EXT_VERSION = 5;
+const V5_FORMAT_SELECTOR = 5;
 
 /**
- * Choose the wire `txExtVersion` — the **transaction-extension** version the
- * host must assemble under, which is distinct from the extrinsic *format*
- * version (4 / 5).
- *
- * - `formatVersions` — `metadata.extrinsic.version`, the extrinsic *formats* the
- *   runtime accepts (e.g. `[4]`, `[5]`, `[4, 5]`).
- * - `txExtVersions` — the keys of `metadata.extrinsic.signedExtensions`, the
- *   transaction-extension versions the runtime supports (its v16
- *   `transactionExtensionsByVersion`; always includes `0`).
- *
- * A V4 signed extrinsic always uses transaction-extension version `0` (a fixed
- * sentinel, independent of what the extension map contains). Prefer V4 while it
- * is offered — it carries the account signature in its envelope, and the host
- * can build it. Only when V4 is absent do we fall to a V5 general transaction,
- * whose transaction-extension version is `5` (the key the runtime and host
- * agree on for the general format); require it to actually be present in the
- * map rather than assuming it.
- *
- * Passing the extrinsic *format* number here was the bug (host-rust-core#528):
- * `5` is both a format version and the general extension version, so it looked
- * right, but the two are unrelated in general and the host decodes extension
- * values by this number.
+ * Pick the `txExtVersion` for the host's `create_transaction` from the extrinsic formats
+ * the runtime offers. The host treats the field as a format switch: `0` builds V4, `5`
+ * builds a V5 general transaction, anything else is `NotSupported`. Prefer V4 while
+ * offered, since it carries the account signature in its envelope. The host derives the
+ * transaction-extension version from the metadata itself.
  */
-function selectHostTxExtVersion(
-    formatVersions: readonly number[],
-    txExtVersions: readonly number[],
-): number {
+function selectHostTxExtVersion(formatVersions: readonly number[]): number {
     if (formatVersions.length === 0) {
         throw new Error("No extrinsic version found in metadata");
     }
     if (formatVersions.includes(4)) {
         return 0;
     }
-    if (txExtVersions.includes(GENERAL_TX_EXT_VERSION)) {
-        return GENERAL_TX_EXT_VERSION;
+    if (formatVersions.includes(5)) {
+        return V5_FORMAT_SELECTOR;
     }
     throw new Error(
-        `Runtime offers no V4 extrinsic and no transaction-extension version ${GENERAL_TX_EXT_VERSION} ` +
-            `(supported: ${txExtVersions.join(", ") || "none"}); cannot select a txExtVersion the host can assemble.`,
+        `Runtime offers no extrinsic format 4 or 5 (offers: ${formatVersions.join(", ")}); the host protocol has no txExtVersion for it.`,
     );
 }
 
-/** Derive the host's transaction-extension version from SCALE metadata. */
 function deriveTxExtVersion(metadata: Uint8Array): number {
-    const extrinsic = unifyMetadata(decAnyMetadata(metadata)).extrinsic;
-    const txExtVersions = Object.keys(extrinsic.signedExtensions).map(Number);
-    return selectHostTxExtVersion(extrinsic.version, txExtVersions);
+    return selectHostTxExtVersion(unifyMetadata(decAnyMetadata(metadata)).extrinsic.version);
 }
 
 /** Internal seam so `import.meta.vitest` can stub the metadata decode. @internal */
