@@ -1,5 +1,6 @@
 ---
 "@parity/product-sdk-individuality": minor
+"@parity/product-sdk": minor
 ---
 
 **Expose candidate progress as part of personhood state.**
