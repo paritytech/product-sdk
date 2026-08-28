@@ -56,7 +56,13 @@ if (!result.ok) {
 }
 ```
 
-This package does **not** resolve a chain. It takes an already-connected client, so the environment choice stays with you — see the `product-sdk-chain-connection` skill for `getChainAPI`.
+This package does **not** resolve a chain. It takes an already-connected client, so the environment choice stays with you — see the `product-sdk-chain-connection` skill for `getChainAPI`. Holding a PAPI client of your own instead? `fromPapi(client, api)` builds the same shape with no connection and no descriptor load:
+
+```ts
+import { fromPapi, readCurrentGame } from "@parity/product-sdk-individuality";
+
+const game = await readCurrentGame(fromPapi(client, client.getTypedApi(people)));
+```
 
 ## Two Ways In
 
@@ -254,9 +260,12 @@ Reading the game, its draws, and whether you won one. Every read pins a single f
 ```ts
 import { readCurrentGame, readPrizeStatus } from "@parity/product-sdk-individuality";
 
-const game = await readCurrentGame(chain);
+const game = await readCurrentGame(chain, {
+  players: [{ tag: "Account", accountAddress }, { tag: "Alias", alias }],
+});
 if (game.ok && game.value.tag === "Running") {
   console.log(game.value.game.phase, game.value.game.nextDeadline);
+  console.log(game.value.registration.tag); // Registered | NotRegistered | Unknown | Unchecked
 }
 
 const status = await readPrizeStatus(chain, {
@@ -270,6 +279,8 @@ if (status.ok && status.value.tag === "Draws") {
 ```
 
 > **PASEO ONLY.** The committed devnet metadata predates this work: one optional prize per schedule instead of a draw list, no `airdrops_scheduled`, and a 28-byte event-id base against paseo's 27. A devnet client fails `GameChain` and the umbrella contract test asserts that on purpose.
+
+> **REGISTRATION IS PER KEY, ANSWERED ONCE.** One person is keyed twice in `Game.Players` — by account and, once recognized, by alias — so pass every key you hold in `players`; any hit is `Registered`. A key read that fails is `Unknown`, never `NotRegistered`, and does not fail the game read. Leave `players` out and it is `Unchecked`; that path only needs `GameChain`, the other needs `GamePlayersChain` too.
 
 > **NO GAME RUNNING IS A SUCCESS VALUE.** One game exists at a time and each is killed when it ends, so `BetweenGames` and `NoGame` are the normal state, not errors. Both carry `lastGameIndex`, which is the index a late claim is keyed by.
 

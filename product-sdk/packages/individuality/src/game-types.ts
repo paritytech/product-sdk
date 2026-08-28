@@ -143,12 +143,29 @@ export interface GameSchedulePreview {
  * Between games is not a failure and not an empty result: the chain was asked
  * and answered that no game is running, which is most of the time.
  */
+/**
+ * Whether the players named in `ReadCurrentGameOptions.players` are in the
+ * running game. One identity is keyed twice on chain (account and alias), so the
+ * question is asked per key and answered once: any hit is `Registered`.
+ *
+ * `Unknown` exists so a failed key read cannot be mistaken for "not registered"
+ * — a stale account miss must not hide a person-side registration. `Unchecked`
+ * exists so "we did not ask" cannot be mistaken for either.
+ */
+export type PlayerRegistration =
+    | { tag: "Registered" }
+    | { tag: "NotRegistered" }
+    | { tag: "Unknown" }
+    | { tag: "Unchecked" };
+
 export type CurrentGameResult =
     /** A game exists in `Game.Game`. */
     | {
           tag: "Running";
           at: FinalizedSnapshot;
           game: CurrentGame;
+          /** Read at the same block as the game; `Unchecked` unless players were given. */
+          registration: PlayerRegistration;
           /** Games after this one, chronologically. */
           upcoming: GameSchedulePreview[];
           /** The durations the {@link GameSchedulePreview} timelines were derived with. */

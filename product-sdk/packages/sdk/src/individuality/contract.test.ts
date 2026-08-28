@@ -41,7 +41,9 @@ import type {
     ClaimChain,
     ConsumersChain,
     GameChain,
+    GamePlayersChain,
     IndividualityChain,
+    PapiIndividualityChain,
     PrizeStatusChain,
     SignUpChain,
     AccountVrfSignature,
@@ -100,6 +102,26 @@ type PreviewnetSatisfiesGameContract = Assert<PreviewnetClient extends GameChain
 // prompt to flip it positive and check the read against it.
 type DevnetPredatesTheGameContract = Assert<DevnetClient extends GameChain ? false : true>;
 
+// `GamePlayersChain` is the opt-in half of the game read (`players`), typed
+// separately so a caller who never asks about a player keeps the narrower
+// contract. Both game-capable chains carry `Game.Players`.
+type PaseoSatisfiesPlayersContract = Assert<PaseoClient extends GamePlayersChain ? true : false>;
+type PreviewnetSatisfiesPlayersContract = Assert<
+    PreviewnetClient extends GamePlayersChain ? true : false
+>;
+
+// `fromPapi` hands a caller's own typed API to the reads; it must land exactly
+// where the chain-client shape puts it, or every contract above would be
+// satisfied by `getChainAPI` and none by a self-connected product.
+type FromPapiSatisfiesContracts = Assert<
+    PapiIndividualityChain<PaseoClient["individuality"]> extends IndividualityChain &
+        AirdropChain &
+        GameChain &
+        GamePlayersChain
+        ? true
+        : false
+>;
+
 // Negative control, kept type-only so it emits no runtime code. If
 // `IndividualityChain` ever stopped constraining, this flips to `false` and the
 // file fails to typecheck, which is what keeps the assertions above honest.
@@ -115,6 +137,9 @@ type RejectsBogusAirdropClient = Assert<
     ClientWithoutIndividuality extends AirdropChain ? false : true
 >;
 type RejectsBogusGameClient = Assert<ClientWithoutIndividuality extends GameChain ? false : true>;
+type RejectsBogusPlayersClient = Assert<
+    ClientWithoutIndividuality extends GamePlayersChain ? false : true
+>;
 
 // `Game.Game` being optional is what makes "between games" representable at all,
 // and `GameIndex` / `GameSchedules` being `ValueQuery` is what lets the read treat
