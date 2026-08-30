@@ -156,19 +156,20 @@ const PEOPLE_AIRDROPS_PREFIX_HEX = toEventId(
     baseBytes(PEOPLE_AIRDROPS_EVENT_ID_BASE, PEOPLE_AIRDROPS_BASE_BYTES),
 ).slice(2);
 
-/** One shape check for prefix, length and hex digits, so the three cannot disagree. */
-const EVENT_ID_PATTERN = new RegExp(`^0x[0-9a-f]{${EVENT_ID_BYTES * 2}}$`);
+const EVENT_ID_BODY_PATTERN = new RegExp(`^[0-9a-f]{${EVENT_ID_BYTES * 2}}$`);
 
 /**
  * The draw index inside a `PeopleAirdrops` event id, or `null` if it is not one.
  * `Airdrop.Events` holds both schedulers, so a foreign id is data, not a caller bug.
  */
 export function parsePeopleAirdropsEventId(eventId: string): bigint | null {
-    // Before the pattern, not after: `[0-9a-f]` would reject a valid upper-case id.
-    const lower = eventId.toLowerCase();
-    if (!EVENT_ID_PATTERN.test(lower)) return null;
+    // Reachable despite the type: ids arrive from storage sweeps through a cast.
+    if (typeof eventId !== "string") return null;
+    // PAPI's `fromHex` only accepts a lower-case `0x`, so `0X` must not decode here.
+    if (!eventId.startsWith("0x")) return null;
 
-    const body = lower.slice(2);
+    const body = eventId.slice(2).toLowerCase();
+    if (!EVENT_ID_BODY_PATTERN.test(body)) return null;
     if (!body.startsWith(PEOPLE_AIRDROPS_PREFIX_HEX)) return null;
     return BigInt(`0x${body.slice(PEOPLE_AIRDROPS_BASE_BYTES * 2)}`);
 }
@@ -515,9 +516,18 @@ if (import.meta.vitest) {
             [peopleAirdropsEventId(1n).slice(0, -2), "one byte short"],
             [`${peopleAirdropsEventId(1n)}00`, "one byte long"],
             [`0x${"z".repeat(64)}`, "non-hex digits"],
+            [`0X${peopleAirdropsEventId(1n).slice(2)}`, "0X prefix, which PAPI rejects"],
             [`${peopleAirdropsEventId(1n).slice(0, -2)}zz`, "non-hex digits in the index"],
         ])("returns null for %s (%s)", (eventId) => {
             expect(parsePeopleAirdropsEventId(eventId)).toBeNull();
+        });
+
+        test.each<[unknown, string]>([
+            [undefined, "undefined"],
+            [null, "null"],
+            [42, "a number"],
+        ])("returns null for %s, which only a JS caller or a cast can pass", (eventId) => {
+            expect(parsePeopleAirdropsEventId(eventId as string)).toBeNull();
         });
     });
 }
