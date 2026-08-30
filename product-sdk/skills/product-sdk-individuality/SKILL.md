@@ -286,6 +286,8 @@ if (status.ok && status.value.tag === "Draws") {
 
 > **A DRAW NOT IN STORAGE IS A SUCCESS VALUE TOO.** It arrives as `phase: "Gone"`, the steady state for every past draw once the lifecycle cleans it up. It is not evidence the draw existed: an id that was never scheduled answers identically.
 
+> **EVENT IDS GO BOTH WAYS, AND WHICH ONE YOU NEED DEPENDS ON HOW YOU GOT THE ID.** *Deriving* goes index → id and touches no chain — `gameAirdropEventIds` for a game's draws, `peopleAirdropsEventId` for a `PeopleAirdrops` draw. *Decoding* goes id → index, and is what you need when the id came out of `Airdrop.Events.getEntries()`: you never derived those, so you cannot re-derive them. `parsePeopleAirdropsEventId(eventId)` returns the draw index, or `null` for anything that is not a `PeopleAirdrops` id. Do not enumerate forward instead — `PeopleAirdrops.NextDrawIndex` is a monotonic high-water mark and finished draws are reaped, so building ids `0..next` costs one read per index ever scheduled, nearly all absent. And that map holds **both** schedulers, so a `Game` id reaching the parser is ordinary input: `null` is an answer, not a failure.
+
 ### Claiming a prize
 
 ```ts
@@ -403,7 +405,7 @@ The first four stop the extrinsic; the last four stop only the draw entry. `canS
 
 ### Sign-Up Gotchas
 
-- **Derive the event ids from one block.** An id built from one game's index and another's count addresses a draw that does not exist. Use the `eventIds` the read returns.
+- **Derive the event ids from one block.** An id built from one game's index and another's count addresses a draw that does not exist. Use the `eventIds` the read returns. Going the other way — an id you swept out of `Airdrop.Events` rather than derived — is `parsePeopleAirdropsEventId`, see [The Game and Its Prize Draws](#the-game-and-its-prize-draws).
 - **The entry count must equal `airdropsScheduled` exactly.** A mismatch fails the whole sign-up, deposit included. `Some([])` is not `None`: omit `airdrops` to enter no draw.
 - **Only sr25519 accounts can take the account path.** The pallet reinterprets the account id **as** the public key, and nothing on chain records the scheme, so the SDK cannot check it unless you pass `keyType`.
 - **The transcript binds the signing key.** The `signer` item must be the account that signs the sign-up, not another key the player holds.

@@ -128,7 +128,7 @@ export type {
     AirdropStatusTag,
 } from "./airdrop-types.js";
 
-// The derivations. Pure, so they work against an index you already hold. Prefer
+// Event ids, both directions, all pure. Prefer
 // `readGameAirdropEventIds` over the pinned base: the chain exposes `Game`'s base
 // as a constant, and a hardcoded copy would derive ids for draws that do not
 // exist if it ever moved. `PeopleAirdrops`' base is not exposed, so that one is
@@ -139,6 +139,7 @@ export {
     PEOPLE_AIRDROPS_EVENT_ID_BASE,
     gameAirdropEventId,
     gameAirdropEventIds,
+    parsePeopleAirdropsEventId,
     peopleAirdropsEventId,
 } from "./airdrop-ids.js";
 

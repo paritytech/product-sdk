@@ -151,6 +151,28 @@ export function peopleAirdropsEventId(drawIndex: number | bigint): string {
     return toEventId(id);
 }
 
+/** Hoisted: this compare runs on every entry of an `Airdrop.Events` sweep. */
+const PEOPLE_AIRDROPS_PREFIX_HEX = toEventId(
+    baseBytes(PEOPLE_AIRDROPS_EVENT_ID_BASE, PEOPLE_AIRDROPS_BASE_BYTES),
+).slice(2);
+
+/** One shape check for prefix, length and hex digits, so the three cannot disagree. */
+const EVENT_ID_PATTERN = new RegExp(`^0x[0-9a-f]{${EVENT_ID_BYTES * 2}}$`);
+
+/**
+ * The draw index inside a `PeopleAirdrops` event id, or `null` if it is not one.
+ * `Airdrop.Events` holds both schedulers, so a foreign id is data, not a caller bug.
+ */
+export function parsePeopleAirdropsEventId(eventId: string): bigint | null {
+    // Before the pattern, not after: `[0-9a-f]` would reject a valid upper-case id.
+    const lower = eventId.toLowerCase();
+    if (!EVENT_ID_PATTERN.test(lower)) return null;
+
+    const body = lower.slice(2);
+    if (!body.startsWith(PEOPLE_AIRDROPS_PREFIX_HEX)) return null;
+    return BigInt(`0x${body.slice(PEOPLE_AIRDROPS_BASE_BYTES * 2)}`);
+}
+
 /**
  * Every draw id of one game, in airdrop-index order. `airdropsScheduled` only
  * exists while that game is current, so a past game's count must have been
