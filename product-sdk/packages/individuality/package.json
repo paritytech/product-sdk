@@ -1,0 +1,40 @@
+{
+    "name": "@parity/product-sdk-individuality",
+    "description": "Read a person's standing, usernames, game and prize draws on the individuality chain, sign up for a game, and dispatch calls under a person origin",
+    "version": "0.2.0",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": ["dist"],
+    "sideEffects": false,
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "build": "tsup",
+        "clean": "rm -rf dist",
+        "test": "vitest run",
+        "typecheck": "tsc -p tsconfig.typecheck.json"
+    },
+    "dependencies": {
+        "@parity/product-sdk-errors": "workspace:*",
+        "@parity/product-sdk-utils": "workspace:*",
+        "@parity/result": "workspace:*",
+        "@polkadot-api/metadata-builders": "catalog:",
+        "@polkadot-api/substrate-bindings": "catalog:",
+        "polkadot-api": "catalog:"
+    },
+    "devDependencies": {
+        "@parity/product-sdk-descriptors": "workspace:*",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    },
+    "license": "Apache-2.0"
+}

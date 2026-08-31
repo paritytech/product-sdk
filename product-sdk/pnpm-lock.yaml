@@ -7,14 +7,17 @@ settings:
 catalogs:
   default:
     '@parity/host-api-test-sdk':
-      specifier: ^0.11.0
-      version: 0.11.0
+      specifier: ^0.12.1
+      version: 0.12.1
     '@parity/truapi':
-      specifier: ^0.7.0
-      version: 0.7.0
+      specifier: ^0.10.0
+      version: 0.10.0
     '@playwright/test':
       specifier: ^1.60.0
       version: 1.60.0
+    '@polkadot-api/metadata-builders':
+      specifier: ^0.14.3
+      version: 0.14.3
     '@polkadot-api/substrate-bindings':
       specifier: ^0.20.3
       version: 0.20.3
@@ -87,7 +90,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -118,7 +121,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -149,7 +152,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -171,7 +174,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -199,7 +202,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -237,7 +240,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -259,7 +262,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -284,7 +287,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -318,7 +321,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.11.0(@playwright/test@1.60.0)
+        version: 0.12.1(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -538,7 +541,7 @@ importers:
         version: link:../result
       '@parity/truapi':
         specifier: 'catalog:'
-        version: 0.7.0
+        version: 0.10.0
       '@polkadot-api/json-rpc-provider':
         specifier: ^0.2.0
         version: 0.2.0
@@ -560,6 +563,40 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)
+
+  packages/individuality:
+    dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
+      '@parity/product-sdk-utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
+      '@polkadot-api/metadata-builders':
+        specifier: 'catalog:'
+        version: 0.14.3
+      '@polkadot-api/substrate-bindings':
+        specifier: 'catalog:'
+        version: 0.20.3
+      polkadot-api:
+        specifier: 'catalog:'
+        version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
+    devDependencies:
+      '@parity/product-sdk-descriptors':
+        specifier: workspace:*
+        version: link:../descriptors
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
         version: 3.2.6(@types/node@25.9.1)
 
   packages/keys:
@@ -628,7 +665,7 @@ importers:
     dependencies:
       '@parity/truapi':
         specifier: 'catalog:'
-        version: 0.7.0
+        version: 0.10.0
       react-reconciler:
         specifier: 0.33.0
         version: 0.33.0(react@19.2.8)
@@ -684,6 +721,9 @@ importers:
       '@parity/product-sdk-host':
         specifier: workspace:*
         version: link:../host
+      '@parity/product-sdk-individuality':
+        specifier: workspace:*
+        version: link:../individuality
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys
@@ -833,7 +873,7 @@ importers:
         version: 0.0.30
       nanoid:
         specifier: ^5.1.7
-        version: 5.1.9
+        version: 5.1.16
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -1000,24 +1040,28 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@biomejs/cli-linux-arm64@1.9.4':
     resolution: {integrity: sha512-fJIW0+LYujdjUgJJuwesP4EjIBl/N/TcOX3IvIHJQNsAqvV2CHIogsmA94BPG6jZATS4Hi+xv4SkBBQSt1N4/g==}
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@biomejs/cli-linux-x64-musl@1.9.4':
     resolution: {integrity: sha512-gEhi/jSBhZ2m6wjV530Yy8+fNqG8PAinM3oV7CyO+6c3CEh16Eizm21uHVsyVBEB6RIM8JHIl6AGYCv6Q6Q9Tg==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@biomejs/cli-linux-x64@1.9.4':
     resolution: {integrity: sha512-lRCJv/Vi3Vlwmbd6K+oQ0KhLHMAysN8lXoCI7XeHlxaajk06u7G+UsFSO01NAs5iYuWKmVZjmiOzJ0OJmGsMwg==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@biomejs/cli-win32-arm64@1.9.4':
     resolution: {integrity: sha512-tlbhLk+WXZmgwoIKwHIHEBZUwxml7bRJgk0X2sPyNR3S93cdRq6XulAZRQJ17FYGGzWne0fgrXBKpl7l4M87Hg==}
@@ -1648,6 +1692,9 @@ packages:
   '@novasamatech/host-api@0.9.2':
     resolution: {integrity: sha512-jxgzPjsFCRKGwCUuNskIxgBU3AewlzJkWzij+lspBV57e5UdtN0NHiy6floj0DQhJVIY9n4oybTtHFbkfSiOmA==}
 
+  '@novasamatech/host-api@0.9.4':
+    resolution: {integrity: sha512-9yVjbyjUVfgDnNx3sJYlRW3kcpvBQv4F1LXqQZfJco/2Egcq8WM6Yplpnubfxhvj+IXl2gEEMQbX3thZms6LUQ==}
+
   '@novasamatech/host-papp@0.8.9':
     resolution: {integrity: sha512-Z1iENq/nn3e1P/4Mj0SS98yqO7tD8841G3xNGqO+O7tSnEjxDY4keS4uy4Rhx5hYIIRcUxe3xe1g/kUbJWVa+g==}
 
@@ -1656,6 +1703,9 @@ packages:
 
   '@novasamatech/scale@0.9.2':
     resolution: {integrity: sha512-3auVV4yNdjYJwTHkruphG/AYrpXRsMaQLLr9f5sgmSHvIXNkbZwrZWnPariuiGkCiiQnton2+CESCv52/LDdlg==}
+
+  '@novasamatech/scale@0.9.4':
+    resolution: {integrity: sha512-gUdY/KgWZAv5WUUeGmflo4bhTpfpbFMImtxN2VYfRarOQbbWOzKm7uelqgv8GAQUM85982wVhULPFRDA4b2qXA==}
 
   '@novasamatech/sdk-statement@0.6.0':
     resolution: {integrity: sha512-NTqM+yS45iHgy87lVSWIpFozrTfCUWb7r4ZpsDtN1eFnfixXpDKpPXDWQsvPs+nh18r/jmoMgtlTjUltrS6mYQ==}
@@ -1676,16 +1726,16 @@ packages:
       multiformats: ^13.4.1
       polkadot-api: ^2.1.2
 
-  '@parity/host-api-test-sdk@0.11.0':
-    resolution: {integrity: sha512-yefxCF7yuyCRZRAvVjPvBFnkA7HvYo3l1mlqyv2jhLwRLQ7LqkHpB1TnkH14LCW2qT7e23TzC3XKAL2ATvS3MA==}
+  '@parity/host-api-test-sdk@0.12.1':
+    resolution: {integrity: sha512-VprtVqoLhZfs8W5CcD8hu6xoJ9gPxDzSzEmsH5cTecceH7NCvcuJTKHpTq9J2mLvdy+TBmK6mMkeTyMCqZVzYw==}
     peerDependencies:
       '@playwright/test': '>=1.0.0'
     peerDependenciesMeta:
       '@playwright/test':
         optional: true
 
-  '@parity/truapi@0.7.0':
-    resolution: {integrity: sha512-xBGZP7/l74I0WGUnHgoFNYah+20I3JgykJ5pNUVsw3mQzNoCHuZSVJW6sUq7fzLvRF4wM2glPTPxUOiFKgfE9A==}
+  '@parity/truapi@0.10.0':
+    resolution: {integrity: sha512-Kwuvj4jd67NfSB4g+4MVlMGKGFH7HfMXJESscRA0u+KpknsWUE+OV8jzYh1TyAnbSVAIq/sarQK8sSBHvUZKXw==}
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -1993,71 +2043,85 @@ packages:
     resolution: {integrity: sha512-Q8CBCCQtDFrYtXoeUXSrnFXKOnyUhx6bz+SkL6A0E7V8kAiCJ5pamq1WtbfpVGhR5TSpXY6ak3avmDc5fHTyJA==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm-musleabihf@4.61.1':
     resolution: {integrity: sha512-nwnhk1581l0FBVellGcVCAT0Oi06onEA3WB53sf01VO3I0UPBkMH9sXONYME2K0ovXcNayJfNtHfm6mpJElatQ==}
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-arm64-gnu@4.61.1':
     resolution: {integrity: sha512-x5Xr49hwt3hdW75UOZm3395YwwzPyauktslv29KpWL/T+vVAzoT3azLcTWv0eMciBNrx+DYjH4paehHoLpPvpg==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm64-musl@4.61.1':
     resolution: {integrity: sha512-unMS3H73DpaoPyyEVPjGKleM/s0mkmsauTENpw4INQY8y4+IuLNjkueQ5QCtC0D3N38Y38yhAU8OoZ20S2Tm6w==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-loong64-gnu@4.61.1':
     resolution: {integrity: sha512-zNZzGRnAhwjFEYmvphJRV5XaQGjs62cCmeYYHUT//NbvEnHauw+I85nGG+SiVg5ld4GX8D1IbKIX+ozITQnhMQ==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-loong64-musl@4.61.1':
     resolution: {integrity: sha512-LdpWGL8X209B2SIvWjqlc8VZgM6PKfontSerGepuldQmHYrAOtnMCXeJkxXGbC+PPZVOuu5czJo7fNV6aeW8rQ==}
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-ppc64-gnu@4.61.1':
     resolution: {integrity: sha512-EC5kTtNaNGOmbMGqar8dvJy6y/hg99GAwjfBz++pxZhQATXGcRjd6c5en5wcbru0vkRmiMGsQKdMJOOf6sza4g==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-ppc64-musl@4.61.1':
     resolution: {integrity: sha512-8hiwp6D4acEcNK78I4rP0/XtS1sknWIAMJBPdR4l6zUtyTm5KiTDr5bXmWt4foY7nAN7AThDHgkLIEZOWKbzWw==}
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-riscv64-gnu@4.61.1':
     resolution: {integrity: sha512-10dh/h/BqA7DuMPWSxkR8uks18FRwnwOEqr5zOTEl+NOwP/OMzKX8OFR/Of9xxDA7D5qef1Nzar5WDD2kCCr1g==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-musl@4.61.1':
     resolution: {integrity: sha512-YKJ5lg35DP17gcAOggnihe+APw9HLyj1Xn7gsmGumBJAUDa6NGXNixJzmkWLhcK9TOuuyQjdamzvJefkO7qHZQ==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-s390x-gnu@4.61.1':
     resolution: {integrity: sha512-Mlil5G2Jj6a7B3LWGctg+XPL9vdXYuzCtNXfxOQ0nPjc2m6ueUktocPGH9bnAM0bNRKb/bAWTujUU7IJQdQA+g==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.60.3':
     resolution: {integrity: sha512-DAZDBHQfG2oQuhY7mc6I3/qB4LU2fQCjRvxbDwd/Jdvb9fypP4IJ4qmtu6lNjes6B531AI8cg1aKC2di97bUxA==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.61.1':
     resolution: {integrity: sha512-bVWIOIk6pV01p4CdUbPP7CJ/434z+OooYjDuFcR+44N35YvKUC66G8MGnvcWx5mWKW3g61J+t74l3Kj15Kwn2Q==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.61.1':
     resolution: {integrity: sha512-qy5pBvZbqNFheBz61R1rzsezjm0J7O2oNGoWtGoY89SZYLUfxAJTBAqDChqAIdB4rCiIbi9nF7yZ83GnNiLwSw==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-openbsd-x64@4.61.1':
     resolution: {integrity: sha512-E83TXjI4zm0+5f2qO+UOudaCYIhYwpJ5jq6YCZNIZ+6CbfhKrkAGezeiASBL9ElxAxFsRS9ZhESv8mfnj6TKeg==}
@@ -2714,8 +2778,8 @@ packages:
     engines: {node: ^18 || >=20}
     hasBin: true
 
-  nanoid@5.1.9:
-    resolution: {integrity: sha512-ZUvP7KeBLe3OZ1ypw6dI/TzYJuvHP77IM4Ry73waSQTLn8/g8rpdjfyVAh7t1/+FjBtG4lCP42MEbDxOsRpBMw==}
+  nanoid@5.1.16:
+    resolution: {integrity: sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ==}
     engines: {node: ^18 || >=20}
     hasBin: true
 
@@ -3966,6 +4030,14 @@ snapshots:
       neverthrow: 8.2.0
       scale-ts: 1.6.1
 
+  '@novasamatech/host-api@0.9.4':
+    dependencies:
+      '@novasamatech/scale': 0.9.4
+      nanoevents: 10.0.0
+      nanoid: 6.0.0
+      neverthrow: 8.2.0
+      scale-ts: 1.6.1
+
   '@novasamatech/host-papp@0.8.9(esbuild@0.28.1)':
     dependencies:
       '@noble/ciphers': 2.2.0
@@ -3995,6 +4067,11 @@ snapshots:
       scale-ts: 1.6.1
 
   '@novasamatech/scale@0.9.2':
+    dependencies:
+      '@polkadot-api/utils': 0.4.0
+      scale-ts: 1.6.1
+
+  '@novasamatech/scale@0.9.4':
     dependencies:
       '@polkadot-api/utils': 0.4.0
       scale-ts: 1.6.1
@@ -4050,13 +4127,13 @@ snapshots:
       multiformats: 13.4.2
       polkadot-api: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
 
-  '@parity/host-api-test-sdk@0.11.0(@playwright/test@1.60.0)':
+  '@parity/host-api-test-sdk@0.12.1(@playwright/test@1.60.0)':
     dependencies:
-      '@novasamatech/host-api': 0.8.9
+      '@novasamatech/host-api': 0.9.4
     optionalDependencies:
       '@playwright/test': 1.60.0
 
-  '@parity/truapi@0.7.0':
+  '@parity/truapi@0.10.0':
     dependencies:
       '@noble/hashes': 2.2.0
       neverthrow: 8.2.0
@@ -5306,7 +5383,7 @@ snapshots:
 
   nanoid@5.1.11: {}
 
-  nanoid@5.1.9: {}
+  nanoid@5.1.16: {}
 
   nanoid@6.0.0: {}
 

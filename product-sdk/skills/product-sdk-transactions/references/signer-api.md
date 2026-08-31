@@ -124,6 +124,16 @@ All errors extend `SignerError`:
 - `AccountNotFoundError`
 - `DestroyedError`
 
+`HostRejectedError.cause` carries the host's own error untouched, so narrow it instead of
+matching the message text. It is TrUAPI's `scale.CallErrorValue<Versioned…Error>`, whose
+tagged union already separates a domain rejection (`NotAllowlisted`, `KeyNotRegistered`,
+`KeyNotInRing`, …) from a transport failure. Reading it here needs a cast to a
+`@parity/truapi` type; for handling that needs no cast, call `getAccountsProvider()` from
+`@parity/product-sdk-host`, where those types flow through already typed.
+
+`HostRejectedError.nonTransient` is true when the rejection is an expected state rather than
+a fault, a signed-out user being the main one. Degrade to read-only instead of retrying.
+
 ### Type Guards
 
 ```ts

@@ -177,15 +177,32 @@ function buildCreateTransactionRequest(
     };
 }
 
+const V5_FORMAT_SELECTOR = 5;
+
 /**
- * Transaction-extension version the mobile app must assemble:
- *  - Extrinsic V4 → `0` (the protocol mandates 0 for V4).
- *  - Extrinsic V5 → the runtime's version (highest the metadata advertises).
+ * Pick the `txExtVersion` for the paired host's `createTransaction` from the extrinsic
+ * formats the runtime offers. The host treats the field as a format switch: `0` builds
+ * V4, `5` builds a V5 general transaction, anything else is `NotSupported`. Prefer V4
+ * while offered, since it carries the account signature in its envelope. The host
+ * derives the transaction-extension version from the metadata itself.
  */
+function selectTxExtVersion(formatVersions: readonly number[]): number {
+    if (formatVersions.length === 0) {
+        throw new Error("No extrinsic version found in metadata");
+    }
+    if (formatVersions.includes(4)) {
+        return 0;
+    }
+    if (formatVersions.includes(5)) {
+        return V5_FORMAT_SELECTOR;
+    }
+    throw new Error(
+        `Runtime offers no extrinsic format 4 or 5 (offers: ${formatVersions.join(", ")}); the host protocol has no txExtVersion for it.`,
+    );
+}
+
 function txExtVersionFromMetadata(metadata: Uint8Array): number {
-    const decoded = unifyMetadata(decAnyMetadata(metadata));
-    const latestVersion = decoded.extrinsic.version.reduce((max, v) => Math.max(max, v), 0);
-    return latestVersion === 4 ? 0 : latestVersion;
+    return selectTxExtVersion(unifyMetadata(decAnyMetadata(metadata)).extrinsic.version);
 }
 
 /**
@@ -548,6 +565,46 @@ if (import.meta.vitest) {
         // metadata decode → SSO round-trip is exercised by the manual smoke
         // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
         // a real phone.
+
+        test("prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
+            expect(selectTxExtVersion([4, 5])).toBe(0);
+        });
+
+        test("uses the V5 selector when the runtime offers no V4", () => {
+            expect(selectTxExtVersion([5])).toBe(5);
+        });
+
+        test("maps a V4-only runtime to the wire sentinel", () => {
+            expect(selectTxExtVersion([4])).toBe(0);
+        });
+
+        test("prefers V5 over a format it does not know", () => {
+            // max(formats) would send 6, which no host accepts.
+            expect(selectTxExtVersion([5, 6])).toBe(5);
+        });
+
+        test("rejects a runtime offering neither format 4 nor 5", () => {
+            expect(() => selectTxExtVersion([6])).toThrow(/no extrinsic format 4 or 5/i);
+        });
+
+        test("rejects metadata with no extrinsic version", () => {
+            expect(() => selectTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+        });
+
+        test("txExtVersionFromMetadata reads the format list out of every tracked chain's metadata", async () => {
+            const { readFileSync, readdirSync } = await import("node:fs");
+            const { join } = await import("node:path");
+            // Not new URL(): without treeshake the literal reaches dist, and bundlers resolve it.
+            const dir = join(import.meta.dirname, "..", "..", "descriptors", ".papi", "metadata");
+            const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
+
+            expect(blobs.length, "raise when a chain is added").toBeGreaterThanOrEqual(11);
+            // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
+            for (const name of blobs) {
+                const metadata = new Uint8Array(readFileSync(join(dir, name)));
+                expect(txExtVersionFromMetadata(metadata), name).toBe(0);
+            }
+        });
 
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
 

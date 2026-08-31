@@ -11,7 +11,9 @@
  * @packageDocumentation
  */
 import { ProductCloudStorageError } from "@parity/product-sdk-cloud-storage";
+import type { LocalKvStore } from "@parity/product-sdk-local-storage";
 import { createFakeHostLocalStorage } from "@parity/product-sdk-local-storage/testing";
+import { createLocalStorageApi } from "./core/local-storage-api.js";
 import { err, ok, unwrapErr, unwrapOk } from "@parity/result";
 
 import type {
@@ -119,10 +121,13 @@ function makeFakeWallet(options?: FakeWalletOptions): WalletApi {
 }
 
 function makeFakeLocalStorage(): LocalStorageApi {
-    // Compose the local-storage fake; mirror createApp's adapter semantics
-    // (get normalizes "" -> null, getJSON normalizes undefined -> null).
+    // Route through the *same* `createLocalStorageApi` factory `createApp` uses,
+    // so the fake and the shipped adapter cannot drift (#344). The fake's host
+    // is adapted to a `LocalKvStore` here rather than via the async
+    // `createLocalKvStore`, so `createFakeApp` stays synchronous; the semantics
+    // (get "" -> null, getJSON undefined -> null) match `createHostBackend`.
     const host = createFakeHostLocalStorage();
-    return {
+    const kv: LocalKvStore = {
         async get(key) {
             return (await host.readString(key)) || null;
         },
@@ -132,18 +137,14 @@ function makeFakeLocalStorage(): LocalStorageApi {
         async getJSON<T>(key: string) {
             return ((await host.readJSON(key)) ?? null) as T | null;
         },
-        async setJSON<T>(key: string, value: T) {
+        async setJSON(key, value) {
             await host.writeJSON(key, value);
         },
         async remove(key) {
             await host.clear(key);
         },
-        async clear() {
-            // Unlike the production adapter (a no-op in container mode), the fake
-            // actually empties, so tests get real isolation.
-            host.reset();
-        },
     };
+    return createLocalStorageApi(kv);
 }
 
 function makeFakeCloudStorage(): CloudStorageApi {
@@ -257,7 +258,7 @@ if (import.meta.vitest) {
             expect(accounts).toHaveLength(2);
         });
 
-        test("localStorage round-trips and clear empties it", async () => {
+        test("localStorage round-trips and remove deletes a key", async () => {
             const app = createFakeApp();
             await app.localStorage.set("k", "v");
             await app.localStorage.setJSON("o", { n: 1 });
@@ -265,8 +266,10 @@ if (import.meta.vitest) {
             expect(await app.localStorage.getJSON("o")).toEqual({ n: 1 });
             expect(await app.localStorage.get("missing")).toBeNull();
 
-            await app.localStorage.clear();
+            await app.localStorage.remove("k");
             expect(await app.localStorage.get("k")).toBeNull();
+            // Untouched keys stay — there is no clear-all.
+            expect(await app.localStorage.getJSON("o")).toEqual({ n: 1 });
         });
 
         test("cloudStorage round-trips upload -> fetch; computeCid matches upload", async () => {

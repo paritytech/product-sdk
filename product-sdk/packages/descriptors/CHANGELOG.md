@@ -1,5 +1,83 @@
 # @parity/product-sdk-descriptors
 
+## 0.11.0
+
+### Minor Changes
+
+- 46e3592: **Re-add `previewnet` as a first-class environment.**
+
+  Previewnet was dropped when its identity endpoints weren't secured for public use and its runtime matched paseo. Both have changed: the endpoints are secured, and previewnet now runs a Paseo runtime kept a step ahead of paseo-next-v2 (asset-hub `2000039` vs `2000036`, individuality `1000036` vs `1000032`), so products can build against upcoming runtime changes weeks early.
+
+  - `@parity/product-sdk-descriptors` re-adds the `./previewnet-asset-hub`, `./previewnet-bulletin`, and `./previewnet-individuality` subpath exports, generated fresh against the live endpoints with real (non-zero) `codeHash` values so previewnet is covered by descriptor-drift detection like every other chain.
+  - `@parity/product-sdk-chain-client` re-adds `"previewnet"` to the `Environment` union; `getChainAPI("previewnet")` resolves again, routing to the `previewnet.substrate.dev` endpoints for asset-hub, bulletin, and people (individuality).
+  - `@parity/product-sdk-cloud-storage` re-adds the `previewnet` entry to `CloudStorageNetworks`.
+  - `@parity/product-sdk-host` re-adds `BULLETIN_RPCS.previewnet`.
+
+  Consumers on paseo or a production environment are unaffected; this is purely additive.
+
+## 0.10.0
+
+### Minor Changes
+
+- 3655724: **Re-pin `paseo-individuality` and `paseo-asset-hub` after a genesis reset (#242).**
+
+  Both chains were re-genesised, not upgraded, so the bundled descriptors addressed chains that
+  no longer exist. Access is gated on
+  `featureSupported({ tag: "Chain", value: { genesisHash } })`, so a stale genesis fails at
+  connection with `ChainNotSupportedError` before any storage read. A stale `codeHash` only
+  means decoding against an old metadata snapshot; a stale genesis means addressing a chain
+  that is not there.
+
+  | Chain                 | Old genesis           | New genesis           |
+  | --------------------- | --------------------- | --------------------- |
+  | `paseo-individuality` | `0xc5af1826…65afa5`   | `0x89a63b11…48c5440f` |
+  | `paseo-asset-hub`     | `0xbf0488db…ae4ef19f` | `0x23e730eb…f94a2ca6` |
+
+  **Breaking for `paseo-individuality`: the regeneration removes typed API surface.** A green
+  `pnpm typecheck` here does not clear consumers, so check this before upgrading.
+
+  | Pallet      | Removed                                                                   | Replacement                                                     |
+  | ----------- | ------------------------------------------------------------------------- | --------------------------------------------------------------- |
+  | `Resources` | storage `FriendRequestRegistrationByAlias`, `FriendRequestAliasByAccount` | `NotificationRegistrationByAlias`, `NotificationAliasByAccount` |
+  | `Resources` | 6 `FriendRequest*` constants                                              | 4 `Notification*` constants                                     |
+  | `Game`      | storage `Nfts`, `NftCandidates`                                           | none                                                            |
+  | `Coinage`   | storage `RecyclersUnloaded`                                               | `RecyclerAliasStates`, `RecyclersArchives`                      |
+
+  `FriendRequestAllowance`, `FriendRequestSlotsPerPeriod`, `LiteFriendRequestSlotsPerPeriod` and
+  `FriendRequestPeriodDuration` map onto `Notification*` equivalents.
+  `FriendRequestGraceWindow` and `FriendRequestRetentionDuration` have no counterpart.
+
+  Added to `paseo-individuality`: pallets `RelayRandomness` and `NftCredits`, `Game` storage
+  `LiteInvites`, `Game` constant `max_received_votes`.
+
+  `paseo-asset-hub` is additive only: pallets `Scarcity` and `NftClaims`, plus `DotnsGateway`
+  constants `MaxValiditySeconds` and `MaxFutureSkewSeconds`. Safe to upgrade.
+
+  Minor rather than patch because surface is removed, which on 0.x signals a breaking change.
+  This is a firmer reason than the additive-only argument used for the 0.9.0 `paseo-bulletin`
+  bump. A re-pin that neither adds nor removes pallets stays a patch, as in 0.8.0.
+
+  If you pinned either hash yourself, read it from the descriptor (`loadDescriptors()`) instead.
+  Paseo Next is re-genesised periodically, so any copy goes stale on its own schedule.
+
+  The five other chains reported in #242 have unchanged genesis and need a separate routine
+  regeneration. #242 stays open until those land.
+
+## 0.9.0
+
+### Minor Changes
+
+- 5ccab21: **Regenerate `paseo-bulletin` descriptors for the upcoming `v0.0.22-paseo` runtime (spec `1_000_022`).**
+
+  Metadata was extracted offline from the `polkadot-bulletin-chain` `v0.0.22-paseo` release wasm (`papi add --wasm`) ahead of its deployment to Paseo Next v2, which currently runs spec `1_000_021`. Merge/publish this once the runtime upgrade is enacted on-chain.
+
+  Runtime changes surfaced in the descriptors:
+
+  - New `DataRenewal` pallet (`pallet_bulletin_data_renewal`, pallet index 42) — new tx/query/event API surface, hence the minor bump.
+  - `renew`, `force_renew`, `enable_auto_renew` and `disable_auto_renew` **move off `TransactionStorage`** onto the new pallet. `CloudStorageClient.renew()` builds the old call via `@parity/bulletin-sdk`, so it will throw until that package is repointed at `DataRenewal.renew`.
+
+  The pinned `codeHash` is pre-set to the release blob's blake2-256 (`0xabb9c076…`, matching what on-chain `:code` will hash to after the upgrade); `genesis` is unchanged.
+
 ## 0.8.0
 
 ### Minor Changes

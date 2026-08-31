@@ -1,8 +1,15 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import type { ChainDefinition } from "polkadot-api";
+import { createLogger } from "@parity/product-sdk-logger";
+import { getHostChainInfo } from "@parity/product-sdk-host";
+import type { HostChainDiscovery } from "@parity/product-sdk-host";
 import { createChainClient } from "./clients.js";
+import { CHAIN_IDENTIFIERS, type ENVIRONMENTS } from "./chain-names.js";
+import { EnvironmentMismatchError, GenesisMismatchError } from "./errors.js";
 import type { ChainClient } from "./types.js";
+
+const log = createLogger("chain-client");
 
 // Type-only imports — erased at compile time, zero bundle cost.
 // These give us per-chain TypedApi types without importing runtime descriptor data.
@@ -14,6 +21,9 @@ import type { kusama_asset_hub as KusamaAssetHubDef } from "@parity/product-sdk-
 import type { paseo_asset_hub as PaseoAssetHubDef } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 import type { paseo_bulletin as PaseoBulletinDef } from "@parity/product-sdk-descriptors/paseo-bulletin";
 import type { paseo_individuality as PaseoIndividualityDef } from "@parity/product-sdk-descriptors/paseo-individuality";
+import type { previewnet_asset_hub as PreviewnetAssetHubDef } from "@parity/product-sdk-descriptors/previewnet-asset-hub";
+import type { previewnet_bulletin as PreviewnetBulletinDef } from "@parity/product-sdk-descriptors/previewnet-bulletin";
+import type { previewnet_individuality as PreviewnetIndividualityDef } from "@parity/product-sdk-descriptors/previewnet-individuality";
 import type { devnet_asset_hub as DevnetAssetHubDef } from "@parity/product-sdk-descriptors/devnet-asset-hub";
 import type { devnet_bulletin as DevnetBulletinDef } from "@parity/product-sdk-descriptors/devnet-bulletin";
 import type { devnet_individuality as DevnetIndividualityDef } from "@parity/product-sdk-descriptors/devnet-individuality";
@@ -24,14 +34,17 @@ import type { devnet_individuality as DevnetIndividualityDef } from "@parity/pro
  * - `"polkadot"` / `"kusama"` — production networks. Reserved: their Bulletin and
  *   Individuality chains are not live yet, so `getChainAPI` throws for both.
  * - `"paseo"` — the Paseo **Next v2** deployment
+ * - `"previewnet"` — a zombienet deployment running a Paseo runtime, kept a step
+ *   ahead of paseo-next-v2 so products can build against upcoming runtime changes
+ *   early.
  * - `"devnet"` — the public "products devnet" on the Paseo **testnet** system
  *   chains, community-run by the
  *   Polkadot Community Foundation.
  */
-export type Environment = "polkadot" | "kusama" | "paseo" | "devnet";
+export type Environment = (typeof ENVIRONMENTS)[number];
 
 /** Environments where all chains (asset hub, bulletin, individuality) are live. */
-const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo", "devnet"]);
+const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo", "previewnet", "devnet"]);
 
 /**
  * Lazy-load descriptors for a specific environment.
@@ -63,6 +76,12 @@ async function loadDescriptors(env: Environment) {
                 import("@parity/product-sdk-descriptors/paseo-bulletin"),
                 import("@parity/product-sdk-descriptors/paseo-individuality"),
             ]),
+        previewnet: () =>
+            Promise.all([
+                import("@parity/product-sdk-descriptors/previewnet-asset-hub"),
+                import("@parity/product-sdk-descriptors/previewnet-bulletin"),
+                import("@parity/product-sdk-descriptors/previewnet-individuality"),
+            ]),
         devnet: () =>
             Promise.all([
                 import("@parity/product-sdk-descriptors/devnet-asset-hub"),
@@ -80,19 +99,31 @@ async function loadDescriptors(env: Environment) {
               ? ahMod.kusama_asset_hub
               : "devnet_asset_hub" in ahMod
                 ? (ahMod as { devnet_asset_hub: typeof DevnetAssetHubDef }).devnet_asset_hub
-                : (ahMod as { paseo_asset_hub: typeof PaseoAssetHubDef }).paseo_asset_hub;
+                : "previewnet_asset_hub" in ahMod
+                  ? (ahMod as { previewnet_asset_hub: typeof PreviewnetAssetHubDef })
+                        .previewnet_asset_hub
+                  : (ahMod as { paseo_asset_hub: typeof PaseoAssetHubDef }).paseo_asset_hub;
 
     const bulletin =
         "devnet_bulletin" in bulletinMod
             ? (bulletinMod as { devnet_bulletin: typeof DevnetBulletinDef }).devnet_bulletin
-            : (bulletinMod as { paseo_bulletin: typeof PaseoBulletinDef }).paseo_bulletin;
+            : "previewnet_bulletin" in bulletinMod
+              ? (bulletinMod as { previewnet_bulletin: typeof PreviewnetBulletinDef })
+                    .previewnet_bulletin
+              : (bulletinMod as { paseo_bulletin: typeof PaseoBulletinDef }).paseo_bulletin;
 
     const individuality =
         "devnet_individuality" in individualityMod
             ? (individualityMod as { devnet_individuality: typeof DevnetIndividualityDef })
                   .devnet_individuality
-            : (individualityMod as { paseo_individuality: typeof PaseoIndividualityDef })
-                  .paseo_individuality;
+            : "previewnet_individuality" in individualityMod
+              ? (
+                    individualityMod as {
+                        previewnet_individuality: typeof PreviewnetIndividualityDef;
+                    }
+                ).previewnet_individuality
+              : (individualityMod as { paseo_individuality: typeof PaseoIndividualityDef })
+                    .paseo_individuality;
 
     return { assetHub, bulletin, individuality };
 }
@@ -116,6 +147,11 @@ type PresetDescriptors = {
         bulletin: typeof PaseoBulletinDef;
         individuality: typeof PaseoIndividualityDef;
     };
+    previewnet: {
+        assetHub: typeof PreviewnetAssetHubDef;
+        bulletin: typeof PreviewnetBulletinDef;
+        individuality: typeof PreviewnetIndividualityDef;
+    };
     devnet: {
         assetHub: typeof DevnetAssetHubDef;
         bulletin: typeof DevnetBulletinDef;
@@ -125,6 +161,110 @@ type PresetDescriptors = {
 
 /** The chain shape returned by {@link getChainAPI} for a given environment. */
 export type PresetChains<E extends Environment> = PresetDescriptors[E];
+
+/** Import one environment's asset hub descriptor and read its genesis hash. */
+const assetHubGenesis: Record<Environment, () => Promise<string | undefined>> = {
+    polkadot: async () =>
+        (await import("@parity/product-sdk-descriptors/polkadot-asset-hub")).polkadot_asset_hub
+            .genesis,
+    kusama: async () =>
+        (await import("@parity/product-sdk-descriptors/kusama-asset-hub")).kusama_asset_hub.genesis,
+    paseo: async () =>
+        (await import("@parity/product-sdk-descriptors/paseo-asset-hub")).paseo_asset_hub.genesis,
+    previewnet: async () =>
+        (await import("@parity/product-sdk-descriptors/previewnet-asset-hub")).previewnet_asset_hub
+            .genesis,
+    devnet: async () =>
+        (await import("@parity/product-sdk-descriptors/devnet-asset-hub")).devnet_asset_hub.genesis,
+};
+
+/** Live environments first so the probe usually stops at the first bundle. */
+const PROBE_ORDER: readonly Environment[] = ["paseo", "previewnet", "devnet", "polkadot", "kusama"];
+
+/**
+ * Pick the effective environment: the one whose bundled asset hub carries
+ * the discovered genesis hash. Hosts mint their own network ids, so matching
+ * is by genesis, never by network string. Probes the requested environment
+ * first, so the explicit happy path loads nothing extra.
+ */
+async function resolveEnvironment(
+    env: Environment | undefined,
+    discovery: HostChainDiscovery | null,
+): Promise<Environment> {
+    if (discovery === null) {
+        if (!env) {
+            throw new Error(
+                'getChainAPI: the host did not report a usable network via chain discovery; pass an explicit environment, e.g. getChainAPI("paseo").',
+            );
+        }
+        return env;
+    }
+    const discovered = discovery.chains.AssetHub?.toLowerCase();
+    let matched: Environment | null = null;
+    if (discovered) {
+        const candidates = env ? [env, ...PROBE_ORDER.filter((e) => e !== env)] : PROBE_ORDER;
+        for (const candidate of candidates) {
+            // A bundle that fails to load is just a candidate that cannot
+            // match. Every environment is probed, including ones unrelated to
+            // the host, so one broken chunk must not take down the call.
+            let genesis: string | undefined;
+            try {
+                genesis = await assetHubGenesis[candidate]();
+            } catch (error) {
+                log.warn(
+                    `Could not load the "${candidate}" asset hub descriptor while deriving the environment`,
+                    error,
+                );
+                continue;
+            }
+            if (genesis?.toLowerCase() === discovered) {
+                matched = candidate;
+                break;
+            }
+        }
+    }
+    if (env) {
+        if (matched && matched !== env) throw new EnvironmentMismatchError(env, discovery.network);
+        // No match means the host's asset hub is unknown. Descriptor
+        // validation below reports that as a genesis mismatch.
+        return env;
+    }
+    if (!matched) {
+        throw new Error(
+            `getChainAPI: no bundled descriptors match the host's chains (network "${discovery.network}"); pass an explicit environment.`,
+        );
+    }
+    return matched;
+}
+
+/**
+ * Cross-check each bundled descriptor against the host's resolved chains.
+ * Identifiers the host refused are absent from the discovery result and are
+ * left to the existing deferred ChainNotSupportedError path.
+ *
+ * Only the asset hub is fatal: it anchors the environment, so a mismatch there
+ * means the whole bundle is the wrong one. The other chains are re-genesised
+ * individually (paseo individuality has been, with the asset hub untouched), and
+ * failing the call would take the chains that do match down with them. Those
+ * warn here and `createChainClient` hands back an api that throws
+ * `ChainNotSupportedError` on use, which is the same treatment any chain the
+ * host cannot serve already gets.
+ */
+function validateDescriptorGenesis(
+    descriptors: Record<keyof typeof CHAIN_IDENTIFIERS, ChainDefinition>,
+    discovery: HostChainDiscovery,
+): void {
+    for (const [key, identifier] of Object.entries(CHAIN_IDENTIFIERS)) {
+        const hostGenesis = discovery.chains[identifier];
+        const genesis = descriptors[key as keyof typeof CHAIN_IDENTIFIERS]?.genesis;
+        if (!hostGenesis || !genesis) continue;
+        if (genesis.toLowerCase() === hostGenesis.toLowerCase()) continue;
+        if (key === "assetHub") throw new GenesisMismatchError(key, genesis, hostGenesis);
+        log.warn(
+            `Bundled "${key}" descriptor expects genesis ${genesis} but the host serves ${hostGenesis}; that chain will throw on use. Update @parity/product-sdk-descriptors.`,
+        );
+    }
+}
 
 /**
  * Get a chain client for a known environment with built-in descriptors.
@@ -136,7 +276,32 @@ export type PresetChains<E extends Environment> = PresetDescriptors[E];
  * Returns the same {@link ChainClient} type as `createChainClient`, with
  * `assetHub`, `bulletin`, and `individuality` chain keys.
  *
+ * When called with no argument, the environment is derived from the host via
+ * chain discovery. This is the recommended mode inside a
+ * container. The zero-arg form is typed with the "paseo" shape, and runtime
+ * descriptors always match the host's actual network. It needs a host that
+ * serves discovery: outside a container, or on a host that predates it, the
+ * zero-arg form throws and the environment has to be passed explicitly.
+ *
+ * An explicit environment that disagrees with the host's network throws
+ * {@link EnvironmentMismatchError}. A bundled asset hub descriptor whose
+ * genesis hash disagrees with the host throws {@link GenesisMismatchError},
+ * since it anchors the environment; a mismatch on bulletin or individuality
+ * warns and leaves that one chain throwing on use. Hosts that predate
+ * discovery skip validation entirely.
+ *
  * @example
+ * Let the host decide, the recommended path inside a container:
+ * ```ts
+ * import { getChainAPI } from "@parity/product-sdk-chain-client";
+ *
+ * const client = await getChainAPI();
+ * const account = await client.assetHub.query.System.Account.getValue(addr);
+ * client.destroy();
+ * ```
+ *
+ * @example
+ * Pin the environment explicitly:
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
  *
@@ -154,14 +319,21 @@ export type PresetChains<E extends Environment> = PresetDescriptors[E];
  * client.destroy();
  * ```
  */
+export async function getChainAPI(): Promise<ChainClient<PresetChains<"paseo">>>;
 export async function getChainAPI<E extends Environment>(
     env: E,
-): Promise<ChainClient<PresetChains<E>>> {
+): Promise<ChainClient<PresetChains<E>>>;
+export async function getChainAPI(envArg?: Environment): Promise<any> {
+    // "Relay" is not probed because there is no relay preset descriptor.
+    const discovery = await getHostChainInfo(Object.values(CHAIN_IDENTIFIERS));
+    const env = await resolveEnvironment(envArg, discovery);
+
     if (!AVAILABLE_ENVIRONMENTS.has(env)) {
         throw new Error(`Chain API for "${env}" is not yet available`);
     }
 
     const descriptors = await loadDescriptors(env);
+    if (discovery) validateDescriptorGenesis(descriptors, discovery);
 
     return createChainClient({
         chains: {
@@ -169,20 +341,25 @@ export async function getChainAPI<E extends Environment>(
             bulletin: descriptors.bulletin,
             individuality: descriptors.individuality,
         },
-    }) as Promise<ChainClient<PresetChains<E>>>;
+    });
 }
 
 if (import.meta.vitest) {
-    const { test, expect, beforeEach } = import.meta.vitest;
+    const { test, expect, beforeEach, vi } = import.meta.vitest;
     const { destroyAll } = await import("./clients.js");
+    const { EnvironmentMismatchError, GenesisMismatchError } = await import("./errors.js");
 
     // Test-only genesis hashes for assertion — not used in production code.
     const GENESIS = {
         polkadot_asset_hub: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
         kusama_asset_hub: "0x48239ef607d7928874027a43a67689209727dfb3d3dc5e5b03a39bdc2eda771a",
-        paseo_asset_hub: "0xbf0488dbe9daa1de1c08c5f743e26fdc2a4ecd74cf87dd1b4b1eeb99ae4ef19f",
+        paseo_asset_hub: "0x23e730eb1c6fecae09c917439a5038cb6122d0d48980e8b9bbf0ff56f94a2ca6",
         paseo_bulletin: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
-        paseo_individuality: "0xc5af1826b31493f08b7e2a823842f98575b806a784126f28da9608c68665afa5",
+        paseo_individuality: "0x89a63b11fef2c0273fc72c0d864da0793a665dade5db153e0cab995348c5440f",
+        previewnet_asset_hub: "0x627f54413120c81161261b2ca87f60f0020963107dc28367491e09ec2dd29659",
+        previewnet_bulletin: "0x1144acd27f0e5b2c88da7dc12c111e396983dec036ccfb42da5bbb0dd7104e89",
+        previewnet_individuality:
+            "0x34999c298555e25bf17a7f3ea20efe7f6fdab1dfec7f808fbcfd36ca8aa5d220",
         devnet_asset_hub: "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
         devnet_bulletin: "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
         devnet_individuality: "0xe6c30d6e148f250b887105237bcaa5cb9f16dd203bf7b5b9d4f1da7387cb86ec",
@@ -190,6 +367,7 @@ if (import.meta.vitest) {
 
     beforeEach(() => {
         destroyAll();
+        discoveryState.discovery = null;
     });
 
     // --- GENESIS constants ---
@@ -220,6 +398,17 @@ if (import.meta.vitest) {
         expect(descriptors.individuality.genesis).toBe(GENESIS.paseo_individuality);
     });
 
+    test("loadDescriptors returns descriptors with genesis hashes for previewnet", async () => {
+        const descriptors = await loadDescriptors("previewnet");
+        expect(descriptors).toBeDefined();
+        expect(descriptors.assetHub).toBeDefined();
+        expect(descriptors.bulletin).toBeDefined();
+        expect(descriptors.individuality).toBeDefined();
+        expect(descriptors.assetHub.genesis).toBe(GENESIS.previewnet_asset_hub);
+        expect(descriptors.bulletin.genesis).toBe(GENESIS.previewnet_bulletin);
+        expect(descriptors.individuality.genesis).toBe(GENESIS.previewnet_individuality);
+    });
+
     test("loadDescriptors returns descriptors with genesis hashes for devnet", async () => {
         const descriptors = await loadDescriptors("devnet");
         expect(descriptors).toBeDefined();
@@ -233,10 +422,128 @@ if (import.meta.vitest) {
 
     // --- AVAILABLE_ENVIRONMENTS ---
 
-    test("paseo and devnet are currently available", () => {
+    test("paseo, previewnet and devnet are currently available", () => {
         expect(AVAILABLE_ENVIRONMENTS.has("paseo")).toBe(true);
+        expect(AVAILABLE_ENVIRONMENTS.has("previewnet")).toBe(true);
         expect(AVAILABLE_ENVIRONMENTS.has("devnet")).toBe(true);
         expect(AVAILABLE_ENVIRONMENTS.has("polkadot")).toBe(false);
         expect(AVAILABLE_ENVIRONMENTS.has("kusama")).toBe(false);
+    });
+
+    // --- chain discovery ---
+
+    // Partial mocks: getHostChainInfo is driven by test state; createChainClient
+    // is captured so success paths don't dial a real host. All other exports stay real.
+    const discoveryState = vi.hoisted(() => ({
+        discovery: null as null | {
+            network: string;
+            chains: Partial<Record<string, string>>;
+        },
+        createChainClientCalls: [] as unknown[],
+    }));
+
+    vi.mock("@parity/product-sdk-host", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("@parity/product-sdk-host")>()),
+        getHostChainInfo: async () => discoveryState.discovery,
+    }));
+
+    vi.mock("./clients.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("./clients.js")>()),
+        createChainClient: async (config: unknown) => {
+            discoveryState.createChainClientCalls.push(config);
+            return { fake: true };
+        },
+    }));
+
+    // The network id is deliberately dotli's spelling, not "paseo". Derivation
+    // must work from the genesis hashes alone.
+    const HOST_PASEO = {
+        network: "paseo-next-v2",
+        chains: {
+            AssetHub: GENESIS.paseo_asset_hub,
+            Bulletin: GENESIS.paseo_bulletin,
+            People: GENESIS.paseo_individuality,
+        },
+    };
+
+    test("legacy host + no env throws a clear error", async () => {
+        discoveryState.discovery = null;
+        await expect(getChainAPI()).rejects.toThrow(/pass an explicit environment/);
+    });
+
+    test("legacy host + explicit env behaves as today", async () => {
+        discoveryState.discovery = null;
+        discoveryState.createChainClientCalls = [];
+        await getChainAPI("paseo");
+        expect(discoveryState.createChainClientCalls.length).toBe(1);
+    });
+
+    test("derives the environment from the discovered asset hub genesis", async () => {
+        discoveryState.discovery = HOST_PASEO;
+        discoveryState.createChainClientCalls = [];
+        await getChainAPI();
+        const config = discoveryState.createChainClientCalls[0] as {
+            chains: Record<string, { genesis?: string }>;
+        };
+        expect(config.chains.assetHub.genesis).toBe(GENESIS.paseo_asset_hub);
+    });
+
+    test("explicit env mismatching the host's chains throws EnvironmentMismatchError", async () => {
+        discoveryState.discovery = HOST_PASEO;
+        const error = await getChainAPI("devnet").catch((e) => e);
+        expect(error).toBeInstanceOf(EnvironmentMismatchError);
+        expect(error.requested).toBe("devnet");
+        expect(error.hostNetwork).toBe("paseo-next-v2");
+    });
+
+    test("no matching bundle + no env throws naming the host network", async () => {
+        discoveryState.discovery = { network: "westend", chains: {} };
+        await expect(getChainAPI()).rejects.toThrow(/no bundled descriptors match.*"westend"/);
+    });
+
+    test("descriptor genesis disagreeing with the host throws GenesisMismatchError", async () => {
+        discoveryState.discovery = {
+            network: "paseo",
+            chains: { AssetHub: "0xdeadbeef" },
+        };
+        const error = await getChainAPI("paseo").catch((e) => e);
+        expect(error).toBeInstanceOf(GenesisMismatchError);
+        expect(error.chain).toBe("assetHub");
+        expect(error.hostGenesis).toBe("0xdeadbeef");
+    });
+
+    test("a non-anchor genesis mismatch warns and keeps the other chains usable", async () => {
+        // paseo individuality has been re-genesised on its own before, with the
+        // asset hub untouched (descriptors 0.5.1). Failing the whole call would
+        // take asset hub and bulletin down with it.
+        discoveryState.discovery = {
+            network: "paseo",
+            chains: {
+                AssetHub: GENESIS.paseo_asset_hub,
+                Bulletin: GENESIS.paseo_bulletin,
+                People: "0xstale",
+            },
+        };
+        discoveryState.createChainClientCalls = [];
+        await getChainAPI("paseo");
+        expect(discoveryState.createChainClientCalls.length).toBe(1);
+    });
+
+    test("identifiers the host refuses skip validation", async () => {
+        discoveryState.discovery = {
+            network: "paseo",
+            chains: { AssetHub: GENESIS.paseo_asset_hub },
+        };
+        discoveryState.createChainClientCalls = [];
+        await getChainAPI("paseo");
+        expect(discoveryState.createChainClientCalls.length).toBe(1);
+    });
+
+    test("derived reserved environments still throw not-yet-available", async () => {
+        discoveryState.discovery = {
+            network: "polkadot",
+            chains: { AssetHub: GENESIS.polkadot_asset_hub },
+        };
+        await expect(getChainAPI()).rejects.toThrow("not yet available");
     });
 }

@@ -3,6 +3,7 @@
 // Terminal Adapter
 export {
     createTerminalAdapter,
+    isBenignTeardownError,
     SS_STABLE_STAGE_ENDPOINTS,
     SS_PASEO_STABLE_STAGE_ENDPOINTS,
 } from "./adapter.js";

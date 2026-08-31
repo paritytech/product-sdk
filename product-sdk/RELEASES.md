@@ -9,10 +9,11 @@ changeset file under `.changeset/`.
 ## TL;DR
 
 1. Author your changeset on a feature branch — park it in
-   [`pending-changesets/`](./pending-changesets/) while the work is
-   in progress.
-2. On the PR that closes the work, move the changeset into `.changeset/`.
-3. Merging that PR to `main` is what triggers the release.
+   [`pending-changesets/`](./pending-changesets/) and leave it there.
+   Your PR never moves it into `.changeset/`; CI rejects that.
+2. A separate `chore(release):` PR promotes the changesets that are
+   ready into `.changeset/` and cuts the release wave.
+3. Merging that release PR to `main` is what triggers publishing.
 
 ## When does a PR need a changeset?
 
@@ -78,7 +79,10 @@ Put differently: anything under `.changeset/` will go out on the next
 release. If you authored a changeset on a feature branch but the PR
 is still iterating, parking it under `.changeset/` means an unrelated
 merge could ship your unfinished work. Stage it in
-`pending-changesets/` instead and promote it on the closing PR.
+`pending-changesets/` instead and leave it there. The release PR
+promotes it. This is enforced by the `product-sdk: Changeset location`
+CI check, which fails any PR that adds a file to `.changeset/` unless
+the same PR moves it out of `pending-changesets/`.
 
 See [`pending-changesets/README.md`](./pending-changesets/README.md)
 for the details — including why we can't nest a subdirectory under
@@ -145,13 +149,19 @@ Example changeset header:
 
 ## Promoting a pending changeset
 
-When the PR that closes the work is ready:
+This happens in a dedicated release PR, titled `chore(release): <version>`,
+not in the PR that closes the underlying work. Open that PR from a branch
+off `main` and move every changeset that is ready to ship:
 
 ```bash
 git mv pending-changesets/<name>.md .changeset/<name>.md
 ```
 
-Commit the move. Merging that PR to `main` triggers the release.
+Keep the filename identical. The CI check matches the file leaving
+`pending-changesets/` against the file arriving in `.changeset/` by name,
+so renaming it during the move fails the check.
+
+Commit the moves. Merging the release PR to `main` triggers publishing.
 
 ## Previewing what the next release will do
 
