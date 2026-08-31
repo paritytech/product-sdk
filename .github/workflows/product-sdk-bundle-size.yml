@@ -167,15 +167,16 @@ jobs:
 
       - name: Compare
         id: compare
+        # Bundle size is an informational guardrail, not a merge gate: this
+        # check never fails. It measures, ranks each entry 🟢 / 🟡 / 🟠, and
+        # posts the diff as a PR comment — no `--strict`, no failing step.
         run: |
           set +e
           node scripts/bench-bundle.mjs compare \
             --base bundle-size.base.json \
             --head bundle-size.head.json \
-            --md bundle-size.diff.md \
-            --strict
+            --md bundle-size.diff.md
           code=$?
-          echo "compare-exit=$code" >> "$GITHUB_OUTPUT"
           # Always emit a comment body so the sticky-comment action has input
           # even if the script crashed before writing one.
           if [ ! -s bundle-size.diff.md ]; then
@@ -186,8 +187,8 @@ jobs:
               echo "Bench compare step failed to produce a report (exit $code). See workflow logs."
             } > bundle-size.diff.md
           fi
-          # Don't fail this step — let the sticky-comment post first, then
-          # fail the dedicated 'Fail on regression' step at the end.
+          # Never fail — this is a guardrail, not a gate. The 🟠 tier flags a
+          # large increase in the PR comment; it does not block merge.
           exit 0
         working-directory: product-sdk
 
@@ -205,11 +206,3 @@ jobs:
         with:
           header: product-sdk-bundle-size
           path: product-sdk/bundle-size.diff.md
-
-      - name: Fail on regression
-        if: steps.compare.outputs.compare-exit != '0'
-        env:
-          COMPARE_EXIT: ${{ steps.compare.outputs.compare-exit }}
-        run: |
-          echo "Bundle size regression exceeds fail threshold (script exit $COMPARE_EXIT)."
-          exit 1

@@ -4,10 +4,11 @@ packages:
   - "scripts/bench-consumer"
 
 catalog:
-  "@parity/host-api-test-sdk": ^0.11.0
-  "@parity/truapi": ^0.7.0
+  "@parity/host-api-test-sdk": ^0.12.1
+  "@parity/truapi": ^0.10.0
   "@playwright/test": ^1.60.0
   "@polkadot-api/json-rpc-provider": ^0.2.0
+  "@polkadot-api/metadata-builders": ^0.14.3
   "@polkadot-api/substrate-bindings": ^0.20.3
   "@polkadot-api/substrate-client": ^0.7.0
   "@polkadot-labs/hdkd-helpers": ^0.0.30
@@ -32,3 +33,7 @@ onlyBuiltDependencies:
 allowBuilds:
   "@biomejs/biome": true
   esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@parity/host-api-test-sdk@0.12.1'
+  - '@parity/truapi@0.10.0'

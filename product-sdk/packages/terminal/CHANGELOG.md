@@ -1,5 +1,61 @@
 # @parity/product-sdk-terminal
 
+## 0.8.0
+
+### Minor Changes
+
+- 84134e0: **Stop `adapter.destroy()` from logging benign `DestroyedError` teardown noise, and export the filter consumers were hand-rolling.**
+
+  Destroying the terminal adapter while a statement-subscription observable is still live makes `@novasamatech/statement-store` log `Statement subscription error: Client destroyed` to `console.error` synchronously, from inside `disconnect()`. Draining the tracked unsubscribe RPCs does not cover that observable's error emission, so the line still escaped, and every consumer (bulletin-deploy, playground-cli, d3pot) hand-rolled a filter to keep clean CLI output.
+
+  `destroy()` now runs the disconnect under a scoped `console.error` filter that drops only the benign teardown line and restores itself in a `finally` — every other `console.error` passes through untouched, so a genuine error during teardown is still visible, and overlapping `destroy()`s can't strand the patch. This restores (and narrows) the suppression a previous refactor had removed in favour of an ordering-only approach that didn't reach the upstream error.
+
+  Also exports `isBenignTeardownError(error: unknown): boolean`, the predicate `destroy()` uses. It matches on the message text (`Client destroyed`), not the error name, so it never swallows another package's `DestroyedError` — notably `@parity/product-sdk-signer`'s. Export it so a consumer with its own `console.error` guard can drop the same line without reinventing the match.
+
+### Patch Changes
+
+- 84134e0: **Derive `txExtVersion` from the transaction-extension version map, not the extrinsic format version.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion` with the **transaction-extension** version the host must decode extension values under. It was being derived from `metadata.extrinsic.version` — the extrinsic _format_ versions (`4` / `5`) — which is a different concept (host-rust-core#528). For a V4 extrinsic the value is a fixed `0`; for a V5 general transaction it is a transaction-extension version from the runtime's v16 `transactionExtensionsByVersion` map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`), which the host and runtime agree is `5` — a value that must exist in that map, not the highest extrinsic format number.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `extrinsic.signedExtensions`: V4 → `0`, else the general transaction-extension version `5` if the runtime lists it (throwing otherwise, rather than sending a format number the host can't decode under).
+
+  No behaviour change on the chains the SDK ships against today: they all offer extrinsic V4, so `txExtVersion` was and remains `0`. The bug was latent — it only produced a wrong value (the format number `5`) on a hypothetical V5-only runtime, which is exactly the case this corrects.
+
+  - @parity/product-sdk-signer@0.14.2
+  - @parity/product-sdk-keys@0.3.22
+
+## 0.7.4
+
+### Patch Changes
+
+- 46e3592: **Use the signed V4 envelope when a runtime also advertises V5.**
+
+  Product-account signers now prefer an advertised Extrinsic V4 format because metadata alone cannot prove that the connected host implements a runtime's V5 authorization pipeline. V5-only runtimes continue to use V5, preserving explicit host capability errors and future authorization support.
+
+- Updated dependencies [46e3592]
+  - @parity/product-sdk-signer@0.14.1
+  - @parity/product-sdk-keys@0.3.21
+
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [f987fd7]
+- Updated dependencies [f987fd7]
+  - @parity/product-sdk-signer@0.14.0
+  - @parity/product-sdk-keys@0.3.20
+
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+  - @parity/product-sdk-signer@0.13.0
+  - @parity/product-sdk-keys@0.3.19
+
 ## 0.7.1
 
 ### Patch Changes

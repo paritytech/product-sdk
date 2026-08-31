@@ -1,5 +1,247 @@
 # @parity/product-sdk-signer
 
+## 0.14.2
+
+### Patch Changes
+
+- Updated dependencies [84134e0]
+- Updated dependencies [84134e0]
+  - @parity/product-sdk-host@0.18.0
+  - @parity/product-sdk-keys@0.3.22
+
+## 0.14.1
+
+### Patch Changes
+
+- 46e3592: **Preserve an already-qualified dotNS dapp name instead of double-suffixing it.**
+
+  `HostProvider`'s `dappName` is turned into a product identifier before `getProductAccount`. The rule keyed off `.dot`, so a name already carrying a different TLD — e.g. `host-playground.paseo` — got a second suffix and became the invalid `host-playground.paseo.dot`. It now qualifies only bare labels (no dot), matching `normalizeDotNsName`'s convention: any name that already contains a dot, plus localhost / loopback / localhost-subdomain forms, is passed through unchanged.
+
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+  - @parity/product-sdk-host@0.17.0
+  - @parity/product-sdk-keys@0.3.21
+
+## 0.14.0
+
+### Minor Changes
+
+- f987fd7: **Preserve the underlying host error as `cause` on `HostRejectedError` (#289).**
+
+  Six of the seven `HostProvider` account methods discarded the host's own error once they
+  had formatted it into a message, so a signer-layer consumer could only recover the reason
+  by matching on the message text. They now pass it through, and `HostRejectedError` accepts
+  it as a third optional `ErrorOptions` argument, the same way `SigningFailedError` and
+  `AllowanceExpiredError` already did.
+
+  `error.cause` is the raw TrUAPI envelope, untouched — `scale.CallErrorValue<Versioned…Error>`
+  for the call that failed. Its tagged union narrows exhaustively and already separates a
+  domain rejection from a transport failure, so no hand-written gate is needed to tell the
+  two apart:
+
+  ```ts
+  import type {
+    scale,
+    VersionedHostAccountCreateProofError,
+  } from "@parity/truapi";
+  import { isErrorOf } from "@parity/result";
+
+  const result = await manager.createRingVRFProof(
+    handle,
+    context,
+    ring,
+    message
+  );
+  if (!result.ok && isErrorOf(result.error, HostRejectedError)) {
+    const raw = result.error
+      .cause as scale.CallErrorValue<VersionedHostAccountCreateProofError>;
+    if (raw.tag === "Domain" && raw.value.value.tag === "NotAllowlisted") {
+      // Degrade: this host has no allowlist source yet.
+    }
+  }
+  ```
+
+  `NotAllowlisted` on a cross-product proof or `ringVrfSign` is the expected steady-state
+  answer on core-based hosts rather than a fault — the gate compares the key handle's owner
+  against the calling product and reads no manifest, so no allowlist entry can exist yet
+  (paritytech/host-rust-core#373). Android prompts and succeeds on the same request, so a
+  product spanning both needs to branch on this to degrade per host.
+
+  Covers `registerRingVrfKey`, `listRingVrfKeys`, `getProductAccountAlias`,
+  `createRingVRFProof`, `getUserId`, `signVrf` and `getProductAccount`. A provider method
+  that throws instead of rejecting keeps its own error on `cause` rather than losing it,
+  which is the shape a host predating a call fails in.
+
+  **`nonTransient` now answers consistently, which is a behaviour change.** It is classified
+  from the host's error at every method instead of only at `getProductAccount`, so a signed-out
+  host (`NotConnected`) reports `nonTransient: true` from `registerRingVrfKey`,
+  `listRingVrfKeys`, `getProductAccountAlias`, `createRingVRFProof`, `getUserId` and `signVrf`,
+  where it previously reported `false`. Those six could not classify before, because the error
+  they needed had already been discarded. If you branch on `nonTransient`, a signed-out user now
+  reaches your read-only path on all seven calls rather than one, which is what the field is
+  documented to mean. Nothing inside the SDK changes behaviour: its one internal reader takes
+  its value from `getProductAccount`, which already classified correctly.
+
+  `HostUnavailableError` also takes an optional `ErrorOptions` now, and a failed
+  accounts-provider load carries the error the loader threw, instead of only its message text.
+
+  Reading `cause` at this layer means depending on `@parity/truapi` for the cast. Consumers
+  wanting fully-typed handling without one should call `getAccountsProvider()` from
+  `@parity/product-sdk-host`, where TrUAPI's types already flow through untouched — the same
+  place `ringVrfSign` and `findRingVrfKeyHandle` live.
+
+### Patch Changes
+
+- f987fd7: **Removed: `deriveContextAlias`, `verifyContextAlias`, `ContextAliasInfo`.**
+
+  Deprecated in `0.22.0`, which named `0.23.0` as the removal version. This is that release.
+
+  `deriveContextAlias` returned addresses no key can spend: the alias public key was
+  `blake2b256(parentPublicKey || context)`, a hash rather than a derived key, so no secret
+  corresponded to the SS58 address or to the H160. Both could receive value and neither could ever
+  send it. `verifyContextAlias` compared two public values, so a `true` result showed a derivation
+  relationship and never that anyone controlled either account.
+
+  Replace by intent:
+
+  - An account that holds or spends value: `SignerManager.getProductAccount(dotNsIdentifier, index)`
+    from `@parity/product-sdk-signer`. Host backed and actually signable.
+  - The address offline, with no host: `deriveProductAccountPublicKey` from
+    `@parity/product-sdk-keys`, the canonical sr25519 soft derivation.
+  - An unlinkable per-context alias: select a registered ring VRF key, then
+    `SignerManager.getProductAccountAlias(keyHandle, context, location)` or
+    `createRingVRFProof(keyHandle, context, location, message)`.
+  - A context-scoped identifier that was never an account: `blake2b256` from
+    `@parity/product-sdk/crypto`. Same bytes, without the address packaging that invited the mistake.
+
+  If you used an alias purely as an opaque identifier, the same 32 bytes are still available as
+  `blake2b256(parentPublicKey || context)`. That is the hash, not either address form the old helper
+  returned, so re-encode to match what you stored: `ss58Encode(blake2b256(...), 42)` reproduces the
+  old `address`, and `deriveH160(blake2b256(...))` reproduces the old `h160Address`. Both are exact.
+
+- Updated dependencies [f987fd7]
+  - @parity/product-sdk-address@0.2.0
+  - @parity/product-sdk-keys@0.3.20
+
+## 0.13.0
+
+### Minor Changes
+
+- 3655724: **Wrap `account.signVrf` (RFC-0023) in the accounts surface (#288).**
+
+  Producing an sr25519 VRF over a caller-supplied Merlin transcript previously meant
+  reaching for the raw `getTruApi()` client. `AccountsProvider` now has
+  `signVrf(account, transcriptLabel, items)`, with `HostProvider.signVrf` and
+  `SignerManager.signVrf` alongside `createRingVRFProof`. Bytes in, bytes out: the adapter
+  owns the hex encoding and the tagged derivation-index selector, and errors use the same
+  `Result` channel as every other account call.
+
+  New exported types, also re-exported from `@parity/product-sdk-signer`:
+  `VrfTranscriptItem`, `VrfSignature`, and `ProductAccountLookup`
+  (`{ dotNsIdentifier, derivationIndex? }`), which a `ProductAccount` satisfies.
+
+  **Breaking for implementors.** `signVrf` is a required member of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test doubles
+  must add it. Callers are unaffected, and the fake at `@parity/product-sdk-host/testing`
+  already implements it.
+
+  **Host-only.** There is no `DevProvider` implementation and the e2e test host does not
+  expose the call, so this returns `HOST_UNAVAILABLE` outside a host container, matching
+  `createRingVRFProof`. Use `createFakeHost()` for local tests.
+
+  The caller owns four things the types cannot enforce:
+
+  - _Domain separation_ — a label borrowed from another protocol makes the output
+    replayable across both.
+  - _Freshness_ — the VRF is deterministic, so per-round values must enter the transcript
+    as items; otherwise every call returns the same signature.
+  - _Size_ — hosts cap the transcript at 32 items and 8 KiB total and reject anything
+    larger as an unknown error. The SDK does not pre-validate.
+  - _Authorization_ — an `AutoSigning` allowance makes these calls silent. It is not
+    VRF-scoped, so granting it also authorizes other signing with that account.
+
+  Hosts predating the call reject it through the error channel rather than hanging.
+
+- 3655724: **Update TrUAPI to 0.9 and require registered ring-VRF key handles.**
+
+  `AccountsProvider`, `HostProvider`, and `SignerManager` now expose
+  `registerRingVrfKey(index, ring)` and `listRingVrfKeys(owner, disclosure?)`. Registration returns
+  the decoded ring-VRF public key; listing returns `RegisteredRingVrfKey` entries with opaque
+  `RingVrfKeyHandle` values. `findRingVrfKeyHandle(keys, ring)` selects a handle by declared
+  `RingLocation`, so products do not hard-code another product's derivation index.
+
+  `getProductAccountAlias` and `createRingVRFProof` now require that handle as their first argument.
+  This is a compile-time breaking change. It matches TrUAPI 0.9, where the host no longer chooses a
+  ring member key implicitly and rejects malformed legacy requests before application dispatch.
+
+  The dependency update also adopts TrUAPI's renamed derivation-index variants: `Index` replaces
+  `Left` and `Raw` replaces `Right`. The SDK's ergonomic numeric product-account APIs are unchanged;
+  the host adapter performs the `Index` conversion at the wire boundary.
+
+  The signer package's re-exported `RingLocation` now uses TrUAPI's `` chainId: `0x${string}` ``
+  instead of a plain `string`; callers loading chain IDs from configuration must narrow or validate
+  them before assignment. Custom `HostProviderOptions.loadAccountsProvider` implementations must
+  also provide the newly required `registerRingVrfKey` and `listRingVrfKeys` methods.
+
+  `findRingVrfKeyHandle` is exported from `@parity/product-sdk-host`, not from
+  `@parity/product-sdk-signer`, which re-exports the ring-VRF types only. A product depending on
+  the signer package alone needs `@parity/product-sdk-host` as a second direct dependency for the
+  selection step. Prefer the helper over an inline comparison: it requires the junction path to
+  match in order and compares chain and collection ids case-insensitively, so a shortcut that
+  checks only `chainId` can pick a key registered for a different ring on the same chain.
+
+### Patch Changes
+
+- 3655724: **Deprecate the context-alias helpers, delete the unimplemented ring-alias stubs (#287).**
+
+  `deriveContextAlias` returns addresses that can receive value and can never spend it: the alias
+  public key is `blake2b256(parentPublicKey || context)`, a hash rather than a derived key, so no
+  secret corresponds to the SS58 address or the H160. The address encodes and validates fine, so
+  nothing surfaces until value arrives at it.
+
+  **Deleted:** `deriveAnonymousAlias`, `createRingProof`, `verifyRingProof`, `AnonymousAliasInfo`,
+  and identity's `RingLocation`. Each function was a debug log followed by an unconditional
+  `throw`, with no branch or early return, so no working consumer could exist and this break is
+  compile-time only. The real ring VRF operations already live on `SignerManager` in
+  `@parity/product-sdk-signer` as `getProductAccountAlias(keyHandle, context, location)` and
+  `createRingVRFProof(keyHandle, context, location, message)`, host-backed and using an opaque
+  registered key handle selected by ring. Identity's `RingLocation` was also the wrong shape,
+  `{ringIndex, memberIndex}` against the protocol type `{chainId, junctions}`.
+
+  **Deprecated, removal in `@parity/product-sdk` 0.23.0:** `deriveContextAlias`,
+  `verifyContextAlias`, `ContextAliasInfo`. Their output is unchanged, so a caller using an alias as
+  a plain identifier has a release to migrate. `verifyContextAlias` compares two public values with
+  no secret involved anywhere, so it confirms a derivation relationship and authenticates nothing.
+
+  The derivation output is deliberately unchanged: the same name and signature returning different
+  bytes would break identifier consumers silently, with no compile error.
+
+  ### Migration
+
+  | If you used it for                                    | Use instead                                                                                                                                                                                                      |
+  | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | An account that holds or spends value                 | `SignerManager.getProductAccount(dotNsIdentifier, index)` from `@parity/product-sdk-signer`                                                                                                                      |
+  | The address offline, with no host                     | `deriveProductAccountPublicKey` from `@parity/product-sdk-keys`, the canonical sr25519 soft derivation                                                                                                           |
+  | An unlinkable per-context alias                       | Select a registered key by ring, then call `SignerManager.getProductAccountAlias(keyHandle, context, location)` or `createRingVRFProof(keyHandle, context, location, message)` from `@parity/product-sdk-signer` |
+  | A context-scoped identifier, never used as an account | `blake2b256` from `@parity/product-sdk/crypto`: the same bytes, without address packaging                                                                                                                        |
+
+  The DotNS half of `./identity` is unaffected (`resolveDotNs`, `reverseDotNs`, `isDotNsAvailable`,
+  `resolvePeopleUsernameOwner` and the name helpers), and the subpath itself is not deprecated.
+
+  `@parity/product-sdk-signer` takes a patch here for the context-alias migration wording. The
+  separate TrUAPI 0.9 changeset documents the `RingLocation` type break and supplies the release's
+  minor bump.
+
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+  - @parity/product-sdk-host@0.16.0
+  - @parity/product-sdk-keys@0.3.19
+
 ## 0.12.1
 
 ### Patch Changes

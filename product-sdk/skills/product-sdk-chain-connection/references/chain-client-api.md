@@ -7,20 +7,36 @@ Package: `@parity/product-sdk-chain-client`
 Create a chain client for a preset environment with zero configuration.
 
 ```typescript
+// Derive the environment from the host via chain discovery
+async function getChainAPI(): Promise<ChainClient<PresetChains<"paseo">>>
+// Or pin it explicitly
 async function getChainAPI<E extends Environment>(env: E): Promise<ChainClient<PresetChains<E>>>
 ```
 
 **Parameters:**
-- `env` - Environment name: `"paseo"`, `"polkadot"`, or `"kusama"`
+- `env` - Environment name: `"paseo"`, `"devnet"`, `"polkadot"`, or `"kusama"`. Omit it to
+  derive the environment from the host, by matching the host's asset hub genesis hash
+  against the bundled descriptors. The zero-arg form is the recommended path inside a
+  container; it is typed with the `"paseo"` shape, while the descriptors loaded at
+  runtime always follow the host.
 
 **Returns:** A `ChainClient` with typed APIs for all chains in the environment.
 
-**Throws:** If the environment is not yet available (only `"paseo"` is currently supported).
+**Throws:**
+- If the environment is not yet available (`"paseo"` and `"devnet"` are live today).
+- `EnvironmentMismatchError` if the explicit environment is not the one the host runs.
+- `GenesisMismatchError` if a bundled descriptor's genesis hash disagrees with the host,
+  for example after a testnet reset with a stale descriptor bundle.
+- A plain `Error` if the zero-arg form is used where discovery is unavailable: outside a
+  container, or on a host predating discovery. Pass an explicit environment there.
 
 ```typescript
 import { getChainAPI } from "@parity/product-sdk-chain-client";
 
-const client = await getChainAPI("paseo");
+// Inside a container, let the host pick the environment
+const client = await getChainAPI();
+
+// Or pin it: await getChainAPI("paseo")
 
 // Access typed APIs
 client.assetHub.query.System.Account.getValue(address);
