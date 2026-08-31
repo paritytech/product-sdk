@@ -1,5 +1,6 @@
 ---
 "@parity/product-sdk-host": minor
+"@parity/product-sdk": minor
 ---
 
 **Add `getLocaleProvider` for the host's selected language.**
