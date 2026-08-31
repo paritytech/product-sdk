@@ -236,6 +236,8 @@ export type {
     AccountVrfSignature,
     AirdropVrfVariant,
     GameSignUpRequirement,
+    LiteSignUpBlocker,
+    LiteSignUpRequirement,
     SignUpBlocker,
 } from "./signup-types.js";
 export {
@@ -318,6 +320,20 @@ export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person
 // unsigned, proof-authorized bind leg of the two-transaction lite sign-up.
 export { withLiteAlias } from "./as-lite-alias-signer.js";
 export type { LiteAliasInfo } from "./as-lite-alias-signer.js";
+
+// The lite sign-up itself: the account requirement read plus the lite gates
+// (binding, invite pin, ring membership, context derivability) at one pinned
+// block, and the free `Game.sign_up_with_account_lite_invite` builder. The
+// bind leg stays with `withLiteAlias(AliasWithProof)` over
+// `PeopleLite.set_alias_account`; this pair covers everything after it.
+export { readLiteSignUpRequirement, signUpWithLiteInviteTx } from "./signup-lite.js";
+export type {
+    LiteSignUpChain,
+    RawLiteAliasBinding,
+    RawLiteRingMembership,
+    ReadLiteSignUpRequirementOptions,
+    SignUpWithLiteInviteOptions,
+} from "./signup-lite.js";
 
 // The metadata-driven pieces underneath stay internal on purpose. They are
 // written generically, taking an extension identifier rather than hard-coding
