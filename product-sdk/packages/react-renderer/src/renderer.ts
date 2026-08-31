@@ -24,7 +24,8 @@ export function createRenderer({ onRender, subscribeActions }: RendererParams) {
     const container: Container = { onRender, children: [] };
     const fiberRoot = reconciler.createContainer(
         container,
-        0, // LegacyRoot — synchronous rendering
+        0, // LegacyRoot (the tag alone isn't synchronous in react-reconciler
+        // 0.33.0 — sync comes from the SyncLane used in mount/unmount below)
         null,
         false,
         null,
@@ -40,14 +41,23 @@ export function createRenderer({ onRender, subscribeActions }: RendererParams) {
             if (unmounted) {
                 throw new Error("Renderer is already unmounted");
             }
-            reconciler.updateContainer(
+            // Render synchronously so onRender fires before mount() returns.
+            // The public updateContainer schedules on the default lane (a
+            // microtask), which (a) makes the first onRender land a tick late
+            // and (b) lets a same-tick unmount() — which is sync — discard the
+            // pending mount. updateContainerSync + flushSyncWork keeps mount and
+            // unmount symmetric and gives the synchronous semantics this
+            // renderer wants.
+            reconciler.updateContainerSync(
                 createElement(RendererProvider, { subscribeActions }, node),
                 fiberRoot,
             );
+            reconciler.flushSyncWork();
         },
         unmount() {
             unmounted = true;
             reconciler.updateContainerSync(null, fiberRoot);
+            reconciler.flushSyncWork();
         },
     };
 }

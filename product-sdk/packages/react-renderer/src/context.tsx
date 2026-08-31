@@ -63,14 +63,19 @@ export function useAction<T>(
     mapRef.current = map;
 
     const actionId = `custom_renderer_action_${id}`;
+    // Single source of truth for "has a handler": when no callback is provided
+    // we neither register nor surface the id, so the registration and the
+    // returned/serialized clickAction never disagree.
+    const hasCallback = callback !== undefined;
 
     useEffect(() => {
+        if (!hasCallback) return;
         return registerAction(actionId, (_, payload) => {
             if (ref.current) {
                 ref.current(mapRef.current(payload));
             }
         });
-    }, [actionId, registerAction]);
+    }, [actionId, registerAction, hasCallback]);
 
-    return callback ? actionId : undefined;
+    return hasCallback ? actionId : undefined;
 }

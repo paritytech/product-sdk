@@ -112,6 +112,9 @@ describe("custom components", () => {
         it("serializes as a Spacer node with no props", async () => {
             const { node } = await mount(<Spacer />);
             expect(node.tag).toBe("Spacer");
+            // truapi's Spacer variant has no `props` field — the serializer must
+            // omit the key entirely, not emit `props: undefined`.
+            expect("props" in node.value).toBe(false);
         });
 
         it("forwards layout modifiers", async () => {

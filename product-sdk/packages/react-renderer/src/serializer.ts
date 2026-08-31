@@ -126,11 +126,15 @@ function serializeNode(node: WidgetInstance | TextInstance): CustomRendererNode 
         return { tag: "String", value: { text: node.text } };
     }
 
+    const props = convertWidgetProps(node.type, node.props);
     return {
         tag: node.type,
         value: {
             modifiers: convertModifiers(node.props),
-            props: convertWidgetProps(node.type, node.props),
+            // Omit `props` entirely when the widget has none (Spacer): truapi's
+            // Spacer variant has no `props` field, so emitting `props: undefined`
+            // adds a key the CustomRendererNode union doesn't declare.
+            ...(props === undefined ? {} : { props }),
             children: node.children.map((child) => serializeNode(child)),
         },
     } as CustomRendererNode;
