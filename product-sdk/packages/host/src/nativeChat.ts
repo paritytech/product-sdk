@@ -189,7 +189,12 @@ export function createNativeChatManager(backend: NativeChatBackend): ChatManager
                     subscribeActions: params.subscribeActions,
                 });
                 const subscription = source.subscribe({
-                    next: (node) => render(toNovasamaNode(node)),
+                    // `node` is a truapi `CustomRendererNode`, but that type flows in
+                    // from `chat.ts` (base #279) and isn't resolvable against the
+                    // pinned truapi here; `toNovasamaNode` already treats it as the
+                    // novasama-boundary `Any`, so annotate to match and clear the
+                    // implicit-any.
+                    next: (node: Any) => render(toNovasamaNode(node)),
                     // The native render callback has no failure channel (unlike
                     // the truapi host-initiated stream, which interrupts), so a
                     // renderer error can only be dropped here — it just stops
