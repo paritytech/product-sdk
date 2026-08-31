@@ -279,6 +279,35 @@ export type {
     ReadClaimEligibilityOptions,
 } from "./claim.js";
 
+// Proof contexts, derived offline. Everything a host signs under is
+// `blake2b-256("product/" ++ productId ++ "/" ++ suffix)`, so a product can
+// predict the context a host will use and compare it against what the chain
+// wants. The personhood product's own contexts are enumerated because two of
+// the five never reach metadata. Product ids are always full DotNS ids — the
+// TLD belongs to the network, and no default is offered on purpose.
+export {
+    PERSONHOOD_CONTEXT_INDEX,
+    PERSONHOOD_PRODUCT_NAME,
+    contextSuffixBytes,
+    personhoodContext,
+    productContext,
+} from "./contexts.js";
+export type { ContextSuffix, PersonhoodContextName } from "./contexts.js";
+
+// Where the two personhood rings live, and the one context read: a lite proof
+// must be minted in `Score.score_context`, and `readScoreContext` checks that
+// constant is the product derivation of `peopl.<Score.Suffix>/Index(0)` — the
+// only kind of context a stock host can mint. A runtime still publishing a
+// literal answers `NotProductDerived` on the ok channel, and every
+// proof-building flow must treat that as a hard stop.
+export { litePeopleRing, peopleRing, readScoreContext, ringCollectionId } from "./rings.js";
+export type {
+    ReadScoreContextOptions,
+    RingLocation,
+    ScoreContext,
+    ScoreContextChain,
+} from "./rings.js";
+
 // The write half: wrap a signer so the call runs under a person origin. Returns
 // a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx`.
 export { withAsPerson } from "./as-person-signer.js";
