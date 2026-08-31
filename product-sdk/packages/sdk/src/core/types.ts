@@ -72,7 +72,14 @@ export interface WalletApi {
     createProof(message: Uint8Array): Promise<Uint8Array>;
 }
 
-/** Storage API exposed by the SDK */
+/**
+ * Storage API exposed by the SDK: per-key get / set / remove, string and JSON.
+ *
+ * There is no `clear()`. Host localStorage exposes no key enumeration (only
+ * per-key read / write / remove), so a clear-all cannot be implemented — it was
+ * a silent no-op in a host container. Remove keys individually with `remove`,
+ * or track the keys your app writes and remove them.
+ */
 export interface LocalStorageApi {
     /** Get a value by key */
     get(key: string): Promise<string | null>;
@@ -82,14 +89,7 @@ export interface LocalStorageApi {
     getJSON<T = unknown>(key: string): Promise<T | null>;
     /** Set a JSON value by key */
     setJSON<T = unknown>(key: string, value: T): Promise<void>;
-    /**
-     * Remove a value by key.
-     *
-     * There is no `clear()`: host localStorage exposes no key enumeration
-     * (only per-key read / write / remove), so a clear-all cannot be
-     * implemented — it was a silent no-op in a host container. Remove keys
-     * individually with {@link remove}.
-     */
+    /** Remove a value by key */
     remove(key: string): Promise<void>;
 }
 

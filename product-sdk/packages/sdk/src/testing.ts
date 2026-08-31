@@ -11,7 +11,9 @@
  * @packageDocumentation
  */
 import { ProductCloudStorageError } from "@parity/product-sdk-cloud-storage";
+import type { LocalKvStore } from "@parity/product-sdk-local-storage";
 import { createFakeHostLocalStorage } from "@parity/product-sdk-local-storage/testing";
+import { createLocalStorageApi } from "./core/local-storage-api.js";
 import { err, ok, unwrapErr, unwrapOk } from "@parity/result";
 
 import type {
@@ -119,10 +121,13 @@ function makeFakeWallet(options?: FakeWalletOptions): WalletApi {
 }
 
 function makeFakeLocalStorage(): LocalStorageApi {
-    // Compose the local-storage fake; mirror createApp's adapter semantics
-    // (get normalizes "" -> null, getJSON normalizes undefined -> null).
+    // Route through the *same* `createLocalStorageApi` factory `createApp` uses,
+    // so the fake and the shipped adapter cannot drift (#344). The fake's host
+    // is adapted to a `LocalKvStore` here rather than via the async
+    // `createLocalKvStore`, so `createFakeApp` stays synchronous; the semantics
+    // (get "" -> null, getJSON undefined -> null) match `createHostBackend`.
     const host = createFakeHostLocalStorage();
-    return {
+    const kv: LocalKvStore = {
         async get(key) {
             return (await host.readString(key)) || null;
         },
@@ -132,13 +137,14 @@ function makeFakeLocalStorage(): LocalStorageApi {
         async getJSON<T>(key: string) {
             return ((await host.readJSON(key)) ?? null) as T | null;
         },
-        async setJSON<T>(key: string, value: T) {
+        async setJSON(key, value) {
             await host.writeJSON(key, value);
         },
         async remove(key) {
             await host.clear(key);
         },
     };
+    return createLocalStorageApi(kv);
 }
 
 function makeFakeCloudStorage(): CloudStorageApi {
