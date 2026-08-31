@@ -313,10 +313,16 @@ export type {
 export { withAsPerson } from "./as-person-signer.js";
 export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person-signer.js";
 
+// Its lite-personhood sibling: wrap a signer so the call runs under a lite-person
+// origin via the PeopleLiteAuth extension -- the alias-bound sign-up leg and the
+// unsigned, proof-authorized bind leg of the two-transaction lite sign-up.
+export { withLiteAlias } from "./as-lite-alias-signer.js";
+export type { LiteAliasInfo } from "./as-lite-alias-signer.js";
+
 // The metadata-driven pieces underneath stay internal on purpose. They are
 // written generically, taking an extension identifier rather than hard-coding
 // `AsPerson`, so the other origin-modifying extensions on this chain can reuse
-// them, and #291b should. But they are implementation details of `withAsPerson`
+// them, and `withLiteAlias` now does. But they are implementation details of the two signers
 // today, and two of their types are shapes chosen to suit it rather than to be a
 // public contract. Widening a surface later never breaks anyone; narrowing one
 // after it ships does. Export them when something outside this package actually

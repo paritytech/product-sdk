@@ -200,7 +200,7 @@ const CONTEXT_BYTES = 32;
 const PROOF_BYTES_MAX = 8 * 1024;
 
 /** Reject a context the chain cannot read, before it becomes wrong bytes. */
-function checkContext(context: Uint8Array): Uint8Array {
+export function checkContext(context: Uint8Array): Uint8Array {
     if (context.length !== CONTEXT_BYTES) {
         // The length, never the value: a contextual alias is pseudonymous
         // identity and must not reach a log line.
@@ -210,7 +210,7 @@ function checkContext(context: Uint8Array): Uint8Array {
 }
 
 /** Reject a proof the chain will not accept, for the reasons on the constant. */
-function checkProof(proof: Uint8Array): Uint8Array {
+export function checkProof(proof: Uint8Array): Uint8Array {
     if (proof.length === 0) {
         throw new AsPersonError("ring VRF proof is empty");
     }

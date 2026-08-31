@@ -1,61 +1,62 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * `withAsPerson`: run a call under a person origin instead of an account origin.
+ * `withLiteAlias`: run a call under a lite-person origin instead of an account
+ * origin.
  *
- * This wraps a signer rather than the submitter, and that is the whole design.
- * The `AsPerson` value cannot be chosen at the call site, because it depends on
- * the nonce and, for the proof variants, on a hash over every other extension in
- * the pipeline. PAPI resolves nonce, mortality, tip, genesis and the runtime
- * versions inside its own `createTx` and only then calls
- * `PolkadotSigner.signTx`. That call is the one place where those values exist
- * and are still patchable, so it is where this belongs.
+ * The sibling of `withAsPerson`, for the `PeopleLiteAuth` extension one slot
+ * further down the same pipeline, and built on the same machinery: the reasons
+ * this wraps a signer rather than the submitter, and the reasons the value
+ * cannot be chosen at the call site, are in `as-person-signer.ts` and apply
+ * here verbatim. So does the order inside `signTx`:
  *
- * The consequence worth knowing: nothing in `@parity/product-sdk-tx` changes.
- * A decorated signer composes with `submitAndWatch`, `batchSubmitAndWatch`, fee
- * estimation and plain `signSubmitAndWatch` for free.
+ * 1. `RestrictOrigins` to `true`. Both lite origins are restricted entities —
+ *    pallet-origin-restriction meters them against an allowance instead of a
+ *    fee — and that extension rejects a restricted origin outright when its
+ *    slot says `false`, which is PAPI's default.
+ * 2. For the proof variant, `VerifyMultiSignature` to `Disabled`, so the host
+ *    assembles an unsigned general transaction and the origin is `None`.
+ * 3. Hash the implication of everything after `PeopleLiteAuth`.
+ * 4. Ask for the proof over that hash.
+ * 5. Write `PeopleLiteAuth` last. Its own value is outside its own hash.
+ *
+ * The lite sign-up is two transactions, never one, and this signer serves both
+ * legs. `AliasWithProof` admits exactly one call,
+ * `PeopleLite.set_alias_account(account, valid_at_block)`: it binds a lite
+ * person's alias to `account` in a chain-approved context. Everything after
+ * that binding rides `AliasWithAccount`, signed by the bound account — for the
+ * game, `Game.sign_up_with_account_lite_invite`, which is `Pays::No`:
  *
  * ```ts
  * import { submitAndWatch } from "@parity/product-sdk-tx";
- * import { withAsPerson } from "@parity/product-sdk-individuality";
+ * import { withLiteAlias } from "@parity/product-sdk-individuality";
  *
- * const signer = withAsPerson(accounts.getProductAccountSigner(account), {
+ * const signer = withLiteAlias(accounts.getProductAccountSigner(account), {
  *     tag: "AliasWithAccount",
  * });
  * await submitAndWatch(
- *     api.tx.Game.sign_up_with_alias({ identifier_key, statement_account, sig }),
+ *     api.tx.Game.sign_up_with_account_lite_invite({ account, identifier_key, airdrops }),
  *     signer,
  * );
  * ```
  *
- * The origin works, the call does not: `sig`, the statement-account proof, is a
- * bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it.
+ * Nothing here chooses a chain, a product id or a TLD. The proof context, the
+ * ring and the member key all live inside the caller's `createProof`, and the
+ * call and its parameters — `account`, `valid_at_block` — belong to the
+ * transaction being signed.
  *
- * Order inside `signTx` is not arbitrary, and getting it wrong produces a bad
- * proof with nothing local to read:
- *
- * 1. `RestrictOrigins` to `true`. It sits after `AsPerson`, so it is inside the
- *    hash, and the origin-restriction pallet rejects the call outright when it is
- *    false against a person origin.
- * 2. For the proof variant, `VerifyMultiSignature` to `Disabled`, which tells the
- *    host to assemble an unsigned general transaction. That is what makes the
- *    origin `None`, which is the only origin that variant accepts.
- * 3. Hash the implication, which now covers the final value of every slot after
- *    `AsPerson`.
- * 4. Ask for the proof over that hash.
- * 5. Write `AsPerson` last. Its own value is outside its own hash, which is what
- *    makes steps 3 and 5 orderable at all.
+ * Verified against the deployed encoding: the proof-variant bytes this
+ * produces are byte-identical to the hand encoder that ran the two-transaction
+ * flow live on previewnet (spec 1000036, individuality v0.12.1).
  */
 import type { PolkadotSigner } from "polkadot-api";
 
 import {
-    AS_PERSON,
-    type AsPersonValue,
-    type ExtensionPipeline,
-    encodeAsPersonInfo,
-    encodeChecked,
-    readExtensionPipeline,
-} from "./as-person-codec.js";
+    PEOPLE_LITE_AUTH,
+    type PeopleLiteAuthValue,
+    encodePeopleLiteAuthInfo,
+} from "./as-lite-alias-codec.js";
+import { type ExtensionPipeline, encodeChecked } from "./as-person-codec.js";
 import {
     type PapiSignedExtensions,
     buildImplication,
@@ -64,7 +65,6 @@ import {
 } from "./as-person-implication.js";
 import { AsPersonError } from "./errors.js";
 import {
-    CHECK_NONCE,
     type CreateRingVRFProof,
     RESTRICT_ORIGINS,
     type RingVRFProof,
@@ -75,77 +75,78 @@ import {
     withSlot,
 } from "./origin-extension.js";
 
-// Re-exported from the shared plumbing, so the types stay importable from where
-// consumers found them before `withLiteAlias` moved them to `origin-extension.ts`.
-export type { CreateRingVRFProof, RingVRFProof } from "./origin-extension.js";
-
 /**
- * Which person origin the transaction should run under.
+ * Which lite-person origin the transaction should run under.
  *
- * Only the alias variants are here. `AsPersonalIdentityWithProof` needs a raw
- * sr25519 signature over the implication hash, which no host call currently
- * produces, and `AsPersonalIdentityWithAccount` has no known consumer.
+ * `AsLitePerson`, the fourth variant on chain, is deliberately absent: it
+ * authenticates the canonical lite account itself, which stays in host
+ * custody, so no product-side signer can ever be that origin.
  */
-export type AsPersonInfo =
+export type LiteAliasInfo =
     /**
-     * Signed by an account already bound to the alias, via
-     * `People.set_alias_account`. Needs no proof.
+     * Signed by an account already bound to the lite alias, via
+     * `PeopleLite.set_alias_account`. Needs no proof.
      *
-     * The chain reads `People.AccountToAlias` for the signing account and
-     * requires the stored ring revision to be current. When it is not, the chain
-     * answers `BadSigner` and {@link AsPersonInfo} `AliasWithAccountRevised` is
-     * the variant that fixes it. That cannot be detected from here without
+     * The chain reads `PeopleLite.AccountToAlias` for the signing account and
+     * requires the stored ring revision to be current. When it is not, the
+     * chain answers `Custom(172)` (stale alias) and `AliasWithAccountRevised`
+     * is the variant that fixes it. That cannot be detected from here without
      * reading the ring root.
      */
     | { tag: "AliasWithAccount" }
     /**
-     * No signature: a general transaction with a `None` origin, authorized by the
-     * proof alone.
+     * No signature: a general transaction with a `None` origin, authorized by
+     * the proof alone.
      *
-     * The chain accepts this for `People.set_alias_account` and nothing else, and
-     * requires the proof's context to be one the runtime allows accounts to be
-     * bound in. Individuality up to v0.11.2, which is what paseo runs today,
-     * fixes those as constants that no host-minted context can equal, so the call
-     * is rejected there however correct the bytes are. v0.12.0 derives them with
-     * the same product-scoped construction the host uses, which makes this
-     * variant reachable once paseo upgrades. Nothing here changes when it does.
+     * The chain accepts this for `PeopleLite.set_alias_account` and nothing
+     * else, requires the proof's context to be one the runtime allows accounts
+     * to be bound in, and holds the call's `valid_at_block` to a tolerance
+     * window measured from the current block. Replay protection is only the
+     * binding itself: two of these with overlapping validity windows for
+     * different accounts can replay each other indefinitely, so never keep two
+     * alive at once.
      */
     | { tag: "AliasWithProof"; createProof: CreateRingVRFProof }
     /**
-     * Signed, and moves the stored alias to the ring revision in force now.
+     * Signed, and moves the stored alias binding to the ring revision in force
+     * now.
      *
-     * The proof must be over the same context the alias was originally bound in.
+     * The proof must resolve to the same alias and context the account was
+     * originally bound to, or the chain answers `Custom(174)`.
      */
     | { tag: "AliasWithAccountRevised"; createProof: CreateRingVRFProof };
 
 /**
- * Build the `AsPerson` value for `info`, requesting a proof when the variant
- * needs one.
+ * Build the `PeopleLiteAuth` value for `info`, requesting a proof when the
+ * variant needs one.
  *
- * Called after every other slot holds its final value, because two of the three
- * variants hash them.
+ * Called after every other slot holds its final value, because two of the
+ * three variants hash them. Same shape as the `AsPerson` builder, one
+ * extension further down the pipeline — which matters: the implication slice
+ * starts after `PeopleLiteAuth`, so the two extensions hash different byte
+ * ranges of the same transaction.
  */
 async function buildValue(
     pipeline: ExtensionPipeline,
     callData: Uint8Array,
     extensions: PapiSignedExtensions,
-    info: AsPersonInfo,
+    info: LiteAliasInfo,
     aliasAccount: Uint8Array,
-): Promise<AsPersonValue> {
+): Promise<PeopleLiteAuthValue> {
     switch (info.tag) {
         case "AliasWithAccount":
             return {
-                tag: "AsPersonalAliasWithAccount",
+                tag: "AsLiteAliasWithAccount",
                 nonce: nonceFrom(pipeline, extensions),
             };
 
         case "AliasWithProof": {
             const proof = await requestProof(
                 info.createProof,
-                implicationMessage(pipeline, callData, extensions),
+                implicationMessage(pipeline, callData, extensions, PEOPLE_LITE_AUTH),
             );
             return {
-                tag: "AsPersonalAliasWithProof",
+                tag: "AsLiteAliasWithProof",
                 proof: proof.proof,
                 ringIndex: proof.ringIndex,
                 revision: proof.ringRevision,
@@ -155,16 +156,18 @@ async function buildValue(
 
         case "AliasWithAccountRevised": {
             const nonce = nonceFrom(pipeline, extensions);
-            // This variant binds the implication plus a label, the alias account
-            // and the nonce, so it needs the implication bytes rather than the
-            // plain message.
-            const implication = buildImplication(pipeline, callData, extensions);
+            // This variant binds the implication plus a label, the bound account
+            // and the nonce — the pallet hashes the tuple
+            // `(inherited_implication, "revise", account, nonce)`, the same
+            // construction `AsPerson` uses — so it needs the implication bytes
+            // rather than the plain message.
+            const implication = buildImplication(pipeline, callData, extensions, PEOPLE_LITE_AUTH);
             const proof = await requestProof(
                 info.createProof,
                 reviseMessage(implication, aliasAccount, nonce),
             );
             return {
-                tag: "AsPersonalAliasWithAccountRevised",
+                tag: "AsLiteAliasWithAccountRevised",
                 nonce,
                 proof: proof.proof,
                 ringIndex: proof.ringIndex,
@@ -178,23 +181,23 @@ async function buildValue(
             // switch returning `undefined` would encode the extension as `None`,
             // which runs the call under a plain account origin: a transaction that
             // can succeed while doing the wrong thing.
-            throw new AsPersonError("unknown AsPerson variant");
+            throw new AsPersonError("unknown PeopleLiteAuth variant");
     }
 }
 
 /**
- * Wrap a signer so its transactions run under a person origin.
+ * Wrap a signer so its transactions run under a lite-person origin.
  *
  * `signBytes` and `publicKey` pass through untouched. PAPI stamps `publicKey`
- * into the extrinsic and uses it to fetch the nonce, so it has to stay the inner
- * signer's.
+ * into the extrinsic and uses it to fetch the nonce, so it has to stay the
+ * inner signer's.
  *
  * @param signer - the signer to wrap, e.g. from
  *   `AccountsProvider.getProductAccountSigner`.
- * @param info - which person origin to use, and where the proof comes from.
+ * @param info - which lite-person origin to use, and where the proof comes from.
  * @returns a `PolkadotSigner` usable anywhere the original was.
  */
-export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): PolkadotSigner {
+export function withLiteAlias(signer: PolkadotSigner, info: LiteAliasInfo): PolkadotSigner {
     const pipelineFor = cachedPipelineReader();
 
     return {
@@ -205,7 +208,7 @@ export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): Polkad
             let extensions = signedExtensions;
 
             // Step 1. Inside the hash, and false is an immediate rejection for a
-            // person origin. Skipped only when the chain has no such extension.
+            // restricted origin. Skipped only when the chain has no such extension.
             if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
                 extensions = withSlot(
                     pipeline,
@@ -238,8 +241,8 @@ export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): Polkad
             extensions = withSlot(
                 pipeline,
                 extensions,
-                AS_PERSON,
-                encodeAsPersonInfo(pipeline, value),
+                PEOPLE_LITE_AUTH,
+                encodePeopleLiteAuthInfo(pipeline, value),
             );
 
             return signer.signTx(callData, extensions, metadata, atBlockNumber, hasher);
@@ -250,6 +253,8 @@ export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): Polkad
 if (import.meta.vitest) {
     const { describe, expect, test, vi } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
+    const { readExtensionPipeline } = await import("./as-person-codec.js");
+    const { CHECK_NONCE } = await import("./origin-extension.js");
 
     /**
      * Local hex formatter, deliberately not the one the code under test uses.
@@ -319,9 +324,9 @@ if (import.meta.vitest) {
         return { signer, calls };
     }
 
-    const sign = async (info: AsPersonInfo, extensions = papiExtensions()) => {
+    const sign = async (info: LiteAliasInfo, extensions = papiExtensions()) => {
         const { signer, calls } = spySigner();
-        const result = await withAsPerson(signer, info).signTx(
+        const result = await withLiteAlias(signer, info).signTx(
             CALL_DATA,
             extensions,
             METADATA,
@@ -330,19 +335,19 @@ if (import.meta.vitest) {
         return { result, calls, seen: calls[0].extensions };
     };
 
-    describe("withAsPerson, shared behaviour", () => {
+    describe("withLiteAlias, shared behaviour", () => {
         test("sets RestrictOrigins to true", () => {
-            // False is an immediate InvalidTransaction::Call for a person origin,
-            // and PAPI's default is false.
+            // Both lite origins are restricted entities, and PAPI's default of
+            // false is an immediate rejection for them.
             return sign({ tag: "AliasWithAccount" }).then(({ seen }) => {
                 expect(hex(seen[RESTRICT_ORIGINS].value)).toBe("0x01");
             });
         });
 
-        test("patches RestrictOrigins before hashing, so it is inside the proof", async () => {
-            // The ordering claim, asserted rather than asserted-in-a-comment: the
-            // message the proof covers must be the one computed over
-            // RestrictOrigins = true.
+        test("hashes the slice after PeopleLiteAuth, not the AsPerson one", async () => {
+            // The identifier is load-bearing: PeopleLiteAuth sits four slots
+            // after AsPerson, so a proof taken over the AsPerson implication is
+            // a bad proof with nothing local to read.
             let seenMessage: Uint8Array | undefined;
             await sign({
                 tag: "AliasWithProof",
@@ -358,10 +363,13 @@ if (import.meta.vitest) {
                 VERIFY_SIGNATURE,
                 Uint8Array.from([0x00]),
             );
-            expect(seenMessage).toEqual(implicationMessage(PIPELINE, CALL_DATA, patched));
+            expect(seenMessage).toEqual(
+                implicationMessage(PIPELINE, CALL_DATA, patched, PEOPLE_LITE_AUTH),
+            );
+            expect(seenMessage).not.toEqual(implicationMessage(PIPELINE, CALL_DATA, patched));
         });
 
-        test("writes AsPerson last, and its value is outside its own hash", async () => {
+        test("writes PeopleLiteAuth last, and its value is outside its own hash", async () => {
             let seenMessage: Uint8Array | undefined;
             const { seen } = await sign({
                 tag: "AliasWithProof",
@@ -371,15 +379,15 @@ if (import.meta.vitest) {
                 },
             });
 
-            // AsPerson ends up holding the proof.
-            expect(hex(seen[AS_PERSON].value).startsWith("0x0101")).toBe(true);
+            // PeopleLiteAuth ends up holding the proof (Some, variant 2).
+            expect(hex(seen[PEOPLE_LITE_AUTH].value).startsWith("0x0102")).toBe(true);
 
-            // And re-hashing the *final* map, proof and all, reproduces the very
-            // message the proof was taken over. That equality is the property the
-            // whole ordering rests on: writing the proof into AsPerson cannot
-            // invalidate the proof, because AsPerson is outside its own hash. If
-            // this ever became an inequality the design would be circular.
-            expect(seenMessage).toEqual(implicationMessage(PIPELINE, CALL_DATA, seen));
+            // Re-hashing the final map, proof and all, reproduces the very
+            // message the proof was taken over: the proof slot is outside its
+            // own hash, which is what makes the write order sound.
+            expect(seenMessage).toEqual(
+                implicationMessage(PIPELINE, CALL_DATA, seen, PEOPLE_LITE_AUTH),
+            );
         });
 
         test("keeps the map in the order the chain declares", async () => {
@@ -393,7 +401,7 @@ if (import.meta.vitest) {
         test("passes callData, block number and hasher through untouched", async () => {
             const { signer, calls } = spySigner();
             const hasher = (data: Uint8Array) => data;
-            await withAsPerson(signer, { tag: "AliasWithAccount" }).signTx(
+            await withLiteAlias(signer, { tag: "AliasWithAccount" }).signTx(
                 CALL_DATA,
                 papiExtensions(),
                 METADATA,
@@ -402,7 +410,6 @@ if (import.meta.vitest) {
             );
             expect(calls[0].callData).toBe(CALL_DATA);
             expect(calls[0].atBlockNumber).toBe(456);
-            // The fifth argument is optional and easy to drop when delegating.
             expect(calls[0].hasher).toBe(hasher);
         });
 
@@ -413,75 +420,45 @@ if (import.meta.vitest) {
 
         test("passes publicKey and signBytes straight through", async () => {
             const { signer } = spySigner();
-            const wrapped = withAsPerson(signer, { tag: "AliasWithAccount" });
+            const wrapped = withLiteAlias(signer, { tag: "AliasWithAccount" });
             expect(wrapped.publicKey).toBe(signer.publicKey);
             expect(hex(await wrapped.signBytes(Uint8Array.from([1])))).toBe("0xff");
             expect(signer.signBytes).toHaveBeenCalledOnce();
         });
-    });
 
-    describe("input validation at the package boundary", () => {
         test("an unrecognized tag throws instead of silently encoding None", async () => {
             // None would run the call under a plain account origin, so it could
             // succeed while doing the wrong thing. Reachable from JavaScript,
             // including by passing the on-chain variant name by mistake.
             for (const tag of [
                 "aliasWithAccount",
-                "AsPersonalAliasWithAccount",
-                "Typo",
+                "AsLiteAliasWithAccount",
+                "AsLitePerson",
                 undefined,
             ]) {
-                await expect(sign({ tag } as unknown as AsPersonInfo)).rejects.toThrow(
+                await expect(sign({ tag } as unknown as LiteAliasInfo)).rejects.toThrow(
                     AsPersonError,
                 );
             }
         });
-
-        test("reads the metadata once per signer, not once per signature", async () => {
-            // Decoding the blob is about 7 ms. PAPI hands the same array until the
-            // runtime upgrades, so the pipeline is cached on identity.
-            const { signer } = spySigner();
-            const wrapped = withAsPerson(signer, { tag: "AliasWithAccount" });
-
-            const first = process.hrtime.bigint();
-            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 1);
-            const firstMs = Number(process.hrtime.bigint() - first) / 1e6;
-
-            const second = process.hrtime.bigint();
-            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 2);
-            const secondMs = Number(process.hrtime.bigint() - second) / 1e6;
-
-            // Generous ratio so this is not a flaky timing test: the point is that
-            // the decode is gone, not how fast the rest is.
-            expect(secondMs).toBeLessThan(firstMs / 2);
-        });
-
-        test("re-reads the metadata when the runtime changes", async () => {
-            // A different array means a different runtime, so the cache must miss.
-            const { signer, calls } = spySigner();
-            const wrapped = withAsPerson(signer, { tag: "AliasWithAccount" });
-            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 1);
-            await wrapped.signTx(CALL_DATA, papiExtensions(), new Uint8Array(METADATA), 2);
-            expect(calls).toHaveLength(2);
-        });
     });
 
     describe("AliasWithAccount", () => {
-        test("encodes variant 0 with the nonce PAPI already put in CheckNonce", async () => {
+        test("encodes variant 1 with the nonce PAPI already put in CheckNonce", async () => {
             const { seen } = await sign({ tag: "AliasWithAccount" }, papiExtensions(7));
-            // Some, variant 0, then 7 as a plain u32. Taking the nonce from the
-            // slot PAPI filled is what makes the two impossible to disagree.
-            expect(hex(seen[AS_PERSON].value)).toBe("0x010007000000");
+            // Some, variant 1, then 7 as a plain u32. Taking the nonce from the
+            // slot PAPI filled is what makes the two impossible to disagree —
+            // the extension validates its own nonce, so they must be the same
+            // number in two widths.
+            expect(hex(seen[PEOPLE_LITE_AUTH].value)).toBe("0x010107000000");
         });
 
         test("tracks the nonce rather than assuming one", async () => {
             const { seen } = await sign({ tag: "AliasWithAccount" }, papiExtensions(300));
-            expect(hex(seen[AS_PERSON].value)).toBe("0x01002c010000");
+            expect(hex(seen[PEOPLE_LITE_AUTH].value)).toBe("0x01012c010000");
         });
 
         test("leaves VerifyMultiSignature absent so the host signs", async () => {
-            // Origin has to be Signed for this variant. The host owns the slot
-            // whenever it is not supplied.
             const { seen } = await sign({ tag: "AliasWithAccount" });
             expect(VERIFY_SIGNATURE in seen).toBe(false);
         });
@@ -497,29 +474,28 @@ if (import.meta.vitest) {
     });
 
     describe("AliasWithProof", () => {
-        const info = (createProof: CreateRingVRFProof = async () => RING_PROOF): AsPersonInfo => ({
+        const info = (createProof: CreateRingVRFProof = async () => RING_PROOF): LiteAliasInfo => ({
             tag: "AliasWithProof",
             createProof,
         });
 
         test("sets VerifyMultiSignature to Disabled so the origin is None", async () => {
-            // The host returns an unsigned general transaction only when the
-            // caller supplies this slot. Disabled is variant 0.
             const { seen } = await sign(info());
             expect(hex(seen[VERIFY_SIGNATURE].value)).toBe("0x00");
             expect(hex(seen[VERIFY_SIGNATURE].additionalSigned)).toBe("0x");
         });
 
-        test("encodes variant 1 from the returned proof, including the revision", async () => {
+        test("encodes variant 2 from the returned proof, including the revision", async () => {
             const { seen } = await sign(info());
-            expect(hex(seen[AS_PERSON].value)).toBe(
-                `0x01010caabbcc0400000005000000${hex(CONTEXT).slice(2)}`,
+            expect(hex(seen[PEOPLE_LITE_AUTH].value)).toBe(
+                `0x01020caabbcc0400000005000000${hex(CONTEXT).slice(2)}`,
             );
         });
 
         test("takes the context from the proof, not from the request", async () => {
-            // Whichever call mints the proof decides the context, which is what
-            // lets a future host call slot in with no change here.
+            // Whichever call mints the proof decides the context — for the lite
+            // ring that is the chain's `Score.score_context`, and it travels
+            // inside the proof rather than as a parameter here.
             const other = Uint8Array.from({ length: 32 }, () => 0x99);
             const { seen } = await sign(
                 info(async () => ({
@@ -527,7 +503,7 @@ if (import.meta.vitest) {
                     contextualAlias: { context: other, alias: new Uint8Array(32) },
                 })),
             );
-            expect(hex(seen[AS_PERSON].value).endsWith(hex(other).slice(2))).toBe(true);
+            expect(hex(seen[PEOPLE_LITE_AUTH].value).endsWith(hex(other).slice(2))).toBe(true);
         });
 
         test("calls createProof exactly once, with a 32-byte message", async () => {
@@ -538,13 +514,10 @@ if (import.meta.vitest) {
         });
 
         test("reports a proof that resolves with the wrong shape as this package's error", async () => {
-            // The likelier mistake than a rejection: callers adapt a host call
-            // that returns a Result into a promise of a plain object.
             const malformed = [
                 async () => undefined,
                 async () => ({}),
                 async () => ({ proof: PROOF_BYTES, ringIndex: 1, ringRevision: 1 }),
-                async () => ({ ...RING_PROOF, ringIndex: "4" }),
             ] as unknown as CreateRingVRFProof[];
 
             for (const createProof of malformed) {
@@ -552,98 +525,38 @@ if (import.meta.vitest) {
             }
         });
 
-        test("does not sign when the proof shape is wrong", async () => {
-            const { signer, calls } = spySigner();
-            await withAsPerson(signer, {
-                tag: "AliasWithProof",
-                createProof: (async () => undefined) as unknown as CreateRingVRFProof,
-            })
-                .signTx(CALL_DATA, papiExtensions(), METADATA, 1)
-                .catch(() => {});
-            expect(calls).toHaveLength(0);
-        });
-
-        test("rejects an empty proof", async () => {
-            await expect(
-                sign(info(async () => ({ ...RING_PROOF, proof: new Uint8Array() }))),
-            ).rejects.toThrow(AsPersonError);
-        });
-
-        test("rejects a proof larger than the chain accepts", async () => {
-            // PAPI's byte encoder enforces no BoundedVec bound, so without this
-            // the SDK builds an extrinsic the node rejects on decode.
-            await expect(
-                sign(info(async () => ({ ...RING_PROOF, proof: new Uint8Array(100_000) }))),
-            ).rejects.toThrow(AsPersonError);
-        });
-
-        test("reports a rejected proof as this package's error", async () => {
-            const boom = new Error("user declined");
-            await expect(
-                sign(
-                    info(async () => {
-                        throw boom;
-                    }),
-                ),
-            ).rejects.toThrow(AsPersonError);
-        });
-
-        test("keeps the underlying rejection as the cause", async () => {
+        test("keeps the underlying rejection as the cause, and does not sign", async () => {
             const boom = new Error("host unavailable");
-            await sign(
-                info(async () => {
-                    throw boom;
-                }),
-            ).then(
-                () => expect.unreachable("should have thrown"),
-                (error) => expect((error as Error).cause).toBe(boom),
-            );
-        });
-
-        test("does not sign when the proof fails", async () => {
             const { signer, calls } = spySigner();
-            await withAsPerson(signer, {
+            await withLiteAlias(signer, {
                 tag: "AliasWithProof",
                 createProof: async () => {
-                    throw new Error("nope");
+                    throw boom;
                 },
             })
                 .signTx(CALL_DATA, papiExtensions(), METADATA, 1)
-                .catch(() => {});
+                .then(
+                    () => expect.unreachable("should have thrown"),
+                    (error) => expect((error as Error).cause).toBe(boom),
+                );
             expect(calls).toHaveLength(0);
-        });
-
-        test("rejects a proof whose context is not 32 bytes", async () => {
-            // Caught by the codec's round-trip guard rather than by a length
-            // check here, so the metadata stays the authority on the width.
-            await expect(
-                sign(
-                    info(async () => ({
-                        ...RING_PROOF,
-                        contextualAlias: {
-                            context: CONTEXT.slice(0, 31),
-                            alias: new Uint8Array(32),
-                        },
-                    })),
-                ),
-            ).rejects.toThrow(AsPersonError);
         });
     });
 
     describe("AliasWithAccountRevised", () => {
-        const info = (createProof: CreateRingVRFProof = async () => RING_PROOF): AsPersonInfo => ({
+        const info = (createProof: CreateRingVRFProof = async () => RING_PROOF): LiteAliasInfo => ({
             tag: "AliasWithAccountRevised",
             createProof,
         });
 
-        test("encodes variant 4 with the nonce first", async () => {
+        test("encodes variant 3 with the nonce first", async () => {
             const { seen } = await sign(info(), papiExtensions(9));
-            expect(hex(seen[AS_PERSON].value)).toBe(
-                `0x0104090000000caabbcc0400000005000000${hex(CONTEXT).slice(2)}`,
+            expect(hex(seen[PEOPLE_LITE_AUTH].value)).toBe(
+                `0x0103090000000caabbcc0400000005000000${hex(CONTEXT).slice(2)}`,
             );
         });
 
-        test("binds the revise message, not the plain implication hash", async () => {
+        test("binds the revise message over the PeopleLiteAuth implication", async () => {
             let seenMessage: Uint8Array | undefined;
             await sign(
                 info(async (message) => {
@@ -659,30 +572,15 @@ if (import.meta.vitest) {
                 RESTRICT_ORIGINS,
                 Uint8Array.from([0x01]),
             );
-            const implication = buildImplication(PIPELINE, CALL_DATA, patched);
+            const implication = buildImplication(PIPELINE, CALL_DATA, patched, PEOPLE_LITE_AUTH);
             expect(seenMessage).toEqual(reviseMessage(implication, PUBLIC_KEY, 9));
-            // The distinction that matters: it is not the plain message.
-            expect(seenMessage).not.toEqual(implicationMessage(PIPELINE, CALL_DATA, patched));
-        });
-
-        test("uses the signer's own public key as the alias account", async () => {
-            let seenMessage: Uint8Array | undefined;
-            await sign(
-                info(async (message) => {
-                    seenMessage = message;
-                    return RING_PROOF;
-                }),
-                papiExtensions(9),
-            );
-            const patched = withSlot(
-                PIPELINE,
-                papiExtensions(9),
-                RESTRICT_ORIGINS,
-                Uint8Array.from([0x01]),
-            );
-            const wrongAccount = Uint8Array.from({ length: 32 }, () => 0x07);
+            // The two distinctions that matter: it is not the plain message, and
+            // it is not the AsPerson implication.
             expect(seenMessage).not.toEqual(
-                reviseMessage(buildImplication(PIPELINE, CALL_DATA, patched), wrongAccount, 9),
+                implicationMessage(PIPELINE, CALL_DATA, patched, PEOPLE_LITE_AUTH),
+            );
+            expect(seenMessage).not.toEqual(
+                reviseMessage(buildImplication(PIPELINE, CALL_DATA, patched), PUBLIC_KEY, 9),
             );
         });
 
