@@ -319,6 +319,30 @@ export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person
 export { withLiteAlias } from "./as-lite-alias-signer.js";
 export type { LiteAliasInfo } from "./as-lite-alias-signer.js";
 
+// Full-personhood registration: the byte-exact proof-of-ownership message, the
+// Score.register builder, and the readiness read. The (memberKey,
+// proofOfOwnership) pair is caller-supplied and opaque — only the personhood
+// product's own host session can mint it, so the builder never tries.
+export {
+    readRegistrationEligibility,
+    readyToRegister,
+    REGISTER_MESSAGE_PREFIX,
+    registerMessage,
+    registerPersonhoodTx,
+} from "./register.js";
+export type {
+    ReadRegistrationEligibilityOptions,
+    RegisterChain,
+    RegisterPersonhoodOptions,
+    RegistrationEligibility,
+    RegistrationEligibilityChain,
+} from "./register.js";
+
+// The third origin signer: wrap a signer so the call runs as the score
+// participant via the ScoreAsParticipant extension — fee-free Score.register
+// and the participant arm of Game.report, from a 0-balance account.
+export { withScoreParticipant } from "./as-score-participant-signer.js";
+
 // The metadata-driven pieces underneath stay internal on purpose. They are
 // written generically, taking an extension identifier rather than hard-coding
 // `AsPerson`, so the other origin-modifying extensions on this chain can reuse
