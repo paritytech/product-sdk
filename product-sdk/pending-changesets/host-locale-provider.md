@@ -26,7 +26,4 @@ const sub = provider?.subscribeLocale((locale) => {
 host adds languages without an SDK release — so a product that ships no catalog entry for
 the tag it receives picks its own fallback.
 
-**Testing.** The fake client models `locale` as not-modeled, so a test that reaches for it
-fails loudly rather than silently returning nothing.
-
-Requires a `@parity/truapi` release carrying the `locale` domain.
+The `locale` domain arrived in `@parity/truapi` 0.12.0, already on the catalog.
