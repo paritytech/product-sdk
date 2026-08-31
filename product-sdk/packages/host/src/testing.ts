@@ -14,8 +14,9 @@
  * (and `getChainAPI()` on top of it) resolves in tests; see the `chainInfo`
  * option. Not modeled: the rest of the PAPI `chain` JSON-RPC surface behind
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
- * selection — and the `chat` / `coinPayment` / `entropy` / `notifications` /
- * `payment` / `permissions` / `resourceAllocation` / `theme` domains. Touching
+ * selection — the `system` domain's `info` / `getProductContext`, and the
+ * `chat` / `coinPayment` / `entropy` / `locale` / `notifications` / `payment` /
+ * `permissions` / `resourceAllocation` / `theme` domains. Touching
  * an unmodeled domain throws a descriptive error rather than failing with
  * `undefined is not a function`.
  *
@@ -249,11 +250,12 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 okAsync({ proof: { tag: "Sr25519", value: { signature, signer: publicKey } } }),
             submit: () => okAsync(undefined),
         },
-        system: {
+        // `info` and `getProductContext` are not modeled; they still throw.
+        system: notModeled("system", {
             handshake: () => okAsync(undefined),
             featureSupported: () => okAsync({ supported: chainSupported }),
             navigateTo: () => okAsync(undefined),
-        },
+        }),
         preimage: {
             lookupSubscribe: ({ request: { key } }) =>
                 oneShotObservable({ value: preimages.get(key) }),
@@ -280,6 +282,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         chat: notModeled("chat"),
         coinPayment: notModeled("coinPayment"),
         entropy: notModeled("entropy"),
+        locale: notModeled("locale"),
         notifications: notModeled("notifications"),
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),
