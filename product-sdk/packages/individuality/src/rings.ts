@@ -280,7 +280,12 @@ async function resolveSuffix(
     }
     const stored = chain.individuality.query?.NetworkSuffix?.NetworkSuffix;
     if (stored !== undefined) {
-        // Only a NetworkSuffixChain reaches here, and it extends PinnedChain.
+        // runScoreContextRead is looser than the overloads, so `raw` can be missing.
+        if (chain.raw === undefined && pinned === undefined) {
+            throw new ProductIndividualityError(
+                "reading the suffix from storage needs a finalized block",
+            );
+        }
         const snapshot = await pinBlock(chain as PinnedChain, options.signal, pinned);
         return {
             tld: SUFFIX_DECODER.decode(await stored.getValue(readAt(snapshot, options.signal))),
@@ -517,6 +522,22 @@ if (import.meta.vitest) {
             const score = await runScoreContextRead(chain, {}, composed);
             expect(pinned).toBe(false);
             expect(score.at).toEqual(composed);
+        });
+
+        test("throws the package error when storage has no block source", async () => {
+            const chain = storageChain(PREVIEWNET_SCORE_CONTEXT);
+            const { raw: _raw, ...blockless } = chain;
+            await expect(runScoreContextRead(blockless as typeof chain)).rejects.toBeInstanceOf(
+                ProductIndividualityError,
+            );
+        });
+
+        test("a handed-in snapshot needs no block source", async () => {
+            const chain = storageChain(PREVIEWNET_SCORE_CONTEXT);
+            const { raw: _raw, ...blockless } = chain;
+            const composed = { blockHash: `0x${"99".repeat(32)}`, blockNumber: 7 };
+            const score = await runScoreContextRead(blockless as typeof chain, {}, composed);
+            expect(score.tag).toBe("ProductDerived");
         });
 
         test("throws when nothing can resolve the suffix", async () => {
