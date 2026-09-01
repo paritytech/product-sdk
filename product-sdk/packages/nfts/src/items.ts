@@ -1,12 +1,14 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * `getCollectionItems` — a collection's full item catalogue.
+ * `getCollectionItems` — one page of a collection's item catalogue.
  *
- * Four reads, whatever the item count: the collection record, every item
- * definition in the collection, every item metadata entry in the collection, and
- * the collection's own metadata defaults. The middle two are prefix scans, which
- * is what keeps this flat rather than one round trip per item.
+ * Four reads a page, whatever the item count: the collection record, the item
+ * definitions in the window, the window's metadata, and the collection's own
+ * metadata defaults. Only the last is a prefix scan by default — the window
+ * reads name their keys, so the bytes scale with the page rather than with the
+ * catalogue. That is bytes, not round trips: PAPI spends one storage operation
+ * per key (see `chain.ts`), so `limit` bounds the operations too.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { pinBlock, readAt, type Entry, type NftsChain } from "./chain.js";
@@ -249,10 +251,11 @@ export async function getCollectionItems(
 }
 
 /**
- * The named metadata keys of many items, in one round trip.
+ * The named metadata keys of a whole window, named rather than scanned.
  *
- * Three exact keys per item, flattened into a single `getValues`, then split back
- * per item by position. Raw bytes are kept rather than decoded strings, because
+ * Three exact keys per item, flattened into a single `getValues` call, then split
+ * back per item by position. One call, `3 x limit` storage operations — see
+ * `chain.ts`. Raw bytes are kept rather than decoded strings, because
  * {@link imageRefFrom} reports `image` both ways and cannot recover bytes from a
  * decoded string.
  */
@@ -285,9 +288,9 @@ async function readTypedKeys(
 /**
  * Every metadata key of every item in the collection, grouped by item.
  *
- * The `attributes: true` path. One prefix scan, so one round trip — but it carries
- * the whole catalogue's metadata, which is the cost of a bag whose keys cannot be
- * named in advance.
+ * The `attributes: true` path. One prefix scan, and so genuinely one storage
+ * operation — the only read here that is — but it carries the whole catalogue's
+ * metadata, which is the cost of a bag whose keys cannot be named in advance.
  */
 async function readAllKeys(
     query: NftsChain["assetHub"]["query"],
@@ -737,8 +740,9 @@ if (import.meta.vitest) {
 
             expect(b.value.collection.items).toHaveLength(10);
             expect(huge.scans.length).toBe(small.scans.length);
-            // Three exact keys per item in the window, in one read — not a scan
-            // per item, and never the whole-collection prefix scan.
+            // Three exact keys per item in the window, named rather than
+            // scanned — not a prefix scan per item, and never the
+            // whole-collection one.
             expect(huge.scans).toContain("itemKeys:30");
             expect(huge.scans).not.toContain("itemMeta:0");
         });

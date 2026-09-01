@@ -44,7 +44,7 @@ export interface FilledWindow<T> {
  * structural: a page fills only while roughly one collection in
  * `SCAN_BUDGET_FACTOR` is registered, and below that the page comes back short.
  * That is the right way round: a registry that sparse is small, so following
- * `nextId` through the short pages still reads all of it in a few round trips.
+ * `nextId` through the short pages still reads all of it in a few pages.
  */
 export const SCAN_BUDGET_FACTOR = 16;
 
@@ -63,10 +63,12 @@ export const DEFAULT_PAGE_LIMIT = 100;
 /**
  * The largest page a read will return, whatever was asked for.
  *
- * A page reads its window by exact key, so `limit` decides how many keys go into
- * one request — and a limit of a million would put a million keys in it. Asking
- * for more than this clamps rather than fails: the cursor still reports where the
- * page stopped, so following it is correct either way.
+ * A page reads its window by exact key, and PAPI spends one storage operation
+ * per key rather than batching them into one request (see the cost note in
+ * `chain.ts`), so `limit` decides how many concurrent operations a single call
+ * opens — a limit of a million would open a million. Asking for more than this
+ * clamps rather than fails: the cursor still reports where the page stopped, so
+ * following it is correct either way.
  */
 export const MAX_PAGE_LIMIT = 1000;
 
@@ -101,11 +103,12 @@ function usable(bound: number | undefined): number | undefined {
  * Walk the id space from `fromId` until `limit` ids that `probe` accepts are in
  * hand, and say where to resume.
  *
- * Shared by both paged reads, which differ only in what makes an id interesting:
+ * Shared by every paged read, which differ only in what makes an id interesting:
  * a `Scarcity.Collections` record for {@link getCollections}, a
- * `NftClaims.CollectionMinters` entry for {@link getClaimableCollections}. Both
- * maps are keyed by collection id, and ids are allocated sequentially and never
- * reused, so a window is a page for either.
+ * `NftClaims.CollectionMinters` entry for {@link getClaimableCollections}, an
+ * `ItemDefs` entry for {@link getCollectionItems}. Each map is keyed by a
+ * sequentially allocated, never reused id or index, so a window is a page for
+ * any of them.
  *
  * The ceiling read does not gate the first window: an id past the end of the
  * space simply has nothing there, so asking for it is harmless, and asking

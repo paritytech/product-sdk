@@ -43,8 +43,10 @@ registers one, another registers most of what it carries, so neither read stands
 Reach for `getClaimableCollections` in a picker — a collection with no minter entry cannot be
 claimed into. Reach for `getCollections` to browse or audit: `selection === null` is the only
 "exists but accepts no claims" signal, with no separate boolean to drift out of sync with it.
-All three reads are a constant four round trips per page, whatever the counts, and their bytes
-scale with the page rather than with the chain. Prefer the registry read whenever only claimable
+All three reads are a constant four storage reads per page, whatever the counts, and their bytes
+scale with the page rather than with the chain. Four reads is not four round trips: PAPI's
+`getValues` opens one storage operation per key, so a page's operations scale with `limit` while
+its bytes do not. Prefer the registry read whenever only claimable
 collections belong in the answer.
 
 **`getCollections` pages by id window.**

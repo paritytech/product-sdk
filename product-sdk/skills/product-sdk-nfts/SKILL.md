@@ -67,14 +67,16 @@ Which to reach for:
   no claims", and it is the only signal — there is no separate `claimable` boolean to drift.
 - **One known id** → `getCollectionItems`. No registry filter either.
 
-All three are four round trips, whatever the counts — so pick by which set you want. But the
-**bytes** differ, and that is what matters as a chain fills up:
+All three are four storage reads a page, whatever the counts — so pick by which set you want.
+Four reads is not four round trips: PAPI's `getValues` opens one storage operation per key, so a
+page's operation count scales with `limit` even though its bytes do not. What differs between the
+three is which id space a page walks:
 
-| Read | Scales with |
+| Read | Walks |
 |---|---|
-| `getClaimableCollections` | the registry — proportional to the answer |
-| `getCollections` | the whole chain, claimable or not |
-| `getCollectionItems` | one collection's catalogue |
+| `getClaimableCollections` | collection ids, keeping the registered ones |
+| `getCollections` | collection ids, keeping every live one |
+| `getCollectionItems` | one collection's item indices |
 
 Prefer `getClaimableCollections` whenever only claimable collections belong in the answer.
 
@@ -107,7 +109,7 @@ listing came from. The node must still have the block pinned, so reuse a recent 
 than a stale one.
 
 Four storage reads per page — the id ceiling plus three keyed reads over the window — whatever
-the chain holds. It works because ids are allocated
+the chain holds; the keys per page scale with `limit`, the bytes do not. It works because ids are allocated
 sequentially by the runtime (`create_collection` takes no id) and **never reused**
 (`delete_collection` says so), so `Scarcity.NextCollectionId` bounds the space and every id in a
 window can be read by exact key.

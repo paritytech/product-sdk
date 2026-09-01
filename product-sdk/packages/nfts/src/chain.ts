@@ -46,6 +46,26 @@
  * genuine two-key map and `getEntries(collection)` scans one collection rather
  * than dumping the whole map. Verified against live state via
  * `rpc.state_getKeys`.
+ *
+ * # What a multi-key read actually costs
+ *
+ * **`getValues` is one storage operation per key, not one per call.** PAPI
+ * implements it as `Promise.all(keys.map(getValue))` (`polkadot-api@2.1.6`,
+ * `dist/src/storage.js`), and each `getValue` opens its own
+ * `chainHead_v1_storage` operation. So a page of `limit` entries issues on the
+ * order of `limit` concurrent operations — not one request carrying `limit`
+ * keys. They are pipelined over a single connection, repeated keys collapse in
+ * the client's stream cache, and a node that will not accept more concurrent
+ * operations answers `limitReached`, which PAPI re-queues rather than failing
+ * (`observable-client`'s `operationLimitRecovery`). A large page therefore costs
+ * latency, not a broken read.
+ *
+ * Two things follow, and the docs below are written to them. Every "one read"
+ * claim about an exact-key lookup is a claim about **bytes** — that is the axis
+ * where naming keys beats scanning a prefix, and it is the axis that scales with
+ * the chain. And {@link MAX_PAGE_LIMIT} bounds operations as much as bytes:
+ * `limit` is how many the call opens. `getEntries` is the genuinely
+ * single-operation read here, and the one whose bytes scale with the collection.
  */
 import type { FinalizedSnapshot, RawCollection, RawItemDef, RawMetadataEntry } from "./types.js";
 import type { RawBytes, RawMinter, ReadAt } from "./types.js";
@@ -89,12 +109,13 @@ export interface NftsChain {
                         options: ReadAt,
                     ): Promise<RawCollection | undefined>;
                     /**
-                     * Many records in one round trip, in the order the keys were
-                     * given, `undefined` where a record is missing.
+                     * Many records for keys known up front, in the order they
+                     * were given, `undefined` where a record is missing.
                      *
                      * What the claimable read joins its registry against: the
-                     * ids come from `CollectionMinters`, so they are known up
-                     * front and there is no reason to spend a round trip each.
+                     * ids come from `CollectionMinters`, so the whole window is
+                     * asked for at once rather than an id at a time. "At once"
+                     * is concurrency, not batching — see the module doc.
                      */
                     getValues(
                         keys: Array<[number]>,
@@ -108,7 +129,7 @@ export interface NftsChain {
                  */
                 ItemDefs: {
                     /**
-                     * An explicit window of item indices, in one round trip.
+                     * An explicit window of item indices, asked for at once.
                      *
                      * How a catalogue page reads definitions. `delete_item`
                      * documents that item indices are never reused, so a window
@@ -136,9 +157,11 @@ export interface NftsChain {
                     /**
                      * Exact `(collection, key)` lookups, in the order given.
                      *
-                     * How a page reads names: one round trip for exactly the
-                     * rows wanted, rather than a dump that carries every key of
-                     * every collection when only `name` is asked for.
+                     * How a page reads names: exactly the rows wanted, rather
+                     * than a dump that carries every key of every collection
+                     * when only `name` is asked for. What that saves is bytes;
+                     * the operations scale with the page either way, per the
+                     * module doc.
                      *
                      * The key is a plain `Uint8Array`, not a PAPI `Binary` —
                      * PAPI 2.x generates `[number, Uint8Array]` for this
@@ -164,11 +187,13 @@ export interface NftsChain {
                      * Exact `(collection, item, key)` lookups, in the order given.
                      *
                      * This is what makes a catalogue page affordable. The entry is
-                     * a three-key map, so the typed keys of many items come back
-                     * in one round trip — where the open `attributes` bag, whose
-                     * keys are not known in advance, would need a prefix scan per
-                     * item. That asymmetry is why a page carries typed fields and
-                     * not the bag.
+                     * a three-key map, so the typed keys of a whole window can be
+                     * named and fetched together — where the open `attributes`
+                     * bag, whose keys are not known in advance, would need a
+                     * prefix scan per item. That asymmetry is why a page carries
+                     * typed fields and not the bag. What it buys is bytes
+                     * proportional to the page; the operations still scale with
+                     * it, three per item — see the module doc.
                      */
                     getValues(
                         keys: Array<[number, number, Uint8Array]>,
@@ -206,7 +231,7 @@ export interface NftsChain {
  * Pin the block a read addresses.
  *
  * Every value in one result comes from the same block: a catalogue read pulls
- * item definitions and three metadata layers separately, and reading them a
+ * item definitions and two metadata layers separately, and reading them a
  * block apart could return a catalogue the chain was never in — an item whose
  * definition is gone but whose metadata is not, or the reverse.
  *

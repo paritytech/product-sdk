@@ -18,7 +18,8 @@ import { numberIn, waitForAppReady } from "./helpers";
  * starts refusing connections mid-run.
  *
  * SDK surface tested:
- *   - getClaimableCollections -> NftClaims.CollectionMinters + Scarcity.Collections/CollectionMetadata
+ *   - getClaimableCollections -> Scarcity.NextCollectionId + NftClaims.CollectionMinters +
+ *                              Scarcity.Collections/CollectionMetadata
  *   - getCollections       -> Scarcity.NextCollectionId + an exact-key window, annotated from
  *                              the registry. Every read here is paged; `limit` defaults rather
  *                              than meaning "everything"
@@ -43,7 +44,8 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
         const count = await numberIn(frame, "registry-count");
         expect(count).toBeGreaterThan(0);
 
-        // `getEntries` order follows the storage hash, so the package sorts.
+        // The id-window walk visits the space in order, so ids arrive ascending
+        // by construction — this pins that as a contract.
         const idsText = await frame.locator('[data-testid="registry-ids"]').textContent();
         const ids = idsText!
             .trim()

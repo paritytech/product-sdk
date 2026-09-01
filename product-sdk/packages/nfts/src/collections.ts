@@ -9,8 +9,8 @@
  * records how a claim picks an item. Its keys are a subset of the first map's.
  *
  * - `getClaimableCollections` — the subset. Driven by the registry, so every
- *   entry has a `selection`. What a picker wants. Four reads, and bytes that
- *   scale with the registry rather than with the chain.
+ *   entry has a `selection`. What a picker wants. Four reads a page, and bytes
+ *   proportional to the page.
  * - `getCollections` — the superset. Driven by the records, with `selection`
  *   `null` where no registration exists. What a browser or an audit wants. Four
  *   reads a page.
@@ -288,7 +288,8 @@ export async function getClaimableCollections(
         }));
         const ids = registered.map(({ id }) => id);
 
-        // Both in one round trip each, for exactly the ids being returned.
+        // Both concurrently, for exactly the ids being returned — `chain.ts` has
+        // what a multi-key read costs.
         const [records, names] = await Promise.all([
             query.Scarcity.Collections.getValues(
                 ids.map((id) => [id] as [number]),
@@ -317,9 +318,10 @@ export async function getClaimableCollections(
 /**
  * The `name` of each of `ids`, by exact key.
  *
- * One round trip for exactly the rows wanted, whatever the chain holds — the
- * alternative for a subset of collections is a prefix scan each, or a whole-map
- * dump that carries every key of every collection to answer for a few. Ids with
+ * Exactly the rows wanted, whatever the chain holds — the alternative for a
+ * subset of collections is a prefix scan each, or a whole-map dump that carries
+ * every key of every collection to answer for a few. What that saves is bytes,
+ * not operations: PAPI spends one per key either way (see `chain.ts`). Ids with
  * no `name` are absent from the map rather than present and null.
  */
 async function readNames(
@@ -443,13 +445,15 @@ async function readPage(
  *
  * So the read walks the id space in windows instead, at a flat four storage
  * reads per page — the id ceiling plus three keyed reads over the window —
- * whatever the chain holds. That works because the
+ * whatever the chain holds. Four *reads*, which is not four round trips: PAPI
+ * opens one operation per key, so a page's operations scale with `limit` and it
+ * is the bytes that stay flat (see `chain.ts`). That works because the
  * id space is knowable and dense: `create_collection` takes no id, so the
  * runtime allocates sequentially from `Scarcity.NextCollectionId`, and
  * `delete_collection` documents that identifiers are never reused. So every
  * collection in `[fromId, fromId + limit)` can be fetched by exact key —
- * records, registry entries and `name` rows, one round trip each — with nothing
- * proportional to the chain anywhere in the read.
+ * records, registry entries and `name` rows — with nothing proportional to the
+ * chain anywhere in the read.
  *
  * **A page comes back full.** Ids of deleted collections are holes — no record,
  * and the runtime requires the metadata gone before deletion — so the read walks
@@ -562,8 +566,10 @@ if (import.meta.vitest) {
                             },
                         },
                         CollectionMetadata: {
-                            // Both readings the contract offers: a prefix scan
-                            // when given a collection, a whole-map dump when not.
+                            // The contract only offers the one-collection prefix
+                            // scan; the no-arg branch is a tripwire, so a
+                            // regression to the old whole-map dump shows up in
+                            // `calls` as "metadata" and fails the guards below.
                             getEntries: async (...args: unknown[]) => {
                                 const rows = (id: number) =>
                                     (overrides.metadata?.[id] ?? []).map(([key, value]) => ({
@@ -701,7 +707,9 @@ if (import.meta.vitest) {
             expect(result.value.collections[0]?.name).toBeNull();
         });
 
-        test("sorts ascending by id whatever order storage returns", async () => {
+        test("returns collections ascending by id", async () => {
+            // Nothing sorts: the id walk visits the space in order, so ascending
+            // output falls out of construction whatever order the fake holds.
             const minter = (id: number) => ({
                 keyArgs: [id] as [number],
                 value: { owner: "o", selection: { type: "Random" } },
@@ -722,9 +730,10 @@ if (import.meta.vitest) {
             expect(calls).toContain("names:0");
         });
 
-        test("records and names each in one round trip, whatever the registry size", async () => {
-            // No threshold, no dump: an exact-key name read costs one round trip
-            // for exactly the rows wanted, so registry size changes nothing.
+        test("records and names are each one keyed read, whatever the registry size", async () => {
+            // No threshold, no dump: an exact-key name read asks for exactly the
+            // rows wanted, so registry size changes the key count and nothing
+            // else. (Key count, not request count — see `chain.ts`.)
             for (const size of [2, 30]) {
                 const ids = Array.from({ length: size }, (_, id) => id);
                 const { chain, calls } = fakeChain({
@@ -1019,7 +1028,9 @@ if (import.meta.vitest) {
             expect(result.value.collections[0]?.name).toBeNull();
         });
 
-        test("sorts ascending by id whatever order storage returns", async () => {
+        test("returns collections ascending by id", async () => {
+            // Nothing sorts: the id walk visits the space in order, so ascending
+            // output falls out of construction whatever order the fake holds.
             const { chain } = fakeChain({
                 records: {
                     5: { owner: "o", item_count: 0 },
@@ -1072,10 +1083,10 @@ if (import.meta.vitest) {
             expect(result.value.nextId).toBe(MAX_PAGE_LIMIT);
         });
 
-        test("a dump attributes each name to its own collection", async () => {
-            // The hazard a whole-map dump introduces and position-keying would
-            // hit: rows for many collections arrive interleaved in one array,
-            // and only `keyArgs[0]` says which collection a row belongs to.
+        test("each name is attributed to its own collection", async () => {
+            // The exact-key name rows come back positionally, so a mismapping
+            // here would hand one collection its neighbour's name — or a name
+            // to a collection that sets none.
             const { chain } = fakeChain({
                 records: {
                     0: { owner: "o", item_count: 0 },
@@ -1441,18 +1452,21 @@ if (import.meta.vitest) {
         });
 
         test("a failing read lands on the err channel", async () => {
+            // The throw sits on an entry the read actually calls — the ceiling
+            // is the first storage touch of every page.
             const chain = {
                 assetHub: {
                     query: {
                         Scarcity: {
-                            Collections: {
-                                getEntries: async () => {
+                            NextCollectionId: {
+                                getValue: async () => {
                                     throw new Error("node unreachable");
                                 },
                             },
-                            CollectionMetadata: { getEntries: async () => [] },
+                            Collections: { getValues: async () => [] },
+                            CollectionMetadata: { getValues: async () => [] },
                         },
-                        NftClaims: { CollectionMinters: { getEntries: async () => [] } },
+                        NftClaims: { CollectionMinters: { getValues: async () => [] } },
                     },
                 },
                 raw: { assetHub: { getFinalizedBlock: async () => BLOCK } },

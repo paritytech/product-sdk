@@ -24,6 +24,11 @@
  * One vocabulary across all three reads: `limit` and `fromId` in, `idCeiling` and
  * `nextId` out, so a single pager works against any of them.
  *
+ * A page is four storage reads whatever the counts — but four reads is not four
+ * round trips. PAPI's `getValues` opens one storage operation per key, so a
+ * page's operations scale with `limit` while its bytes stay flat. That is the
+ * other half of why {@link MAX_PAGE_LIMIT} exists.
+ *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
  * import { getClaimableCollections, getCollectionItems } from "@parity/product-sdk-nfts";
@@ -147,8 +152,9 @@ export { ProductNftsError, NftsChainEntryError, NftsDecodeError } from "./errors
 // one reading, `imageRefFrom` needs raw layers in precedence order, and
 // `mergeMetadata` is one `Object.assign`; handing those out asks the caller to
 // re-derive the layering and the text/bytes question we already answered. When
-// `InstanceMetadata` becomes readable it should arrive as a read returning
-// finished shapes, not as three exported helpers.
+// a read of `InstanceMetadata` lands — the entry is already in the descriptors,
+// it just describes minted NFTs rather than a catalogue — it should arrive as a
+// read returning finished shapes, not as three exported helpers.
 
 // The shapes the reads return, and the raw storage shapes behind them.
 export type {

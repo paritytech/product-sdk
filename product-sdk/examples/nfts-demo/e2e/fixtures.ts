@@ -27,8 +27,9 @@ const PASEO_AH: ChainConfig = {
 };
 
 /**
- * Both reads are catalogue reads, so the account is incidental — the fixture
- * still needs one to boot the host, and Bob is what the sibling demos use.
+ * All three reads are catalogue reads, so the account is incidental — the
+ * fixture still needs one to boot the host, and Bob is what the sibling demos
+ * use.
  */
 const bobFixture = createTestHostFixture({
     productUrl: PRODUCT_URL,
