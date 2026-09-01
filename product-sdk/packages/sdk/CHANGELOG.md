@@ -1,5 +1,103 @@
 # @parity/product-sdk
 
+## 0.26.0
+
+### Minor Changes
+
+- d0260a1: **Decode a `PeopleAirdrops` draw event id back to its draw index.**
+
+  `parsePeopleAirdropsEventId(eventId)` is the inverse of `peopleAirdropsEventId`. It returns the `u64` draw index, or `null` for anything that is not a `PeopleAirdrops` id — a `Game` id, a foreign base, a malformed string. `null` rather than a throw because `Airdrop.Events` holds both schedulers, so a caller sweeping it with `getEntries()` meets foreign ids as a matter of course.
+
+  The package could previously only derive ids forward, from indices the caller already held. That holds for the `Game` path, which has a per-game count to enumerate from, but not for `PeopleAirdrops`, whose ids only arrive from that shared map.
+
+- d0260a1: **Add `getLocaleProvider` for the host's selected language.**
+
+  A product can now render in the language the user picked inside the host, rather than
+  inferring one from `navigator.language` — which reports the operating system's preference
+  and is wrong whenever the two differ.
+
+  ```ts
+  import { getLocaleProvider } from "@parity/product-sdk-host";
+
+  const provider = await getLocaleProvider();
+  const sub = provider?.subscribeLocale((locale) => {
+    i18n.activate(
+      SUPPORTED.has(locale.languageTag) ? locale.languageTag : "en"
+    );
+  });
+  ```
+
+  `subscribeLocale` fires with the current locale and again on every change; the returned
+  `HostSubscription` carries `unsubscribe` and `onInterrupt`. `getLocaleProvider` resolves to
+  `null` outside a host container.
+
+  `languageTag` is a BCP 47 tag such as `"en"`, `"pt-BR"` or `"zh-Hans"`. The set is open — a
+  host adds languages without an SDK release — so a product that ships no catalog entry for
+  the tag it receives picks its own fallback.
+
+  The `locale` domain arrived in `@parity/truapi` 0.12.0, already on the catalog.
+
+- d0260a1: **Expose candidate progress as part of personhood state.**
+
+  `derivePersonhoodState` now reports the consecutive attended games remaining on `Candidate`, accounting for streak-weighted score accrual and absence resets.
+
+  **Breaking for candidate-state producers.** `gamesRemaining` is a required member of the exported `Candidate` variant, so hand-built states and exact fixtures must add it. Callers that only consume the derived state are unaffected.
+
+- d0260a1: **`readCurrentGame` answers "is this player in?", and takes a PAPI client directly.**
+
+  Pass `players` and the running game carries a `registration` read at the same pinned
+  block. One person is keyed twice in `Game.Players` — by account and, once recognized,
+  by alias — so every key the caller holds goes in and any hit is `Registered`. A key
+  read that fails is `Unknown`, never `NotRegistered`, and does not fail the game read;
+  leave `players` out and it is `Unchecked`. That path needs the new `GamePlayersChain`
+  on top of `GameChain`; the existing call without `players` is unchanged.
+
+  ```ts
+  const game = await readCurrentGame(chain, {
+    players: [
+      { tag: "Account", accountAddress },
+      { tag: "Alias", alias },
+    ],
+  });
+  if (game.ok && game.value.tag === "Running") {
+    game.value.registration.tag; // Registered | NotRegistered | Unknown | Unchecked
+  }
+  ```
+
+  `fromPapi(client, api)` builds the chain shape every read here takes from a
+  `PolkadotClient` and typed API the caller already holds, for products that resolve
+  their own connection instead of using `@parity/product-sdk-chain-client`.
+
+- d0260a1: **Remove `localStorage.clear()` — it was a silent no-op in a host container.**
+
+  `createApp().localStorage.clear()` resolved successfully but did nothing in production (only logging at debug), while the `createFakeApp` test fake actually emptied — so a test asserting `clear()` wipes storage passed against code that no-ops for real users (#344).
+
+  It can't be implemented: the host localStorage protocol exposes no key enumeration — only per-key `read` / `write` / `clear(key)` (a single-key remove) through `@parity/truapi` → `HostLocalStorage` → `LocalKvStore` — so there is nothing to iterate for a clear-all. Rather than keep a method that lies (or one that always throws), `clear()` is removed from `LocalStorageApi` and from the fake; the two now build through one shared `createLocalStorageApi` adapter, so they can no longer drift.
+
+  **Migration.** Use `remove(key)` — supported at every layer — to delete keys individually. There is no clear-all; if you need one, track the keys your app writes and remove them.
+
+  **Breaking for callers.** `app.localStorage.clear()` no longer exists: an untyped call throws `TypeError: app.localStorage.clear is not a function` where it used to resolve.
+
+  **Breaking for implementors.** `clear` is gone from the exported `LocalStorageApi` interface, so anyone writing one inline — for example the `localStorage` override passed to `createFakeApp` — must delete their `clear` to keep compiling.
+
+### Patch Changes
+
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+  - @parity/product-sdk-individuality@0.3.0
+  - @parity/product-sdk-host@0.19.0
+  - @parity/product-sdk-chain-client@0.12.2
+  - @parity/product-sdk-cloud-storage@0.11.2
+  - @parity/product-sdk-local-storage@0.3.8
+  - @parity/product-sdk-signer@0.14.3
+  - @parity/product-sdk-keys@0.3.23
+  - @parity/product-sdk-contracts@0.10.6
+  - @parity/product-sdk-tx@0.4.6
+
 ## 0.25.0
 
 ### Minor Changes

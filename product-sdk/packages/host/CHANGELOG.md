@@ -1,5 +1,58 @@
 # @parity/product-sdk-host
 
+## 0.19.0
+
+### Minor Changes
+
+- d0260a1: **Add `getLocaleProvider` for the host's selected language.**
+
+  A product can now render in the language the user picked inside the host, rather than
+  inferring one from `navigator.language` — which reports the operating system's preference
+  and is wrong whenever the two differ.
+
+  ```ts
+  import { getLocaleProvider } from "@parity/product-sdk-host";
+
+  const provider = await getLocaleProvider();
+  const sub = provider?.subscribeLocale((locale) => {
+    i18n.activate(
+      SUPPORTED.has(locale.languageTag) ? locale.languageTag : "en"
+    );
+  });
+  ```
+
+  `subscribeLocale` fires with the current locale and again on every change; the returned
+  `HostSubscription` carries `unsubscribe` and `onInterrupt`. `getLocaleProvider` resolves to
+  `null` outside a host container.
+
+  `languageTag` is a BCP 47 tag such as `"en"`, `"pt-BR"` or `"zh-Hans"`. The set is open — a
+  host adds languages without an SDK release — so a product that ships no catalog entry for
+  the tag it receives picks its own fallback.
+
+  The `locale` domain arrived in `@parity/truapi` 0.12.0, already on the catalog.
+
+### Patch Changes
+
+- d0260a1: Update `@parity/truapi` to 0.12.0. No SDK API changes: the bump is additive on
+  truapi's side and nothing in `@parity/product-sdk-host` consumes the new surface
+  yet. 0.12.0 adds the `locale` domain (`locale.subscribe`, the host's selected
+  language as a BCP 47 tag), `system.info` / `system.getProductContext`, and
+  `development_createAccountProof` for raw proof contexts. The testing fake tracks
+  the new surface: the `locale` domain is not modeled, and the `system` domain
+  still models `handshake` / `featureSupported` / `navigateTo` while the new
+  `info` and `getProductContext` throw the descriptive not-modeled error instead
+  of an `undefined is not a function`. Bumping keeps the catalog current with the
+  latest published client and unblocks the upcoming locale provider.
+- d0260a1: **Derive `txExtVersion` from the extrinsic format list, so a V5-only runtime can be signed again.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion`. Since host `0.18.0` and terminal `0.8.0` the V5 value was gated on the runtime's transaction-extension version map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`) containing `5`. No runtime declares extension version `5`, every deployed runtime declares only `0`, so that branch was unreachable and signing threw on any runtime offering extrinsic format 5 without format 4.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `metadata.extrinsic.version` alone: format 4 gives `0`, otherwise format 5 gives `5`, otherwise a throw naming the formats the runtime offers. That restores the behaviour published in host `0.17.0` and terminal `0.7.4`, and keeps the explicit rejection `0.18.0` added for a runtime offering neither format, where earlier versions sent the highest format number to a host that cannot use it. Both packages now also decode the tracked chain metadata under test, which is the check that would have caught this.
+
+  `0` and `5` are the values host-rust-core's `build_local_transaction` accepts, and that is the host iOS and dot.li run. What the field means is still open in product-sdk#339: the truapi protocol documents it as a transaction-extension version and the Android host reads it that way, so `5` is not universally correct. This release does not settle that.
+
+  No behaviour change on any chain the SDK ships against. They all offer extrinsic format 4, so `txExtVersion` was and remains `0`.
+
 ## 0.18.0
 
 ### Minor Changes

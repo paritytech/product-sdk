@@ -151,6 +151,29 @@ export function peopleAirdropsEventId(drawIndex: number | bigint): string {
     return toEventId(id);
 }
 
+/** Hoisted: this compare runs on every entry of an `Airdrop.Events` sweep. */
+const PEOPLE_AIRDROPS_PREFIX_HEX = toEventId(
+    baseBytes(PEOPLE_AIRDROPS_EVENT_ID_BASE, PEOPLE_AIRDROPS_BASE_BYTES),
+).slice(2);
+
+const EVENT_ID_BODY_PATTERN = new RegExp(`^[0-9a-f]{${EVENT_ID_BYTES * 2}}$`);
+
+/**
+ * The draw index inside a `PeopleAirdrops` event id, or `null` if it is not one.
+ * `Airdrop.Events` holds both schedulers, so a foreign id is data, not a caller bug.
+ */
+export function parsePeopleAirdropsEventId(eventId: string): bigint | null {
+    // Reachable despite the type: ids arrive from storage sweeps through a cast.
+    if (typeof eventId !== "string") return null;
+    // PAPI's `fromHex` only accepts a lower-case `0x`, so `0X` must not decode here.
+    if (!eventId.startsWith("0x")) return null;
+
+    const body = eventId.slice(2).toLowerCase();
+    if (!EVENT_ID_BODY_PATTERN.test(body)) return null;
+    if (!body.startsWith(PEOPLE_AIRDROPS_PREFIX_HEX)) return null;
+    return BigInt(`0x${body.slice(PEOPLE_AIRDROPS_BASE_BYTES * 2)}`);
+}
+
 /**
  * Every draw id of one game, in airdrop-index order. `airdropsScheduled` only
  * exists while that game is current, so a past game's count must have been
@@ -427,6 +450,84 @@ if (import.meta.vitest) {
                     airdropsScheduled: MAX_GAME_AIRDROPS + 1,
                 }),
             ).toThrow(ProductIndividualityError);
+        });
+    });
+
+    describe("parsePeopleAirdropsEventId", () => {
+        test.each([0n, 1n, 7n, 0x01_02_03_04_05_06_07_08n, U64_MAX])(
+            "round-trips the draw index %s",
+            (drawIndex) => {
+                expect(parsePeopleAirdropsEventId(peopleAirdropsEventId(drawIndex))).toBe(
+                    drawIndex,
+                );
+            },
+        );
+
+        test("decodes a literal id this module did not build", () => {
+            // Hand-written in humanity-spa's stub backend, not derived here: a vector
+            // built with the encoder passes even if both directions drift together.
+            expect(
+                parsePeopleAirdropsEventId(
+                    "0x706f703a70656f706c652d61697264726f70733a202020200000000000000001",
+                ),
+            ).toBe(1n);
+        });
+
+        test("decodes a multi-byte index from a locally built literal", () => {
+            expect(
+                parsePeopleAirdropsEventId(
+                    `0x${asciiHex("pop:people-airdrops:    ")}0102030405060708`,
+                ),
+            ).toBe(0x01_02_03_04_05_06_07_08n);
+        });
+
+        test("returns null for a Game id, rather than throwing", () => {
+            // `Airdrop.Events` holds both schedulers, so a Game id is ordinary input.
+            expect(
+                parsePeopleAirdropsEventId(
+                    gameAirdropEventId({
+                        base: GAME_AIRDROP_EVENT_ID_BASE,
+                        gameIndex: 3,
+                        airdropIndex: 1,
+                    }),
+                ),
+            ).toBeNull();
+        });
+
+        test("decodes an upper-case id", () => {
+            // PAPI emits lower-case but accepts both, and ids reach us from elsewhere
+            // too. Dropping a valid id as `null` is the worse failure.
+            const id = peopleAirdropsEventId(7n);
+            expect(parsePeopleAirdropsEventId(`0x${id.slice(2).toUpperCase()}`)).toBe(7n);
+        });
+
+        test("returns null for a right-length id with a foreign base", () => {
+            expect(
+                parsePeopleAirdropsEventId(
+                    `0x${asciiHex("pop:people-airdropz:    ")}0000000000000001`,
+                ),
+            ).toBeNull();
+        });
+
+        test.each([
+            ["", "empty string"],
+            ["0x", "prefix only"],
+            [peopleAirdropsEventId(1n).slice(2), "no 0x prefix"],
+            [peopleAirdropsEventId(1n).slice(0, -2), "one byte short"],
+            [`${peopleAirdropsEventId(1n)}00`, "one byte long"],
+            [`0x${"z".repeat(64)}`, "non-hex digits"],
+            [`0X${peopleAirdropsEventId(1n).slice(2)}`, "0X prefix, which PAPI rejects"],
+            [`${peopleAirdropsEventId(1n).slice(0, -2)}zz`, "non-hex digits in the index"],
+        ])("returns null for %s (%s)", (eventId) => {
+            expect(parsePeopleAirdropsEventId(eventId)).toBeNull();
+        });
+
+        test.each<[unknown, string]>([
+            [undefined, "undefined"],
+            [null, "null"],
+            [42, "a number"],
+        ])("returns null for %s, which only a JS caller or a cast can pass", (eventId) => {
+            expect(parsePeopleAirdropsEventId(eventId as string)).toBeNull();
         });
     });
 }
