@@ -1,5 +1,14 @@
 # @parity/product-sdk-statement-store
 
+## 0.6.8
+
+### Patch Changes
+
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+  - @parity/product-sdk-host@0.19.0
+
 ## 0.6.7
 
 ### Patch Changes

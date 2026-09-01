@@ -1,5 +1,28 @@
 # @parity/product-sdk-bench-consumer
 
+## 0.0.33
+
+### Patch Changes
+
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+  - @parity/product-sdk@0.26.0
+  - @parity/product-sdk-host@0.19.0
+  - @parity/product-sdk-terminal@0.8.1
+  - @parity/product-sdk-chain-client@0.12.2
+  - @parity/product-sdk-cloud-storage@0.11.2
+  - @parity/product-sdk-local-storage@0.3.8
+  - @parity/product-sdk-signer@0.14.3
+  - @parity/product-sdk-statement-store@0.6.8
+  - @parity/product-sdk-keys@0.3.23
+  - @parity/product-sdk-contracts@0.10.6
+  - @parity/product-sdk-tx@0.4.6
+
 ## 0.0.32
 
 ### Patch Changes
