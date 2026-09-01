@@ -8,17 +8,10 @@
  * further down the same pipeline, and built on the same machinery: the reasons
  * this wraps a signer rather than the submitter, and the reasons the value
  * cannot be chosen at the call site, are in `as-person-signer.ts` and apply
- * here verbatim. So does the order inside `signTx`:
- *
- * 1. `RestrictOrigins` to `true`. Both lite origins are restricted entities —
- *    pallet-origin-restriction meters them against an allowance instead of a
- *    fee — and that extension rejects a restricted origin outright when its
- *    slot says `false`, which is PAPI's default.
- * 2. For the proof variant, `VerifyMultiSignature` to `Disabled`, so the host
- *    assembles an unsigned general transaction and the origin is `None`.
- * 3. Hash the implication of everything after `PeopleLiteAuth`.
- * 4. Ask for the proof over that hash.
- * 5. Write `PeopleLiteAuth` last. Its own value is outside its own hash.
+ * here verbatim. So does the order inside `signTx`, which both signers get from
+ * `withOriginExtension`. Both lite origins are restricted entities, metered
+ * against an allowance rather than a fee, so the `RestrictOrigins` slot that
+ * step writes is what keeps the chain from rejecting them outright.
  *
  * The lite sign-up is two transactions, never one, and this signer serves both
  * legs. `AliasWithProof` admits exactly one call,
@@ -56,7 +49,7 @@ import {
     type PeopleLiteAuthValue,
     encodePeopleLiteAuthInfo,
 } from "./as-lite-alias-codec.js";
-import { type ExtensionPipeline, encodeChecked } from "./as-person-codec.js";
+import { AS_PERSON, type ExtensionPipeline, encodeChecked } from "./as-person-codec.js";
 import {
     type PapiSignedExtensions,
     buildImplication,
@@ -65,13 +58,14 @@ import {
 } from "./as-person-implication.js";
 import { AsPersonError } from "./errors.js";
 import {
-    type CreateRingVRFProof,
     RESTRICT_ORIGINS,
-    type RingVRFProof,
     VERIFY_SIGNATURE,
     cachedPipelineReader,
     nonceFrom,
     requestProof,
+    type CreateRingVRFProof,
+    type RingVRFProof,
+    withOriginExtension,
     withSlot,
 } from "./origin-extension.js";
 
@@ -198,56 +192,13 @@ async function buildValue(
  * @returns a `PolkadotSigner` usable anywhere the original was.
  */
 export function withLiteAlias(signer: PolkadotSigner, info: LiteAliasInfo): PolkadotSigner {
-    const pipelineFor = cachedPipelineReader();
-
-    return {
-        publicKey: signer.publicKey,
-        signBytes: (data) => signer.signBytes(data),
-        async signTx(callData, signedExtensions, metadata, atBlockNumber, hasher) {
-            const pipeline = pipelineFor(metadata);
-            let extensions = signedExtensions;
-
-            // Step 1. Inside the hash, and false is an immediate rejection for a
-            // restricted origin. Skipped only when the chain has no such extension.
-            if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    RESTRICT_ORIGINS,
-                    encodeChecked(pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type), true),
-                );
-            }
-
-            // Step 2. Taking over the authorization slot is what makes the host
-            // return an unsigned general transaction, so the origin is `None`.
-            // The other two variants need a signed origin and so must leave the
-            // slot alone, which is also PAPI's default: it omits it entirely.
-            if (info.tag === "AliasWithProof") {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    VERIFY_SIGNATURE,
-                    encodeChecked(pipeline.codec(pipeline.slot(VERIFY_SIGNATURE).type), {
-                        type: "Disabled",
-                        value: undefined,
-                    }),
-                );
-            }
-
-            // Steps 3 and 4.
-            const value = await buildValue(pipeline, callData, extensions, info, signer.publicKey);
-
-            // Step 5. Last, because its own value is outside its own hash.
-            extensions = withSlot(
-                pipeline,
-                extensions,
-                PEOPLE_LITE_AUTH,
-                encodePeopleLiteAuthInfo(pipeline, value),
-            );
-
-            return signer.signTx(callData, extensions, metadata, atBlockNumber, hasher);
-        },
-    };
+    return withOriginExtension<PeopleLiteAuthValue>(signer, {
+        identifier: PEOPLE_LITE_AUTH,
+        unsigned: info.tag === "AliasWithProof",
+        encode: encodePeopleLiteAuthInfo,
+        buildValue: (pipeline, callData, extensions, aliasAccount) =>
+            buildValue(pipeline, callData, extensions, info, aliasAccount),
+    });
 }
 
 if (import.meta.vitest) {
@@ -366,7 +317,9 @@ if (import.meta.vitest) {
             expect(seenMessage).toEqual(
                 implicationMessage(PIPELINE, CALL_DATA, patched, PEOPLE_LITE_AUTH),
             );
-            expect(seenMessage).not.toEqual(implicationMessage(PIPELINE, CALL_DATA, patched));
+            expect(seenMessage).not.toEqual(
+                implicationMessage(PIPELINE, CALL_DATA, patched, AS_PERSON),
+            );
         });
 
         test("writes PeopleLiteAuth last, and its value is outside its own hash", async () => {
@@ -580,7 +533,11 @@ if (import.meta.vitest) {
                 implicationMessage(PIPELINE, CALL_DATA, patched, PEOPLE_LITE_AUTH),
             );
             expect(seenMessage).not.toEqual(
-                reviseMessage(buildImplication(PIPELINE, CALL_DATA, patched), PUBLIC_KEY, 9),
+                reviseMessage(
+                    buildImplication(PIPELINE, CALL_DATA, patched, AS_PERSON),
+                    PUBLIC_KEY,
+                    9,
+                ),
             );
         });
 
