@@ -15,7 +15,10 @@ description: >
   cannot currently support. Also covers which 32-byte context a ring-VRF proof must be minted
   in and which ring it comes from: productContext, personhoodContext and the five personhood
   allocations, peopleRing and litePeopleRing, and readScoreContext for checking the chain
-  derives its contexts the product way before any proof is built.
+  derives its contexts the product way before any proof is built. Also covers the lite
+  personhood flow end to end: withLiteAlias for a lite-person origin, the two-transaction
+  bind then sign-up sequence into the game pallet, which context the bind proof must be
+  minted in and why only the personhood product can mint it.
 ---
 
 # Product SDK Individuality
@@ -24,7 +27,7 @@ Two halves, and the read half goes both ways:
 
 - **Read a person** - for a DotNS username or an account address, what is that person's personhood state on the individuality chain, as of one pinned finalized block?
 - **Read an account** - for an account, what usernames does it hold, via `lookupUsername`?
-- **Write** - send a call that dispatches under a *person* origin instead of an account origin, via `withAsPerson`.
+- **Write** - send a call that dispatches under a *person* origin via `withAsPerson`, or under a *lite-person* origin via `withLiteAlias`.
 
 Package: `@parity/product-sdk-individuality` (also re-exported from `@parity/product-sdk/individuality`)
 
@@ -548,12 +551,49 @@ const signer = withAsPerson(innerSigner, {
 
 ### If you are building the extension yourself
 
-`withAsPerson` is the whole public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. If you need them for another origin-modifying extension on this chain, they are written generically and take an extension identifier, so ask for them to be exported rather than writing a second copy.
+`withAsPerson` is the whole public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. A second origin-modifying extension already uses them: `withLiteAlias` shares the ordered `signTx` body through the internal `withOriginExtension`, so a third would extend that rather than copy it.
 
 Two things to know either way, because they are the traps that cost the most time here:
 
 - **Encode from the runtime metadata, never from a hand-written type.** The deployed `AsPersonInfo` and the upstream `polkadot-sdk` one both have a variant called `AsPersonalAliasWithProof` with *different field lists* — the deployed one carries a revision index. An upstream-derived encoder emits plausible bytes with a field missing and no index mismatch to signal it.
 - **PAPI wants different JavaScript for two byte fields that look alike.** A `BoundedVec<u8>` takes a `Uint8Array`; a `[u8; 32]` takes a `0x` string. Hand either the other form and it encodes *without throwing*, producing wrong bytes. A round trip through the chain's own codec catches that, but it cannot catch a wrong *length* on a fixed-size field, because PAPI validates no width on encode or decode. So the context length and the proof length are both checked explicitly, and a proof or context of the wrong size throws `AsPersonError` rather than building an extrinsic the node rejects.
+
+## The Lite Personhood Flow (Write)
+
+The lite sign-up puts a **lite person** into the game pallet. It is the flow dim2 uses, and it is two transactions in a fixed order, never one.
+
+| Leg | Variant | Signed | Call | Effect |
+|---|---|---|---|---|
+| 1. bind | `AliasWithProof` | no, origin `None` | `PeopleLite.set_alias_account` | writes `AccountToAlias[account]` |
+| 2. sign up | `AliasWithAccount` | yes | `Game.sign_up_with_account_lite_invite` | reads `AccountToAlias[account]` |
+
+```ts
+import { withLiteAlias } from "@parity/product-sdk-individuality";
+
+const bindSigner = withLiteAlias(accounts.getProductAccountSigner(account), {
+  tag: "AliasWithProof",
+  createProof: (message) => mintProof(message),
+});
+```
+
+> **BOTH LEGS ARE THE SAME SIGNER, DIFFERENT VARIANTS.** `withLiteAlias` fills the `PeopleLiteAuth` slot for whichever variant you pass. `AliasWithAccountRevised` is the third: it re-points an existing binding at the current ring revision.
+
+> **ORDER IS NOT OPTIONAL.** Leg 2 reads what leg 1 wrote. Running it first answers `Custom(175)` (`NoAliasBinding`), and `AliasWithAccountRevised` answers the same, because that arm also starts from `AccountToAlias`. The fix is the bind leg, not the revised variant.
+
+### Before you can mint the proof
+
+Two things block the bind leg, and neither is visible from the API.
+
+**Which context.** The chain keeps an allowlist of the contexts an account may be bound in, and for the lite extension it holds exactly two: `personhoodContext(tld, "peopleLiteAuth")` and `personhoodContext(tld, "score")`. Anything else is rejected as `InvalidTransaction::Call`. The runtime publishes the first as the `PeopleLite.auth_context` constant, but **only on previewnet**: paseo and devnet do not publish it at all, so deriving it client-side is the only route there. The `tld` is yours to supply, and there is no default.
+
+**Who may mint it.** The host does not restrict which context you ask for: `createRingVRFProof(keyHandle, { productId, suffix }, ...)` takes the product id from you, and the host's own check is that you own the key handle. The restriction is the chain's allowlist above, and both entries are in the `peopl` namespace. So a **dim2** product cannot use a `dim2.<tld>` context here, and in practice the proof comes from the personhood product: the lite sign-up is a cross-product handoff, with peopl minting and dim2 carrying it into the sign-up. `withLiteAlias` never mints one, which is why `createProof` is yours to provide.
+
+### Lite Flow Gotchas
+
+- **The bind leg has no replay protection beyond the binding.** Two bind transactions with overlapping `valid_at_block` windows for different accounts can replay each other indefinitely. Never keep two alive at once.
+- **`AsLitePerson` is not implemented, on purpose.** That variant authenticates the canonical lite account, which stays in host custody, so no product-side signer can ever be that origin.
+- **Failures throw `AsPersonError`, not a lite-specific error.** It is the write half's error class and covers both extensions.
+- **A rejected leg costs no fee.** Every failure lands in `validate`, before the transaction enters a block.
 
 ## Common Mistakes
 
@@ -574,4 +614,7 @@ Two things to know either way, because they are the traps that cost the most tim
 15. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `BadSigner`, and `AliasWithAccountRevised` is the variant that fixes it. It cannot be detected client-side without reading the ring root.
 16. **Hardcoding the TLD in a product id** — `peopl.test` and `peopl.paseo` are different 32-byte contexts, so a hardcoded `.dot` mints proofs no chain accepts. There is no default, on purpose.
 17. **Calling `readScoreContext` inside a composed read** — it pins its own block when the suffix comes from storage, and Root can move that value. Use `runScoreContextRead(chain, options, snapshot)` with the block you already pinned.
-18. **Treating `NotProductDerived` as retryable** — it is a hard stop on the ok channel, not a transport failure. Building the proof leg anyway costs a fee and returns `Invalid.Call`.
+18. **Running the lite sign-up before the bind leg has landed** — the chain answers `Custom(175)` (`NoAliasBinding`), and `AliasWithAccountRevised` answers it too. Send the `AliasWithProof` bind leg first.
+19. **Binding in your own product's context** — the chain allowlists two contexts for the lite bind, `peopleLiteAuth` and `score`, both `peopl.<tld>`. A `dim2.<tld>` context is rejected as `InvalidTransaction::Call`, so plan for the handoff from the personhood product.
+20. **Reading `PeopleLite.auth_context` off paseo or devnet** — neither publishes it. Derive it with `personhoodContext(tld, "peopleLiteAuth")`.
+21. **Treating `NotProductDerived` as retryable** — it is a hard stop on the ok channel, not a transport failure. Building the proof leg anyway costs a fee and returns `Invalid.Call`.
