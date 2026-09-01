@@ -3,11 +3,12 @@
 /**
  * Product-scoped ring-VRF proof contexts (RFC-0004 / RFC-0022 / RFC-0024).
  *
- * A host never lets a product choose its proof context: it derives it from the
- * product's identity, so a product can prove personhood only in its own
- * namespace. Since individuality `0fec7071` ("Use product-owned personhood
- * contexts") the chain derives its own contexts the same way — every context a
- * runtime accepts is
+ * A product asks the host for a proof in a context it names, and the chain
+ * decides whether that context is one it will accept: each extension holds an
+ * allowlist, so the personhood ones only ever admit `peopl.<tld>` entries. Since
+ * individuality `0fec7071` ("Use product-owned personhood contexts") the chain
+ * derives those the same way as a host does, so every context a runtime accepts
+ * is
  *
  * ```
  * context = blake2b-256("product/" ++ product_id ++ "/" ++ suffix_bytes)
@@ -132,9 +133,10 @@ const MAX_TLD_BYTES = 16;
  * The personhood product's context for `name` on the network issuing `.<tld>`
  * names: `productContext("peopl.<tld>", Index(PERSONHOOD_CONTEXT_INDEX[name]))`.
  *
- * The TLD belongs to the network (`"test"` on previewnet, `"paseo"` on the
- * paseo networks), so the same context name on two networks is two different
- * values — which is why it is a parameter and never a default.
+ * The TLD belongs to the network (`"paseo"` on the paseo networks, `"test"` on
+ * previewnet until truapi 0.13.0 renames it to `"testnet"`), so the same context
+ * name on two networks is two different values, which is why it is a parameter
+ * and never a default.
  *
  * @param tld - a single lower-case DotNS label, without the leading dot.
  * @throws ProductIndividualityError on a tld the runtime cannot represent, or a
@@ -234,9 +236,14 @@ if (import.meta.vitest) {
                 "peopleAirdrops",
                 "0xeee07f0e4030bb780f4eb72ecc4f724a522919fb487d58fe9cad4ed69125911f",
             ],
-        ] as const)("derives the %s context previewnet publishes", (name, onChain) => {
-            expect(hex(personhoodContext("test", name))).toBe(onChain);
-        });
+        ] as const)(
+            "derives the %s context previewnet published at spec 1000036",
+            (name, onChain) => {
+                // Pinned to the `test` suffix, not to whatever previewnet serves today:
+                // truapi 0.13.0 renames that TLD to `testnet`, which moves all three.
+                expect(hex(personhoodContext("test", name))).toBe(onChain);
+            },
+        );
 
         test("derives the Resources context previewnet expects", () => {
             // Not readable from metadata; produced by the derivation the cases

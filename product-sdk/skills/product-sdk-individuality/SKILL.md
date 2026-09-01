@@ -584,9 +584,9 @@ const bindSigner = withLiteAlias(accounts.getProductAccountSigner(account), {
 
 Two things block the bind leg, and neither is visible from the API.
 
-**Which context.** The proof must be minted in the personhood product's lite-auth context, `personhoodContext(tld, "peopleLiteAuth")`. The chain publishes it as the `PeopleLite.auth_context` constant, but **only on previewnet**: paseo and devnet do not publish it at all, so deriving it client-side is the only route there. The `tld` is yours to supply, and there is no default.
+**Which context.** The chain keeps an allowlist of the contexts an account may be bound in, and for the lite extension it holds exactly two: `personhoodContext(tld, "peopleLiteAuth")` and `personhoodContext(tld, "score")`. Anything else is rejected as `InvalidTransaction::Call`. The runtime publishes the first as the `PeopleLite.auth_context` constant, but **only on previewnet**: paseo and devnet do not publish it at all, so deriving it client-side is the only route there. The `tld` is yours to supply, and there is no default.
 
-**Who may mint it.** A host derives a proof context from the calling product's own identity, so a product can only prove personhood in its own namespace. That context is `peopl.<tld>`, so a **dim2** session cannot mint it. Only the personhood product's own host session can. The lite sign-up is therefore a cross-product handoff: peopl mints the proof, dim2 carries it into the sign-up. `withLiteAlias` never tries to mint one, which is why `createProof` is yours to provide.
+**Who may mint it.** The host does not restrict which context you ask for: `createRingVRFProof(keyHandle, { productId, suffix }, ...)` takes the product id from you, and the host's own check is that you own the key handle. The restriction is the chain's allowlist above, and both entries are in the `peopl` namespace. So a **dim2** product cannot use a `dim2.<tld>` context here, and in practice the proof comes from the personhood product: the lite sign-up is a cross-product handoff, with peopl minting and dim2 carrying it into the sign-up. `withLiteAlias` never mints one, which is why `createProof` is yours to provide.
 
 ### Lite Flow Gotchas
 
@@ -615,6 +615,6 @@ Two things block the bind leg, and neither is visible from the API.
 16. **Hardcoding the TLD in a product id** — `peopl.test` and `peopl.paseo` are different 32-byte contexts, so a hardcoded `.dot` mints proofs no chain accepts. There is no default, on purpose.
 17. **Calling `readScoreContext` inside a composed read** — it pins its own block when the suffix comes from storage, and Root can move that value. Use `runScoreContextRead(chain, options, snapshot)` with the block you already pinned.
 18. **Running the lite sign-up before the bind leg has landed** — the chain answers `Custom(175)` (`NoAliasBinding`), and `AliasWithAccountRevised` answers it too. Send the `AliasWithProof` bind leg first.
-19. **Expecting a dim2 session to mint the lite bind proof** — the context is `peopl.<tld>`, so only the personhood product can. Plan for the handoff.
+19. **Binding in your own product's context** — the chain allowlists two contexts for the lite bind, `peopleLiteAuth` and `score`, both `peopl.<tld>`. A `dim2.<tld>` context is rejected as `InvalidTransaction::Call`, so plan for the handoff from the personhood product.
 20. **Reading `PeopleLite.auth_context` off paseo or devnet** — neither publishes it. Derive it with `personhoodContext(tld, "peopleLiteAuth")`.
 21. **Treating `NotProductDerived` as retryable** — it is a hard stop on the ok channel, not a transport failure. Building the proof leg anyway costs a fee and returns `Invalid.Call`.
