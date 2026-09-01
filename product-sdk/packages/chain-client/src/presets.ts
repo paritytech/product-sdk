@@ -21,6 +21,9 @@ import type { kusama_asset_hub as KusamaAssetHubDef } from "@parity/product-sdk-
 import type { paseo_asset_hub as PaseoAssetHubDef } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 import type { paseo_bulletin as PaseoBulletinDef } from "@parity/product-sdk-descriptors/paseo-bulletin";
 import type { paseo_individuality as PaseoIndividualityDef } from "@parity/product-sdk-descriptors/paseo-individuality";
+import type { previewnet_asset_hub as PreviewnetAssetHubDef } from "@parity/product-sdk-descriptors/previewnet-asset-hub";
+import type { previewnet_bulletin as PreviewnetBulletinDef } from "@parity/product-sdk-descriptors/previewnet-bulletin";
+import type { previewnet_individuality as PreviewnetIndividualityDef } from "@parity/product-sdk-descriptors/previewnet-individuality";
 import type { devnet_asset_hub as DevnetAssetHubDef } from "@parity/product-sdk-descriptors/devnet-asset-hub";
 import type { devnet_bulletin as DevnetBulletinDef } from "@parity/product-sdk-descriptors/devnet-bulletin";
 import type { devnet_individuality as DevnetIndividualityDef } from "@parity/product-sdk-descriptors/devnet-individuality";
@@ -31,6 +34,9 @@ import type { devnet_individuality as DevnetIndividualityDef } from "@parity/pro
  * - `"polkadot"` / `"kusama"` — production networks. Reserved: their Bulletin and
  *   Individuality chains are not live yet, so `getChainAPI` throws for both.
  * - `"paseo"` — the Paseo **Next v2** deployment
+ * - `"previewnet"` — a zombienet deployment running a Paseo runtime, kept a step
+ *   ahead of paseo-next-v2 so products can build against upcoming runtime changes
+ *   early.
  * - `"devnet"` — the public "products devnet" on the Paseo **testnet** system
  *   chains, community-run by the
  *   Polkadot Community Foundation.
@@ -38,7 +44,7 @@ import type { devnet_individuality as DevnetIndividualityDef } from "@parity/pro
 export type Environment = (typeof ENVIRONMENTS)[number];
 
 /** Environments where all chains (asset hub, bulletin, individuality) are live. */
-const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo", "devnet"]);
+const AVAILABLE_ENVIRONMENTS: Set<Environment> = new Set(["paseo", "previewnet", "devnet"]);
 
 /**
  * Lazy-load descriptors for a specific environment.
@@ -70,6 +76,12 @@ async function loadDescriptors(env: Environment) {
                 import("@parity/product-sdk-descriptors/paseo-bulletin"),
                 import("@parity/product-sdk-descriptors/paseo-individuality"),
             ]),
+        previewnet: () =>
+            Promise.all([
+                import("@parity/product-sdk-descriptors/previewnet-asset-hub"),
+                import("@parity/product-sdk-descriptors/previewnet-bulletin"),
+                import("@parity/product-sdk-descriptors/previewnet-individuality"),
+            ]),
         devnet: () =>
             Promise.all([
                 import("@parity/product-sdk-descriptors/devnet-asset-hub"),
@@ -87,19 +99,31 @@ async function loadDescriptors(env: Environment) {
               ? ahMod.kusama_asset_hub
               : "devnet_asset_hub" in ahMod
                 ? (ahMod as { devnet_asset_hub: typeof DevnetAssetHubDef }).devnet_asset_hub
-                : (ahMod as { paseo_asset_hub: typeof PaseoAssetHubDef }).paseo_asset_hub;
+                : "previewnet_asset_hub" in ahMod
+                  ? (ahMod as { previewnet_asset_hub: typeof PreviewnetAssetHubDef })
+                        .previewnet_asset_hub
+                  : (ahMod as { paseo_asset_hub: typeof PaseoAssetHubDef }).paseo_asset_hub;
 
     const bulletin =
         "devnet_bulletin" in bulletinMod
             ? (bulletinMod as { devnet_bulletin: typeof DevnetBulletinDef }).devnet_bulletin
-            : (bulletinMod as { paseo_bulletin: typeof PaseoBulletinDef }).paseo_bulletin;
+            : "previewnet_bulletin" in bulletinMod
+              ? (bulletinMod as { previewnet_bulletin: typeof PreviewnetBulletinDef })
+                    .previewnet_bulletin
+              : (bulletinMod as { paseo_bulletin: typeof PaseoBulletinDef }).paseo_bulletin;
 
     const individuality =
         "devnet_individuality" in individualityMod
             ? (individualityMod as { devnet_individuality: typeof DevnetIndividualityDef })
                   .devnet_individuality
-            : (individualityMod as { paseo_individuality: typeof PaseoIndividualityDef })
-                  .paseo_individuality;
+            : "previewnet_individuality" in individualityMod
+              ? (
+                    individualityMod as {
+                        previewnet_individuality: typeof PreviewnetIndividualityDef;
+                    }
+                ).previewnet_individuality
+              : (individualityMod as { paseo_individuality: typeof PaseoIndividualityDef })
+                    .paseo_individuality;
 
     return { assetHub, bulletin, individuality };
 }
@@ -123,6 +147,11 @@ type PresetDescriptors = {
         bulletin: typeof PaseoBulletinDef;
         individuality: typeof PaseoIndividualityDef;
     };
+    previewnet: {
+        assetHub: typeof PreviewnetAssetHubDef;
+        bulletin: typeof PreviewnetBulletinDef;
+        individuality: typeof PreviewnetIndividualityDef;
+    };
     devnet: {
         assetHub: typeof DevnetAssetHubDef;
         bulletin: typeof DevnetBulletinDef;
@@ -142,12 +171,15 @@ const assetHubGenesis: Record<Environment, () => Promise<string | undefined>> = 
         (await import("@parity/product-sdk-descriptors/kusama-asset-hub")).kusama_asset_hub.genesis,
     paseo: async () =>
         (await import("@parity/product-sdk-descriptors/paseo-asset-hub")).paseo_asset_hub.genesis,
+    previewnet: async () =>
+        (await import("@parity/product-sdk-descriptors/previewnet-asset-hub")).previewnet_asset_hub
+            .genesis,
     devnet: async () =>
         (await import("@parity/product-sdk-descriptors/devnet-asset-hub")).devnet_asset_hub.genesis,
 };
 
 /** Live environments first so the probe usually stops at the first bundle. */
-const PROBE_ORDER: readonly Environment[] = ["paseo", "devnet", "polkadot", "kusama"];
+const PROBE_ORDER: readonly Environment[] = ["paseo", "previewnet", "devnet", "polkadot", "kusama"];
 
 /**
  * Pick the effective environment: the one whose bundled asset hub carries
@@ -324,6 +356,10 @@ if (import.meta.vitest) {
         paseo_asset_hub: "0x23e730eb1c6fecae09c917439a5038cb6122d0d48980e8b9bbf0ff56f94a2ca6",
         paseo_bulletin: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
         paseo_individuality: "0x89a63b11fef2c0273fc72c0d864da0793a665dade5db153e0cab995348c5440f",
+        previewnet_asset_hub: "0x627f54413120c81161261b2ca87f60f0020963107dc28367491e09ec2dd29659",
+        previewnet_bulletin: "0x1144acd27f0e5b2c88da7dc12c111e396983dec036ccfb42da5bbb0dd7104e89",
+        previewnet_individuality:
+            "0x34999c298555e25bf17a7f3ea20efe7f6fdab1dfec7f808fbcfd36ca8aa5d220",
         devnet_asset_hub: "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
         devnet_bulletin: "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
         devnet_individuality: "0xe6c30d6e148f250b887105237bcaa5cb9f16dd203bf7b5b9d4f1da7387cb86ec",
@@ -362,6 +398,17 @@ if (import.meta.vitest) {
         expect(descriptors.individuality.genesis).toBe(GENESIS.paseo_individuality);
     });
 
+    test("loadDescriptors returns descriptors with genesis hashes for previewnet", async () => {
+        const descriptors = await loadDescriptors("previewnet");
+        expect(descriptors).toBeDefined();
+        expect(descriptors.assetHub).toBeDefined();
+        expect(descriptors.bulletin).toBeDefined();
+        expect(descriptors.individuality).toBeDefined();
+        expect(descriptors.assetHub.genesis).toBe(GENESIS.previewnet_asset_hub);
+        expect(descriptors.bulletin.genesis).toBe(GENESIS.previewnet_bulletin);
+        expect(descriptors.individuality.genesis).toBe(GENESIS.previewnet_individuality);
+    });
+
     test("loadDescriptors returns descriptors with genesis hashes for devnet", async () => {
         const descriptors = await loadDescriptors("devnet");
         expect(descriptors).toBeDefined();
@@ -375,8 +422,9 @@ if (import.meta.vitest) {
 
     // --- AVAILABLE_ENVIRONMENTS ---
 
-    test("paseo and devnet are currently available", () => {
+    test("paseo, previewnet and devnet are currently available", () => {
         expect(AVAILABLE_ENVIRONMENTS.has("paseo")).toBe(true);
+        expect(AVAILABLE_ENVIRONMENTS.has("previewnet")).toBe(true);
         expect(AVAILABLE_ENVIRONMENTS.has("devnet")).toBe(true);
         expect(AVAILABLE_ENVIRONMENTS.has("polkadot")).toBe(false);
         expect(AVAILABLE_ENVIRONMENTS.has("kusama")).toBe(false);

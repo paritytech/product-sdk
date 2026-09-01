@@ -20,9 +20,11 @@ import {
     type RawGameSchedule,
     type RawPhaseDurations,
 } from "./game-decode.js";
-import type { CurrentGameResult, GamePhaseDurations } from "./game-types.js";
+import type { CurrentGameResult, GamePhaseDurations, PlayerRegistration } from "./game-types.js";
+import type { AirdropRegistrant } from "./airdrop-types.js";
 import { ProductIndividualityError } from "./errors.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { playerKey, type PlayerKey } from "./player-key.js";
 import type { FinalizedSnapshot } from "./types.js";
 
 /**
@@ -71,6 +73,31 @@ export interface GameChain extends PinnedChain {
     };
 }
 
+/**
+ * The registration entry, needed only when {@link ReadCurrentGameOptions.players}
+ * is given. Kept out of {@link GameChain} so a caller that never asks about a
+ * player, and every existing test double, keeps satisfying the narrower type.
+ *
+ * ```
+ * Game.Players: StorageDescriptor<[Key: AccountOrPerson], { registered: boolean }, true, never>
+ * ```
+ */
+export interface GamePlayersChain {
+    individuality: {
+        query: {
+            Game: {
+                /** Absent for a player who has never signed up. */
+                Players: {
+                    getValue: (
+                        key: PlayerKey,
+                        options: ReadAt,
+                    ) => Promise<{ registered: boolean } | undefined>;
+                };
+            };
+        };
+    };
+}
+
 /** Options for {@link readCurrentGame}. */
 export interface ReadCurrentGameOptions {
     /**
@@ -78,12 +105,27 @@ export interface ReadCurrentGameOptions {
      * batch. No deadline is applied here — that belongs to the caller.
      */
     signal?: AbortSignal;
+    /**
+     * Whose registration to read, at the same block as the game. One person is
+     * keyed twice on chain — by account and, once recognized, by alias — so pass
+     * every key the caller holds; any hit answers `Registered`. Requires a chain
+     * that also satisfies {@link GamePlayersChain}.
+     */
+    players?: readonly AirdropRegistrant[];
 }
 
 /**
  * **No game running is not a failure**, it is `BetweenGames` — the chain's normal
  * state, since one game exists at a time and each is killed when it ends.
  */
+export async function readCurrentGame(
+    chain: GameChain & GamePlayersChain,
+    options: ReadCurrentGameOptions & { players: readonly AirdropRegistrant[] },
+): Promise<Result<CurrentGameResult, ProductIndividualityError>>;
+export async function readCurrentGame(
+    chain: GameChain,
+    options?: Omit<ReadCurrentGameOptions, "players">,
+): Promise<Result<CurrentGameResult, ProductIndividualityError>>;
 export async function readCurrentGame(
     chain: GameChain,
     options: ReadCurrentGameOptions = {},
@@ -106,17 +148,18 @@ export async function runGameRead(
     options: ReadCurrentGameOptions,
     pinned?: FinalizedSnapshot,
 ): Promise<CurrentGameResult> {
-    const { signal } = options;
+    const { signal, players } = options;
     const query = chain.individuality.query.Game;
 
     const snapshot = await pinBlock(chain, signal, pinned);
     const at: ReadAt = readAt(snapshot, signal);
 
-    const [gameIndex, rawGame, rawSchedules, storedDurations] = await Promise.all([
+    const [gameIndex, rawGame, rawSchedules, storedDurations, registration] = await Promise.all([
         query.GameIndex.getValue(at),
         query.Game.getValue(at),
         query.GameSchedules.getValue(at),
         query.StoredPhaseDurations.getValue(at),
+        readRegistration(chain, players, at),
     ]);
 
     // The constant is only needed when governance has set no override, so it is
@@ -151,9 +194,39 @@ export async function runGameRead(
         // game runs, and the game's own copy is the one a prize claim is keyed
         // by.
         game: toCurrentGame(rawGame),
+        registration,
         upcoming,
         durations,
     };
+}
+
+/**
+ * The per-key `Game.Players` reads, settled rather than raced: one key failing
+ * must not fail the game read, and must not read as "not registered" either.
+ * `players` is only ever set through the overload that demands
+ * {@link GamePlayersChain}, which is what the cast relies on.
+ */
+async function readRegistration(
+    chain: GameChain,
+    players: readonly AirdropRegistrant[] | undefined,
+    at: ReadAt,
+): Promise<PlayerRegistration> {
+    if (players === undefined) {
+        return { tag: "Unchecked" };
+    }
+    const entry = (chain as GameChain & GamePlayersChain).individuality.query.Game.Players;
+    const reads = await Promise.allSettled(
+        players.map((player) => entry.getValue(playerKey(player), at)),
+    );
+    let failed = false;
+    for (const read of reads) {
+        if (read.status === "rejected") {
+            failed = true;
+        } else if (read.value?.registered === true) {
+            return { tag: "Registered" };
+        }
+    }
+    return failed ? { tag: "Unknown" } : { tag: "NotRegistered" };
 }
 
 if (import.meta.vitest) {
@@ -207,6 +280,8 @@ if (import.meta.vitest) {
         game?: RawGameInfo;
         schedules?: RawGameSchedule[];
         stored?: RawPhaseDurations;
+        /** `Game.Players` rows by key; a key with a thrower fails that read only. */
+        players?: Record<string, { registered: boolean } | undefined | (() => never)>;
         failOn?:
             | "GameIndex"
             | "Game"
@@ -231,7 +306,7 @@ if (import.meta.vitest) {
             calls.push({ entry, at: options.at });
         };
 
-        const chain: GameChain = {
+        const chain: GameChain & GamePlayersChain = {
             individuality: {
                 constants: {
                     Game: {
@@ -270,6 +345,13 @@ if (import.meta.vitest) {
                                 boom("StoredPhaseDurations");
                                 record("StoredPhaseDurations", options);
                                 return state.stored;
+                            },
+                        },
+                        Players: {
+                            getValue: async (key, options) => {
+                                record(`Players:${key.type}:${key.value}`, options);
+                                const row = state.players?.[`${key.type}:${key.value}`];
+                                return typeof row === "function" ? row() : row;
                             },
                         },
                     },
@@ -320,6 +402,87 @@ if (import.meta.vitest) {
             const result = unwrapOk(await readCurrentGame(chain));
             if (result.tag !== "Running") throw new Error("expected Running");
             expect(result.game.index).toBe(41);
+        });
+    });
+
+    describe("readCurrentGame, registration", () => {
+        const ACCOUNT = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+        const ALIAS = `0x${"ab".repeat(32)}`;
+        const players = [
+            { tag: "Account", accountAddress: ACCOUNT },
+            { tag: "Alias", alias: ALIAS },
+        ] as const;
+
+        test("is Unchecked when no players are given, and reads nothing for it", async () => {
+            const { chain, calls } = fakeChain({ game: rawGame(), stored: STORED });
+            const result = unwrapOk(await readCurrentGame(chain));
+            if (result.tag !== "Running") throw new Error("expected Running");
+            expect(result.registration).toEqual({ tag: "Unchecked" });
+            expect(calls.some((call) => call.entry.startsWith("Players:"))).toBe(false);
+        });
+
+        test("reads every key at the pinned block, under the pallet's own arm names", async () => {
+            const { chain, calls } = fakeChain({ game: rawGame(), stored: STORED });
+            await readCurrentGame(chain, { players });
+            const reads = calls.filter((call) => call.entry.startsWith("Players:"));
+            expect(reads.map((call) => call.entry)).toEqual([
+                `Players:Account:${ACCOUNT}`,
+                `Players:Person:${ALIAS}`,
+            ]);
+            expect(new Set(reads.map((call) => call.at))).toEqual(new Set([BLOCK.hash]));
+        });
+
+        test("one registered key is enough", async () => {
+            const { chain } = fakeChain({
+                game: rawGame(),
+                stored: STORED,
+                players: { [`Person:${ALIAS}`]: { registered: true } },
+            });
+            const result = unwrapOk(await readCurrentGame(chain, { players }));
+            if (result.tag !== "Running") throw new Error("expected Running");
+            expect(result.registration).toEqual({ tag: "Registered" });
+        });
+
+        test("no row and a registered:false row both mean NotRegistered", async () => {
+            const { chain } = fakeChain({
+                game: rawGame(),
+                stored: STORED,
+                players: { [`Account:${ACCOUNT}`]: { registered: false } },
+            });
+            const result = unwrapOk(await readCurrentGame(chain, { players }));
+            if (result.tag !== "Running") throw new Error("expected Running");
+            expect(result.registration).toEqual({ tag: "NotRegistered" });
+        });
+
+        test("a failed key read is Unknown, not NotRegistered, and does not fail the game", async () => {
+            const { chain } = fakeChain({
+                game: rawGame(),
+                stored: STORED,
+                players: {
+                    [`Account:${ACCOUNT}`]: () => {
+                        throw new Error("Players unreachable");
+                    },
+                },
+            });
+            const result = unwrapOk(await readCurrentGame(chain, { players }));
+            if (result.tag !== "Running") throw new Error("expected Running");
+            expect(result.registration).toEqual({ tag: "Unknown" });
+        });
+
+        test("a failed key read still loses to a registered one", async () => {
+            const { chain } = fakeChain({
+                game: rawGame(),
+                stored: STORED,
+                players: {
+                    [`Account:${ACCOUNT}`]: () => {
+                        throw new Error("Players unreachable");
+                    },
+                    [`Person:${ALIAS}`]: { registered: true },
+                },
+            });
+            const result = unwrapOk(await readCurrentGame(chain, { players }));
+            if (result.tag !== "Running") throw new Error("expected Running");
+            expect(result.registration).toEqual({ tag: "Registered" });
         });
     });
 

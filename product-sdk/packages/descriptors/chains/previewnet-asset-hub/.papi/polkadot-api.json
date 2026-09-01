@@ -1,0 +1,12 @@
+{
+    "version": 0,
+    "descriptorPath": "generated",
+    "entries": {
+        "previewnet_asset_hub": {
+            "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
+            "metadata": "../../.papi/metadata/previewnet_asset_hub.scale",
+            "genesis": "0x627f54413120c81161261b2ca87f60f0020963107dc28367491e09ec2dd29659",
+            "codeHash": "0x1ab78678006052f5d8d5c2b5e058752cf2a600780025a6b6a3ae3678ade9e87c"
+        }
+    }
+}

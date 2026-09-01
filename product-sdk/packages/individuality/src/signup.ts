@@ -50,7 +50,6 @@
  *
  * Only the `Account` variant is buildable. `signup-types.ts` says why.
  */
-import { Enum } from "polkadot-api";
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex } from "@parity/product-sdk-utils";
 import { gameAirdropEventIds } from "./airdrop-ids.js";
@@ -60,6 +59,7 @@ import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { playerKey, type PlayerKey } from "./player-key.js";
 import { airdropVrfTranscript, type VrfTranscriptItem } from "./signup-vrf.js";
 import type {
     AccountVrfSignature,
@@ -82,18 +82,6 @@ const DRAW_ONLY = {
     NoDrawsScheduled: true,
     NotSr25519: true,
 } satisfies Record<SignUpBlocker["tag"], boolean>;
-
-/**
- * The `AccountOrPerson` key both reads take.
- *
- * Two things keep the umbrella contract test honest here, both verified by
- * breaking them. The narrow type catches a descriptor re-pin that renames an arm.
- * Property syntax on the two `getValue`s catches widening this back to
- * `{ type: string }`, which method syntax would accept, since method parameters
- * are bivariant. Without either, a renamed arm reads nothing and looks like an
- * absent record.
- */
-type PlayerKey = { type: "Account"; value: string } | { type: "Person"; value: string };
 
 /** The chain's `AirdropVrfs`. `Alias` is never constructed, only declared. */
 type AirdropVrfsArg =
@@ -156,15 +144,6 @@ export interface ReadGameSignUpRequirementOptions {
     /** Unix **seconds**; defaults to the device clock. */
     now?: number;
     signal?: AbortSignal;
-}
-
-function playerKey(registrant: AirdropRegistrant): PlayerKey {
-    // `AccountOrPerson` spells the alias arm `Person` where the airdrop pallet's
-    // registration entry spells it `Alias`. Same identity, two names, and the
-    // wrong one reads nothing rather than failing.
-    return registrant.tag === "Account"
-        ? Enum("Account", registrant.accountAddress)
-        : Enum("Person", registrant.alias);
 }
 
 /**

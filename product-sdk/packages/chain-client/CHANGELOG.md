@@ -1,5 +1,48 @@
 # @parity/product-sdk-chain-client
 
+## 0.12.1
+
+### Patch Changes
+
+- Updated dependencies [84134e0]
+- Updated dependencies [84134e0]
+  - @parity/product-sdk-host@0.18.0
+
+## 0.12.0
+
+### Minor Changes
+
+- 46e3592: **Re-add `previewnet` as a first-class environment.**
+
+  Previewnet was dropped when its identity endpoints weren't secured for public use and its runtime matched paseo. Both have changed: the endpoints are secured, and previewnet now runs a Paseo runtime kept a step ahead of paseo-next-v2 (asset-hub `2000039` vs `2000036`, individuality `1000036` vs `1000032`), so products can build against upcoming runtime changes weeks early.
+
+  - `@parity/product-sdk-descriptors` re-adds the `./previewnet-asset-hub`, `./previewnet-bulletin`, and `./previewnet-individuality` subpath exports, generated fresh against the live endpoints with real (non-zero) `codeHash` values so previewnet is covered by descriptor-drift detection like every other chain.
+  - `@parity/product-sdk-chain-client` re-adds `"previewnet"` to the `Environment` union; `getChainAPI("previewnet")` resolves again, routing to the `previewnet.substrate.dev` endpoints for asset-hub, bulletin, and people (individuality).
+  - `@parity/product-sdk-cloud-storage` re-adds the `previewnet` entry to `CloudStorageNetworks`.
+  - `@parity/product-sdk-host` re-adds `BULLETIN_RPCS.previewnet`.
+
+  Consumers on paseo or a production environment are unaffected; this is purely additive.
+
+### Patch Changes
+
+- 46e3592: **Say that createChainClient depends on the host, and correct two stale docs.**
+
+  `createChainClient` accepts any PAPI descriptor, but every connection goes through the host provider keyed by that descriptor's genesis, with no WebSocket fallback. A chain is therefore reachable only if the active host routes it, which the package docs did not say while offering the path for "custom or pre-release chains". They now say it, and point at `isChainSupported` from `@parity/product-sdk-host` for checking before connecting. See #94 and #102 for the missing standalone path.
+
+  Also removes a dead `Environment` union in `chain-client`'s `types.ts` that listed "local" and "westend", neither of which exists. Nothing imported it and the package exports only its root entry, so no consumer saw it.
+
+  Also corrects the Previewnet DotNS TLD in two `identity/` comments, from `.dot` to `.test`, matching `dotns-abis.ts` which records verification on both networks.
+
+  Docs, comments, and one unreachable type. No behaviour change.
+
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+  - @parity/product-sdk-host@0.17.0
+  - @parity/product-sdk-descriptors@0.11.0
+
 ## 0.11.0
 
 ### Minor Changes

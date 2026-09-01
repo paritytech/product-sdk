@@ -38,9 +38,9 @@ export interface HostProviderOptions {
      * not set, so `connect()` can still surface a usable account on hosts
      * that don't enumerate legacy accounts.
      *
-     * The value is treated as a product identifier (`.dot` is appended to
-     * non-local names) and routed through `getProductAccount(dappName, 0)`. If
-     * the host rejects the derivation (e.g. the identifier isn't registered),
+     * Bare labels receive the legacy `.dot` suffix; already-qualified dotNS
+     * names and local hosts stay unchanged before `getProductAccount(name, 0)`.
+     * If the host rejects the derivation (e.g. the identifier isn't registered),
      * `connect()` resolves with an empty accounts list rather than
      * throwing — consumers can still drive the explicit signing paths
      * (`signMessageWithDotNsIdentity`, `getLegacyAccountSigner`).
@@ -108,7 +108,8 @@ export interface HostProviderOptions {
 
 function productIdentifierFromDappName(dappName: string): string {
     const isLocalHost = /^(?:localhost|127\.0\.0\.1|[^:]+\.localhost)(?::\d+)?$/i.test(dappName);
-    return dappName.endsWith(".dot") || isLocalHost ? dappName : `${dappName}.dot`;
+    const alreadyQualified = dappName.includes(".");
+    return alreadyQualified || isLocalHost ? dappName : `${dappName}.dot`;
 }
 
 /**
@@ -748,8 +749,8 @@ export class HostProvider implements SignerProvider {
                 signerAccounts = [accountResult.value];
             }
         } else if (this.dappName) {
-            // Local hosts are already complete product identifiers (including
-            // their port). DotNS product names get the canonical `.dot` suffix.
+            // Local hosts and already-qualified dotNS names are complete identifiers.
+            // Only a bare product label receives the legacy `.dot` suffix.
             const dotNsIdentifier = productIdentifierFromDappName(this.dappName);
             const accountResult = await this.fetchProductSignerAccount(
                 provider,
@@ -968,6 +969,49 @@ function formatError(error: unknown): string {
 
 if (import.meta.vitest) {
     const { test, expect, describe, vi, beforeEach } = import.meta.vitest;
+    describe("productIdentifierFromDappName", () => {
+        test("bare label receives .dot", () => {
+            expect(productIdentifierFromDappName("my-cli")).toBe("my-cli.dot");
+        });
+
+        test("bare label with hyphen receives .dot", () => {
+            expect(productIdentifierFromDappName("host-playground")).toBe("host-playground.dot");
+        });
+
+        test(".dot suffix is preserved (already qualified)", () => {
+            expect(productIdentifierFromDappName("my-cli.dot")).toBe("my-cli.dot");
+        });
+
+        test(".paseo suffix is preserved (already qualified)", () => {
+            expect(productIdentifierFromDappName("host-playground.paseo")).toBe(
+                "host-playground.paseo",
+            );
+        });
+
+        test("localhost is preserved unchanged", () => {
+            expect(productIdentifierFromDappName("localhost")).toBe("localhost");
+        });
+
+        test("localhost with port is preserved unchanged", () => {
+            expect(productIdentifierFromDappName("localhost:3000")).toBe("localhost:3000");
+        });
+
+        test("127.0.0.1 is preserved unchanged", () => {
+            expect(productIdentifierFromDappName("127.0.0.1")).toBe("127.0.0.1");
+        });
+
+        test("127.0.0.1 with port is preserved unchanged", () => {
+            expect(productIdentifierFromDappName("127.0.0.1:8080")).toBe("127.0.0.1:8080");
+        });
+
+        test("app.localhost is preserved unchanged", () => {
+            expect(productIdentifierFromDappName("app.localhost")).toBe("app.localhost");
+        });
+
+        test("app.localhost with port is preserved unchanged", () => {
+            expect(productIdentifierFromDappName("app.localhost:3000")).toBe("app.localhost:3000");
+        });
+    });
 
     interface RawAccountTest {
         publicKey: Uint8Array;

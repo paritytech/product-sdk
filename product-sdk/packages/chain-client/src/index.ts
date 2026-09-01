@@ -10,6 +10,11 @@
  * `createChainClient` is the bring-your-own-descriptors path for custom or
  * pre-release chains.
  *
+ * **A descriptor is not a transport.** Both paths connect through the host
+ * provider, keyed by the descriptor's genesis, with no WebSocket fallback, so a
+ * chain is reachable only if the active host routes it. Check first with
+ * `isChainSupported(genesisHash)` from `@parity/product-sdk-host`. See #94, #102.
+ *
  * @packageDocumentation
  */
 

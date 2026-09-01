@@ -23,7 +23,7 @@
  */
 
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
-import type { ResultAsync } from "neverthrow";
+import { errAsync, okAsync, ResultAsync } from "neverthrow";
 import { AccountId, type PolkadotSigner } from "polkadot-api";
 
 import type {
@@ -55,6 +55,7 @@ import type {
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
+import { HostResponseDecodeError } from "./errors.js";
 import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -224,6 +225,14 @@ export type VrfTranscriptItem = { [K in keyof WireVrfTranscriptItem]: Uint8Array
 export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
 
 /**
+ * A call's declared `Err` channel, plus {@link HostResponseDecodeError}: any
+ * host reply can fail to decode if the host and the product's `@parity/truapi`
+ * client are on different protocol versions, so every decoded call can surface
+ * it in addition to its own typed errors.
+ */
+export type WithDecodeError<E> = E | HostResponseDecodeError;
+
+/**
  * Accounts provider handle, backed by `truApi.account.*` / `truApi.signing.*`.
  * Surfaces the user's wallet accounts, app-scoped product accounts, Ring VRF,
  * user identity, connection status, and `PolkadotSigner` factories.
@@ -231,20 +240,29 @@ export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
  * Lookup methods return a neverthrow `ResultAsync` (use `.match(ok, err)`);
  * the signer factories return a synchronous PAPI `PolkadotSigner`. The `err`
  * channel carries truapi's canonical `CallErrorValue` envelope around the
- * per-call versioned domain error, exactly as the generated client returns it.
+ * per-call versioned domain error, exactly as the generated client returns it,
+ * plus a {@link HostResponseDecodeError} for the case where the host's reply
+ * cannot be decoded at all (a host/client protocol-version skew) — see
+ * {@link WithDecodeError}.
  */
 export interface AccountsProvider {
     getUserId(): ResultAsync<
         { primaryUsername: string },
-        scale.CallErrorValue<VersionedHostGetUserIdError>
+        WithDecodeError<scale.CallErrorValue<VersionedHostGetUserIdError>>
     >;
     requestLogin(
         reason?: string,
-    ): ResultAsync<HostRequestLoginResponse, scale.CallErrorValue<VersionedHostRequestLoginError>>;
+    ): ResultAsync<
+        HostRequestLoginResponse,
+        WithDecodeError<scale.CallErrorValue<VersionedHostRequestLoginError>>
+    >;
     getProductAccount(
         dotNsIdentifier: string,
         derivationIndex?: number,
-    ): ResultAsync<ProductAccount, scale.CallErrorValue<VersionedHostAccountGetError>>;
+    ): ResultAsync<
+        ProductAccount,
+        WithDecodeError<scale.CallErrorValue<VersionedHostAccountGetError>>
+    >;
     /**
      * Register a ring-VRF key owned by the calling product.
      *
@@ -259,7 +277,7 @@ export interface AccountsProvider {
         ring: RingLocation,
     ): ResultAsync<
         RingVrfPublicKey,
-        scale.CallErrorValue<VersionedHostAccountRegisterRingVrfKeyError>
+        WithDecodeError<scale.CallErrorValue<VersionedHostAccountRegisterRingVrfKeyError>>
     >;
     /** List an owner's registered ring-VRF keys. */
     listRingVrfKeys(
@@ -267,17 +285,20 @@ export interface AccountsProvider {
         disclosure?: RingVrfKeyDisclosure,
     ): ResultAsync<
         RegisteredRingVrfKey[],
-        scale.CallErrorValue<VersionedHostAccountListRingVrfKeysError>
+        WithDecodeError<scale.CallErrorValue<VersionedHostAccountListRingVrfKeysError>>
     >;
     /** Derive a contextual alias with an explicitly registered ring-VRF key. */
     getProductAccountAlias(
         keyHandle: RingVrfKeyHandle,
         context: ProductProofContext,
         location: RingLocation,
-    ): ResultAsync<ContextualAlias, scale.CallErrorValue<VersionedHostAccountGetAliasError>>;
+    ): ResultAsync<
+        ContextualAlias,
+        WithDecodeError<scale.CallErrorValue<VersionedHostAccountGetAliasError>>
+    >;
     getLegacyAccounts(): ResultAsync<
         HostAccount[],
-        scale.CallErrorValue<VersionedHostGetLegacyAccountsError>
+        WithDecodeError<scale.CallErrorValue<VersionedHostGetLegacyAccountsError>>
     >;
     /**
      * Generate a Ring VRF proof with an explicitly registered key, binding
@@ -288,7 +309,10 @@ export interface AccountsProvider {
         context: ProductProofContext,
         location: RingLocation,
         message: Uint8Array,
-    ): ResultAsync<RingVRFProof, scale.CallErrorValue<VersionedHostAccountCreateProofError>>;
+    ): ResultAsync<
+        RingVRFProof,
+        WithDecodeError<scale.CallErrorValue<VersionedHostAccountCreateProofError>>
+    >;
     /**
      * Sign `message` directly with an explicitly registered ring-VRF key.
      *
@@ -299,7 +323,10 @@ export interface AccountsProvider {
     ringVrfSign(
         keyHandle: RingVrfKeyHandle,
         message: Uint8Array,
-    ): ResultAsync<Uint8Array, scale.CallErrorValue<VersionedHostAccountRingVrfSignError>>;
+    ): ResultAsync<
+        Uint8Array,
+        WithDecodeError<scale.CallErrorValue<VersionedHostAccountRingVrfSignError>>
+    >;
     /**
      * Produce an sr25519 VRF signature from a product account (RFC-0023).
      *
@@ -323,7 +350,10 @@ export interface AccountsProvider {
         account: ProductAccountLookup,
         transcriptLabel: Uint8Array,
         items: VrfTranscriptItem[],
-    ): ResultAsync<VrfSignature, scale.CallErrorValue<VersionedHostAccountSignVrfError>>;
+    ): ResultAsync<
+        VrfSignature,
+        WithDecodeError<scale.CallErrorValue<VersionedHostAccountSignVrfError>>
+    >;
     /**
      * Build a `PolkadotSigner` for a product account. Signing routes through the
      * host's `createTransaction` path: the host decodes the metadata and forwards
@@ -341,22 +371,32 @@ export interface AccountsProvider {
     ): HostSubscription;
 }
 
+const V5_FORMAT_SELECTOR = 5;
+
 /**
- * Derive the host's extrinsic-extension version from SCALE-encoded metadata:
- * v4 → 0, otherwise the latest supported version. `unifyMetadata` normalizes
- * v14/v15 so `.extrinsic.version` is an array.
- *
- * Indirected through {@link deps} so the SCALE decode (which needs a real
- * metadata blob) can be stubbed in unit tests while the rest of the `signTx`
- * flow — genesis extraction, extension mapping, the host call — is exercised.
+ * Pick the `txExtVersion` for the host's `create_transaction` from the extrinsic formats
+ * the runtime offers. The host treats the field as a format switch: `0` builds V4, `5`
+ * builds a V5 general transaction, anything else is `NotSupported`. Prefer V4 while
+ * offered, since it carries the account signature in its envelope. The host derives the
+ * transaction-extension version from the metadata itself.
  */
-function deriveTxExtVersion(metadata: Uint8Array): number {
-    const versions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.version;
-    if (versions.length === 0) {
+function selectHostTxExtVersion(formatVersions: readonly number[]): number {
+    if (formatVersions.length === 0) {
         throw new Error("No extrinsic version found in metadata");
     }
-    const latestVersion = versions.reduce((acc, v) => Math.max(acc, v), 0);
-    return latestVersion === 4 ? 0 : latestVersion;
+    if (formatVersions.includes(4)) {
+        return 0;
+    }
+    if (formatVersions.includes(5)) {
+        return V5_FORMAT_SELECTOR;
+    }
+    throw new Error(
+        `Runtime offers no extrinsic format 4 or 5 (offers: ${formatVersions.join(", ")}); the host protocol has no txExtVersion for it.`,
+    );
+}
+
+function deriveTxExtVersion(metadata: Uint8Array): number {
+    return selectHostTxExtVersion(unifyMetadata(decAnyMetadata(metadata)).extrinsic.version);
 }
 
 /** Internal seam so `import.meta.vitest` can stub the metadata decode. @internal */
@@ -392,6 +432,28 @@ function toWireProductAccountId({
     return { dotNsIdentifier, derivationIndex: { tag: "Index", value: derivationIndex } };
 }
 
+/**
+ * Route a thrown/rejected response-decode error onto the `Result` err channel.
+ *
+ * The truapi client catches a decode throw in its message handler and turns it
+ * into a promise rejection, then wraps each call with
+ * `ResultAsync.fromSafePromise`, which installs no rejection handler — so when
+ * the host's reply doesn't match the client's codec (a version skew), that
+ * rejection escapes the `Result` channel rather than landing on its err side,
+ * surfacing as a raw `RangeError`. Wrapping the call re-homes that rejection as
+ * a typed {@link HostResponseDecodeError} that names the call, while ok values
+ * and the call's own typed `Err` values pass through untouched.
+ */
+function guardDecode<T, E>(
+    call: string,
+    result: ResultAsync<T, E>,
+): ResultAsync<T, E | HostResponseDecodeError> {
+    return ResultAsync.fromPromise(
+        Promise.resolve(result),
+        (cause) => new HostResponseDecodeError(call, cause),
+    ).andThen((inner) => inner);
+}
+
 /** Build an {@link AccountsProvider} over a TruAPI client's `account` / `signing` domains. */
 function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
     const account = client.account;
@@ -399,98 +461,128 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
 
     return {
         getUserId() {
-            return account.getUserId().map((response) => ({
-                primaryUsername: response.primaryUsername,
-            }));
+            return guardDecode(
+                "getUserId",
+                account.getUserId().map((response) => ({
+                    primaryUsername: response.primaryUsername,
+                })),
+            );
         },
         requestLogin(reason) {
-            return account.requestLogin({ reason });
+            return guardDecode("requestLogin", account.requestLogin({ reason }));
         },
         getProductAccount(dotNsIdentifier, derivationIndex = 0) {
-            return account
-                .getAccount({
-                    productAccountId: toWireProductAccountId({ dotNsIdentifier, derivationIndex }),
-                })
-                .map((response) => ({
-                    publicKey: fromHex(response.account.publicKey),
-                    dotNsIdentifier,
-                    derivationIndex,
-                }));
+            return guardDecode(
+                "getProductAccount",
+                account
+                    .getAccount({
+                        productAccountId: toWireProductAccountId({
+                            dotNsIdentifier,
+                            derivationIndex,
+                        }),
+                    })
+                    .map((response) => ({
+                        publicKey: fromHex(response.account.publicKey),
+                        dotNsIdentifier,
+                        derivationIndex,
+                    })),
+            );
         },
         registerRingVrfKey(index, ring) {
-            return account
-                .registerRingVrfKey({ index: { tag: "Index", value: index }, ring })
-                .map(fromHex);
+            return guardDecode(
+                "registerRingVrfKey",
+                account
+                    .registerRingVrfKey({ index: { tag: "Index", value: index }, ring })
+                    .map(fromHex),
+            );
         },
         listRingVrfKeys(owner, disclosure = "Anonymized") {
-            return account.listRingVrfKeys({ owner, disclosure }).map((keys) =>
-                keys.map((key) => ({
-                    ...key,
-                    handle: key.handle as unknown as RingVrfKeyHandle,
-                    publicKey: key.publicKey === undefined ? undefined : fromHex(key.publicKey),
-                })),
+            return guardDecode(
+                "listRingVrfKeys",
+                account.listRingVrfKeys({ owner, disclosure }).map((keys) =>
+                    keys.map((key) => ({
+                        ...key,
+                        handle: key.handle as unknown as RingVrfKeyHandle,
+                        publicKey: key.publicKey === undefined ? undefined : fromHex(key.publicKey),
+                    })),
+                ),
             );
         },
         getProductAccountAlias(keyHandle, context, location) {
-            return account
-                .getAccountAlias({
-                    keyHandle: keyHandle as unknown as ProductAccountId,
-                    context,
-                    ringLocation: location,
-                })
-                .map((response) => ({
-                    context: fromHex(response.context),
-                    alias: fromHex(response.alias),
-                }));
+            return guardDecode(
+                "getProductAccountAlias",
+                account
+                    .getAccountAlias({
+                        keyHandle: keyHandle as unknown as ProductAccountId,
+                        context,
+                        ringLocation: location,
+                    })
+                    .map((response) => ({
+                        context: fromHex(response.context),
+                        alias: fromHex(response.alias),
+                    })),
+            );
         },
         getLegacyAccounts() {
-            return account.getLegacyAccounts().map((response) =>
-                response.accounts.map((a) => ({
-                    publicKey: fromHex(a.publicKey),
-                    name: a.name,
-                })),
+            return guardDecode(
+                "getLegacyAccounts",
+                account.getLegacyAccounts().map((response) =>
+                    response.accounts.map((a) => ({
+                        publicKey: fromHex(a.publicKey),
+                        name: a.name,
+                    })),
+                ),
             );
         },
         createRingVRFProof(keyHandle, context, location, message) {
-            return account
-                .createAccountProof({
-                    keyHandle: keyHandle as unknown as ProductAccountId,
-                    context,
-                    ringLocation: location,
-                    message: toHex(message),
-                })
-                .map((response) => ({
-                    proof: fromHex(response.proof),
-                    contextualAlias: {
-                        context: fromHex(response.contextualAlias.context),
-                        alias: fromHex(response.contextualAlias.alias),
-                    },
-                    ringIndex: response.ringIndex,
-                    ringRevision: response.ringRevision,
-                }));
+            return guardDecode(
+                "createRingVRFProof",
+                account
+                    .createAccountProof({
+                        keyHandle: keyHandle as unknown as ProductAccountId,
+                        context,
+                        ringLocation: location,
+                        message: toHex(message),
+                    })
+                    .map((response) => ({
+                        proof: fromHex(response.proof),
+                        contextualAlias: {
+                            context: fromHex(response.contextualAlias.context),
+                            alias: fromHex(response.contextualAlias.alias),
+                        },
+                        ringIndex: response.ringIndex,
+                        ringRevision: response.ringRevision,
+                    })),
+            );
         },
         ringVrfSign(keyHandle, message) {
-            return account
-                .ringVrfSign({
-                    keyHandle: keyHandle as unknown as ProductAccountId,
-                    message: toHex(message),
-                })
-                .map(fromHex);
+            return guardDecode(
+                "ringVrfSign",
+                account
+                    .ringVrfSign({
+                        keyHandle: keyHandle as unknown as ProductAccountId,
+                        message: toHex(message),
+                    })
+                    .map(fromHex),
+            );
         },
         signVrf(account_, transcriptLabel, items) {
-            return account
-                .signVrf({
-                    account: toWireProductAccountId(account_),
-                    transcriptLabel: toHex(transcriptLabel),
-                    items: items.map(({ label, value }) => ({
-                        label: toHex(label),
-                        value: toHex(value),
+            return guardDecode(
+                "signVrf",
+                account
+                    .signVrf({
+                        account: toWireProductAccountId(account_),
+                        transcriptLabel: toHex(transcriptLabel),
+                        items: items.map(({ label, value }) => ({
+                            label: toHex(label),
+                            value: toHex(value),
+                        })),
+                    })
+                    .map((response) => ({
+                        preOutput: fromHex(response.preOutput),
+                        proof: fromHex(response.proof),
                     })),
-                })
-                .map((response) => ({
-                    preOutput: fromHex(response.preOutput),
-                    proof: fromHex(response.proof),
-                }));
+            );
         },
         getProductAccountSigner(account_) {
             const productAccountId = toWireProductAccountId(account_);
@@ -585,18 +677,55 @@ export async function getAccountsProvider(): Promise<AccountsProvider | null> {
 }
 
 if (import.meta.vitest) {
-    const { test, expect, vi } = import.meta.vitest;
+    const { test, expect, vi, describe } = import.meta.vitest;
+
+    test("host signing prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
+        expect(selectHostTxExtVersion([4, 5])).toBe(0);
+    });
+
+    test("host signing uses the V5 selector when the runtime offers no V4", () => {
+        expect(selectHostTxExtVersion([5])).toBe(5);
+    });
+
+    test("host signing maps a V4-only runtime to the wire sentinel", () => {
+        expect(selectHostTxExtVersion([4])).toBe(0);
+    });
+
+    test("host signing prefers V5 over a format it does not know", () => {
+        // max(formats) would send 6, which no host accepts.
+        expect(selectHostTxExtVersion([5, 6])).toBe(5);
+    });
+
+    test("host signing rejects a runtime offering neither format 4 nor 5", () => {
+        expect(() => selectHostTxExtVersion([6])).toThrow(/no extrinsic format 4 or 5/i);
+    });
+
+    test("host signing rejects metadata with no extrinsic version", () => {
+        expect(() => selectHostTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+    });
+
+    test("deriveTxExtVersion reads the format list out of every tracked chain's metadata", async () => {
+        const { readFileSync, readdirSync } = await import("node:fs");
+        const dir = new URL("../../descriptors/.papi/metadata/", import.meta.url);
+        const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
+
+        expect(blobs.length, "raise when a chain is added").toBeGreaterThanOrEqual(11);
+        // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
+        for (const name of blobs) {
+            const metadata = new Uint8Array(readFileSync(new URL(name, dir)));
+            expect(deriveTxExtVersion(metadata), name).toBe(0);
+        }
+    });
 
     /** Minimal fake of the truapi account/signing domains used to test the adapter. */
     function makeFakeClient(opts: { onCall?: (method: string, args: unknown) => void } = {}) {
-        const okMatch = (value: unknown) => ({
-            // neverthrow ResultAsync surface used by the adapter: .map + .match.
-            map: (fn: (v: unknown) => unknown) => okMatch(fn(value)),
-            match: (ok: (v: unknown) => unknown, _err: (e: unknown) => unknown) => ok(value),
-        });
+        // A real neverthrow `okAsync`, not a hand-rolled `{ map, match }` stub:
+        // a stub with no `.then` would be passed through un-awaited by
+        // `guardDecode`'s `Promise.resolve(result)`, so the tests would bypass
+        // the guard's real path. A genuine `ResultAsync` exercises it.
         const method = (name: string, response: unknown) => (args: unknown) => {
             opts.onCall?.(name, args);
-            return okMatch(response);
+            return okAsync(response);
         };
         return {
             account: {
@@ -1048,5 +1177,88 @@ if (import.meta.vitest) {
         ]);
         expect(signed).toEqual(fromHex("0xfeed"));
         vi.restoreAllMocks();
+    });
+
+    describe("response-decode boundary (guardDecode)", () => {
+        // A client whose `createAccountProof` returns a REAL neverthrow
+        // `ResultAsync` — the hand-rolled `okMatch` fake can't reject, and
+        // rejection (a thrown SCALE decode) is exactly what this boundary
+        // exists to catch. `createRingVRFProof` is the reported call (#270).
+        function clientWithProof(result: ResultAsync<unknown, unknown>): TrUApiClient {
+            return {
+                account: { createAccountProof: () => result },
+            } as unknown as TrUApiClient;
+        }
+
+        const KEY_HANDLE = {
+            dotNsIdentifier: "people.dot",
+            derivationIndex: { tag: "Index", value: 0 },
+        } as unknown as RingVrfKeyHandle;
+        const CONTEXT = {
+            productId: "app.dot",
+            suffix: { tag: "Index", value: 0 },
+        } as ProductProofContext;
+        const RING: RingLocation = { chainId: "0x01", junctions: [] };
+        const MESSAGE = new Uint8Array([1, 2, 3]);
+
+        const callProof = (result: ResultAsync<unknown, unknown>) =>
+            adaptAccountsProvider(clientWithProof(result)).createRingVRFProof(
+                KEY_HANDLE,
+                CONTEXT,
+                RING,
+                MESSAGE,
+            );
+
+        test("a thrown decode error (RangeError) becomes a HostResponseDecodeError naming the call", async () => {
+            const rangeError = new RangeError("Offset is outside the bounds of the DataView");
+            const result = await callProof(ResultAsync.fromSafePromise(Promise.reject(rangeError)));
+
+            expect(result.isErr()).toBe(true);
+            const error = result._unsafeUnwrapErr();
+            expect(error).toBeInstanceOf(HostResponseDecodeError);
+            expect((error as HostResponseDecodeError).call).toBe("createRingVRFProof");
+            // The original error is preserved as `cause` so a bug report can see it.
+            expect((error as HostResponseDecodeError).cause).toBe(rangeError);
+        });
+
+        test("a synchronous throw in the response mapping is caught too", async () => {
+            // e.g. a malformed hex field reaching `fromHex` inside `.map`.
+            const result = await callProof(
+                okAsync({
+                    proof: "not-hex",
+                    contextualAlias: { context: "0x01", alias: "0x02" },
+                    ringIndex: 0,
+                    ringRevision: 0,
+                }),
+            );
+            expect(result.isErr()).toBe(true);
+            expect(result._unsafeUnwrapErr()).toBeInstanceOf(HostResponseDecodeError);
+        });
+
+        test("a well-formed response passes through unchanged", async () => {
+            const result = await callProof(
+                okAsync({
+                    proof: "0xc0ffee",
+                    contextualAlias: { context: "0x01", alias: "0x02" },
+                    ringIndex: 3,
+                    ringRevision: 7,
+                }),
+            );
+            expect(result.isOk()).toBe(true);
+            const proof = result._unsafeUnwrap();
+            expect(proof.proof).toEqual(fromHex("0xc0ffee"));
+            expect(proof.ringIndex).toBe(3);
+            expect(proof.ringRevision).toBe(7);
+        });
+
+        test("the call's own typed Err passes through, not wrapped as a decode error", async () => {
+            const typedErr = { tag: "Domain", value: { tag: "RingNotFound" } };
+            const result = await callProof(errAsync(typedErr));
+
+            expect(result.isErr()).toBe(true);
+            const error = result._unsafeUnwrapErr();
+            expect(error).not.toBeInstanceOf(HostResponseDecodeError);
+            expect(error).toEqual(typedErr);
+        });
     });
 }

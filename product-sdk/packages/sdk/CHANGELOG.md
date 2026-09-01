@@ -1,5 +1,106 @@
 # @parity/product-sdk
 
+## 0.25.0
+
+### Minor Changes
+
+- 84134e0: **Surface a clear error when a host reply can't be decoded, instead of an opaque `RangeError`.**
+
+  When the host app and the `@parity/truapi` version a product is built against are on different protocol versions, a host call can return a frame the client's SCALE codec can't decode. The truapi client catches that decode throw in its message handler and turns it into a promise rejection, then wraps the call with `fromSafePromise`, which installs no rejection handler — so the rejection escaped the `Result` channel rather than landing on its err side, surfacing as a raw `RangeError: Offset is outside the bounds of the DataView` with a stack that named neither the call nor the cause (reported for `createRingVRFProof`).
+
+  The host boundaries now re-home that rejection onto the `Result` err channel (or, for the throwing helper, as a typed throw) as a new `HostResponseDecodeError` that names the failing call and preserves the original error as `cause`. This covers every path: `getAccountsProvider()`'s ten lookup methods, the flat public operations that fold through `mapHostResult` (`requestPermission`, `deriveEntropy`, `requestResourceAllocation`, …), and the adapter-object / signer methods that go through `unwrapHostResult`. Well-formed responses and each call's own typed `Err` values pass through untouched.
+
+  New exports: the `HostResponseDecodeError` class (extends `HostError`, so `isHostError` / `instanceof HostError` catch it) and the `WithDecodeError<E>` type alias. Every `AccountsProvider` lookup method's `err` type is widened to `WithDecodeError<…>`; consumers matching on the err channel gain one additional case.
+
+### Patch Changes
+
+- Updated dependencies [84134e0]
+- Updated dependencies [84134e0]
+  - @parity/product-sdk-host@0.18.0
+  - @parity/product-sdk-chain-client@0.12.1
+  - @parity/product-sdk-cloud-storage@0.11.1
+  - @parity/product-sdk-local-storage@0.3.7
+  - @parity/product-sdk-signer@0.14.2
+  - @parity/product-sdk-keys@0.3.22
+  - @parity/product-sdk-contracts@0.10.5
+  - @parity/product-sdk-tx@0.4.5
+
+## 0.24.0
+
+### Minor Changes
+
+- 46e3592: **Export `subscribeConnectionStatus` for host-channel connection state.**
+
+  Watching whether the host channel is up previously meant importing `@parity/truapi/sandbox`
+  directly. The callback fires synchronously with the current status and again on every change;
+  the returned function unsubscribes. Repeats of the status you already hold are suppressed.
+
+  ```ts
+  import {
+    subscribeConnectionStatus,
+    type HostConnectionStatus,
+  } from "@parity/product-sdk-host";
+
+  const unsubscribe = subscribeConnectionStatus((status) => setStatus(status));
+  ```
+
+  This is the **transport** channel — for the host's account-level connection, use
+  `AccountsProvider.subscribeAccountConnectionStatus`. The type is `HostConnectionStatus` because
+  `@parity/product-sdk-signer` already exports `ConnectionStatus` for a signer provider's lifecycle:
+  same three states, different meaning.
+
+  Also fixes a stuck status. `@parity/truapi` never clears its cached client when the pipe closes, so
+  a subscriber arriving after a disconnect reported `"connecting"` — permanently, and for every other
+  subscriber too. This holds `"disconnected"` until a real `"connected"` arrives. Still unfixed as of
+  `@parity/truapi` 0.9.0, so the workaround stays until a later release drops it.
+
+  **Testing.** `@parity/product-sdk-host/testing` gains `emitConnectionStatus(status)`, also on
+  `FakeHost`, so a product can drive its reconnecting / offline UI. `setTruApiClient` now notifies live
+  subscribers when it injects or clears a client.
+
+  **Breaking for implementors.** `emitConnectionStatus` is a required member of the exported `FakeHost`
+  interface, so hand-rolled test doubles must add it. Callers of `createFakeHost()` are unaffected.
+
+- 46e3592: **Re-add `previewnet` as a first-class environment.**
+
+  Previewnet was dropped when its identity endpoints weren't secured for public use and its runtime matched paseo. Both have changed: the endpoints are secured, and previewnet now runs a Paseo runtime kept a step ahead of paseo-next-v2 (asset-hub `2000039` vs `2000036`, individuality `1000036` vs `1000032`), so products can build against upcoming runtime changes weeks early.
+
+  - `@parity/product-sdk-descriptors` re-adds the `./previewnet-asset-hub`, `./previewnet-bulletin`, and `./previewnet-individuality` subpath exports, generated fresh against the live endpoints with real (non-zero) `codeHash` values so previewnet is covered by descriptor-drift detection like every other chain.
+  - `@parity/product-sdk-chain-client` re-adds `"previewnet"` to the `Environment` union; `getChainAPI("previewnet")` resolves again, routing to the `previewnet.substrate.dev` endpoints for asset-hub, bulletin, and people (individuality).
+  - `@parity/product-sdk-cloud-storage` re-adds the `previewnet` entry to `CloudStorageNetworks`.
+  - `@parity/product-sdk-host` re-adds `BULLETIN_RPCS.previewnet`.
+
+  Consumers on paseo or a production environment are unaffected; this is purely additive.
+
+### Patch Changes
+
+- 46e3592: **Say that createChainClient depends on the host, and correct two stale docs.**
+
+  `createChainClient` accepts any PAPI descriptor, but every connection goes through the host provider keyed by that descriptor's genesis, with no WebSocket fallback. A chain is therefore reachable only if the active host routes it, which the package docs did not say while offering the path for "custom or pre-release chains". They now say it, and point at `isChainSupported` from `@parity/product-sdk-host` for checking before connecting. See #94 and #102 for the missing standalone path.
+
+  Also removes a dead `Environment` union in `chain-client`'s `types.ts` that listed "local" and "westend", neither of which exists. Nothing imported it and the package exports only its root entry, so no consumer saw it.
+
+  Also corrects the Previewnet DotNS TLD in two `identity/` comments, from `.dot` to `.test`, matching `dotns-abis.ts` which records verification on both networks.
+
+  Docs, comments, and one unreachable type. No behaviour change.
+
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+  - @parity/product-sdk-chain-client@0.12.0
+  - @parity/product-sdk-host@0.17.0
+  - @parity/product-sdk-cloud-storage@0.11.0
+  - @parity/product-sdk-signer@0.14.1
+  - @parity/product-sdk-local-storage@0.3.6
+  - @parity/product-sdk-individuality@0.2.0
+  - @parity/product-sdk-contracts@0.10.4
+  - @parity/product-sdk-keys@0.3.21
+  - @parity/product-sdk-tx@0.4.4
+
 ## 0.23.0
 
 ### Minor Changes

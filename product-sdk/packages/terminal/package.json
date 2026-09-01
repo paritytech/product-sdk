@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-terminal",
     "description": "QR code login and signing for CLI/terminal apps via Polkadot mobile wallet pairing",
-    "version": "0.7.3",
+    "version": "0.8.0",
     "type": "module",
     "sideEffects": false,
     "main": "./dist/index.js",

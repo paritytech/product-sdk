@@ -71,7 +71,11 @@ Creates a terminal adapter backed by the host-papp SDK.
 - `appId` -- the value you passed in (re-exposed so `createSessionSigner` can pull the productId from the adapter)
 - `sso` -- auth component (`.authenticate()`, `.abortAuthentication()`, status subscriptions)
 - `sessions` -- session manager (signing, disconnect)
-- `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Suppresses `@novasamatech/statement-store`'s noisy `Statement subscription error` log for ~50 ms after the call.
+- `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Drops `@novasamatech/statement-store`'s benign `Statement subscription error: Client destroyed` line, which it emits synchronously while disconnecting a live subscription — only that line; every other `console.error` passes through.
+
+### `isBenignTeardownError(error): boolean`
+
+Whether `error` is the benign teardown noise above (`Client destroyed`, matched on the message so it never swallows another package's `DestroyedError`). `destroy()` already drops it during its own teardown; export it so a consumer with its own `console.error` guard can drop the same line without reinventing the match.
 
 ### `createSessionSigner(session, adapter): PolkadotSigner`
 
@@ -243,7 +247,7 @@ For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing se
 | Override session storage dir | not supported (hard-coded `~/.polkadot-apps/`) | `createTerminalAdapter({ ..., storageDir })` option |
 | E2E test helper for sessions | none | `createTestSession` from `@parity/product-sdk-terminal/testing` |
 | Node version | any (bundled `ws`) | **≥21** (uses global `WebSocket`) |
-| `destroy()` shutdown noise | emitted `Statement subscription error` to stderr | suppressed; `console.error` muted for ~50 ms |
+| `destroy()` shutdown noise | emitted `Statement subscription error` to stderr | only the benign `Client destroyed` line dropped (synchronously, during disconnect); other `console.error` untouched |
 
 ### Why the signer API changed
 

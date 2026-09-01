@@ -194,6 +194,7 @@ export type {
     GameScheduledAirdrop,
     GameSchedulePreview,
     GameTimeline,
+    PlayerRegistration,
 } from "./game-types.js";
 
 // Raw `Game` storage values to domain shapes, plus the phase-boundary
@@ -214,9 +215,16 @@ export type {
     RawPhaseDurations,
 } from "./game-decode.js";
 
-// The pinned current-game read.
+// The pinned current-game read. `players` asks about registration in the same
+// read; it needs the `Players` entry, which `GamePlayersChain` adds on top.
 export { readCurrentGame } from "./game-read.js";
-export type { GameChain, ReadCurrentGameOptions } from "./game-read.js";
+export type { GameChain, GamePlayersChain, ReadCurrentGameOptions } from "./game-read.js";
+export type { PlayerKey } from "./player-key.js";
+
+// For callers holding their own PAPI client: build the chain shape without
+// `@parity/product-sdk-chain-client`.
+export { fromPapi } from "./chain.js";
+export type { FinalizedBlockSource, PapiIndividualityChain } from "./chain.js";
 
 // Signing up for the game, and entering its prize draws in the same call. The
 // requirement read comes first because the event ids depend on the game index and
