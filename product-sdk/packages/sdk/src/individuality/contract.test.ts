@@ -32,6 +32,7 @@
  */
 import type { getChainAPI } from "@parity/product-sdk-chain-client";
 import type {
+    RingLocation as HostRingLocation,
     RingVRFProof as HostRingVRFProof,
     VrfSignature as HostVrfSignature,
     VrfTranscriptItem as HostVrfTranscriptItem,
@@ -43,8 +44,12 @@ import type {
     GameChain,
     GamePlayersChain,
     IndividualityChain,
+    LegacySuffixChain,
+    NetworkSuffixChain,
     PapiIndividualityChain,
     PrizeStatusChain,
+    RingLocation as SdkRingLocation,
+    ScoreContextChain,
     SignUpChain,
     AccountVrfSignature,
     VrfTranscriptItem as IndividualityVrfTranscriptItem,
@@ -117,10 +122,35 @@ type FromPapiSatisfiesContracts = Assert<
     PapiIndividualityChain<PaseoClient["individuality"]> extends IndividualityChain &
         AirdropChain &
         GameChain &
-        GamePlayersChain
+        GamePlayersChain &
+        ScoreContextChain
         ? true
         : false
 >;
+
+type PaseoSatisfiesScoreContext = Assert<PaseoClient extends ScoreContextChain ? true : false>;
+type DevnetSatisfiesScoreContext = Assert<DevnetClient extends ScoreContextChain ? true : false>;
+type PreviewnetSatisfiesScoreContext = Assert<
+    PreviewnetClient extends ScoreContextChain ? true : false
+>;
+
+// Negative on purpose: a re-pin that flips either is the prompt to re-run the
+// read against that chain.
+type PreviewnetSatisfiesLegacySuffix = Assert<
+    PreviewnetClient extends LegacySuffixChain ? true : false
+>;
+type PaseoPredatesTheLegacySuffix = Assert<PaseoClient extends LegacySuffixChain ? false : true>;
+type DevnetPredatesTheLegacySuffix = Assert<DevnetClient extends LegacySuffixChain ? false : true>;
+type PreviewnetHasNoSuffixStorage = Assert<
+    PreviewnetClient extends NetworkSuffixChain ? false : true
+>;
+type PaseoHasNoSuffixStorage = Assert<PaseoClient extends NetworkSuffixChain ? false : true>;
+type DevnetHasNoSuffixStorage = Assert<DevnetClient extends NetworkSuffixChain ? false : true>;
+
+// The two are declared separately, so a rename on either side would go
+// unnoticed anywhere but here.
+type LocalRingLocationFitsHost = Assert<SdkRingLocation extends HostRingLocation ? true : false>;
+type HostRingLocationFitsLocal = Assert<HostRingLocation extends SdkRingLocation ? true : false>;
 
 // Negative control, kept type-only so it emits no runtime code. If
 // `IndividualityChain` ever stopped constraining, this flips to `false` and the

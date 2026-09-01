@@ -12,7 +12,10 @@ description: >
   the RestrictOrigins requirement that otherwise fails every call. Also covers the game surface:
   reading the current game and its prize draws, whether you won one and claiming it, and signing
   up for a game with its airdrop VRFs, including which sign-up paths the chain and the hosts
-  cannot currently support.
+  cannot currently support. Also covers which 32-byte context a ring-VRF proof must be minted
+  in and which ring it comes from: productContext, personhoodContext and the five personhood
+  allocations, peopleRing and litePeopleRing, and readScoreContext for checking the chain
+  derives its contexts the product way before any proof is built.
 ---
 
 # Product SDK Individuality
@@ -412,6 +415,77 @@ The first four stop the extrinsic; the last four stop only the draw entry. `canS
 - **A rejected sign-up costs a fee.** `Pays::No` applies on success only, and the airdrop registration rides inside the same extrinsic, so one bad VRF entry loses the game sign-up too. Read the blockers before submitting.
 - **No local VRF verification exists.** One bad entry fails everything, but schnorrkel verification is not in this workspace. What it would catch is the wrong key, which the transcript already binds.
 
+## Proof Contexts and Ring Locations
+
+Before a product mints any ring-VRF proof it needs two things the chain will not hand it: the **32-byte context** the proof must be minted in, and the **ring** the proof comes from. Both are pure derivations — no client, no host, no round trip — so a product can predict them offline and compare against what the host actually returned.
+
+Every context a host will sign under, and every context a product-derived runtime accepts, is:
+
+```
+blake2b-256("product/" ++ productId ++ "/" ++ suffix_bytes)
+```
+
+where `suffix_bytes` expands the RFC-0024 selector: `Index(n)` becomes `n` as u32 LE followed by `blake2b-256("product-account-index")[..28]`, and `Raw(bytes)` is the 32 bytes verbatim.
+
+```ts
+import {
+  personhoodContext,
+  productContext,
+  contextSuffixBytes,
+  PERSONHOOD_CONTEXT_INDEX,
+} from "@parity/product-sdk-individuality";
+
+const context = productContext("dim2.dot", { tag: "Index", value: 0 });
+const scoreContext = personhoodContext("paseo", "score");
+```
+
+> **PRODUCT IDS ARE ALWAYS FULL DOTNS IDS, AND THERE IS NO DEFAULT TLD.** The TLD belongs to the network, so `peopl.test` and `peopl.paseo` are two different 32-byte contexts. Take it from configuration or from the chain — never hardcode it, and never assume `.dot`.
+
+The personhood product owns five context allocations. Only three of them are readable from metadata; `resources` and `dotnsGateway` exist as plain `impl` functions on the runtime, so `personhoodContext` is the only way to get them.
+
+| Name | Index | Published as a constant |
+|---|---|---|
+| `score` | 0 | `Score.score_context` |
+| `resources` | 1 | no |
+| `peopleLiteAuth` | 2 | `PeopleLite.auth_context` |
+| `dotnsGateway` | 3 | no |
+| `peopleAirdrops` | 4 | `PeopleAirdrops.people_airdrops_context` |
+
+### The two rings
+
+`peopleRing(genesisHash)` and `litePeopleRing(genesisHash)` build the `RingLocation` that `registerRingVrfKey`, `listRingVrfKeys` and `createAccountProof` address. They differ only in their `CollectionId` junction, which `ringCollectionId` builds as the human-readable name space-padded to 32 bytes.
+
+```ts
+import { peopleRing, litePeopleRing } from "@parity/product-sdk-individuality";
+
+const ring = litePeopleRing(genesisHash);
+```
+
+No `PalletInstance` junction is emitted, and that is deliberate: every host resolves the `Members` pallet by name, and treats the junction as an optional cross-check when present.
+
+### Checking the chain agrees
+
+`readScoreContext` reads `Score.score_context` and checks it is the product derivation of `peopl.<tld>/Index(0)`. A runtime publishing something else publishes a context no stock host can mint, and that arrives as `NotProductDerived` on the **ok** channel — an answer, not a failure.
+
+```ts
+const score = await readScoreContext(chain, { tld: "paseo" });
+if (score.ok && score.value.tag === "ProductDerived") {
+  // mint proofs in { productId: score.value.productId, suffix: Index(0) }
+}
+```
+
+> **`NotProductDerived` IS A HARD STOP.** Do not build the proof leg. The chain rejects it as `InvalidTransaction::Call` with nothing local to read.
+
+Where the TLD comes from is part of the chain's type, not a runtime fallback, so a chain that cannot supply one is a compile error rather than a surprise:
+
+| Contract | Suffix source | Which chains |
+|---|---|---|
+| `NetworkSuffixChain` | `NetworkSuffix.NetworkSuffix` storage, read at a pinned block | none yet; the pallet is testnet-only upstream |
+| `LegacySuffixChain` | the `Score.Suffix` constant | previewnet only, and gone on its next upgrade |
+| neither | the `tld` option | everything else, production included |
+
+Composing this with other reads? Use `runScoreContextRead(chain, options, snapshot)` and pass the block you already pinned, exactly as `readPrizeStatus` does with `runDrawRead`. Calling `readScoreContext` inside a composed read pins a second block, and the stored suffix can move between them.
+
 ## Acting As a Person (Write)
 
 `withAsPerson` wraps a signer so the call dispatches under a person origin. It returns a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx` and nothing about `submitAndWatch` changes.
@@ -498,3 +572,6 @@ Two things to know either way, because they are the traps that cost the most tim
 13. **Returning the host's `Result` straight out of `createProof`** — the callback must resolve to the proof object itself, so unwrap it first. Resolving with a `Result`, with `undefined`, or with a partial object throws `AsPersonError` and nothing is signed.
 14. **Reaching for `AliasWithProof` to bind an alias before paseo upgrades** — the chain fixes the allowed contexts as constants until `specVersion 1000035`, so it answers `Invalid.Call` however correct the bytes are.
 15. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `BadSigner`, and `AliasWithAccountRevised` is the variant that fixes it. It cannot be detected client-side without reading the ring root.
+16. **Hardcoding the TLD in a product id** — `peopl.test` and `peopl.paseo` are different 32-byte contexts, so a hardcoded `.dot` mints proofs no chain accepts. There is no default, on purpose.
+17. **Calling `readScoreContext` inside a composed read** — it pins its own block when the suffix comes from storage, and Root can move that value. Use `runScoreContextRead(chain, options, snapshot)` with the block you already pinned.
+18. **Treating `NotProductDerived` as retryable** — it is a hard stop on the ok channel, not a transport failure. Building the proof leg anyway costs a fee and returns `Invalid.Call`.
