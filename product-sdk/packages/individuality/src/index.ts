@@ -296,12 +296,24 @@ export type { ContextSuffix, PersonhoodContextName } from "./contexts.js";
 
 // Where the two personhood rings live, and the one context read: a lite proof
 // must be minted in `Score.score_context`, and `readScoreContext` checks that
-// constant is the product derivation of `peopl.<Score.Suffix>/Index(0)` — the
-// only kind of context a stock host can mint. A runtime still publishing a
-// literal answers `NotProductDerived` on the ok channel, and every
-// proof-building flow must treat that as a hard stop.
-export { litePeopleRing, peopleRing, readScoreContext, ringCollectionId } from "./rings.js";
+// constant is the product derivation of `peopl.<network suffix>/Index(0)` — the
+// only kind of context a stock host can mint. A runtime publishing a literal
+// answers `NotProductDerived` on the ok channel, and every proof-building flow
+// must treat that as a hard stop.
+//
+// The suffix contracts are separate rather than one interface with optional
+// members, because an optional member constrains nothing structurally and the
+// umbrella guard would stop telling the environments apart.
+export {
+    litePeopleRing,
+    peopleRing,
+    readScoreContext,
+    ringCollectionId,
+    runScoreContextRead,
+} from "./rings.js";
 export type {
+    LegacySuffixChain,
+    NetworkSuffixChain,
     ReadScoreContextOptions,
     RingLocation,
     ScoreContext,
