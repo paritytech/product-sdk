@@ -125,6 +125,9 @@ export const PERSONHOOD_CONTEXT_INDEX = {
 
 export type PersonhoodContextName = keyof typeof PERSONHOOD_CONTEXT_INDEX;
 
+/** `indiv_support::context::MAX_NETWORK_SUFFIX_LENGTH`. */
+const MAX_TLD_BYTES = 16;
+
 /**
  * The personhood product's context for `name` on the network issuing `.<tld>`
  * names: `productContext("peopl.<tld>", Index(PERSONHOOD_CONTEXT_INDEX[name]))`.
@@ -133,13 +136,18 @@ export type PersonhoodContextName = keyof typeof PERSONHOOD_CONTEXT_INDEX;
  * paseo networks), so the same context name on two networks is two different
  * values — which is why it is a parameter and never a default.
  *
- * @param tld - a single DotNS label, without the leading dot.
- * @throws ProductIndividualityError on a TLD that is empty or not a single
- *   label: `"peopl" + ".te.st"` and `"peopl.te" + ".st"` would collide, so a
- *   composite here is always a caller bug.
+ * @param tld - a single lower-case DotNS label, without the leading dot.
+ * @throws ProductIndividualityError on a tld the runtime cannot represent, or a
+ *   composite one: `"peopl" + ".te.st"` and `"peopl.te" + ".st"` would collide.
  */
 export function personhoodContext(tld: string, name: PersonhoodContextName): Uint8Array {
-    if (tld.length === 0 || tld.includes(".") || tld.includes("/")) {
+    if (
+        tld.length === 0 ||
+        tld.includes(".") ||
+        tld.includes("/") ||
+        tld !== tld.toLowerCase() ||
+        utf8ToBytes(tld).length > MAX_TLD_BYTES
+    ) {
         throw new ProductIndividualityError("personhood context tld must be a single dotns label");
     }
     return productContext(`${PERSONHOOD_PRODUCT_NAME}.${tld}`, {
@@ -251,8 +259,12 @@ if (import.meta.vitest) {
             expect(contexts.size).toBe(tlds.length);
         });
 
-        test.each(["", "te.st", "te/st"])("rejects the tld %j", (tld) => {
+        test.each(["", "te.st", "te/st", "TEST", "a".repeat(17)])("rejects the tld %j", (tld) => {
             expect(() => personhoodContext(tld, "score")).toThrow(ProductIndividualityError);
+        });
+
+        test("accepts a tld at the 16-byte bound", () => {
+            expect(() => personhoodContext("a".repeat(16), "score")).not.toThrow();
         });
     });
 }

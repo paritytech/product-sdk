@@ -5,9 +5,9 @@
  *
  * Ring-VRF host calls (`registerRingVrfKey`, `listRingVrfKeys`,
  * `createAccountProof`) address a ring by a {@link RingLocation}. On the
- * individuality chain there are exactly two: the *people* ring (full persons,
- * member-key index 0) and the *people-lite* ring (lite persons, index 1),
- * differing only in their `CollectionId` junction. {@link peopleRing} and
+ * individuality chain there are exactly two, the *people* ring for full persons
+ * and the *people-lite* ring for lite persons, differing only in their
+ * `CollectionId` junction. {@link peopleRing} and
  * {@link litePeopleRing} build them from a genesis hash; nothing here talks to
  * a host.
  *
@@ -76,17 +76,15 @@ function personhoodRing(genesisHash: Hex, name: "people" | "people-lite"): RingL
 }
 
 /**
- * The *people* ring (full persons, member-key index 0) on the chain with
- * genesis `genesisHash`. The host resolves the `Members` pallet by name, so no
- * `PalletInstance` junction is needed.
+ * The *people* ring on the chain with genesis `genesisHash`. The host resolves
+ * the `Members` pallet by name, so no `PalletInstance` junction is needed.
  */
 export function peopleRing(genesisHash: Hex): RingLocation {
     return personhoodRing(genesisHash, "people");
 }
 
 /**
- * The *people-lite* ring (lite persons, member-key index 1) on the chain with
- * genesis `genesisHash`.
+ * The *people-lite* ring on the chain with genesis `genesisHash`.
  */
 export function litePeopleRing(genesisHash: Hex): RingLocation {
     return personhoodRing(genesisHash, "people-lite");
@@ -300,8 +298,7 @@ async function resolveSuffix(
 if (import.meta.vitest) {
     const { describe, test, expect } = import.meta.vitest;
 
-    const hex = (bytes: Uint8Array): string =>
-        `0x${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+    const hex = (bytes: Uint8Array): string => `0x${bytesToHex(bytes)}`;
 
     /** Previewnet's published `Score.score_context` (spec 1000036). */
     const PREVIEWNET_SCORE_CONTEXT =
