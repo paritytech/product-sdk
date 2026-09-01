@@ -81,11 +81,10 @@ export type LiteAliasInfo =
      * Signed by an account already bound to the lite alias, via
      * `PeopleLite.set_alias_account`. Needs no proof.
      *
-     * The chain reads `PeopleLite.AccountToAlias` for the signing account and
-     * requires the stored ring revision to be current. When it is not, the
-     * chain answers `Custom(172)` (stale alias) and `AliasWithAccountRevised`
-     * is the variant that fixes it. That cannot be detected from here without
-     * reading the ring root.
+     * The chain reads `PeopleLite.AccountToAlias`. No binding answers
+     * `Custom(175)` (`NoAliasBinding`), meaning the bind leg has not landed; a
+     * stale ring revision answers `Custom(172)` (`StaleAlias`), which
+     * `AliasWithAccountRevised` fixes. Neither is detectable from here.
      */
     | { tag: "AliasWithAccount" }
     /**
@@ -106,7 +105,9 @@ export type LiteAliasInfo =
      * now.
      *
      * The proof must resolve to the same alias and context the account was
-     * originally bound to, or the chain answers `Custom(174)`.
+     * originally bound to, or the chain answers `Custom(174)` (`AliasMismatch`).
+     * With no binding at all it answers `Custom(175)`, where the fix is the bind
+     * leg, not this variant.
      */
     | { tag: "AliasWithAccountRevised"; createProof: CreateRingVRFProof };
 
