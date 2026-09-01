@@ -7,8 +7,8 @@
  * Two halves. The **read** half goes in both directions: for a DotNS username or
  * an account, what is that person's personhood state, as of one pinned finalized
  * block? And for an account, what usernames does it hold? The **write** half is
- * `withAsPerson`, which wraps a signer so a call dispatches under a person origin
- * instead of an account origin.
+ * `withAsPerson` and `withLiteAlias`, which wrap a signer so a call dispatches
+ * under a person or lite-person origin instead of an account origin.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -332,14 +332,10 @@ export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person
 export { withLiteAlias } from "./as-lite-alias-signer.js";
 export type { LiteAliasInfo } from "./as-lite-alias-signer.js";
 
-// The metadata-driven pieces underneath stay internal on purpose. They are
-// written generically, taking an extension identifier rather than hard-coding
-// `AsPerson`, so the other origin-modifying extensions on this chain can reuse
-// them, and `withLiteAlias` now does. But they are implementation details of the two signers
-// today, and two of their types are shapes chosen to suit it rather than to be a
-// public contract. Widening a surface later never breaks anyone; narrowing one
-// after it ships does. Export them when something outside this package actually
-// reaches for them.
+// The metadata-driven pieces underneath stay internal on purpose, even though
+// `withLiteAlias` proves they generalise: widening a surface later never breaks
+// anyone, narrowing one after it ships does. Export them when something outside
+// this package reaches for them.
 
 // Errors. `UsernameUnowned` is not one of them — it travels on the success
 // channel as a `PersonhoodResult`. `AsPersonError` is the write half's, and
