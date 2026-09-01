@@ -159,7 +159,14 @@ export async function fillByIdWindow<T>(
         cursor = consume(window, await probe(window), end);
     }
 
-    return { kept, ceiling: idCeiling, nextId: cursor < idCeiling ? cursor : null };
+    // A zero-size page has no cursor to advance: `consume` hands `fromId` straight
+    // back, and reporting that as `nextId` would give a caller a non-null cursor
+    // that never moves, so a `while (nextId !== null)` walk spins. `pageBounds`
+    // floors `limit: 0`, `-1` and `0.5` alike, so this is reachable from
+    // `Number(searchParams.get("pageSize"))`. A page of nothing is at its end by
+    // construction, and `null` is how every read here says so.
+    const exhausted = limit === 0 || cursor >= idCeiling;
+    return { kept, ceiling: idCeiling, nextId: exhausted ? null : cursor };
 }
 
 if (import.meta.vitest) {
@@ -213,6 +220,15 @@ if (import.meta.vitest) {
             const { probe } = probeFor((id) => id < 10);
             const filled = await fillByIdWindow(8, 10, Promise.resolve(10), probe);
             expect(filled.kept.map((k) => k.id)).toEqual([8, 9]);
+            expect(filled.nextId).toBeNull();
+        });
+
+        test("a zero-size page ends rather than reporting a cursor that never moves", async () => {
+            const { probe } = probeFor(() => true);
+            const filled = await fillByIdWindow(0, 0, Promise.resolve(100), probe);
+            expect(filled.kept).toEqual([]);
+            expect(filled.ceiling).toBe(100);
+            // `fromId` here would spin a `while (nextId !== null)` walk forever.
             expect(filled.nextId).toBeNull();
         });
 

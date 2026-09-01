@@ -864,6 +864,24 @@ if (import.meta.vitest) {
             expect(result.value.nextId).toBeNull();
         });
 
+        test("a zero-size page ends the walk instead of spinning", async () => {
+            // The two listing reads guard `limit === 0` at the top; this one
+            // relies on `fillByIdWindow` reporting no cursor for a page of
+            // nothing. `pageBounds` floors all three of these to zero.
+            const { chain } = catalogue(12);
+            for (const limit of [0, -1, 0.5]) {
+                const result = await getCollectionItems(chain, 0, { limit, fromId: 4 });
+                expect(result.ok).toBe(true);
+                if (!result.ok || result.value.tag !== "Found") return;
+                expect(result.value.collection.items).toEqual([]);
+                // The ceiling and the live count still come back, so a caller can
+                // size a pager without reading a page.
+                expect(result.value.idCeiling).toBe(12);
+                expect(result.value.collection.itemCount).toBe(12);
+                expect(result.value.nextId).toBeNull();
+            }
+        });
+
         test("a missing collection is NotFound, not an error", async () => {
             const result = await getCollectionItems(fakeChain({}).chain, 9, { limit: 10 });
             expect(result.ok).toBe(true);
