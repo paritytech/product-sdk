@@ -18,11 +18,21 @@ reach metadata. Product ids are always full DotNS ids (`"peopl.test"`,
 `RingLocation`s (the space-padded `CollectionId`s from `ringCollectionId`),
 structurally compatible with `@parity/product-sdk-host` without depending on it.
 
-`readScoreContext(chain)` reads `Score.score_context` and `Score.Suffix` and
-checks the constant equals `productContext("peopl." ++ suffix, Index(0))`. A
-runtime still publishing a literal context (which no stock host can mint) answers
-`NotProductDerived` on the ok channel, so proof-building flows stop before the
-chain rejects the transaction with nothing local to read.
+`readScoreContext(chain)` reads `Score.score_context` and checks it equals
+`personhoodContext(<network suffix>, "score")`. A runtime publishing a literal
+context (which no stock host can mint) answers `NotProductDerived` on the ok
+channel, so proof-building flows stop before the chain rejects the transaction
+with nothing local to read.
+
+Where the network suffix comes from is part of the chain's type, not a runtime
+fallback: `NetworkSuffixChain` for the Root-settable `NetworkSuffix.NetworkSuffix`
+storage that individuality-community#20 introduced (read at a pinned block, since
+Root can move it), `LegacySuffixChain` for the `Score.Suffix` constant it
+replaced, and a `tld` option for a runtime with neither — which is every
+production runtime, since that pallet is testnet-only. A chain that can offer no
+suffix and no `tld` is a compile error rather than a runtime disappointment.
+`runScoreContextRead` is the throwing variant, so a composing read can run it
+against a block it already pinned instead of pinning a second one.
 
 First piece of the lite-personhood sign-up flow (product-sdk#286): consolidates
 the derivations dim2 and humanity each hand-roll today, pinned by the same

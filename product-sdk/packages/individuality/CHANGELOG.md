@@ -1,5 +1,46 @@
 # @parity/product-sdk-individuality
 
+## 0.3.0
+
+### Minor Changes
+
+- d0260a1: **Decode a `PeopleAirdrops` draw event id back to its draw index.**
+
+  `parsePeopleAirdropsEventId(eventId)` is the inverse of `peopleAirdropsEventId`. It returns the `u64` draw index, or `null` for anything that is not a `PeopleAirdrops` id — a `Game` id, a foreign base, a malformed string. `null` rather than a throw because `Airdrop.Events` holds both schedulers, so a caller sweeping it with `getEntries()` meets foreign ids as a matter of course.
+
+  The package could previously only derive ids forward, from indices the caller already held. That holds for the `Game` path, which has a per-game count to enumerate from, but not for `PeopleAirdrops`, whose ids only arrive from that shared map.
+
+- d0260a1: **Expose candidate progress as part of personhood state.**
+
+  `derivePersonhoodState` now reports the consecutive attended games remaining on `Candidate`, accounting for streak-weighted score accrual and absence resets.
+
+  **Breaking for candidate-state producers.** `gamesRemaining` is a required member of the exported `Candidate` variant, so hand-built states and exact fixtures must add it. Callers that only consume the derived state are unaffected.
+
+- d0260a1: **`readCurrentGame` answers "is this player in?", and takes a PAPI client directly.**
+
+  Pass `players` and the running game carries a `registration` read at the same pinned
+  block. One person is keyed twice in `Game.Players` — by account and, once recognized,
+  by alias — so every key the caller holds goes in and any hit is `Registered`. A key
+  read that fails is `Unknown`, never `NotRegistered`, and does not fail the game read;
+  leave `players` out and it is `Unchecked`. That path needs the new `GamePlayersChain`
+  on top of `GameChain`; the existing call without `players` is unchanged.
+
+  ```ts
+  const game = await readCurrentGame(chain, {
+    players: [
+      { tag: "Account", accountAddress },
+      { tag: "Alias", alias },
+    ],
+  });
+  if (game.ok && game.value.tag === "Running") {
+    game.value.registration.tag; // Registered | NotRegistered | Unknown | Unchecked
+  }
+  ```
+
+  `fromPapi(client, api)` builds the chain shape every read here takes from a
+  `PolkadotClient` and typed API the caller already holds, for products that resolve
+  their own connection instead of using `@parity/product-sdk-chain-client`.
+
 ## 0.2.0
 
 ### Minor Changes

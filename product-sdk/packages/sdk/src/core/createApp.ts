@@ -16,6 +16,7 @@ import type {
     CloudStorageApi,
     LocalStorageApi,
 } from "./types.js";
+import { createLocalStorageApi } from "./local-storage-api.js";
 import { configure, createLogger } from "@parity/product-sdk-logger";
 import { createLocalKvStore } from "@parity/product-sdk-local-storage";
 import { SignerManager } from "@parity/product-sdk-signer";
@@ -124,18 +125,8 @@ export async function createApp(config: AppConfig): Promise<App> {
         log.debug("Cloud Storage client disabled");
     }
 
-    // Create storage API adapter
-    const localStorageApi: LocalStorageApi = {
-        get: (key) => localKvStore.get(key),
-        set: (key, value) => localKvStore.set(key, value),
-        getJSON: <T>(key: string) => localKvStore.getJSON<T>(key),
-        setJSON: <T>(key: string, value: T) => localKvStore.setJSON(key, value),
-        remove: (key) => localKvStore.remove(key),
-        clear: async () => {
-            // LocalKvStore doesn't have clear - this is a no-op
-            log.debug("clear() is not supported in container storage mode");
-        },
-    };
+    // Storage API adapter — shared with `createFakeApp` so the two cannot drift.
+    const localStorageApi: LocalStorageApi = createLocalStorageApi(localKvStore);
 
     // Create wallet API adapter
     const walletApi = createWalletApi(signerManager);

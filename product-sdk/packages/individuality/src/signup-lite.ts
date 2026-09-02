@@ -40,7 +40,8 @@
  *
  * Nothing here chooses a chain, a product id or a TLD. The account is the
  * caller's (usually its playing product account), the score context comes from
- * the chain via `readScoreContext`, and the 65-byte `identifierKey` is a
+ * the chain via `runScoreContextRead` against the block this read already
+ * pinned, and the 65-byte `identifierKey` is a
  * caller-supplied parameter this package never derives.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
@@ -48,7 +49,7 @@ import { bytesToHex } from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
 import type { GameChain } from "./game-read.js";
 import { pinBlock, readAt, type ReadAt } from "./pinned.js";
-import { readScoreContext, ringCollectionId, type ScoreContextChain } from "./rings.js";
+import { ringCollectionId, runScoreContextRead, type ScoreContextChain } from "./rings.js";
 import type {
     AccountVrfSignature,
     LiteSignUpBlocker,
@@ -222,12 +223,7 @@ export async function readLiteSignUpRequirement(
                 },
                 snapshot,
             ),
-            readScoreContext(chain, { signal }).then((result) => {
-                if (!result.ok) {
-                    throw result.error;
-                }
-                return result.value;
-            }),
+            runScoreContextRead(chain, { signal }, snapshot),
             query.PeopleLite.AccountToAlias.getValue(account, at),
             query.PeopleLite.LitePeople.getValue(account, at),
             liteMemberKey === undefined

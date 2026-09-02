@@ -4,13 +4,13 @@
  * Shared plumbing for signers that write an origin-modifying transaction
  * extension.
  *
- * `withAsPerson` and `withLiteAlias` differ only in which extension they fill
- * and how its value is built. Everything else — patching a slot while keeping
- * the chain's declared order, reading the nonce back out of `CheckNonce`,
- * requesting a ring VRF proof defensively, caching the decoded pipeline — is
- * identical, and identical in ways that are easy to get subtly wrong, so it
- * lives here once. Internal to the package on purpose: these are
- * implementation details of the two signers, not a public contract.
+ * `withAsPerson`, `withLiteAlias` and `withScoreParticipant` differ only in
+ * which extension they fill and how its value is built. Everything else —
+ * patching a slot while keeping the chain's declared order, reading the nonce
+ * back out of `CheckNonce`, requesting a ring VRF proof defensively, caching
+ * the decoded pipeline — is identical, and identical in ways that are easy to
+ * get subtly wrong, so it lives here once. Internal to the package on purpose:
+ * these are implementation details of the three signers, not a public contract.
  *
  * The errors are `AsPersonError` throughout. It is the write half's error
  * class, predates the second extension, and callers already catch it; a
@@ -175,6 +175,76 @@ export function cachedPipelineReader(): (metadata: Uint8Array) => ExtensionPipel
             cached = { metadata, pipeline: readExtensionPipeline(metadata) };
         }
         return cached.pipeline;
+    };
+}
+
+/** Named fields, because a bare `true` in argument position says nothing. */
+export interface OriginExtensionSpec<Value> {
+    identifier: string;
+    /** Takes over `VerifyMultiSignature`, which is what makes the origin `None`. */
+    unsigned: boolean;
+    encode: (pipeline: ExtensionPipeline, value: Value) => Uint8Array;
+    /** Called once every other slot holds its final value; the proof variants hash them. */
+    buildValue: (
+        pipeline: ExtensionPipeline,
+        callData: Uint8Array,
+        extensions: PapiSignedExtensions,
+        aliasAccount: Uint8Array,
+    ) => Promise<Value>;
+}
+
+/**
+ * Wrap a signer so its transactions run under the origin `spec.identifier` grants.
+ *
+ * The step order below is the fragile part, and getting it wrong produces a bad
+ * proof with nothing local to read. `spec.identifier` goes last because its own
+ * value is outside its own hash, which is what makes the proof step orderable.
+ */
+export function withOriginExtension<Value>(
+    signer: PolkadotSigner,
+    spec: OriginExtensionSpec<Value>,
+): PolkadotSigner {
+    const pipelineFor = cachedPipelineReader();
+
+    return {
+        publicKey: signer.publicKey,
+        signBytes: (data) => signer.signBytes(data),
+        async signTx(callData, signedExtensions, metadata, atBlockNumber, hasher) {
+            const pipeline = pipelineFor(metadata);
+            let extensions = signedExtensions;
+
+            if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
+                extensions = withSlot(
+                    pipeline,
+                    extensions,
+                    RESTRICT_ORIGINS,
+                    encodeChecked(pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type), true),
+                );
+            }
+
+            if (spec.unsigned) {
+                extensions = withSlot(
+                    pipeline,
+                    extensions,
+                    VERIFY_SIGNATURE,
+                    encodeChecked(pipeline.codec(pipeline.slot(VERIFY_SIGNATURE).type), {
+                        type: "Disabled",
+                        value: undefined,
+                    }),
+                );
+            }
+
+            const value = await spec.buildValue(pipeline, callData, extensions, signer.publicKey);
+
+            extensions = withSlot(
+                pipeline,
+                extensions,
+                spec.identifier,
+                spec.encode(pipeline, value),
+            );
+
+            return signer.signTx(callData, extensions, metadata, atBlockNumber, hasher);
+        },
     };
 }
 
