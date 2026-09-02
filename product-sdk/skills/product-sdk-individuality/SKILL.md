@@ -11,7 +11,7 @@ description: >
   productContext, personhoodContext, peopleRing, litePeopleRing and readScoreContext for the
   ring-VRF proof contexts; withAsPerson, withLiteAlias and the RestrictOrigins requirement
   that otherwise fails every call; the two-transaction lite personhood bind then sign-up
-  flow; and full-personhood registration with registerMessage, Score.register and
+  flow with readLiteSignUpRequirement and signUpWithLiteInviteTx; and full-personhood registration with registerMessage, Score.register and
   withScoreParticipant.
 ---
 
@@ -582,12 +582,56 @@ Two things block the bind leg, and neither is visible from the API.
 
 **Who may mint it.** The host does not restrict which context you ask for: `createRingVRFProof(keyHandle, { productId, suffix }, ...)` takes the product id from you, and the host's own check is that you own the key handle. The restriction is the chain's allowlist above, and both entries are in the `peopl` namespace. So a **dim2** product cannot use a `dim2.<tld>` context here, and in practice the proof comes from the personhood product: the lite sign-up is a cross-product handoff, with peopl minting and dim2 carrying it into the sign-up. `withLiteAlias` never mints one, which is why `createProof` is yours to provide.
 
+### Deciding and building the sign-up leg
+
+`readLiteSignUpRequirement` answers whether leg 2 is worth submitting, and `signUpWithLiteInviteTx` builds it. The read is `readGameSignUpRequirement` plus the lite gates at one pinned block, so its blockers are the account read's eight plus eight lite arms.
+
+```ts
+import {
+  readLiteSignUpRequirement,
+  signUpWithLiteInviteTx,
+  withLiteAlias,
+} from "@parity/product-sdk-individuality";
+import { submitAndWatch } from "@parity/product-sdk-tx";
+
+const req = await readLiteSignUpRequirement(chain, {
+  account,
+  liteMemberKey,       // optional; without it the ring membership check is yours
+  tld: "paseo",        // required on a chain that publishes no suffix
+});
+if (!req.ok || !req.value.canSignUp) return;
+
+await submitAndWatch(
+  signUpWithLiteInviteTx(chain, { account, identifierKey }),
+  withLiteAlias(accounts.getProductAccountSigner(account), { tag: "AliasWithAccount" }),
+);
+```
+
+Draw entry works exactly as it does on the account path: mint with `mintAccountAirdropVrfs` when `canEnterDraws` holds, then pass `airdrops` and `airdropsScheduled` to the builder, which applies the same count and width guards. See [Signing Up for the Game](#signing-up-for-the-game).
+
+> **THE FREE CALL IS FOR A FIRST SIGN-UP AND AFTER AN ARCHIVE, NOTHING ELSE.** `sign_up_inner` rejects an invited sign-up whenever a `Game.Players` entry exists at all, before it looks at `registered`. A finished game leaves that entry in place, so from their second game onward a lite player signs up with `signUpWithAccountTx`, which is free for them too. The read reports this as `AlreadyPlaying`.
+
+> **`tld` IS REQUIRED WHERE THE CHAIN PUBLISHES NO SUFFIX.** The read resolves the score context, so it carries the same overloads as `readScoreContext`: previewnet resolves it from `Score.Suffix`, paseo publishes no suffix at all. Passing a client that cannot resolve one, without a `tld`, does not compile.
+
+The eight lite arms, on top of every arm the account read can return:
+
+| Tag | Means |
+|---|---|
+| `AliasNotBound` | Leg 1 has not run. Not a dead end: send the bind leg |
+| `AliasBoundElsewhere` | The binding exists outside `Score.score_context`. Recoverable only via `PeopleLite.unset_alias_account`, which needs a proof in the old context |
+| `StaleAlias` | The binding predates the ring's current revision. Re-point it with `AliasWithAccountRevised` |
+| `AnotherAccountInvited` | The forever `Game.LiteInvites` pin names a different account, carried in the blocker so a UI can name the seat |
+| `AlreadyPlaying` | A `Game.Players` entry exists. Use `signUpWithAccountTx` |
+| `AccountIsALitePerson` | The account is itself a lite person's canonical account. A dead end for it |
+| `NotLiteMember` | Only when you passed `liteMemberKey`: it is not an `Included` member of the lite ring |
+| `ContextNotProductDerived` | The chain's score context is not product-derived, so no stock host can mint the proof. An environment fact |
+
 ### Lite Flow Gotchas
 
 - **The bind leg has no replay protection beyond the binding.** Two bind transactions with overlapping `valid_at_block` windows for different accounts can replay each other indefinitely. Never keep two alive at once.
 - **`AsLitePerson` is not implemented, on purpose.** That variant authenticates the canonical lite account, which stays in host custody, so no product-side signer can ever be that origin.
 - **Failures throw `AsPersonError`, not a lite-specific error.** It is the write half's error class and covers both extensions.
-- **A rejected leg costs no fee.** Every failure lands in `validate`, before the transaction enters a block.
+- **A leg rejected by the extension costs no fee**, because the `PeopleLiteAuth` checks run in `validate`, before a block. A leg that *dispatches* and then fails does cost: `UseInviteButAlreadyPlaying` returns `Err` rather than `Ok(Pays::No)`, and pallet-origin-restriction only restores consumed usage for a `Pays::No` result, so the lite alias burns allowance it then waits to recover. That is why `AlreadyPlaying` is worth reading before submitting.
 
 ## Registering as a Person (Write)
 
@@ -651,7 +695,7 @@ A `Suspended` participant resumes with `register(None)`, which this package does
 12. **Expecting `withAsPerson` to return a `Result`** — it returns a `PolkadotSigner` and throws `AsPersonError` from `signTx`. Wrap it in `submitAndWatch` and read the `err` channel.
 13. **Returning the host's `Result` straight out of `createProof`** — the callback must resolve to the proof object itself, so unwrap it first. Resolving with a `Result`, with `undefined`, or with a partial object throws `AsPersonError` and nothing is signed.
 14. **Reaching for `AliasWithProof` to bind an alias before paseo upgrades** — the chain fixes the allowed contexts as constants until `specVersion 1000035`, so it answers `Invalid.Call` however correct the bytes are.
-15. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `BadSigner`, and `AliasWithAccountRevised` is the variant that fixes it. It cannot be detected client-side without reading the ring root.
+15. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `Custom(172)` (`StaleAlias`), and `AliasWithAccountRevised` is the variant that fixes it. `readLiteSignUpRequirement` reads the ring root and reports it as the `StaleAlias` blocker.
 16. **Hardcoding the TLD in a product id** — `peopl.test` and `peopl.paseo` are different 32-byte contexts, so a hardcoded `.dot` mints proofs no chain accepts. There is no default, on purpose.
 17. **Calling `readScoreContext` inside a composed read** — it pins its own block when the suffix comes from storage, and Root can move that value. Use `runScoreContextRead(chain, options, snapshot)` with the block you already pinned.
 18. **Running the lite sign-up before the bind leg has landed** — the chain answers `Custom(175)` (`NoAliasBinding`), and `AliasWithAccountRevised` answers it too. Send the `AliasWithProof` bind leg first.
@@ -660,3 +704,5 @@ A `Suspended` participant resumes with `register(None)`, which this package does
 21. **Treating `NotProductDerived` as retryable** — it is a hard stop on the ok channel, not a transport failure. Building the proof leg anyway costs a fee and returns `Invalid.Call`.
 22. **SCALE-encoding the register message** — the pallet concatenates raw bytes. Encoding the prefix starts the message `0x48`, encoding the whole message starts it `0xc8`; the correct 50 bytes start `0x70`. Both fail as `InvalidProofOfOwnership`. Use `registerMessage`.
 23. **Calling `Score.register` with a key for a `Suspended` participant** — the resume arm is `register(None)` and has different guards. `readyToRegister` answers false there, and this package does not build that call.
+24. **Using the free lite sign-up for a returning player** — `sign_up_inner` rejects an invited sign-up whenever a `Game.Players` entry exists, and a finished game leaves one behind. It fails as `UseInviteButAlreadyPlaying`, and because the dispatch returns `Err` rather than `Ok(Pays::No)` the lite alias burns origin-restriction allowance on it. Check the `AlreadyPlaying` blocker and fall back to `signUpWithAccountTx`.
+25. **Comparing a chain-returned account to yours as a string** — one key encodes to a different SS58 string under every network prefix. `readLiteSignUpRequirement` compares the invite pin by public key; do the same with anything you read yourself.
