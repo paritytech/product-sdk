@@ -163,7 +163,19 @@ export type LiteSignUpBlocker =
      * `NotProductDerived`), so no stock host can mint the bind leg's proof.
      * An environment fact, not an account fact.
      */
-    | { tag: "ContextNotProductDerived" };
+    | { tag: "ContextNotProductDerived" }
+    /**
+     * A `Game.Players` entry exists → `Game.UseInviteButAlreadyPlaying`. The
+     * entry survives a finished game, so the lite call is right only on a
+     * first sign-up and after an archive; otherwise use `signUpWithAccountTx`.
+     */
+    | { tag: "AlreadyPlaying" }
+    /**
+     * The binding predates the ring's current revision → `Custom(172)` in
+     * `validate`. Re-point it with
+     * `withLiteAlias({ tag: "AliasWithAccountRevised", createProof })`.
+     */
+    | { tag: "StaleAlias" };
 
 /**
  * {@link GameSignUpRequirement} with the wider blocker union: what the chain

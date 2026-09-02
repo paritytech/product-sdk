@@ -44,6 +44,7 @@
  * pinned, and the 65-byte `identifierKey` is a
  * caller-supplied parameter this package never derives.
  */
+import { AccountId } from "polkadot-api";
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex } from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
@@ -136,6 +137,14 @@ export interface LiteSignUpChain<Tx = unknown> {
                         options: ReadAt,
                     ): Promise<RawLiteRingMembership | undefined>;
                 };
+                /** The ring's current revision, which a binding can fall behind. */
+                Root: {
+                    getValue(
+                        collection: string,
+                        ring: number,
+                        options: ReadAt,
+                    ): Promise<{ revision: number } | undefined>;
+                };
             };
         };
         tx: {
@@ -176,6 +185,14 @@ function normalizedHex(value: string): string {
     return (value.startsWith("0x") ? value.slice(2) : value).toLowerCase();
 }
 
+/** The chain's SS58 prefix need not be the caller's. */
+function sameAccount(left: string, right: string): boolean {
+    const codec = AccountId();
+    const a = codec.enc(left);
+    const b = codec.enc(right);
+    return a.length === b.length && a.every((byte, index) => byte === b[index]);
+}
+
 /**
  * What this account may do about the free lite sign-up, at one pinned block:
  * the account sign-up read plus the lite gates, with the blockers merged.
@@ -212,28 +229,29 @@ export async function readLiteSignUpRequirement(
         const at = readAt(snapshot, signal);
         const query = chain.individuality.query;
 
-        const [game, score, binding, litePerson, membership] = await Promise.all([
-            runSignUpRequirementRead(
-                chain,
-                {
-                    registrant: { tag: "Account", accountAddress: account },
-                    keyType: options.keyType,
-                    now: options.now,
-                    signal,
-                },
-                snapshot,
-            ),
-            runScoreContextRead(chain, { signal }, snapshot),
-            query.PeopleLite.AccountToAlias.getValue(account, at),
-            query.PeopleLite.LitePeople.getValue(account, at),
-            liteMemberKey === undefined
-                ? undefined
-                : query.Members.Members.getValue(
-                      `0x${bytesToHex(ringCollectionId("people-lite"))}`,
-                      `0x${bytesToHex(liteMemberKey)}`,
-                      at,
-                  ),
-        ]);
+        const [{ requirement: game, player }, score, binding, litePerson, membership] =
+            await Promise.all([
+                runSignUpRequirementRead(
+                    chain,
+                    {
+                        registrant: { tag: "Account", accountAddress: account },
+                        keyType: options.keyType,
+                        now: options.now,
+                        signal,
+                    },
+                    snapshot,
+                ),
+                runScoreContextRead(chain, { signal }, snapshot),
+                query.PeopleLite.AccountToAlias.getValue(account, at),
+                query.PeopleLite.LitePeople.getValue(account, at),
+                liteMemberKey === undefined
+                    ? undefined
+                    : query.Members.Members.getValue(
+                          `0x${bytesToHex(ringCollectionId("people-lite"))}`,
+                          `0x${bytesToHex(liteMemberKey)}`,
+                          at,
+                      ),
+            ]);
 
         const liteBlockers: LiteSignUpBlocker[] = [];
 
@@ -245,17 +263,27 @@ export async function readLiteSignUpRequirement(
         if (liteMemberKey !== undefined && membership?.type !== "Included") {
             liteBlockers.push({ tag: "NotLiteMember" });
         }
-        if (litePerson !== undefined) {
-            liteBlockers.push({ tag: "AccountInUse" });
+        if (player !== undefined && player.registered !== true) {
+            liteBlockers.push({ tag: "AlreadyPlaying" });
         }
 
-        if (binding === undefined) {
+        // A lite person's own account can never hold a binding.
+        if (litePerson !== undefined) {
+            liteBlockers.push({ tag: "AccountInUse" });
+        } else if (binding === undefined) {
             liteBlockers.push({ tag: "AliasNotBound" });
         } else if (normalizedHex(binding.ca.context) !== bytesToHex(score.context)) {
             liteBlockers.push({ tag: "AliasBoundElsewhere" });
         } else {
-            const invited = await query.Game.LiteInvites.getValue(binding.ca.alias, at);
-            if (invited !== undefined && invited !== account) {
+            const collection = `0x${bytesToHex(ringCollectionId("people-lite"))}`;
+            const [invited, root] = await Promise.all([
+                query.Game.LiteInvites.getValue(binding.ca.alias, at),
+                query.Members.Root.getValue(collection, binding.ring, at),
+            ]);
+            if (root === undefined || root.revision !== binding.revision) {
+                liteBlockers.push({ tag: "StaleAlias" });
+            }
+            if (invited !== undefined && !sameAccount(invited, account)) {
                 liteBlockers.push({ tag: "AnotherAccountInvited", invited });
             }
         }
@@ -376,6 +404,7 @@ if (import.meta.vitest) {
             litePerson?: unknown;
             membership?: RawLiteRingMembership;
             invited?: string;
+            root?: { revision: number };
         } = {},
     ) {
         const calls: {
@@ -460,6 +489,20 @@ if (import.meta.vitest) {
                                 return overrides.membership;
                             },
                         },
+                        Root: {
+                            getValue: async (
+                                collection: unknown,
+                                ring: unknown,
+                                options: unknown,
+                            ) => {
+                                calls.keys.rootCollection = collection;
+                                calls.keys.rootRing = ring;
+                                calls.at.root = options;
+                                return "root" in overrides
+                                    ? overrides.root
+                                    : { revision: BOUND.revision };
+                            },
+                        },
                     },
                 },
                 tx: {
@@ -510,6 +553,60 @@ if (import.meta.vitest) {
 
             expect(value.canSignUp).toBe(true);
             expect(value.blockers).toEqual([]);
+        });
+
+        test.each([
+            ["an existing unregistered player", { registered: false }, ["AlreadyPlaying"]],
+            ["an archived player, no entry at all", undefined, []],
+        ])("%s: the invited call is right only before the first game", async (_, player, tags) => {
+            // sign_up_inner rejects an invited sign-up before it reads `registered`.
+            const { chain } = fakeChain({ binding: BOUND, invited: ACCOUNT, player });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
+            );
+
+            expect(value.blockers.map((blocker) => blocker.tag)).toEqual(tags);
+        });
+
+        test("a registered player is AlreadyRegistered, not AlreadyPlaying", async () => {
+            // The account read's arm is the better message for the running game.
+            const { chain } = fakeChain({
+                binding: BOUND,
+                invited: ACCOUNT,
+                player: { registered: true },
+            });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
+            );
+
+            expect(value.blockers.map((blocker) => blocker.tag)).toEqual(["AlreadyRegistered"]);
+        });
+
+        test.each([
+            ["a matching revision", { revision: BOUND.revision }, []],
+            ["a newer ring revision", { revision: BOUND.revision + 1 }, ["StaleAlias"]],
+            ["no ring root at all", undefined, ["StaleAlias"]],
+        ])("%s", async (_, root, tags) => {
+            const { chain, calls } = fakeChain({ binding: BOUND, invited: ACCOUNT, root });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
+            );
+
+            expect(value.blockers.map((blocker) => blocker.tag)).toEqual(tags);
+            expect(calls.keys.rootRing).toBe(BOUND.ring);
+        });
+
+        test("the invite pin is compared by public key, not by SS58 spelling", async () => {
+            // A string compare would block a sign-up the chain would accept.
+            const prefixed = AccountId(2).dec(AccountId().enc(ACCOUNT));
+            expect(prefixed).not.toBe(ACCOUNT);
+            const { chain } = fakeChain({ binding: BOUND, invited: prefixed });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
+            );
+
+            expect(value.blockers).toEqual([]);
+            expect(value.canSignUp).toBe(true);
         });
 
         test("an unbound account reports AliasNotBound and skips the invite read", async () => {
@@ -565,14 +662,14 @@ if (import.meta.vitest) {
             expect(value.blockers).toEqual([{ tag: "AnotherAccountInvited", invited: OTHER }]);
         });
 
-        test("an account that is itself a lite person is AccountInUse", async () => {
+        test("an account that is itself a lite person is AccountInUse alone", async () => {
             const { chain } = fakeChain({ litePerson: { method: "whatever" } });
             const value = unwrapOk(
                 await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
             );
 
             expect(value.canSignUp).toBe(false);
-            expect(value.blockers).toEqual([{ tag: "AccountInUse" }, { tag: "AliasNotBound" }]);
+            expect(value.blockers).toEqual([{ tag: "AccountInUse" }]);
         });
 
         test.each([{ type: "Onboarding" }, { type: "Suspended" }, undefined])(

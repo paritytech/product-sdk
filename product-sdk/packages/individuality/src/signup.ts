@@ -158,7 +158,7 @@ export async function readGameSignUpRequirement(
     options: ReadGameSignUpRequirementOptions,
 ): Promise<Result<GameSignUpRequirement, ProductIndividualityError>> {
     try {
-        return ok(await runSignUpRequirementRead(chain, options));
+        return ok((await runSignUpRequirementRead(chain, options)).requirement);
     } catch (cause) {
         return err(normalizeError(cause, ProductIndividualityError));
     }
@@ -174,7 +174,7 @@ export async function runSignUpRequirementRead(
     chain: GameChain & SignUpChain,
     options: ReadGameSignUpRequirementOptions,
     pinnedAt?: FinalizedSnapshot,
-): Promise<GameSignUpRequirement> {
+): Promise<{ requirement: GameSignUpRequirement; player: { registered: boolean } | undefined }> {
     const { registrant, signal } = options;
     const snapshot = await pinBlock(chain, signal, pinnedAt);
     const at = readAt(snapshot, signal);
@@ -201,16 +201,19 @@ export async function runSignUpRequirementRead(
         // Only `NoGameRunning`: anything gathered above is about draw entry,
         // and there is no draw here.
         return {
-            at: snapshot,
-            gameIndex: null,
-            phase: null,
-            registrationEnds: null,
-            canSignUp: false,
-            canEnterDraws: false,
-            variant: null,
-            airdropsScheduled: 0,
-            eventIds: [],
-            blockers: [{ tag: "NoGameRunning" }],
+            requirement: {
+                at: snapshot,
+                gameIndex: null,
+                phase: null,
+                registrationEnds: null,
+                canSignUp: false,
+                canEnterDraws: false,
+                variant: null,
+                airdropsScheduled: 0,
+                eventIds: [],
+                blockers: [{ tag: "NoGameRunning" }],
+            },
+            player,
         };
     }
 
@@ -252,16 +255,19 @@ export async function runSignUpRequirementRead(
     const canSignUp = blockers.every((blocker) => DRAW_ONLY[blocker.tag]);
 
     return {
-        at: snapshot,
-        gameIndex: index,
-        phase,
-        registrationEnds,
-        canSignUp,
-        canEnterDraws: canSignUp && blockers.length === 0,
-        variant,
-        airdropsScheduled,
-        eventIds,
-        blockers,
+        requirement: {
+            at: snapshot,
+            gameIndex: index,
+            phase,
+            registrationEnds,
+            canSignUp,
+            canEnterDraws: canSignUp && blockers.length === 0,
+            variant,
+            airdropsScheduled,
+            eventIds,
+            blockers,
+        },
+        player,
     };
 }
 
