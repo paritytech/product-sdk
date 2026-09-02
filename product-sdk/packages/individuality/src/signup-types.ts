@@ -118,11 +118,9 @@ export interface GameSignUpRequirement {
  * once.
  *
  * Unlike the account read's draw-only arms, every lite arm blocks the sign-up
- * itself. Three of them are permanent for the account they name
- * (`AliasBoundElsewhere`, `AnotherAccountInvited`, `AccountInUse` — bindings,
- * the invite pin and lite-person accounts do not come back); `AliasNotBound`
- * just means the bind leg has not run, and the last two are about the
- * environment, not the account.
+ * itself. `AnotherAccountInvited` and `AccountIsALitePerson` are permanent for
+ * the account they name; the last two are about the environment, not the
+ * account.
  */
 export type LiteSignUpBlocker =
     | SignUpBlocker
@@ -133,9 +131,9 @@ export type LiteSignUpBlocker =
      */
     | { tag: "AliasNotBound" }
     /**
-     * The binding exists, but in a context other than `Score.score_context`.
-     * The game's origin check admits only the score context, and a re-bind
-     * there is rejected as `AccountInUse` — a dead end for this account.
+     * The binding exists, but outside `Score.score_context`, the only context
+     * the game's origin check admits. Recoverable only via
+     * `PeopleLite.unset_alias_account`, which needs a proof in the old context.
      */
     | { tag: "AliasBoundElsewhere" }
     /**
@@ -145,11 +143,11 @@ export type LiteSignUpBlocker =
      */
     | { tag: "AnotherAccountInvited"; invited: string }
     /**
-     * `PeopleLite.LitePeople[account]` exists: the account is itself a lite
-     * person's canonical account, which `set_alias_account` rejects as
-     * `AccountInUse`.
+     * `PeopleLite.LitePeople[account]` exists → `PeopleLite.AlreadyRegistered`
+     * on a bind. Not the chain's `AccountInUse`, which is a binding already on
+     * the account and is `AliasBoundElsewhere` here.
      */
-    | { tag: "AccountInUse" }
+    | { tag: "AccountIsALitePerson" }
     /**
      * Only when the caller supplied `liteMemberKey`. The key is not an
      * `Included` member of the lite people ring

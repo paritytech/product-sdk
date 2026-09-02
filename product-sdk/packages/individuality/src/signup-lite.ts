@@ -86,7 +86,6 @@ export interface RawLiteRingMembership {
     type: string;
 }
 
-/** The chain's `AirdropVrfs` argument, shared with the account sign-up. */
 type LiteInviteTxArgs = {
     account: string;
     identifier_key: string;
@@ -205,9 +204,9 @@ function sameAccount(left: string, right: string): boolean {
  *
  * An `AliasNotBound` answer is not a dead end — it says the bind leg
  * (`PeopleLite.set_alias_account` under `withLiteAlias(AliasWithProof)`) has
- * not run yet. `AliasBoundElsewhere`, `AnotherAccountInvited` and
- * `AccountInUse` are dead ends **for this account**: the binding, the invite
- * pin and lite-person accounts are permanent chain state.
+ * not run yet. `AnotherAccountInvited` and `AccountIsALitePerson` are dead ends
+ * **for this account**; `AliasBoundElsewhere` is recoverable, but only through
+ * a call this package cannot make. `signup-types.ts` has the detail per arm.
  *
  * `Game.LiteInvites` is consulted only when a binding in the score context
  * exists: the invite pin is keyed by the alias, and without the binding the
@@ -269,7 +268,7 @@ export async function readLiteSignUpRequirement(
 
         // A lite person's own account can never hold a binding.
         if (litePerson !== undefined) {
-            liteBlockers.push({ tag: "AccountInUse" });
+            liteBlockers.push({ tag: "AccountIsALitePerson" });
         } else if (binding === undefined) {
             liteBlockers.push({ tag: "AliasNotBound" });
         } else if (normalizedHex(binding.ca.context) !== bytesToHex(score.context)) {
@@ -623,8 +622,6 @@ if (import.meta.vitest) {
         });
 
         test("a binding outside the score context is AliasBoundElsewhere", async () => {
-            // The game's origin check wants the score context, and a re-bind
-            // there would fail AccountInUse — a dead end for this account.
             const { chain, calls } = fakeChain({
                 binding: { ...BOUND, ca: { alias: ALIAS, context: `0x${"99".repeat(32)}` } },
             });
@@ -662,14 +659,14 @@ if (import.meta.vitest) {
             expect(value.blockers).toEqual([{ tag: "AnotherAccountInvited", invited: OTHER }]);
         });
 
-        test("an account that is itself a lite person is AccountInUse alone", async () => {
+        test("an account that is itself a lite person blocks alone", async () => {
             const { chain } = fakeChain({ litePerson: { method: "whatever" } });
             const value = unwrapOk(
                 await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
             );
 
             expect(value.canSignUp).toBe(false);
-            expect(value.blockers).toEqual([{ tag: "AccountInUse" }]);
+            expect(value.blockers).toEqual([{ tag: "AccountIsALitePerson" }]);
         });
 
         test.each([{ type: "Onboarding" }, { type: "Suspended" }, undefined])(
