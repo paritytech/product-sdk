@@ -9,7 +9,7 @@
     {
       "name": "product-sdk",
       "source": "./product-sdk",
-      "description": "Polkadot product-SDK skills: chain connection, transactions, contracts, cloud storage, statement store, utilities, migration, and app builder."
+      "description": "Polkadot product-SDK skills: chain connection, transactions, contracts, cloud storage, statement store, NFT catalogue reads, utilities, migration, and app builder."
     }
   ]
 }

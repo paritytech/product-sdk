@@ -213,6 +213,34 @@ importers:
         specifier: 'catalog:'
         version: 6.4.3(@types/node@25.9.1)
 
+  examples/nfts-demo:
+    dependencies:
+      '@parity/product-sdk-chain-client':
+        specifier: workspace:*
+        version: link:../../packages/chain-client
+      '@parity/product-sdk-descriptors':
+        specifier: workspace:*
+        version: link:../../packages/descriptors
+      '@parity/product-sdk-nfts':
+        specifier: workspace:*
+        version: link:../../packages/nfts
+      polkadot-api:
+        specifier: 'catalog:'
+        version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
+    devDependencies:
+      '@parity/host-api-test-sdk':
+        specifier: 'catalog:'
+        version: 0.12.1(@playwright/test@1.60.0)
+      '@playwright/test':
+        specifier: 'catalog:'
+        version: 1.60.0
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vite:
+        specifier: 'catalog:'
+        version: 6.4.3(@types/node@25.9.1)
+
   examples/pvm-contracts-example:
     dependencies:
       '@parity/product-sdk-contracts':
@@ -658,6 +686,28 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@22.19.17)
 
+  packages/nfts:
+    dependencies:
+      '@parity/product-sdk-errors':
+        specifier: workspace:*
+        version: link:../errors
+      '@parity/result':
+        specifier: workspace:*
+        version: link:../result
+    devDependencies:
+      '@parity/product-sdk-descriptors':
+        specifier: workspace:*
+        version: link:../descriptors
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/result:
     devDependencies:
       typescript:
@@ -702,6 +752,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-nfts':
+        specifier: workspace:*
+        version: link:../nfts
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer

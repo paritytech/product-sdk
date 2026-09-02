@@ -48,6 +48,10 @@
             "import": "./dist/individuality/index.js",
             "types": "./dist/individuality/index.d.ts"
         },
+        "./nfts": {
+            "import": "./dist/nfts/index.js",
+            "types": "./dist/nfts/index.d.ts"
+        },
         "./react": {
             "import": "./dist/react/index.js",
             "types": "./dist/react/index.d.ts"
@@ -84,6 +88,7 @@
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-errors": "workspace:*",
         "@parity/result": "workspace:*",
+        "@parity/product-sdk-nfts": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-local-storage": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",

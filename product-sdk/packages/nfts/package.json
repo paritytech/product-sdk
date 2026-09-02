@@ -1,0 +1,36 @@
+{
+    "name": "@parity/product-sdk-nfts",
+    "description": "Read Scarcity NFT collections and their item catalogues on Asset Hub",
+    "version": "0.0.0",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": ["dist"],
+    "sideEffects": false,
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "build": "tsup",
+        "clean": "rm -rf dist",
+        "test": "vitest run",
+        "typecheck": "tsc -p tsconfig.typecheck.json"
+    },
+    "dependencies": {
+        "@parity/product-sdk-errors": "workspace:*",
+        "@parity/result": "workspace:*"
+    },
+    "devDependencies": {
+        "@parity/product-sdk-descriptors": "workspace:*",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    },
+    "license": "Apache-2.0"
+}
