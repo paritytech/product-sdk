@@ -234,7 +234,7 @@ export interface RegistrationEligibility {
     at: FinalizedSnapshot;
     /** `null` for an account `Score` has never seen. */
     participant: PersonhoodParticipant | null;
-    /** `Score.PersonhoodThreshold` at the same block. A `u8` on chain. */
+    /** `Score.PersonhoodThreshold` at the same block. A `u8`, but `u32` on devnet. */
     personhoodThreshold: number;
     /** {@link readyToRegister} over the two fields above. */
     readyToRegister: boolean;

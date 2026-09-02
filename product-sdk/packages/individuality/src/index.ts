@@ -7,8 +7,9 @@
  * Two halves. The **read** half goes in both directions: for a DotNS username or
  * an account, what is that person's personhood state, as of one pinned finalized
  * block? And for an account, what usernames does it hold? The **write** half is
- * `withAsPerson` and `withLiteAlias`, which wrap a signer so a call dispatches
- * under a person or lite-person origin instead of an account origin.
+ * the transaction builders and three signers — `withAsPerson`, `withLiteAlias`
+ * and `withScoreParticipant` — which wrap a signer so a call dispatches under a
+ * person, lite-person or score-participant origin instead of an account origin.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
