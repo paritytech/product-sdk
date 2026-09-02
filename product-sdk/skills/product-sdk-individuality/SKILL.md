@@ -2,26 +2,17 @@
 name: product-sdk-individuality
 description: >
   Use when reading a person's personhood or membership standing on the individuality chain
-  from a DotNS username or an account address, when reading the usernames an account holds, or
-  when sending a transaction that must run under a person origin instead of an account origin.
-  Covers readPersonhoodState and its two input forms, the raw metrics it returns alongside the
-  state, lookupUsername, their Result returns, the seven-state PersonhoodState union, why
-  UsernameUnowned and a missing consumer record are both success values rather than errors, using
-  the pure derivation without a chain client, the decode helpers for raw Score.Participants and
-  Resources.Consumers values, and withAsPerson for the AsPerson transaction extension including
-  the RestrictOrigins requirement that otherwise fails every call. Also covers the game surface:
-  reading the current game and its prize draws, whether you won one and claiming it, and signing
-  up for a game with its airdrop VRFs, including which sign-up paths the chain and the hosts
-  cannot currently support. Also covers which 32-byte context a ring-VRF proof must be minted
-  in and which ring it comes from: productContext, personhoodContext and the five personhood
-  allocations, peopleRing and litePeopleRing, and readScoreContext for checking the chain
-  derives its contexts the product way before any proof is built. Also covers the lite
-  personhood flow end to end: withLiteAlias for a lite-person origin, the two-transaction
-  bind then sign-up sequence into the game pallet, which context the bind proof must be
-  minted in and why only the personhood product can mint it. Also covers full-personhood
-  registration: registerMessage and its raw-concatenation byte contract, registerPersonhoodTx
-  and the caller-supplied (memberKey, proofOfOwnership) pair, readRegistrationEligibility for
-  the readiness check, and withScoreParticipant for the fee-free score-participant origin.
+  from a DotNS username or an account address, when reading the usernames an account holds,
+  or when sending a transaction that must run under a person, lite-person or
+  score-participant origin instead of an account origin. Covers readPersonhoodState,
+  lookupUsername, the seven-state PersonhoodState union, the pure derivation without a chain
+  client and the decode helpers for raw Score.Participants and Resources.Consumers values;
+  the game surface, its prize draws, claiming and sign-up with its airdrop VRFs;
+  productContext, personhoodContext, peopleRing, litePeopleRing and readScoreContext for the
+  ring-VRF proof contexts; withAsPerson, withLiteAlias and the RestrictOrigins requirement
+  that otherwise fails every call; the two-transaction lite personhood bind then sign-up
+  flow; and full-personhood registration with registerMessage, Score.register and
+  withScoreParticipant.
 ---
 
 # Product SDK Individuality
@@ -607,7 +598,7 @@ The call is made by the **participant account**. `register` reads `Participants[
 | Step | Call | What it gives you |
 |---|---|---|
 | 1. check | `readRegistrationEligibility(chain, { registrant })` | `participant`, `personhoodThreshold` and `readyToRegister`, all at one pinned block |
-| 2. sign | `registerMessage(account)` | the 50 bytes the full member key must sign |
+| 2. message | `registerMessage(account)` | the 50 bytes the full member key must sign |
 | 3. build | `registerPersonhoodTx(chain, { memberKey, proofOfOwnership })` | `Score.register(Some((key, sig)))`, both widths checked locally |
 | 4. submit | `withScoreParticipant(signer)` | fee-free dispatch from a zero-balance participant account |
 
@@ -625,7 +616,11 @@ const eligibility = await readRegistrationEligibility(chain, {
 });
 if (!eligibility.ok || !eligibility.value.readyToRegister) return;
 
-// Minted by the personhood product's host session, never by this package.
+// Only the personhood product's host session can produce these two.
+const proofOfOwnership = await accounts
+  .ringVrfSign(keyHandle, registerMessage(account))
+  .then((r) => (r.ok ? r.value : Promise.reject(r.error)));
+
 const tx = registerPersonhoodTx(chain, { memberKey, proofOfOwnership });
 await submitAndWatch(tx, withScoreParticipant(accounts.getProductAccountSigner(account)));
 ```
