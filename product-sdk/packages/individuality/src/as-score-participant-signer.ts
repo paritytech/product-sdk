@@ -21,13 +21,6 @@
  * fetches can disagree, and the chain rejects the disagreement with nothing
  * local to read.
  *
- * Order inside `signTx`: `RestrictOrigins` to `true` first — the participant
- * origin is a restricted entity and that extension rejects it outright when its
- * slot says `false`, which is PAPI's default — then `ScoreAsParticipant`.
- * `VerifyMultiSignature` stays untouched: the extension requires the `Signed`
- * origin underneath, and PAPI's default (omit the slot, host signs) is exactly
- * that.
- *
  * ```ts
  * import { submitAndWatch } from "@parity/product-sdk-tx";
  * import { registerPersonhoodTx, withScoreParticipant } from "@parity/product-sdk-individuality";
@@ -39,7 +32,7 @@
 import type { PolkadotSigner } from "polkadot-api";
 
 import { type ExtensionPipeline, encodeChecked } from "./as-person-codec.js";
-import { RESTRICT_ORIGINS, cachedPipelineReader, nonceFrom, withSlot } from "./origin-extension.js";
+import { nonceFrom, withOriginExtension } from "./origin-extension.js";
 
 /** Metadata identifier of the extension this signer fills. */
 const SCORE_AS_PARTICIPANT = "ScoreAsParticipant";
@@ -72,36 +65,13 @@ function encodeScoreAsParticipant(pipeline: ExtensionPipeline, nonce: number): U
  * @returns a `PolkadotSigner` usable anywhere the original was.
  */
 export function withScoreParticipant(signer: PolkadotSigner): PolkadotSigner {
-    const pipelineFor = cachedPipelineReader();
-
-    return {
-        publicKey: signer.publicKey,
-        signBytes: (data) => signer.signBytes(data),
-        async signTx(callData, signedExtensions, metadata, atBlockNumber, hasher) {
-            const pipeline = pipelineFor(metadata);
-            let extensions = signedExtensions;
-
-            // False is an immediate rejection for a restricted origin, and false
-            // is PAPI's default. Skipped only when the chain has no such extension.
-            if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    RESTRICT_ORIGINS,
-                    encodeChecked(pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type), true),
-                );
-            }
-
-            extensions = withSlot(
-                pipeline,
-                extensions,
-                SCORE_AS_PARTICIPANT,
-                encodeScoreAsParticipant(pipeline, nonceFrom(pipeline, extensions)),
-            );
-
-            return signer.signTx(callData, extensions, metadata, atBlockNumber, hasher);
-        },
-    };
+    return withOriginExtension<number>(signer, {
+        identifier: SCORE_AS_PARTICIPANT,
+        unsigned: false,
+        encode: encodeScoreAsParticipant,
+        buildValue: (pipeline, _callData, extensions) =>
+            Promise.resolve(nonceFrom(pipeline, extensions)),
+    });
 }
 
 if (import.meta.vitest) {
