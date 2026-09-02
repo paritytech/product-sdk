@@ -4,13 +4,13 @@
  * Shared plumbing for signers that write an origin-modifying transaction
  * extension.
  *
- * `withAsPerson` and `withLiteAlias` differ only in which extension they fill
- * and how its value is built. Everything else — patching a slot while keeping
- * the chain's declared order, reading the nonce back out of `CheckNonce`,
- * requesting a ring VRF proof defensively, caching the decoded pipeline — is
- * identical, and identical in ways that are easy to get subtly wrong, so it
- * lives here once. Internal to the package on purpose: these are
- * implementation details of the two signers, not a public contract.
+ * `withAsPerson`, `withLiteAlias` and `withScoreParticipant` differ only in
+ * which extension they fill and how its value is built. Everything else —
+ * patching a slot while keeping the chain's declared order, reading the nonce
+ * back out of `CheckNonce`, requesting a ring VRF proof defensively, caching
+ * the decoded pipeline — is identical, and identical in ways that are easy to
+ * get subtly wrong, so it lives here once. Internal to the package on purpose:
+ * these are implementation details of the three signers, not a public contract.
  *
  * The errors are `AsPersonError` throughout. It is the write half's error
  * class, predates the second extension, and callers already catch it; a

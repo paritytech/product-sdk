@@ -48,6 +48,8 @@ import type {
     NetworkSuffixChain,
     PapiIndividualityChain,
     PrizeStatusChain,
+    RegisterChain,
+    RegistrationEligibilityChain,
     RingLocation as SdkRingLocation,
     ScoreContextChain,
     SignUpChain,
@@ -395,6 +397,44 @@ type RejectsAliasSpelling = Assert<
 >;
 type PlayersValue = NonNullable<Awaited<ReturnType<PlayersEntry["getValue"]>>>;
 type PlayersHasRegistered = Assert<"registered" extends keyof PlayersValue ? true : false>;
+
+type PaseoSatisfiesRegisterContract = Assert<PaseoClient extends RegisterChain ? true : false>;
+type PreviewnetSatisfiesRegisterContract = Assert<
+    PreviewnetClient extends RegisterChain ? true : false
+>;
+type DevnetSatisfiesRegisterContract = Assert<DevnetClient extends RegisterChain ? true : false>;
+type RejectsBogusRegisterClient = Assert<
+    ClientWithoutIndividuality extends RegisterChain ? false : true
+>;
+
+type PaseoSatisfiesEligibilityContract = Assert<
+    PaseoClient extends RegistrationEligibilityChain ? true : false
+>;
+type PreviewnetSatisfiesEligibilityContract = Assert<
+    PreviewnetClient extends RegistrationEligibilityChain ? true : false
+>;
+type DevnetSatisfiesEligibilityContract = Assert<
+    DevnetClient extends RegistrationEligibilityChain ? true : false
+>;
+type RejectsBogusEligibilityClient = Assert<
+    ClientWithoutIndividuality extends RegistrationEligibilityChain ? false : true
+>;
+
+// The same trap as `claim_airdrop`'s pins, and worse: `key` is an `Option`, so a
+// renamed argument encodes as `None` — the resume arm this builder never means.
+type ScoreTx = PaseoClient["individuality"]["tx"]["Score"];
+type RegisterExists = Assert<"register" extends keyof ScoreTx ? true : false>;
+type RegisterArgs = Parameters<ScoreTx["register"]>[0];
+type RegisterTakesKey = Assert<"key" extends keyof RegisterArgs ? true : false>;
+type RegisterKeyIsOptional = Assert<undefined extends RegisterArgs["key"] ? true : false>;
+
+// `ValueQuery` is what lets the read type the threshold as a plain number, and
+// `Participants` being optional is what makes "never seen" a null, not a throw.
+type ScoreStorage = PaseoClient["individuality"]["query"]["Score"];
+type ThresholdValue = Awaited<ReturnType<ScoreStorage["PersonhoodThreshold"]["getValue"]>>;
+type ThresholdIsNotOptional = Assert<undefined extends ThresholdValue ? false : true>;
+type ParticipantsValue = Awaited<ReturnType<ScoreStorage["Participants"]["getValue"]>>;
+type ParticipantsIsOptional = Assert<undefined extends ParticipantsValue ? true : false>;
 
 test("the individuality chain contract is asserted at compile time", () => {
     // The type assertions above are the test. This keeps vitest from reporting

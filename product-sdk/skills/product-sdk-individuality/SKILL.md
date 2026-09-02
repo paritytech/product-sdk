@@ -2,23 +2,17 @@
 name: product-sdk-individuality
 description: >
   Use when reading a person's personhood or membership standing on the individuality chain
-  from a DotNS username or an account address, when reading the usernames an account holds, or
-  when sending a transaction that must run under a person origin instead of an account origin.
-  Covers readPersonhoodState and its two input forms, the raw metrics it returns alongside the
-  state, lookupUsername, their Result returns, the seven-state PersonhoodState union, why
-  UsernameUnowned and a missing consumer record are both success values rather than errors, using
-  the pure derivation without a chain client, the decode helpers for raw Score.Participants and
-  Resources.Consumers values, and withAsPerson for the AsPerson transaction extension including
-  the RestrictOrigins requirement that otherwise fails every call. Also covers the game surface:
-  reading the current game and its prize draws, whether you won one and claiming it, and signing
-  up for a game with its airdrop VRFs, including which sign-up paths the chain and the hosts
-  cannot currently support. Also covers which 32-byte context a ring-VRF proof must be minted
-  in and which ring it comes from: productContext, personhoodContext and the five personhood
-  allocations, peopleRing and litePeopleRing, and readScoreContext for checking the chain
-  derives its contexts the product way before any proof is built. Also covers the lite
-  personhood flow end to end: withLiteAlias for a lite-person origin, the two-transaction
-  bind then sign-up sequence into the game pallet, which context the bind proof must be
-  minted in and why only the personhood product can mint it.
+  from a DotNS username or an account address, when reading the usernames an account holds,
+  or when sending a transaction that must run under a person, lite-person or
+  score-participant origin instead of an account origin. Covers readPersonhoodState,
+  lookupUsername, the seven-state PersonhoodState union, the pure derivation without a chain
+  client and the decode helpers for raw Score.Participants and Resources.Consumers values;
+  the game surface, its prize draws, claiming and sign-up with its airdrop VRFs;
+  productContext, personhoodContext, peopleRing, litePeopleRing and readScoreContext for the
+  ring-VRF proof contexts; withAsPerson, withLiteAlias and the RestrictOrigins requirement
+  that otherwise fails every call; the two-transaction lite personhood bind then sign-up
+  flow; and full-personhood registration with registerMessage, Score.register and
+  withScoreParticipant.
 ---
 
 # Product SDK Individuality
@@ -233,7 +227,7 @@ const state = derivePersonhoodState({
 
 Two traps the compiler cannot catch, both verified against the committed metadata:
 
-- **`Score.PersonhoodThreshold` is a `u8`.** PAPI types both `u8` and `u32` as `number`, so a width mistake typechecks *and* passes tests. Nothing guards this one, so read it at the right width.
+- **`Score.PersonhoodThreshold` is a `u8` on paseo and previewnet, a `u32` on devnet.** PAPI types both as `number`, so a width mistake typechecks *and* passes tests. Nothing guards this one, so read it at the right width.
 - **`Score.AbsenceGraceRatio` byte order is `(allowed_misses, window)`.** The metadata tuple is anonymous, so the order comes from the pallet's doc comment, not the type. Use `decodeAbsenceGracePolicy` rather than parsing the hex yourself: it enforces the runtime's own invariants (`window <= 8` and `allowedMisses < window`), so a swapped order fails loudly instead of silently disabling `Caution` for everyone.
 
 Unknown `streak` or `recognition` variants throw `IndividualityDecodeError` rather than mapping to something plausible — the pallet is under active development, and a variant added by a runtime upgrade should fail loudly.
@@ -551,7 +545,7 @@ const signer = withAsPerson(innerSigner, {
 
 ### If you are building the extension yourself
 
-`withAsPerson` is the whole public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. A second origin-modifying extension already uses them: `withLiteAlias` shares the ordered `signTx` body through the internal `withOriginExtension`, so a third would extend that rather than copy it.
+`withAsPerson`, `withLiteAlias` and `withScoreParticipant` are the public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. All three share the ordered `signTx` body through the internal `withOriginExtension`, so a fourth would extend that rather than copy it.
 
 Two things to know either way, because they are the traps that cost the most time here:
 
@@ -595,6 +589,52 @@ Two things block the bind leg, and neither is visible from the API.
 - **Failures throw `AsPersonError`, not a lite-specific error.** It is the write half's error class and covers both extensions.
 - **A rejected leg costs no fee.** Every failure lands in `validate`, before the transaction enters a block.
 
+## Registering as a Person (Write)
+
+The step after the score is in. `Score.register` turns a participant whose score reached `Score.PersonhoodThreshold` into a person in the *people* ring: the runtime reserves a personal id, queues the member key, and moves the participant to `Recognized(id)`.
+
+The call is made by the **participant account**. `register` reads `Participants[Account(signer)]` and nothing else identifies the caller, so an alias is never the right identity here.
+
+| Step | Call | What it gives you |
+|---|---|---|
+| 1. check | `readRegistrationEligibility(chain, { registrant })` | `participant`, `personhoodThreshold` and `readyToRegister`, all at one pinned block |
+| 2. message | `registerMessage(account)` | the 50 bytes the full member key must sign |
+| 3. build | `registerPersonhoodTx(chain, { memberKey, proofOfOwnership })` | `Score.register(Some((key, sig)))`, both widths checked locally |
+| 4. submit | `withScoreParticipant(signer)` | fee-free dispatch from a zero-balance participant account |
+
+```ts
+import { submitAndWatch } from "@parity/product-sdk-tx";
+import {
+  readRegistrationEligibility,
+  registerMessage,
+  registerPersonhoodTx,
+  withScoreParticipant,
+} from "@parity/product-sdk-individuality";
+
+const eligibility = await readRegistrationEligibility(chain, {
+  registrant: { tag: "Account", accountAddress: account },
+});
+if (!eligibility.ok || !eligibility.value.readyToRegister) return;
+
+// Only the personhood product's host session can produce these two.
+const proofOfOwnership = await accounts
+  .ringVrfSign(keyHandle, registerMessage(account))
+  .then((r) => (r.ok ? r.value : Promise.reject(r.error)));
+
+const tx = registerPersonhoodTx(chain, { memberKey, proofOfOwnership });
+await submitAndWatch(tx, withScoreParticipant(accounts.getProductAccountSigner(account)));
+```
+
+> **THE MESSAGE IS A RAW CONCATENATION, NOT SCALE.** The pallet builds `account.using_encoded(|b| [b"pop register using", b].concat())`, and `AccountId32` encodes as its bare 32 bytes — so the message is 18 + 32 = 50 bytes with no length prefix, first byte `0x70`. SCALE-encoding the prefix gives 51 bytes starting `0x48`; SCALE-encoding the whole message gives 51 bytes starting `0xc8`. Both fail on chain as `InvalidProofOfOwnership`, with nothing local to read. Use `registerMessage` rather than building the bytes yourself.
+
+> **THE PAIR IS OPAQUE, AND ONLY ONE PRODUCT CAN MINT IT.** `registerPersonhoodTx` never produces `(memberKey, proofOfOwnership)`. It takes the personhood product's own host session — `registerRingVrfKey` for the key, `ringVrfSign` for the plain (non-ring) Bandersnatch signature — and today's hosts refuse both calls to any other product. Any other product carries a pair handed to it.
+
+### Readiness, and what it does not promise
+
+`readyToRegister` reproduces the pallet's three guards: the participant exists, its recognition is `NotRecognized`, and `reachedPersonhood || score >= personhoodThreshold`. It is a read, not an authorization oracle — eligibility can move between the read and the transaction landing.
+
+A `Suspended` participant resumes with `register(None)`, which this package does not build: that arm has different guards. `readyToRegister` reports such a participant as not ready rather than offering a call that would fail.
+
 ## Common Mistakes
 
 1. **Forgetting to check `result.ok` first** — the answer is inside `result.value`, and a `result.tag` check on the outer object is always undefined.
@@ -618,3 +658,5 @@ Two things block the bind leg, and neither is visible from the API.
 19. **Binding in your own product's context** — the chain allowlists two contexts for the lite bind, `peopleLiteAuth` and `score`, both `peopl.<tld>`. A `dim2.<tld>` context is rejected as `InvalidTransaction::Call`, so plan for the handoff from the personhood product.
 20. **Reading `PeopleLite.auth_context` off paseo or devnet** — neither publishes it. Derive it with `personhoodContext(tld, "peopleLiteAuth")`.
 21. **Treating `NotProductDerived` as retryable** — it is a hard stop on the ok channel, not a transport failure. Building the proof leg anyway costs a fee and returns `Invalid.Call`.
+22. **SCALE-encoding the register message** — the pallet concatenates raw bytes. Encoding the prefix starts the message `0x48`, encoding the whole message starts it `0xc8`; the correct 50 bytes start `0x70`. Both fail as `InvalidProofOfOwnership`. Use `registerMessage`.
+23. **Calling `Score.register` with a key for a `Suspended` participant** — the resume arm is `register(None)` and has different guards. `readyToRegister` answers false there, and this package does not build that call.

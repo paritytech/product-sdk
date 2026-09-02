@@ -7,8 +7,9 @@
  * Two halves. The **read** half goes in both directions: for a DotNS username or
  * an account, what is that person's personhood state, as of one pinned finalized
  * block? And for an account, what usernames does it hold? The **write** half is
- * `withAsPerson` and `withLiteAlias`, which wrap a signer so a call dispatches
- * under a person or lite-person origin instead of an account origin.
+ * the transaction builders and three signers — `withAsPerson`, `withLiteAlias`
+ * and `withScoreParticipant` — which wrap a signer so a call dispatches under a
+ * person, lite-person or score-participant origin instead of an account origin.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -331,6 +332,30 @@ export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person
 // unsigned, proof-authorized bind leg of the two-transaction lite sign-up.
 export { withLiteAlias } from "./as-lite-alias-signer.js";
 export type { LiteAliasInfo } from "./as-lite-alias-signer.js";
+
+// Full-personhood registration: the byte-exact proof-of-ownership message, the
+// Score.register builder, and the readiness read. The (memberKey,
+// proofOfOwnership) pair is caller-supplied and opaque — only the personhood
+// product's own host session can mint it, so the builder never tries.
+export {
+    readRegistrationEligibility,
+    readyToRegister,
+    REGISTER_MESSAGE_PREFIX,
+    registerMessage,
+    registerPersonhoodTx,
+} from "./register.js";
+export type {
+    ReadRegistrationEligibilityOptions,
+    RegisterChain,
+    RegisterPersonhoodOptions,
+    RegistrationEligibility,
+    RegistrationEligibilityChain,
+} from "./register.js";
+
+// The third origin signer: wrap a signer so the call runs as the score
+// participant via the ScoreAsParticipant extension — fee-free Score.register
+// and the participant arm of Game.report, from a 0-balance account.
+export { withScoreParticipant } from "./as-score-participant-signer.js";
 
 // The metadata-driven pieces underneath stay internal on purpose, even though
 // `withLiteAlias` proves they generalise: widening a surface later never breaks
