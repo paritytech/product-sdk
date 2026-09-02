@@ -85,10 +85,21 @@ const PROOF_OF_OWNERSHIP_BYTES = 64;
  *
  * @param account - the registering account (the transaction signer), as an
  *   SS58 address or its raw 32-byte public key.
- * @throws ProductIndividualityError when the account is not 32 bytes.
+ * @throws ProductIndividualityError when the account does not decode or is not 32 bytes.
  */
 export function registerMessage(account: SS58String | Uint8Array): Uint8Array {
-    const bytes = typeof account === "string" ? AccountId().enc(account) : account;
+    let bytes: Uint8Array;
+    if (typeof account === "string") {
+        try {
+            bytes = AccountId().enc(account);
+        } catch (cause) {
+            throw new ProductIndividualityError("register message account is not a valid address", {
+                cause,
+            });
+        }
+    } else {
+        bytes = account;
+    }
     if (bytes.length !== ACCOUNT_BYTES) {
         throw new ProductIndividualityError(
             `register message account must be ${ACCOUNT_BYTES} bytes`,
@@ -210,8 +221,8 @@ export interface RegistrationEligibilityChain extends PinnedChain {
 
 /** Options for {@link readRegistrationEligibility}. */
 export interface ReadRegistrationEligibilityOptions {
-    /** Whose standing to read. Must be the identity that would sign `register`. */
-    registrant: AirdropRegistrant;
+    /** The account that would sign `register`; the pallet reads no other key. */
+    registrant: Extract<AirdropRegistrant, { tag: "Account" }>;
     signal?: AbortSignal;
 }
 
@@ -323,6 +334,18 @@ if (import.meta.vitest) {
                 expect(() => registerMessage(new Uint8Array(length))).toThrow(
                     ProductIndividualityError,
                 );
+            }
+        });
+
+        test("a malformed address throws the package error, not PAPI's", () => {
+            const malformed = [
+                `0x${"aa".repeat(32)}`,
+                "not-an-address",
+                "",
+                `${ALICE.slice(0, -1)}Z`,
+            ];
+            for (const address of malformed) {
+                expect(() => registerMessage(address)).toThrow(ProductIndividualityError);
             }
         });
 
@@ -499,16 +522,10 @@ if (import.meta.vitest) {
             expect(value.participant?.recognition).toBe("Recognized");
         });
 
-        test("keys the read by AccountOrPerson, spelling the alias arm Person", async () => {
+        test("keys the read by the account arm of AccountOrPerson", async () => {
             const account = fakeChain();
             await readRegistrationEligibility(account.chain, { registrant });
             expect(account.keys[0]).toEqual({ type: "Account", value: ALICE });
-
-            const alias = fakeChain();
-            await readRegistrationEligibility(alias.chain, {
-                registrant: { tag: "Alias", alias: `0x${"dd".repeat(32)}` },
-            });
-            expect(alias.keys[0]).toEqual({ type: "Person", value: `0x${"dd".repeat(32)}` });
         });
 
         test("an unknown recognition variant is a decode error on the err channel", async () => {
