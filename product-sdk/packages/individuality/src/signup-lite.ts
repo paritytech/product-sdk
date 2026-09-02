@@ -27,9 +27,13 @@
  *
  * The read is {@link readGameSignUpRequirement} plus the lite gates, all at one
  * pinned block, and its blockers are a superset of the account read's
- * (`LiteSignUpBlocker` in `signup-types.ts`). Two of its facts are easy to get
- * wrong from the pallet docs alone:
+ * (`LiteSignUpBlocker` in `signup-types.ts`). Three of its facts are easy to
+ * get wrong from the pallet docs alone:
  *
+ * - **`sign_up_inner` rejects an invited sign-up whenever a `Game.Players`
+ *   entry exists**, before it reads `registered`, and a finished game leaves
+ *   one behind. The free call is right on a first sign-up and after an archive;
+ *   every other time the player uses `signUpWithAccountTx`.
  * - **`Game.LiteInvites[alias]` pins forever** the one account a lite person
  *   may ever invite. The first lite sign-up writes it; every later one must
  *   name the same account or fails with `AnotherAccountInvited`. The blocker
@@ -103,13 +107,14 @@ type LiteInviteTxArgs = {
  * The lite sign-up call, plus the reads that decide whether it can dispatch.
  * Composed with {@link GameChain} and {@link SignUpChain}, which supply the
  * game and the account-path reads. Matched by hand against the paseo and
- * previewnet descriptors on 2026-08-31 (devnet predates the surface):
+ * previewnet descriptors on 2026-09-02 (devnet predates the surface):
  *
  * ```
  * PeopleLite.AccountToAlias: StorageDescriptor<[Key: SS58String], { revision, ring, ca }, true, never>
  * PeopleLite.LitePeople:     StorageDescriptor<[Key: SS58String], LitePersonInfo, true, never>
  * Game.LiteInvites:          StorageDescriptor<[Key: SizedHex<32>], SS58String, true, never>
  * Members.Members:           StorageDescriptor<[SizedHex<32>, SizedHex<32>], MemberStatus, true, never>
+ * Members.Root:              StorageDescriptor<[SizedHex<32>, number], { root, revision, intermediate }, true, never>
  * ```
  */
 export interface LiteSignUpChain<Tx = unknown> {

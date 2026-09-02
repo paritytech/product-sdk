@@ -119,8 +119,8 @@ export interface GameSignUpRequirement {
  *
  * Unlike the account read's draw-only arms, every lite arm blocks the sign-up
  * itself. `AnotherAccountInvited` and `AccountIsALitePerson` are permanent for
- * the account they name; the last two are about the environment, not the
- * account.
+ * the account they name; `ContextNotProductDerived` is about the environment,
+ * not the account.
  */
 export type LiteSignUpBlocker =
     | SignUpBlocker
