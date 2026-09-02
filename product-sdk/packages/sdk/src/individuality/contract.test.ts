@@ -401,6 +401,20 @@ type RejectsBogusLiteSignUpClient = Assert<
     ClientWithoutIndividuality extends LiteSignUpChain ? false : true
 >;
 
+// `LiteSignUpChain` alone proves nothing about what the read accepts: it takes
+// an intersection and resolves a suffix.
+type LiteSignUpReadBase = GameChain & SignUpChain & ScoreContextChain & LiteSignUpChain;
+type PaseoSatisfiesTheLiteReadWithATld = Assert<
+    PaseoClient extends LiteSignUpReadBase ? true : false
+>;
+type PaseoCannotResolveTheSuffixItself = Assert<
+    PaseoClient extends LiteSignUpReadBase & LegacySuffixChain ? false : true
+>;
+type PreviewnetSatisfiesTheLiteReadFromItsConstant = Assert<
+    PreviewnetClient extends LiteSignUpReadBase & LegacySuffixChain ? true : false
+>;
+type DevnetPredatesTheLiteRead = Assert<DevnetClient extends LiteSignUpReadBase ? false : true>;
+
 // Pinned by name for the same reason `sign_up_with_account`'s are: PAPI encodes
 // the object it is handed, so a renamed field silently encodes as `undefined` —
 // and `account` here is a call argument, not implied by the signer.

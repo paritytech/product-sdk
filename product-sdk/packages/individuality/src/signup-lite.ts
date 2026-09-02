@@ -50,7 +50,14 @@ import { bytesToHex } from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
 import type { GameChain } from "./game-read.js";
 import { pinBlock, readAt, type ReadAt } from "./pinned.js";
-import { ringCollectionId, runScoreContextRead, type ScoreContextChain } from "./rings.js";
+import {
+    ringCollectionId,
+    runScoreContextRead,
+    type AnyScoreContextChain,
+    type LegacySuffixChain,
+    type NetworkSuffixChain,
+    type ScoreContextChain,
+} from "./rings.js";
 import type {
     AccountVrfSignature,
     LiteSignUpBlocker,
@@ -173,6 +180,8 @@ export interface ReadLiteSignUpRequirementOptions {
     keyType?: "sr25519" | "ed25519" | "ecdsa";
     /** Unix **seconds**; defaults to the device clock. */
     now?: number;
+    /** Required when the chain publishes no suffix, and wins when it does. */
+    tld?: string;
     signal?: AbortSignal;
 }
 
@@ -213,7 +222,19 @@ function sameAccount(left: string, right: string): boolean {
  * alias is unknown here.
  */
 export async function readLiteSignUpRequirement(
+    chain: GameChain & SignUpChain & ScoreContextChain & NetworkSuffixChain & LiteSignUpChain,
+    options: ReadLiteSignUpRequirementOptions,
+): Promise<Result<LiteSignUpRequirement, ProductIndividualityError>>;
+export async function readLiteSignUpRequirement(
+    chain: GameChain & SignUpChain & ScoreContextChain & LegacySuffixChain & LiteSignUpChain,
+    options: ReadLiteSignUpRequirementOptions,
+): Promise<Result<LiteSignUpRequirement, ProductIndividualityError>>;
+export async function readLiteSignUpRequirement(
     chain: GameChain & SignUpChain & ScoreContextChain & LiteSignUpChain,
+    options: ReadLiteSignUpRequirementOptions & { tld: string },
+): Promise<Result<LiteSignUpRequirement, ProductIndividualityError>>;
+export async function readLiteSignUpRequirement(
+    chain: GameChain & SignUpChain & AnyScoreContextChain & LiteSignUpChain,
     options: ReadLiteSignUpRequirementOptions,
 ): Promise<Result<LiteSignUpRequirement, ProductIndividualityError>> {
     try {
@@ -240,7 +261,7 @@ export async function readLiteSignUpRequirement(
                     },
                     snapshot,
                 ),
-                runScoreContextRead(chain, { signal }, snapshot),
+                runScoreContextRead(chain, { signal, tld: options.tld }, snapshot),
                 query.PeopleLite.AccountToAlias.getValue(account, at),
                 query.PeopleLite.LitePeople.getValue(account, at),
                 liteMemberKey === undefined
@@ -391,7 +412,12 @@ if (import.meta.vitest) {
         ca: { alias: ALIAS, context: SCORE_CONTEXT },
     };
 
-    type LiteChain = GameChain & SignUpChain & ScoreContextChain & LiteSignUpChain;
+    type LiteChain = GameChain &
+        SignUpChain &
+        ScoreContextChain &
+        LegacySuffixChain &
+        LiteSignUpChain;
+    type SuffixlessLiteChain = GameChain & SignUpChain & ScoreContextChain & LiteSignUpChain;
 
     function fakeChain(
         overrides: {
@@ -404,6 +430,7 @@ if (import.meta.vitest) {
             membership?: RawLiteRingMembership;
             invited?: string;
             root?: { revision: number };
+            noSuffix?: boolean;
         } = {},
     ) {
         const calls: {
@@ -425,7 +452,9 @@ if (import.meta.vitest) {
                     },
                     Score: {
                         score_context: async () => overrides.scoreContext ?? SCORE_CONTEXT,
-                        Suffix: async () => new TextEncoder().encode("test"),
+                        ...(overrides.noSuffix === true
+                            ? {}
+                            : { Suffix: async () => new TextEncoder().encode("test") }),
                     },
                 },
                 query: {
@@ -606,6 +635,34 @@ if (import.meta.vitest) {
 
             expect(value.blockers).toEqual([]);
             expect(value.canSignUp).toBe(true);
+        });
+
+        test("a chain publishing no suffix answers when the caller supplies the tld", async () => {
+            // Paseo's shape since individuality-community#20 dropped the constant.
+            const { chain } = fakeChain({ binding: BOUND, invited: ACCOUNT, noSuffix: true });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain as unknown as SuffixlessLiteChain, {
+                    account: ACCOUNT,
+                    now: 1_000,
+                    tld: "test",
+                }),
+            );
+
+            expect(value.blockers).toEqual([]);
+            expect(value.canSignUp).toBe(true);
+        });
+
+        test("a wrong tld derives a context the chain does not publish", async () => {
+            const { chain } = fakeChain({ binding: BOUND, invited: ACCOUNT, noSuffix: true });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain as unknown as SuffixlessLiteChain, {
+                    account: ACCOUNT,
+                    now: 1_000,
+                    tld: "paseo",
+                }),
+            );
+
+            expect(value.blockers).toEqual([{ tag: "ContextNotProductDerived" }]);
         });
 
         test("an unbound account reports AliasNotBound and skips the invite read", async () => {
