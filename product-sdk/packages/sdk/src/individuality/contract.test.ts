@@ -126,7 +126,9 @@ type FromPapiSatisfiesContracts = Assert<
         AirdropChain &
         GameChain &
         GamePlayersChain &
-        ScoreContextChain
+        ScoreContextChain &
+        SignUpChain &
+        LiteSignUpChain
         ? true
         : false
 >;
