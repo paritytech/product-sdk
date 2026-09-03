@@ -152,8 +152,11 @@ export interface LegacySuffixChain {
     };
 }
 
-/** Private: the overloads are what make the suffix source a checked fact. */
-interface AnyScoreContextChain extends ScoreContextChain {
+/**
+ * For a composing read's implementation signature; kept out of `index.ts`,
+ * because the overloads are what make the suffix source a checked fact.
+ */
+export interface AnyScoreContextChain extends ScoreContextChain {
     raw?: PinnedChain["raw"];
     individuality: {
         constants: {

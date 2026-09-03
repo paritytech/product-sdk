@@ -45,6 +45,7 @@ import type {
     GamePlayersChain,
     IndividualityChain,
     LegacySuffixChain,
+    LiteSignUpChain,
     NetworkSuffixChain,
     PapiIndividualityChain,
     PrizeStatusChain,
@@ -125,7 +126,9 @@ type FromPapiSatisfiesContracts = Assert<
         AirdropChain &
         GameChain &
         GamePlayersChain &
-        ScoreContextChain
+        ScoreContextChain &
+        SignUpChain &
+        LiteSignUpChain
         ? true
         : false
 >;
@@ -383,6 +386,82 @@ type RejectsSignatureMissingProof = Assert<
 >;
 type RejectsItemMissingValue = Assert<
     { label: Uint8Array } extends IndividualityVrfTranscriptItem ? false : true
+>;
+
+// The lite sign-up surface: the alias binding, the lite-person marker, the
+// invite pin, the ring membership entry and the free sign-up call. Paseo and
+// previewnet carry all five; devnet predates `Game.LiteInvites` and the call,
+// so it is asserted negatively, like the game surface it composes with.
+type PaseoSatisfiesLiteSignUpContract = Assert<PaseoClient extends LiteSignUpChain ? true : false>;
+type PreviewnetSatisfiesLiteSignUpContract = Assert<
+    PreviewnetClient extends LiteSignUpChain ? true : false
+>;
+type DevnetPredatesTheLiteSignUpContract = Assert<
+    DevnetClient extends LiteSignUpChain ? false : true
+>;
+type RejectsBogusLiteSignUpClient = Assert<
+    ClientWithoutIndividuality extends LiteSignUpChain ? false : true
+>;
+
+// `LiteSignUpChain` alone proves nothing about what the read accepts: it takes
+// an intersection and resolves a suffix.
+type LiteSignUpReadBase = GameChain & SignUpChain & ScoreContextChain & LiteSignUpChain;
+type PaseoSatisfiesTheLiteReadWithATld = Assert<
+    PaseoClient extends LiteSignUpReadBase ? true : false
+>;
+type PaseoCannotResolveTheSuffixItself = Assert<
+    PaseoClient extends LiteSignUpReadBase & LegacySuffixChain ? false : true
+>;
+type PreviewnetSatisfiesTheLiteReadFromItsConstant = Assert<
+    PreviewnetClient extends LiteSignUpReadBase & LegacySuffixChain ? true : false
+>;
+type DevnetPredatesTheLiteRead = Assert<DevnetClient extends LiteSignUpReadBase ? false : true>;
+
+// Pinned by name for the same reason `sign_up_with_account`'s are: PAPI encodes
+// the object it is handed, so a renamed field silently encodes as `undefined` —
+// and `account` here is a call argument, not implied by the signer.
+type LiteInviteArgs = Parameters<GameTx["sign_up_with_account_lite_invite"]>[0];
+type LiteInviteTakesTheDocumentedArgs = Assert<
+    "account" extends keyof LiteInviteArgs
+        ? "identifier_key" extends keyof LiteInviteArgs
+            ? "airdrops" extends keyof LiteInviteArgs
+                ? true
+                : false
+            : false
+        : false
+>;
+type LiteInviteAirdropsIsOptional = Assert<
+    undefined extends LiteInviteArgs["airdrops"] ? true : false
+>;
+
+// `PeopleLite.AccountToAlias`: the three fields the lite requirement read uses.
+// The context matters as much as the alias — a binding outside the score
+// context does not satisfy the game's origin check — so it is pinned by name.
+type LiteBindingValue = NonNullable<
+    Awaited<
+        ReturnType<
+            PaseoClient["individuality"]["query"]["PeopleLite"]["AccountToAlias"]["getValue"]
+        >
+    >
+>;
+type LiteBindingHasTheDocumentedFields = Assert<
+    "revision" extends keyof LiteBindingValue
+        ? "ring" extends keyof LiteBindingValue
+            ? LiteBindingValue["ca"] extends { alias: string; context: string }
+                ? true
+                : false
+            : false
+        : false
+>;
+
+// `Members.Members` is a double map (collection id, member key), which is what
+// lets the membership check be a point read. A collapsed key would silently
+// turn the varargs call into a mistyped one, so the arity is pinned.
+type MembersKey = Parameters<
+    PaseoClient["individuality"]["query"]["Members"]["Members"]["getValue"]
+>;
+type MembersTakesTwoKeys = Assert<
+    MembersKey extends [unknown, unknown, ...unknown[]] ? true : false
 >;
 
 // `Game.Players`: the variant spelling the read keys by, and the one field it uses.
