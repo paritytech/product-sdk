@@ -308,9 +308,9 @@ if (import.meta.vitest) {
 
     const hex = (bytes: Uint8Array): string => `0x${bytesToHex(bytes)}`;
 
-    /** Previewnet's published `Score.score_context` (spec 1000036). */
+    /** Previewnet's published `Score.score_context` (spec 3000000, tld `testnet`). */
     const PREVIEWNET_SCORE_CONTEXT =
-        "0xa02ef8d90148203d1b7573e28c044c7b46e42793766bf6d7687ef5da86024a8e";
+        "0x643d4ff66aec3089cbadc0d15992c5d03b0d71cb760c07aac62ce6426a547de4";
 
     /** A pre-#1300 ASCII literal: valid hex, not a product derivation. */
     const LITERAL = hex(utf8ToBytes("pop:polkadot.network/score      "));
@@ -330,7 +330,7 @@ if (import.meta.vitest) {
     /** Previewnet today. */
     function legacyChain(
         scoreContext: string | Promise<string>,
-        suffix: Uint8Array = utf8ToBytes("test"),
+        suffix: Uint8Array = utf8ToBytes("testnet"),
     ): ScoreContextChain & LegacySuffixChain {
         return {
             individuality: {
@@ -347,7 +347,7 @@ if (import.meta.vitest) {
     /** Post-#20, and nothing yet. */
     function storageChain(
         scoreContext: string | Promise<string>,
-        suffix = "test",
+        suffix = "testnet",
         onPin?: () => void,
     ): ScoreContextChain & NetworkSuffixChain {
         return {
@@ -412,8 +412,8 @@ if (import.meta.vitest) {
                 ok({
                     tag: "ProductDerived",
                     context: hexToBytes(PREVIEWNET_SCORE_CONTEXT.slice(2)),
-                    productId: "peopl.test",
-                    tld: "test",
+                    productId: "peopl.testnet",
+                    tld: "testnet",
                 }),
             );
         });
@@ -430,8 +430,8 @@ if (import.meta.vitest) {
                 ok({
                     tag: "ProductDerived",
                     context: hexToBytes(PREVIEWNET_SCORE_CONTEXT.slice(2)),
-                    productId: "peopl.test",
-                    tld: "test",
+                    productId: "peopl.testnet",
+                    tld: "testnet",
                     at: SNAPSHOT,
                 }),
             );
@@ -439,7 +439,7 @@ if (import.meta.vitest) {
 
         test("an explicit tld overrides the chain and skips the lookup", async () => {
             let pinned = false;
-            const chain = storageChain(PREVIEWNET_SCORE_CONTEXT, "test", () => {
+            const chain = storageChain(PREVIEWNET_SCORE_CONTEXT, "testnet", () => {
                 pinned = true;
             });
             const result = await readScoreContext(chain, { tld: "paseo" });
@@ -501,7 +501,7 @@ if (import.meta.vitest) {
                             },
                             Suffix: () => {
                                 fetched = true;
-                                return Promise.resolve(utf8ToBytes("test"));
+                                return Promise.resolve(utf8ToBytes("testnet"));
                             },
                         },
                     },
@@ -518,7 +518,7 @@ if (import.meta.vitest) {
     describe("runScoreContextRead", () => {
         test("reads at a snapshot it was handed, pinning no second block", async () => {
             let pinned = false;
-            const chain = storageChain(PREVIEWNET_SCORE_CONTEXT, "test", () => {
+            const chain = storageChain(PREVIEWNET_SCORE_CONTEXT, "testnet", () => {
                 pinned = true;
             });
             const composed = { blockHash: `0x${"99".repeat(32)}`, blockNumber: 7 };
