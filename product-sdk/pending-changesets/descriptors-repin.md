@@ -1,7 +1,6 @@
 ---
 "@parity/product-sdk-descriptors": minor
-"@parity/product-sdk-chain-client": patch
-"@parity/product-sdk-cloud-storage": patch
+"@parity/product-sdk-cloud-storage": minor
 "@parity/product-sdk": minor
 ---
 
@@ -47,8 +46,13 @@ where you pass one. Previewnet's own suffix changed with it, from `test` to `tes
 **`paseo-individuality` gained `PeopleAirdrops`.** The airdrop read surface now has a chain that
 carries the pallet, where before only previewnet did.
 
-`@parity/product-sdk-chain-client` and `@parity/product-sdk-cloud-storage` take a patch because both
-restated a genesis hash by hand rather than reading it from the descriptor.
+`@parity/product-sdk-cloud-storage` takes a minor because it now addresses a different chain:
+`CloudStorageNetworks.previewnet.genesisHash` restated the hash by hand and was pointing at a
+previewnet Bulletin that no longer exists. Read it from the descriptor rather than copying it, since
+these chains are re-genesised periodically.
+
+`@parity/product-sdk-chain-client` needs no entry. It reads `.genesis` off the imported descriptor,
+so only its in-source tests restated the hashes, and its published output is unchanged.
 `CloudStorageNetworks.previewnet.genesisHash` was pointing at a previewnet Bulletin that no longer
 exists. If you pinned a hash yourself, read it from the descriptor instead: these chains are
 re-genesised periodically, so any copy goes stale on its own schedule.

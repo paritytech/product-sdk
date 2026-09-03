@@ -134,6 +134,17 @@ type FromPapiSatisfiesContracts = Assert<
         : false
 >;
 
+// Storage is the only way either chain resolves a suffix since the re-pin, so the
+// bring-your-own-client path needs it asserted too.
+type FromPapiSatisfiesTheSuffixStorage = Assert<
+    PapiIndividualityChain<
+        PaseoClient["individuality"],
+        PaseoClient["raw"]["individuality"]
+    > extends NetworkSuffixChain
+        ? true
+        : false
+>;
+
 type PaseoSatisfiesScoreContext = Assert<PaseoClient extends ScoreContextChain ? true : false>;
 type DevnetSatisfiesScoreContext = Assert<DevnetClient extends ScoreContextChain ? true : false>;
 type PreviewnetSatisfiesScoreContext = Assert<
