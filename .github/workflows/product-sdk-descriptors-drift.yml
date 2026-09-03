@@ -83,7 +83,12 @@ jobs:
                     status="clean"
                     live_code=""
                     live_gen=""
-                    if timeout 60 npx papi update "$key" --config "$cfg" --skip-codegen; then
+                    # `unreachable` collapses a timeout and an outright failure into
+                    # one status, so a chain stuck on it cannot be diagnosed. Keep the
+                    # exit code: 124 is the timeout, anything else is papi failing.
+                    probe_exit=0
+                    timeout 60 npx papi update "$key" --config "$cfg" --skip-codegen || probe_exit=$?
+                    if [[ "$probe_exit" == "0" ]]; then
                       live_code=$(jq -r ".entries.\"$key\".codeHash" "$cfg")
                       live_gen=$(jq -r ".entries.\"$key\".genesis" "$cfg")
                       if [[ "$pinned_code" != "$live_code" || "$pinned_gen" != "$live_gen" ]]; then
@@ -98,8 +103,8 @@ jobs:
                       --arg chain "$chain" --arg key "$key" \
                       --arg pinnedCode "$pinned_code" --arg liveCode "$live_code" \
                       --arg pinnedGen "$pinned_gen" --arg liveGen "$live_gen" \
-                      --arg status "$status" \
-                      '{chain:$chain, key:$key, pinnedCodeHash:$pinnedCode, liveCodeHash:$liveCode, pinnedGenesis:$pinnedGen, liveGenesis:$liveGen, status:$status}' \
+                      --arg status "$status" --arg probeExit "$probe_exit" \
+                      '{chain:$chain, key:$key, pinnedCodeHash:$pinnedCode, liveCodeHash:$liveCode, pinnedGenesis:$pinnedGen, liveGenesis:$liveGen, status:$status, probeExit:$probeExit}' \
                       >> drift-report.jsonl
                   done
 
