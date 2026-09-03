@@ -1,5 +1,11 @@
 # @parity/product-sdk-keys
 
+## 0.3.24
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.9
+
 ## 0.3.23
 
 ### Patch Changes

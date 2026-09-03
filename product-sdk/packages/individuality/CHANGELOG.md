@@ -1,5 +1,83 @@
 # @parity/product-sdk-individuality
 
+## 0.4.0
+
+### Minor Changes
+
+- 5613196: **Product-scoped proof contexts and personhood ring locations, as pure helpers.**
+
+  Every context a host will sign under, and every context a product-derived runtime
+  accepts, is `blake2b-256("product/" ++ productId ++ "/" ++ suffix)` with the
+  RFC-0024 `Index`/`Raw` suffix expansion. `productContext(productId, suffix)`
+  computes it offline, `contextSuffixBytes` exposes the expansion, and
+  `personhoodContext(tld, name)` enumerates the five contexts the personhood
+  product owns (`PERSONHOOD_CONTEXT_INDEX`) — needed because two of them never
+  reach metadata. Product ids are always full DotNS ids (`"peopl.test"`,
+  `"dim2.dot"`): the TLD belongs to the network and is never defaulted.
+
+  `peopleRing(genesis)` and `litePeopleRing(genesis)` build the two personhood
+  `RingLocation`s (the space-padded `CollectionId`s from `ringCollectionId`),
+  structurally compatible with `@parity/product-sdk-host` without depending on it.
+
+  `readScoreContext(chain)` reads `Score.score_context` and checks it equals
+  `personhoodContext(<network suffix>, "score")`. A runtime publishing a literal
+  context (which no stock host can mint) answers `NotProductDerived` on the ok
+  channel, so proof-building flows stop before the chain rejects the transaction
+  with nothing local to read.
+
+  Where the network suffix comes from is part of the chain's type, not a runtime
+  fallback: `NetworkSuffixChain` for the Root-settable `NetworkSuffix.NetworkSuffix`
+  storage that individuality-community#20 introduced (read at a pinned block, since
+  Root can move it), `LegacySuffixChain` for the `Score.Suffix` constant it
+  replaced, and a `tld` option for a runtime with neither — which is every
+  production runtime, since that pallet is testnet-only. A chain that can offer no
+  suffix and no `tld` is a compile error rather than a runtime disappointment.
+  `runScoreContextRead` is the throwing variant, so a composing read can run it
+  against a block it already pinned instead of pinning a second one.
+
+  First piece of the lite-personhood sign-up flow (product-sdk#286): consolidates
+  the derivations dim2 and humanity each hand-roll today, pinned by the same
+  vectors (previewnet's published constants, both collection ids).
+
+- 5613196: **Full-personhood registration: `Score.register` builders, the readiness read, and `withScoreParticipant`.**
+
+  The step after the score is in. `registerMessage(account)` pins the byte-exact proof-of-ownership contract — `"pop register using" ++ account`, a raw 50-byte concatenation, never SCALE — and `registerPersonhoodTx(chain, { memberKey, proofOfOwnership })` builds `Score.register(Some((member_key, sig)))` from it, width-checked (32-byte Bandersnatch member key, 64-byte plain signature). The pair is caller-supplied and opaque: only the personhood product's own host session can mint it (`registerRingVrfKey(Index(0), peopleRing)` + `ringVrfSign`), so the builder never tries, which lets the same code serve a cross-product handoff and a future single-product path unchanged. `readRegistrationEligibility` folds `Score.Participants` and `Score.PersonhoodThreshold` — a storage item on a session schedule, not a constant — at one pinned block into `readyToRegister`, also exported as the pure predicate.
+
+  `withScoreParticipant(signer)` is the third signer on the origin-extension machinery `withAsPerson` and `withLiteAlias` share: it sets `RestrictOrigins`, reads the nonce back out of the `CheckNonce` slot PAPI filled, and writes `ScoreAsParticipant(Some(nonce))` — fee-free dispatch from a 0-balance participant account. No caller-supplied nonce, same as the siblings: the chain checks the extension's nonce against `CheckNonce`, and reading it back is what makes disagreement impossible. Encoding round-trips through the chain's own metadata, which is load-bearing here too: the extension is a newtype over `Option` of a newtype, and the plausible `{ nonce }` shape silently encodes `Some(0)` — measured, and rejected as a thrown `AsPersonError`.
+
+  ```ts
+  const eligibility = await readRegistrationEligibility(chain, { registrant });
+  if (eligibility.ok && eligibility.value.readyToRegister) {
+    const tx = registerPersonhoodTx(chain, { memberKey, proofOfOwnership });
+    await submitAndWatch(
+      tx,
+      withScoreParticipant(accounts.getProductAccountSigner(account))
+    );
+  }
+  ```
+
+  Verified against the flow that ran live on previewnet (spec 1000036, individuality v0.12.1) on 2026-08-28.
+
+- 5613196: **`withLiteAlias` runs a call under a lite-person origin, the way `withAsPerson` runs one under a person origin.**
+
+  Wrap a signer and the `PeopleLiteAuth` transaction extension is filled inside `signTx`, where the nonce and the extension pipeline exist and are still patchable. Three variants: `AliasWithAccount` for calls signed by an account already bound to the lite alias (the free game sign-up leg, `Game.sign_up_with_account_lite_invite`), `AliasWithProof` for the unsigned, ring-VRF-authorized `PeopleLite.set_alias_account` bind leg, and `AliasWithAccountRevised` to refresh a stale binding. Proof messages are computed from the chain's own metadata — blake2-256 of the implication after `PeopleLiteAuth`, or the pallet's `(implication, "revise", account, nonce)` tuple — and never chosen by the caller.
+
+  ```ts
+  const signer = withLiteAlias(accounts.getProductAccountSigner(account), {
+    tag: "AliasWithAccount",
+  });
+  await submitAndWatch(
+    api.tx.Game.sign_up_with_account_lite_invite({
+      account,
+      identifier_key,
+      airdrops,
+    }),
+    signer
+  );
+  ```
+
+  The machinery under `withAsPerson` was already generic over the extension identifier; the slot patching, nonce read-back, proof-request guards and pipeline cache it kept file-private now live in an internal shared module, along with the ordered `signTx` body itself, so both signers run the same steps rather than two copies of them. Encoding is still round-tripped through the metadata of the blob being signed against, which is load-bearing here too: the devnet runtime declares the proof variants without the `RevisionIndex` field the deployed runtimes carry, and that mismatch is a thrown `AsPersonError` rather than a structurally plausible wrong encoding. No behaviour change for `withAsPerson`.
+
 ## 0.3.0
 
 ### Minor Changes
