@@ -129,7 +129,7 @@ const GENERAL_TX_EXTRAS: Record<string, unknown> = {
 
 /** The one call-encoding method the builder needs; PAPI transactions have it. */
 export interface EncodedCallSource {
-    getEncodedData(): Promise<{ asBytes(): Uint8Array }>;
+    getEncodedData(): Promise<Uint8Array>;
 }
 
 /**
@@ -156,9 +156,7 @@ export interface LiteAliasBindChain<Tx extends EncodedCallSource = EncodedCallSo
         apis: {
             Metadata: {
                 /** The blob the extension pipeline is read from. */
-                metadata_at_version(
-                    version: number,
-                ): Promise<{ asBytes(): Uint8Array } | undefined>;
+                metadata_at_version(version: number): Promise<Uint8Array | undefined>;
             };
         };
         tx: {
@@ -219,7 +217,7 @@ async function chainMetadata(
         signal?.throwIfAborted();
         const blob = await chain.individuality.apis.Metadata.metadata_at_version(version);
         if (blob !== undefined) {
-            return blob.asBytes();
+            return blob;
         }
     }
     throw new ProductIndividualityError(
@@ -319,27 +317,31 @@ export async function buildLiteAliasBindTx<Tx extends EncodedCallSource>(
         chainMetadata(chain, signal),
         chain.individuality.constants.System.Version(),
         chain.raw.individuality.getChainSpecData(),
-        chain.individuality.query.System.Number.getValue({ at: "best", signal }),
+        // set_alias_account rejects a valid_at_block ahead of the chain.
+        chain.individuality.query.System.Number.getValue({ at: "finalized", signal }),
     ]);
     if (!GENESIS_HEX.test(spec.genesisHash)) {
         throw new ProductIndividualityError("chain-spec genesis hash is not 32 bytes of hex");
     }
     signal?.throwIfAborted();
 
-    const callData = (
-        await chain.individuality.tx.PeopleLite.set_alias_account({
-            account,
-            valid_at_block: validAtBlock,
-        }).getEncodedData()
-    ).asBytes();
+    const callData = await chain.individuality.tx.PeopleLite.set_alias_account({
+        account,
+        valid_at_block: validAtBlock,
+    }).getEncodedData();
 
     const pipeline = readExtensionPipeline(metadata);
+    // All three pinned blobs declare [4,5], checked 2026-09-03.
+    if (!pipeline.supportedVersions.includes(5)) {
+        throw new AsPersonError("chain does not accept version 5 extrinsics");
+    }
     const defaults = generalTxExtensions(pipeline, runtime, spec.genesisHash);
 
     // PeopleLiteAuth's own slot is outside its own hash, so its default (None)
     // needs no patching before the message is computed.
     const message = implicationMessage(pipeline, callData, defaults, PEOPLE_LITE_AUTH);
     const proof = await requestProof(createProof, message);
+    signal?.throwIfAborted();
 
     const extensions = withSlot(
         pipeline,
@@ -400,8 +402,8 @@ if (import.meta.vitest) {
     // Predates the RevisionIndex field on the proof variants: a real negative.
     const DEVNET = blob("devnet_individuality");
 
-    const ACCOUNT = "5C7w7qkAcC7wjBokojtGyeZ6UBaHcnFraprCWWWFAVJv6PXj";
-    const BEST_BLOCK = 123456;
+    const ACCOUNT = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+    const VALID_AT = 123456;
     const SPEC_VERSION = 1000036;
     const TX_VERSION = 1;
     const GENESIS = `0x${"cd".repeat(32)}`;
@@ -428,6 +430,7 @@ if (import.meta.vitest) {
         const served = overrides.servedVersions ?? [16, 15];
         const txCalls: { account: string; valid_at_block: number }[] = [];
         const metadataRequests: number[] = [];
+        const numberAt: unknown[] = [];
         let numberReads = 0;
         const chain: LiteAliasBindChain = {
             individuality: {
@@ -442,9 +445,10 @@ if (import.meta.vitest) {
                 query: {
                     System: {
                         Number: {
-                            getValue: async () => {
+                            getValue: async (options) => {
                                 numberReads += 1;
-                                return BEST_BLOCK;
+                                numberAt.push(options.at);
+                                return VALID_AT;
                             },
                         },
                     },
@@ -453,9 +457,7 @@ if (import.meta.vitest) {
                     Metadata: {
                         metadata_at_version: async (version) => {
                             metadataRequests.push(version);
-                            return served.includes(version)
-                                ? { asBytes: () => metadata }
-                                : undefined;
+                            return served.includes(version) ? metadata : undefined;
                         },
                     },
                 },
@@ -463,7 +465,7 @@ if (import.meta.vitest) {
                     PeopleLite: {
                         set_alias_account: (args) => {
                             txCalls.push(args);
-                            return { getEncodedData: async () => ({ asBytes: () => CALL_DATA }) };
+                            return { getEncodedData: async () => CALL_DATA };
                         },
                     },
                 },
@@ -476,7 +478,7 @@ if (import.meta.vitest) {
                 },
             },
         };
-        return { chain, txCalls, metadataRequests, numberReads: () => numberReads };
+        return { chain, txCalls, metadataRequests, numberAt, numberReads: () => numberReads };
     }
 
     const build = (
@@ -563,11 +565,12 @@ if (import.meta.vitest) {
             );
         });
 
-        test("calls set_alias_account with the account and the best block", async () => {
-            const { chain, txCalls } = fakeChain();
+        test("takes valid_at_block from the finalized block, which the pallet requires", async () => {
+            const { chain, txCalls, numberAt } = fakeChain();
             const { validAtBlock } = await build(chain);
-            expect(txCalls).toEqual([{ account: ACCOUNT, valid_at_block: BEST_BLOCK }]);
-            expect(validAtBlock).toBe(BEST_BLOCK);
+            expect(txCalls).toEqual([{ account: ACCOUNT, valid_at_block: VALID_AT }]);
+            expect(validAtBlock).toBe(VALID_AT);
+            expect(numberAt).toEqual(["finalized"]);
         });
 
         test("surfaces the proof's ring coordinates for logging", async () => {
@@ -666,6 +669,17 @@ if (import.meta.vitest) {
             // round trip through the chain's own codec turns that into a loud
             // error instead of a structurally plausible wrong encoding.
             await expect(build(fakeChain(DEVNET).chain)).rejects.toThrow(AsPersonError);
+        });
+
+        test("aborting while the proof is in flight throws instead of encoding", async () => {
+            const { chain } = fakeChain();
+            const controller = new AbortController();
+            const createProof = vi.fn<CreateRingVRFProof>(async () => {
+                controller.abort();
+                return RING_PROOF;
+            });
+            await expect(build(chain, createProof, controller.signal)).rejects.toThrow();
+            expect(createProof).toHaveBeenCalledOnce();
         });
 
         test("an aborted signal throws before any round trip", async () => {
