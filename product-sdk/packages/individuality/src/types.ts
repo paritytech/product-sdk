@@ -35,8 +35,16 @@ export type PersonhoodState =
     /**
      * Enrolled and accruing score, but not yet recognized and personhood not
      * yet reached.
+     *
+     * @param score - current streak-weighted score.
+     * @param personhoodThreshold - score required to reach personhood.
+     * @param gamesRemaining - minimal consecutive future attended games needed
+     *   to reach the threshold, accounting for the current attended-streak
+     *   length (an absent streak starts from 1). Zero when already at or above
+     *   the threshold — the chain owns `reachedPersonhood` and the derivation
+     *   does not infer it from `score >= threshold`.
      */
-    | { tag: "Candidate"; score: number; personhoodThreshold: number }
+    | { tag: "Candidate"; score: number; personhoodThreshold: number; gamesRemaining: number }
     /** Personhood reached, but recognition has not been granted yet. */
     | { tag: "MembershipReady" }
     /**

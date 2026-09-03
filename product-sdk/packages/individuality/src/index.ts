@@ -7,8 +7,9 @@
  * Two halves. The **read** half goes in both directions: for a DotNS username or
  * an account, what is that person's personhood state, as of one pinned finalized
  * block? And for an account, what usernames does it hold? The **write** half is
- * `withAsPerson`, which wraps a signer so a call dispatches under a person origin
- * instead of an account origin.
+ * the transaction builders and three signers — `withAsPerson`, `withLiteAlias`
+ * and `withScoreParticipant` — which wrap a signer so a call dispatches under a
+ * person, lite-person or score-participant origin instead of an account origin.
  *
  * ```ts
  * import { getChainAPI } from "@parity/product-sdk-chain-client";
@@ -128,7 +129,7 @@ export type {
     AirdropStatusTag,
 } from "./airdrop-types.js";
 
-// The derivations. Pure, so they work against an index you already hold. Prefer
+// Event ids, both directions, all pure. Prefer
 // `readGameAirdropEventIds` over the pinned base: the chain exposes `Game`'s base
 // as a constant, and a hardcoded copy would derive ids for draws that do not
 // exist if it ever moved. `PeopleAirdrops`' base is not exposed, so that one is
@@ -139,6 +140,7 @@ export {
     PEOPLE_AIRDROPS_EVENT_ID_BASE,
     gameAirdropEventId,
     gameAirdropEventIds,
+    parsePeopleAirdropsEventId,
     peopleAirdropsEventId,
 } from "./airdrop-ids.js";
 
@@ -236,6 +238,8 @@ export type {
     AccountVrfSignature,
     AirdropVrfVariant,
     GameSignUpRequirement,
+    LiteSignUpBlocker,
+    LiteSignUpRequirement,
     SignUpBlocker,
 } from "./signup-types.js";
 export {
@@ -296,12 +300,24 @@ export type { ContextSuffix, PersonhoodContextName } from "./contexts.js";
 
 // Where the two personhood rings live, and the one context read: a lite proof
 // must be minted in `Score.score_context`, and `readScoreContext` checks that
-// constant is the product derivation of `peopl.<Score.Suffix>/Index(0)` — the
-// only kind of context a stock host can mint. A runtime still publishing a
-// literal answers `NotProductDerived` on the ok channel, and every
-// proof-building flow must treat that as a hard stop.
-export { litePeopleRing, peopleRing, readScoreContext, ringCollectionId } from "./rings.js";
+// constant is the product derivation of `peopl.<network suffix>/Index(0)` — the
+// only kind of context a stock host can mint. A runtime publishing a literal
+// answers `NotProductDerived` on the ok channel, and every proof-building flow
+// must treat that as a hard stop.
+//
+// The suffix contracts are separate rather than one interface with optional
+// members, because an optional member constrains nothing structurally and the
+// umbrella guard would stop telling the environments apart.
+export {
+    litePeopleRing,
+    peopleRing,
+    readScoreContext,
+    ringCollectionId,
+    runScoreContextRead,
+} from "./rings.js";
 export type {
+    LegacySuffixChain,
+    NetworkSuffixChain,
     ReadScoreContextOptions,
     RingLocation,
     ScoreContext,
@@ -333,14 +349,49 @@ export type {
     LiteAliasBindTx,
 } from "./bind-lite-alias.js";
 
-// The metadata-driven pieces underneath stay internal on purpose. They are
-// written generically, taking an extension identifier rather than hard-coding
-// `AsPerson`, so the other origin-modifying extensions on this chain can reuse
-// them, and `withLiteAlias` now does. But they are implementation details of the two signers
-// today, and two of their types are shapes chosen to suit it rather than to be a
-// public contract. Widening a surface later never breaks anyone; narrowing one
-// after it ships does. Export them when something outside this package actually
-// reaches for them.
+// The lite sign-up itself: the account requirement read plus the lite gates
+// (binding and its ring revision, invite pin, ring membership, player and
+// statement-account state, context derivability) at one pinned block, and the
+// free `Game.sign_up_with_account_lite_invite` builder. The
+// bind leg stays with `withLiteAlias(AliasWithProof)` over
+// `PeopleLite.set_alias_account`; this pair covers everything after it.
+export { readLiteSignUpRequirement, signUpWithLiteInviteTx } from "./signup-lite.js";
+export type {
+    LiteSignUpChain,
+    RawLiteAliasBinding,
+    RawLiteRingMembership,
+    ReadLiteSignUpRequirementOptions,
+    SignUpWithLiteInviteOptions,
+} from "./signup-lite.js";
+
+// Full-personhood registration: the byte-exact proof-of-ownership message, the
+// Score.register builder, and the readiness read. The (memberKey,
+// proofOfOwnership) pair is caller-supplied and opaque — only the personhood
+// product's own host session can mint it, so the builder never tries.
+export {
+    readRegistrationEligibility,
+    readyToRegister,
+    REGISTER_MESSAGE_PREFIX,
+    registerMessage,
+    registerPersonhoodTx,
+} from "./register.js";
+export type {
+    ReadRegistrationEligibilityOptions,
+    RegisterChain,
+    RegisterPersonhoodOptions,
+    RegistrationEligibility,
+    RegistrationEligibilityChain,
+} from "./register.js";
+
+// The third origin signer: wrap a signer so the call runs as the score
+// participant via the ScoreAsParticipant extension — fee-free Score.register
+// and the participant arm of Game.report, from a 0-balance account.
+export { withScoreParticipant } from "./as-score-participant-signer.js";
+
+// The metadata-driven pieces underneath stay internal on purpose, even though
+// `withLiteAlias` proves they generalise: widening a surface later never breaks
+// anyone, narrowing one after it ships does. Export them when something outside
+// this package reaches for them.
 
 // Errors. `UsernameUnowned` is not one of them — it travels on the success
 // channel as a `PersonhoodResult`. `AsPersonError` is the write half's, and

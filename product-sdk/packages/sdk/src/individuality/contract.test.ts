@@ -32,6 +32,7 @@
  */
 import type { getChainAPI } from "@parity/product-sdk-chain-client";
 import type {
+    RingLocation as HostRingLocation,
     RingVRFProof as HostRingVRFProof,
     VrfSignature as HostVrfSignature,
     VrfTranscriptItem as HostVrfTranscriptItem,
@@ -43,8 +44,15 @@ import type {
     GameChain,
     GamePlayersChain,
     IndividualityChain,
+    LegacySuffixChain,
+    LiteSignUpChain,
+    NetworkSuffixChain,
     PapiIndividualityChain,
     PrizeStatusChain,
+    RegisterChain,
+    RegistrationEligibilityChain,
+    RingLocation as SdkRingLocation,
+    ScoreContextChain,
     SignUpChain,
     AccountVrfSignature,
     VrfTranscriptItem as IndividualityVrfTranscriptItem,
@@ -117,10 +125,37 @@ type FromPapiSatisfiesContracts = Assert<
     PapiIndividualityChain<PaseoClient["individuality"]> extends IndividualityChain &
         AirdropChain &
         GameChain &
-        GamePlayersChain
+        GamePlayersChain &
+        ScoreContextChain &
+        SignUpChain &
+        LiteSignUpChain
         ? true
         : false
 >;
+
+type PaseoSatisfiesScoreContext = Assert<PaseoClient extends ScoreContextChain ? true : false>;
+type DevnetSatisfiesScoreContext = Assert<DevnetClient extends ScoreContextChain ? true : false>;
+type PreviewnetSatisfiesScoreContext = Assert<
+    PreviewnetClient extends ScoreContextChain ? true : false
+>;
+
+// Negative on purpose: a re-pin that flips either is the prompt to re-run the
+// read against that chain.
+type PreviewnetSatisfiesLegacySuffix = Assert<
+    PreviewnetClient extends LegacySuffixChain ? true : false
+>;
+type PaseoPredatesTheLegacySuffix = Assert<PaseoClient extends LegacySuffixChain ? false : true>;
+type DevnetPredatesTheLegacySuffix = Assert<DevnetClient extends LegacySuffixChain ? false : true>;
+type PreviewnetHasNoSuffixStorage = Assert<
+    PreviewnetClient extends NetworkSuffixChain ? false : true
+>;
+type PaseoHasNoSuffixStorage = Assert<PaseoClient extends NetworkSuffixChain ? false : true>;
+type DevnetHasNoSuffixStorage = Assert<DevnetClient extends NetworkSuffixChain ? false : true>;
+
+// The two are declared separately, so a rename on either side would go
+// unnoticed anywhere but here.
+type LocalRingLocationFitsHost = Assert<SdkRingLocation extends HostRingLocation ? true : false>;
+type HostRingLocationFitsLocal = Assert<HostRingLocation extends SdkRingLocation ? true : false>;
 
 // Negative control, kept type-only so it emits no runtime code. If
 // `IndividualityChain` ever stopped constraining, this flips to `false` and the
@@ -353,6 +388,82 @@ type RejectsItemMissingValue = Assert<
     { label: Uint8Array } extends IndividualityVrfTranscriptItem ? false : true
 >;
 
+// The lite sign-up surface: the alias binding, the lite-person marker, the
+// invite pin, the ring membership entry and the free sign-up call. Paseo and
+// previewnet carry all five; devnet predates `Game.LiteInvites` and the call,
+// so it is asserted negatively, like the game surface it composes with.
+type PaseoSatisfiesLiteSignUpContract = Assert<PaseoClient extends LiteSignUpChain ? true : false>;
+type PreviewnetSatisfiesLiteSignUpContract = Assert<
+    PreviewnetClient extends LiteSignUpChain ? true : false
+>;
+type DevnetPredatesTheLiteSignUpContract = Assert<
+    DevnetClient extends LiteSignUpChain ? false : true
+>;
+type RejectsBogusLiteSignUpClient = Assert<
+    ClientWithoutIndividuality extends LiteSignUpChain ? false : true
+>;
+
+// `LiteSignUpChain` alone proves nothing about what the read accepts: it takes
+// an intersection and resolves a suffix.
+type LiteSignUpReadBase = GameChain & SignUpChain & ScoreContextChain & LiteSignUpChain;
+type PaseoSatisfiesTheLiteReadWithATld = Assert<
+    PaseoClient extends LiteSignUpReadBase ? true : false
+>;
+type PaseoCannotResolveTheSuffixItself = Assert<
+    PaseoClient extends LiteSignUpReadBase & LegacySuffixChain ? false : true
+>;
+type PreviewnetSatisfiesTheLiteReadFromItsConstant = Assert<
+    PreviewnetClient extends LiteSignUpReadBase & LegacySuffixChain ? true : false
+>;
+type DevnetPredatesTheLiteRead = Assert<DevnetClient extends LiteSignUpReadBase ? false : true>;
+
+// Pinned by name for the same reason `sign_up_with_account`'s are: PAPI encodes
+// the object it is handed, so a renamed field silently encodes as `undefined` —
+// and `account` here is a call argument, not implied by the signer.
+type LiteInviteArgs = Parameters<GameTx["sign_up_with_account_lite_invite"]>[0];
+type LiteInviteTakesTheDocumentedArgs = Assert<
+    "account" extends keyof LiteInviteArgs
+        ? "identifier_key" extends keyof LiteInviteArgs
+            ? "airdrops" extends keyof LiteInviteArgs
+                ? true
+                : false
+            : false
+        : false
+>;
+type LiteInviteAirdropsIsOptional = Assert<
+    undefined extends LiteInviteArgs["airdrops"] ? true : false
+>;
+
+// `PeopleLite.AccountToAlias`: the three fields the lite requirement read uses.
+// The context matters as much as the alias — a binding outside the score
+// context does not satisfy the game's origin check — so it is pinned by name.
+type LiteBindingValue = NonNullable<
+    Awaited<
+        ReturnType<
+            PaseoClient["individuality"]["query"]["PeopleLite"]["AccountToAlias"]["getValue"]
+        >
+    >
+>;
+type LiteBindingHasTheDocumentedFields = Assert<
+    "revision" extends keyof LiteBindingValue
+        ? "ring" extends keyof LiteBindingValue
+            ? LiteBindingValue["ca"] extends { alias: string; context: string }
+                ? true
+                : false
+            : false
+        : false
+>;
+
+// `Members.Members` is a double map (collection id, member key), which is what
+// lets the membership check be a point read. A collapsed key would silently
+// turn the varargs call into a mistyped one, so the arity is pinned.
+type MembersKey = Parameters<
+    PaseoClient["individuality"]["query"]["Members"]["Members"]["getValue"]
+>;
+type MembersTakesTwoKeys = Assert<
+    MembersKey extends [unknown, unknown, ...unknown[]] ? true : false
+>;
+
 // `Game.Players`: the variant spelling the read keys by, and the one field it uses.
 // Sibling reads got exactly these pins.
 type PlayersEntry = PaseoClient["individuality"]["query"]["Game"]["Players"];
@@ -365,6 +476,44 @@ type RejectsAliasSpelling = Assert<
 >;
 type PlayersValue = NonNullable<Awaited<ReturnType<PlayersEntry["getValue"]>>>;
 type PlayersHasRegistered = Assert<"registered" extends keyof PlayersValue ? true : false>;
+
+type PaseoSatisfiesRegisterContract = Assert<PaseoClient extends RegisterChain ? true : false>;
+type PreviewnetSatisfiesRegisterContract = Assert<
+    PreviewnetClient extends RegisterChain ? true : false
+>;
+type DevnetSatisfiesRegisterContract = Assert<DevnetClient extends RegisterChain ? true : false>;
+type RejectsBogusRegisterClient = Assert<
+    ClientWithoutIndividuality extends RegisterChain ? false : true
+>;
+
+type PaseoSatisfiesEligibilityContract = Assert<
+    PaseoClient extends RegistrationEligibilityChain ? true : false
+>;
+type PreviewnetSatisfiesEligibilityContract = Assert<
+    PreviewnetClient extends RegistrationEligibilityChain ? true : false
+>;
+type DevnetSatisfiesEligibilityContract = Assert<
+    DevnetClient extends RegistrationEligibilityChain ? true : false
+>;
+type RejectsBogusEligibilityClient = Assert<
+    ClientWithoutIndividuality extends RegistrationEligibilityChain ? false : true
+>;
+
+// The same trap as `claim_airdrop`'s pins, and worse: `key` is an `Option`, so a
+// renamed argument encodes as `None` — the resume arm this builder never means.
+type ScoreTx = PaseoClient["individuality"]["tx"]["Score"];
+type RegisterExists = Assert<"register" extends keyof ScoreTx ? true : false>;
+type RegisterArgs = Parameters<ScoreTx["register"]>[0];
+type RegisterTakesKey = Assert<"key" extends keyof RegisterArgs ? true : false>;
+type RegisterKeyIsOptional = Assert<undefined extends RegisterArgs["key"] ? true : false>;
+
+// `ValueQuery` is what lets the read type the threshold as a plain number, and
+// `Participants` being optional is what makes "never seen" a null, not a throw.
+type ScoreStorage = PaseoClient["individuality"]["query"]["Score"];
+type ThresholdValue = Awaited<ReturnType<ScoreStorage["PersonhoodThreshold"]["getValue"]>>;
+type ThresholdIsNotOptional = Assert<undefined extends ThresholdValue ? false : true>;
+type ParticipantsValue = Awaited<ReturnType<ScoreStorage["Participants"]["getValue"]>>;
+type ParticipantsIsOptional = Assert<undefined extends ParticipantsValue ? true : false>;
 
 test("the individuality chain contract is asserted at compile time", () => {
     // The type assertions above are the test. This keeps vitest from reporting

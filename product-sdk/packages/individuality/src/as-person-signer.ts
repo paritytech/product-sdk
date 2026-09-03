@@ -31,20 +31,9 @@
  * The origin works, the call does not: `sig`, the statement-account proof, is a
  * bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it.
  *
- * Order inside `signTx` is not arbitrary, and getting it wrong produces a bad
- * proof with nothing local to read:
- *
- * 1. `RestrictOrigins` to `true`. It sits after `AsPerson`, so it is inside the
- *    hash, and the origin-restriction pallet rejects the call outright when it is
- *    false against a person origin.
- * 2. For the proof variant, `VerifyMultiSignature` to `Disabled`, which tells the
- *    host to assemble an unsigned general transaction. That is what makes the
- *    origin `None`, which is the only origin that variant accepts.
- * 3. Hash the implication, which now covers the final value of every slot after
- *    `AsPerson`.
- * 4. Ask for the proof over that hash.
- * 5. Write `AsPerson` last. Its own value is outside its own hash, which is what
- *    makes steps 3 and 5 orderable at all.
+ * The order inside `signTx` is `withOriginExtension`'s, in
+ * `origin-extension.ts`. Getting it wrong produces a bad proof with nothing
+ * local to read, which is why it lives in one place.
  */
 import type { PolkadotSigner } from "polkadot-api";
 
@@ -65,13 +54,14 @@ import {
 import { AsPersonError } from "./errors.js";
 import {
     CHECK_NONCE,
-    type CreateRingVRFProof,
     RESTRICT_ORIGINS,
-    type RingVRFProof,
     VERIFY_SIGNATURE,
     cachedPipelineReader,
     nonceFrom,
     requestProof,
+    type CreateRingVRFProof,
+    type RingVRFProof,
+    withOriginExtension,
     withSlot,
 } from "./origin-extension.js";
 
@@ -142,7 +132,7 @@ async function buildValue(
         case "AliasWithProof": {
             const proof = await requestProof(
                 info.createProof,
-                implicationMessage(pipeline, callData, extensions),
+                implicationMessage(pipeline, callData, extensions, AS_PERSON),
             );
             return {
                 tag: "AsPersonalAliasWithProof",
@@ -158,7 +148,7 @@ async function buildValue(
             // This variant binds the implication plus a label, the alias account
             // and the nonce, so it needs the implication bytes rather than the
             // plain message.
-            const implication = buildImplication(pipeline, callData, extensions);
+            const implication = buildImplication(pipeline, callData, extensions, AS_PERSON);
             const proof = await requestProof(
                 info.createProof,
                 reviseMessage(implication, aliasAccount, nonce),
@@ -195,56 +185,13 @@ async function buildValue(
  * @returns a `PolkadotSigner` usable anywhere the original was.
  */
 export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): PolkadotSigner {
-    const pipelineFor = cachedPipelineReader();
-
-    return {
-        publicKey: signer.publicKey,
-        signBytes: (data) => signer.signBytes(data),
-        async signTx(callData, signedExtensions, metadata, atBlockNumber, hasher) {
-            const pipeline = pipelineFor(metadata);
-            let extensions = signedExtensions;
-
-            // Step 1. Inside the hash, and false is an immediate rejection for a
-            // person origin. Skipped only when the chain has no such extension.
-            if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    RESTRICT_ORIGINS,
-                    encodeChecked(pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type), true),
-                );
-            }
-
-            // Step 2. Taking over the authorization slot is what makes the host
-            // return an unsigned general transaction, so the origin is `None`.
-            // The other two variants need a signed origin and so must leave the
-            // slot alone, which is also PAPI's default: it omits it entirely.
-            if (info.tag === "AliasWithProof") {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    VERIFY_SIGNATURE,
-                    encodeChecked(pipeline.codec(pipeline.slot(VERIFY_SIGNATURE).type), {
-                        type: "Disabled",
-                        value: undefined,
-                    }),
-                );
-            }
-
-            // Steps 3 and 4.
-            const value = await buildValue(pipeline, callData, extensions, info, signer.publicKey);
-
-            // Step 5. Last, because its own value is outside its own hash.
-            extensions = withSlot(
-                pipeline,
-                extensions,
-                AS_PERSON,
-                encodeAsPersonInfo(pipeline, value),
-            );
-
-            return signer.signTx(callData, extensions, metadata, atBlockNumber, hasher);
-        },
-    };
+    return withOriginExtension<AsPersonValue>(signer, {
+        identifier: AS_PERSON,
+        unsigned: info.tag === "AliasWithProof",
+        encode: encodeAsPersonInfo,
+        buildValue: (pipeline, callData, extensions, aliasAccount) =>
+            buildValue(pipeline, callData, extensions, info, aliasAccount),
+    });
 }
 
 if (import.meta.vitest) {
@@ -358,7 +305,9 @@ if (import.meta.vitest) {
                 VERIFY_SIGNATURE,
                 Uint8Array.from([0x00]),
             );
-            expect(seenMessage).toEqual(implicationMessage(PIPELINE, CALL_DATA, patched));
+            expect(seenMessage).toEqual(
+                implicationMessage(PIPELINE, CALL_DATA, patched, AS_PERSON),
+            );
         });
 
         test("writes AsPerson last, and its value is outside its own hash", async () => {
@@ -379,7 +328,7 @@ if (import.meta.vitest) {
             // whole ordering rests on: writing the proof into AsPerson cannot
             // invalidate the proof, because AsPerson is outside its own hash. If
             // this ever became an inequality the design would be circular.
-            expect(seenMessage).toEqual(implicationMessage(PIPELINE, CALL_DATA, seen));
+            expect(seenMessage).toEqual(implicationMessage(PIPELINE, CALL_DATA, seen, AS_PERSON));
         });
 
         test("keeps the map in the order the chain declares", async () => {
@@ -659,10 +608,12 @@ if (import.meta.vitest) {
                 RESTRICT_ORIGINS,
                 Uint8Array.from([0x01]),
             );
-            const implication = buildImplication(PIPELINE, CALL_DATA, patched);
+            const implication = buildImplication(PIPELINE, CALL_DATA, patched, AS_PERSON);
             expect(seenMessage).toEqual(reviseMessage(implication, PUBLIC_KEY, 9));
             // The distinction that matters: it is not the plain message.
-            expect(seenMessage).not.toEqual(implicationMessage(PIPELINE, CALL_DATA, patched));
+            expect(seenMessage).not.toEqual(
+                implicationMessage(PIPELINE, CALL_DATA, patched, AS_PERSON),
+            );
         });
 
         test("uses the signer's own public key as the alias account", async () => {
@@ -682,7 +633,11 @@ if (import.meta.vitest) {
             );
             const wrongAccount = Uint8Array.from({ length: 32 }, () => 0x07);
             expect(seenMessage).not.toEqual(
-                reviseMessage(buildImplication(PIPELINE, CALL_DATA, patched), wrongAccount, 9),
+                reviseMessage(
+                    buildImplication(PIPELINE, CALL_DATA, patched, AS_PERSON),
+                    wrongAccount,
+                    9,
+                ),
             );
         });
 

@@ -105,6 +105,10 @@ export type { DevicePermissionKind, RemotePermissionItem } from "./permissions.j
 export { getThemeProvider } from "./theme.js";
 export type { ThemeMode, ThemeName, ThemeProvider, ThemeVariant } from "./theme.js";
 
+// Locale provider
+export { getLocaleProvider } from "./locale.js";
+export type { LocaleInfo, LocaleProvider } from "./locale.js";
+
 // Entropy derivation (RFC-0007)
 export { deriveEntropy } from "./entropy.js";
 
