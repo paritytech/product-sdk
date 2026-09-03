@@ -30,7 +30,7 @@ export const CloudStorageNetworks = {
         descriptor: paseoBulletinDescriptor,
     },
     previewnet: {
-        genesisHash: "0x1144acd27f0e5b2c88da7dc12c111e396983dec036ccfb42da5bbb0dd7104e89",
+        genesisHash: "0xea9158d768971553e315b76323cbffda238b6b865f3d3d5e138350b12312173d",
         // Previewnet Bulletin runs the same Bulletin runtime as Paseo but is a
         // separate deployment with its own genesis; the descriptor type is
         // pinned to the canonical Paseo one so the network interface stays
