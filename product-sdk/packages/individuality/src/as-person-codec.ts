@@ -73,6 +73,8 @@ export interface ExtensionPipeline {
     version: number;
     /** Every declared extension, in the order the chain encodes them. */
     extensions: ExtensionSlot[];
+    /** Extrinsic versions the chain accepts, for a caller that picks a preamble. */
+    supportedVersions: number[];
     /** Build a codec for a declared type id. */
     codec(typeId: number): TypeCodec;
     /** Position of `identifier` in {@link extensions}. Throws when absent. */
@@ -127,6 +129,7 @@ export function readExtensionPipeline(metadata: Uint8Array): ExtensionPipeline {
     return {
         version: SUPPORTED_PIPELINE_VERSION,
         extensions,
+        supportedVersions: [...unified.extrinsic.version],
         codec: (typeId) => builder.buildDefinition(typeId) as TypeCodec,
         indexOf,
         slot: (identifier) => extensions[indexOf(identifier)],

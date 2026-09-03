@@ -33,6 +33,12 @@ export const VERIFY_SIGNATURE = "VerifyMultiSignature";
 /** Metadata identifier of the origin-restriction extension. */
 export const RESTRICT_ORIGINS = "RestrictOrigins";
 
+/** Restricted origins are metered against an allowance; `false` rejects them outright. */
+export const RESTRICT_ORIGINS_ENABLED = true;
+
+/** `Disabled`: no signature slot, so the origin stays `None`. */
+export const VERIFY_SIGNATURE_DISABLED = { type: "Disabled", value: undefined };
+
 /** Metadata identifier of the nonce extension. */
 export const CHECK_NONCE = "CheckNonce";
 
@@ -218,7 +224,10 @@ export function withOriginExtension<Value>(
                     pipeline,
                     extensions,
                     RESTRICT_ORIGINS,
-                    encodeChecked(pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type), true),
+                    encodeChecked(
+                        pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type),
+                        RESTRICT_ORIGINS_ENABLED,
+                    ),
                 );
             }
 
@@ -227,10 +236,10 @@ export function withOriginExtension<Value>(
                     pipeline,
                     extensions,
                     VERIFY_SIGNATURE,
-                    encodeChecked(pipeline.codec(pipeline.slot(VERIFY_SIGNATURE).type), {
-                        type: "Disabled",
-                        value: undefined,
-                    }),
+                    encodeChecked(
+                        pipeline.codec(pipeline.slot(VERIFY_SIGNATURE).type),
+                        VERIFY_SIGNATURE_DISABLED,
+                    ),
                 );
             }
 
