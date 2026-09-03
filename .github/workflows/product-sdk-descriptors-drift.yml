@@ -78,7 +78,6 @@ jobs:
                     pinned_gen=$(jq -r ".entries.\"$key\".genesis" "$cfg")
 
                     echo "::group::probe $chain (key=$key)"
-                    rm -f "$chain_dir.papi/metadata/"*.scale
 
                     status="clean"
                     live_code=""
@@ -149,9 +148,19 @@ jobs:
                     echo
                     echo "| Chain | Status | Pinned codeHash | Live codeHash |"
                     echo "|---|---|---|---|"
-                    jq -r '
+                    # Genesis drift refuses connections, codeHash drift only risks a
+                    # mis-decode, so the table names which. Genesis rows sort first.
+                    jq -s -r '
                       def short: if . == "" then "n/a" else .[0:14] + "..." end;
-                      [.chain, .status, (.pinnedCodeHash | short), (.liveCodeHash | short)]
+                      def detail:
+                        if .status == "unreachable" then "unreachable (exit " + .probeExit + ")"
+                        elif .status != "drift" then .status
+                        elif .pinnedGenesis != .liveGenesis then "drift (genesis)"
+                        else "drift (codeHash)"
+                        end;
+                      sort_by(.pinnedGenesis == .liveGenesis, .chain)
+                      | .[]
+                      | [.chain, detail, (.pinnedCodeHash | short), (.liveCodeHash | short)]
                       | "| " + join(" | ") + " |"
                     ' drift-report.jsonl
                     echo
