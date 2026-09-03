@@ -36,3 +36,8 @@ predates the deployed field list (devnet) are a loud error, not a plausible
 wrong encoding. Nothing here chooses a chain, a product id or a context: run
 `readScoreContext` first and stop on `NotProductDerived`, and skip the leg when
 `PeopleLite.AccountToAlias` already holds the binding.
+
+Two paths now reach this leg: `withLiteAlias({ tag: "AliasWithProof" })` has the
+host assemble the envelope, and this builder assembles it client-side. Prefer
+the builder unless you want the host to own the envelope, because it removes the
+dependency on per-host `createTransaction` behaviour. Both remain supported.

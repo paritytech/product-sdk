@@ -89,6 +89,6 @@ When the user's question matches a skill, invoke it via the `Skill` tool rather 
 - `product-sdk-contracts` — contract calls (queries, txs).
 - `product-sdk-cloud-storage` — cloud-storage chain client.
 - `product-sdk-statement-store` — statement store.
-- `product-sdk-individuality` — personhood / membership state reads, the account to username read, the game and its prize draws, game sign-up, and the AsPerson extension.
+- `product-sdk-individuality` — personhood / membership state reads, the account to username read, the game and its prize draws, the account and lite sign-up paths, the two-transaction lite bind flow, full-personhood registration, ring-VRF proof contexts and ring locations, and the person, lite-alias and score-participant origin extensions.
 - `product-sdk-utilities` — address, crypto, logger, local-storage, utils.
 - `migrating-to-product-sdk` — porting from legacy stacks.

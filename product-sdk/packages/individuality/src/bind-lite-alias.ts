@@ -10,7 +10,11 @@
  * plain call parameter, nothing ties it to whoever submits, which is what lets
  * the personhood product vouch for another product's account.
  *
- * This leg cannot ride a `PolkadotSigner`, and it does not need a host either.
+ * Two paths reach this leg: `withLiteAlias({ tag: "AliasWithProof" })` has the
+ * host assemble the envelope, this builder assembles it here. Prefer this one
+ * unless you want the host to own it, because per-host `createTransaction`
+ * dialects have diverged before.
+ *
  * A general transaction is
  *
  * ```
@@ -68,7 +72,7 @@
  *     createProof: (message) =>
  *         accounts.createRingVRFProof(
  *             liteKeyHandle,
- *             { dotNsIdentifier: score.value.productId, derivationIndex: { tag: "Left", value: 0 } },
+ *             { productId: score.value.productId, suffix: { tag: "Index", value: 0 } },
  *             litePeopleRing(genesisHash),
  *             message,
  *         ),

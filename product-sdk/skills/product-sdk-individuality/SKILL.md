@@ -11,7 +11,7 @@ description: >
   productContext, personhoodContext, peopleRing, litePeopleRing and readScoreContext for the
   ring-VRF proof contexts; withAsPerson, withLiteAlias and the RestrictOrigins requirement
   that otherwise fails every call; the two-transaction lite personhood bind then sign-up
-  flow with readLiteSignUpRequirement and signUpWithLiteInviteTx; and full-personhood registration with registerMessage, Score.register and
+  flow with buildLiteAliasBindTx, readLiteSignUpRequirement and signUpWithLiteInviteTx; and full-personhood registration with registerMessage, Score.register and
   withScoreParticipant.
 ---
 
@@ -558,7 +558,7 @@ The lite sign-up puts a **lite person** into the game pallet. It is the flow dim
 
 | Leg | Variant | Signed | Call | Effect |
 |---|---|---|---|---|
-| 1. bind | `AliasWithProof` | no, origin `None` | `PeopleLite.set_alias_account` | writes `AccountToAlias[account]` |
+| 1. bind | `AliasWithProof`, or `buildLiteAliasBindTx` | no, origin `None` | `PeopleLite.set_alias_account` | writes `AccountToAlias[account]` |
 | 2. sign up | `AliasWithAccount` | yes | `Game.sign_up_with_account_lite_invite` | reads `AccountToAlias[account]` |
 
 ```ts
@@ -573,6 +573,38 @@ const bindSigner = withLiteAlias(accounts.getProductAccountSigner(account), {
 > **BOTH LEGS ARE THE SAME SIGNER, DIFFERENT VARIANTS.** `withLiteAlias` fills the `PeopleLiteAuth` slot for whichever variant you pass. `AliasWithAccountRevised` is the third: it re-points an existing binding at the current ring revision.
 
 > **ORDER IS NOT OPTIONAL.** Leg 2 reads what leg 1 wrote. Running it first answers `Custom(175)` (`NoAliasBinding`), and `AliasWithAccountRevised` answers the same, because that arm also starts from `AccountToAlias`. The fix is the bind leg, not the revised variant.
+
+### Two ways to build the bind leg
+
+Leg 1 has nothing to sign, so the only question is who assembles the envelope.
+
+| Path | Assembles | Use when |
+|---|---|---|
+| `withLiteAlias({ tag: "AliasWithProof" })` | the host, via `createTransaction` | you want the host to own the envelope |
+| `buildLiteAliasBindTx(chain, { account, createProof })` | this package, client-side | otherwise. Preferred: no dependency on per-host `createTransaction` dialects |
+
+```ts
+import { buildLiteAliasBindTx, litePeopleRing, readScoreContext } from "@parity/product-sdk-individuality";
+
+const score = await readScoreContext(chain, { tld: "paseo" });
+if (!score.ok || score.value.tag !== "ProductDerived") return; // hard stop, no host can mint
+
+const { transaction, ring } = await buildLiteAliasBindTx(chain, {
+  account,
+  createProof: (message) =>
+    accounts.createRingVRFProof(
+      liteKeyHandle,
+      { productId: score.value.productId, suffix: { tag: "Index", value: 0 } },
+      litePeopleRing(genesisHash),
+      message,
+    ),
+});
+await client.submit(`0x${bytesToHex(transaction)}`);
+```
+
+> **IT RETURNS BYTES, NOT A TRANSACTION.** Submission stays with you, through any raw submit. `ring` carries the proof's coordinates for logging, nothing more.
+
+> **SKIP THE LEG WHEN THE BINDING EXISTS.** Read `PeopleLite.AccountToAlias[account]` first. Re-binding the same alias answers `AliasAccountAlreadySet`, and the bind leg has no replay protection beyond the binding itself.
 
 ### Before you can mint the proof
 

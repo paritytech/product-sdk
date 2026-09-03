@@ -330,17 +330,15 @@ export { withAsPerson } from "./as-person-signer.js";
 export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person-signer.js";
 
 // Its lite-personhood sibling: wrap a signer so the call runs under a lite-person
-// origin via the PeopleLiteAuth extension -- the alias-bound sign-up leg and the
-// unsigned, proof-authorized bind leg of the two-transaction lite sign-up.
+// origin via the PeopleLiteAuth extension. Serves the sign-up leg, and the bind
+// leg when the host should assemble the envelope; `buildLiteAliasBindTx` below
+// does that leg client-side.
 export { withLiteAlias } from "./as-lite-alias-signer.js";
 export type { LiteAliasInfo } from "./as-lite-alias-signer.js";
 
-// The bind leg of the lite sign-up, encoded fully client-side: an unsigned V5
-// general extrinsic for `PeopleLite.set_alias_account`, authorized by the ring
-// VRF proof alone -- no host `createTransaction`, no signer, nothing left to
-// sign. Run `readScoreContext` first and stop on `NotProductDerived`; skip the
-// leg when the binding already exists. Returns the finished extrinsic bytes
-// for any raw submit, plus the proof's ring coordinates for logging.
+// The bind leg encoded client-side: an unsigned V5 general extrinsic for
+// `PeopleLite.set_alias_account`. Preferred over the host-assembled
+// `withLiteAlias(AliasWithProof)` above; the module doc says why.
 export { buildLiteAliasBindTx } from "./bind-lite-alias.js";
 export type {
     BuildLiteAliasBindTxOptions,
