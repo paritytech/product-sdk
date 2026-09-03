@@ -115,6 +115,7 @@ type LiteInviteTxArgs = {
  * Game.LiteInvites:          StorageDescriptor<[Key: SizedHex<32>], SS58String, true, never>
  * Members.Members:           StorageDescriptor<[SizedHex<32>, SizedHex<32>], MemberStatus, true, never>
  * Members.Root:              StorageDescriptor<[SizedHex<32>, number], { root, revision, intermediate }, true, never>
+ * Game.StmtAccountToAlias:   StorageDescriptor<[Key: SS58String], SizedHex<32>, true, never>
  * ```
  */
 export interface LiteSignUpChain<Tx = unknown> {
@@ -136,6 +137,10 @@ export interface LiteSignUpChain<Tx = unknown> {
             Game: {
                 /** The one account this lite alias may ever invite, once set. */
                 LiteInvites: {
+                    getValue(key: string, options: ReadAt): Promise<string | undefined>;
+                };
+                /** Presence blocks a player sign-up, whichever call is used. */
+                StmtAccountToAlias: {
                     getValue(key: string, options: ReadAt): Promise<string | undefined>;
                 };
             };
@@ -254,29 +259,36 @@ export async function readLiteSignUpRequirement(
         const at = readAt(snapshot, signal);
         const query = chain.individuality.query;
 
-        const [{ requirement: game, player }, score, binding, litePerson, membership] =
-            await Promise.all([
-                runSignUpRequirementRead(
-                    chain,
-                    {
-                        registrant: { tag: "Account", accountAddress: account },
-                        keyType: options.keyType,
-                        now: options.now,
-                        signal,
-                    },
-                    snapshot,
-                ),
-                runScoreContextRead(chain, { signal, tld: options.tld }, snapshot),
-                query.PeopleLite.AccountToAlias.getValue(account, at),
-                query.PeopleLite.LitePeople.getValue(account, at),
-                liteMemberKey === undefined
-                    ? undefined
-                    : query.Members.Members.getValue(
-                          `0x${bytesToHex(ringCollectionId("people-lite"))}`,
-                          `0x${bytesToHex(liteMemberKey)}`,
-                          at,
-                      ),
-            ]);
+        const [
+            { requirement: game, player },
+            score,
+            binding,
+            litePerson,
+            statementAlias,
+            membership,
+        ] = await Promise.all([
+            runSignUpRequirementRead(
+                chain,
+                {
+                    registrant: { tag: "Account", accountAddress: account },
+                    keyType: options.keyType,
+                    now: options.now,
+                    signal,
+                },
+                snapshot,
+            ),
+            runScoreContextRead(chain, { signal, tld: options.tld }, snapshot),
+            query.PeopleLite.AccountToAlias.getValue(account, at),
+            query.PeopleLite.LitePeople.getValue(account, at),
+            query.Game.StmtAccountToAlias.getValue(account, at),
+            liteMemberKey === undefined
+                ? undefined
+                : query.Members.Members.getValue(
+                      `0x${bytesToHex(ringCollectionId("people-lite"))}`,
+                      `0x${bytesToHex(liteMemberKey)}`,
+                      at,
+                  ),
+        ]);
 
         const liteBlockers: LiteSignUpBlocker[] = [];
 
@@ -290,6 +302,9 @@ export async function readLiteSignUpRequirement(
         }
         if (player !== undefined && player.registered !== true) {
             liteBlockers.push({ tag: "AlreadyPlaying" });
+        }
+        if (statementAlias !== undefined) {
+            liteBlockers.push({ tag: "AccountIsAStatementAccount" });
         }
 
         // A lite person's own account can never hold a binding.
@@ -435,6 +450,7 @@ if (import.meta.vitest) {
             membership?: RawLiteRingMembership;
             invited?: string;
             root?: { revision: number };
+            statementAlias?: string;
             noSuffix?: boolean;
         } = {},
     ) {
@@ -483,6 +499,13 @@ if (import.meta.vitest) {
                                 calls.keys.liteInvites = key;
                                 calls.at.liteInvites = options;
                                 return overrides.invited;
+                            },
+                        },
+                        StmtAccountToAlias: {
+                            getValue: async (key: unknown, options: unknown) => {
+                                calls.keys.stmtAccount = key;
+                                calls.at.stmtAccount = options;
+                                return overrides.statementAlias;
                             },
                         },
                     },
@@ -640,6 +663,30 @@ if (import.meta.vitest) {
 
             expect(value.blockers).toEqual([]);
             expect(value.canSignUp).toBe(true);
+        });
+
+        test("a statement account cannot sign up as an account player", async () => {
+            const { chain, calls } = fakeChain({
+                binding: BOUND,
+                invited: ACCOUNT,
+                statementAlias: ALIAS,
+            });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
+            );
+
+            expect(value.canSignUp).toBe(false);
+            expect(value.blockers).toEqual([{ tag: "AccountIsAStatementAccount" }]);
+            expect(calls.keys.stmtAccount).toBe(ACCOUNT);
+        });
+
+        test("an account that is nobody's statement account is not blocked", async () => {
+            const { chain } = fakeChain({ binding: BOUND, invited: ACCOUNT });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
+            );
+
+            expect(value.blockers).toEqual([]);
         });
 
         test("a chain publishing no suffix answers when the caller supplies the tld", async () => {

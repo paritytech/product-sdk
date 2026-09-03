@@ -15,7 +15,7 @@ builds it unsigned with the same width and count guards as the account sign-up.
 `readGameSignUpRequirement` plus the lite gates, all at one pinned block. Its
 blockers are the new `LiteSignUpBlocker` — a union of the existing
 `SignUpBlocker` (which is unchanged, so exhaustive consumers of the account read
-keep compiling) and eight lite arms: `AliasNotBound` (the proof-authorized
+keep compiling) and nine lite arms: `AliasNotBound` (the proof-authorized
 `PeopleLite.set_alias_account` bind leg has not run), `AliasBoundElsewhere` (the
 binding exists outside `Score.score_context`), `StaleAlias` (the binding was
 proven at a ring revision older than `Members.Root`, which the signed leg
@@ -25,6 +25,8 @@ UI can say which), `AlreadyPlaying` (a `Game.Players` entry exists, which
 `sign_up_inner` rejects for an invited sign-up whatever its `registered` flag
 says, so a returning player uses `signUpWithAccountTx`),
 `AccountIsALitePerson` (the account is itself a lite person),
+`AccountIsAStatementAccount` (the account is some alias's statement account,
+which `sign_up_inner` rejects before it reaches either of the gates above),
 `NotLiteMember` (the supplied member key is not an `Included` lite ring
 member), and `ContextNotProductDerived` (the chain's score context is not
 product-derived, so no stock host can mint the proof). Every lite arm blocks the
@@ -40,8 +42,8 @@ if (req.ok && req.value.canSignUp) {
 ```
 
 The new `LiteSignUpChain` contract (`PeopleLite.AccountToAlias`,
-`PeopleLite.LitePeople`, `Game.LiteInvites`, `Members.Members`, `Members.Root`,
-the sign-up call) is satisfied by paseo and previewnet; devnet predates it.
+`PeopleLite.LitePeople`, `Game.LiteInvites`, `Game.StmtAccountToAlias`, `Members.Members`,
+`Members.Root`, the sign-up call) is satisfied by paseo and previewnet; devnet predates it.
 
 The read also resolves the score context, so it carries the same suffix
 overloads as `readScoreContext`: previewnet resolves it from `Score.Suffix`,

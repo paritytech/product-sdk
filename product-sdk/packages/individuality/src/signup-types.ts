@@ -169,6 +169,12 @@ export type LiteSignUpBlocker =
      */
     | { tag: "AlreadyPlaying" }
     /**
+     * `Game.StmtAccountToAlias[account]` exists → `Game.StatementAccountAlreadyInUse`,
+     * checked before the invited and registered gates. Only the alias that
+     * named this account clears it, by naming another or by `offboard`.
+     */
+    | { tag: "AccountIsAStatementAccount" }
+    /**
      * The binding predates the ring's current revision → `Custom(172)` in
      * `validate`. Re-point it with
      * `withLiteAlias({ tag: "AliasWithAccountRevised", createProof })`.

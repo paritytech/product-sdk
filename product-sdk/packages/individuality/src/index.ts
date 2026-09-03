@@ -336,8 +336,9 @@ export { withLiteAlias } from "./as-lite-alias-signer.js";
 export type { LiteAliasInfo } from "./as-lite-alias-signer.js";
 
 // The lite sign-up itself: the account requirement read plus the lite gates
-// (binding, invite pin, ring membership, context derivability) at one pinned
-// block, and the free `Game.sign_up_with_account_lite_invite` builder. The
+// (binding and its ring revision, invite pin, ring membership, player and
+// statement-account state, context derivability) at one pinned block, and the
+// free `Game.sign_up_with_account_lite_invite` builder. The
 // bind leg stays with `withLiteAlias(AliasWithProof)` over
 // `PeopleLite.set_alias_account`; this pair covers everything after it.
 export { readLiteSignUpRequirement, signUpWithLiteInviteTx } from "./signup-lite.js";

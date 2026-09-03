@@ -584,7 +584,7 @@ Two things block the bind leg, and neither is visible from the API.
 
 ### Deciding and building the sign-up leg
 
-`readLiteSignUpRequirement` answers whether leg 2 is worth submitting, and `signUpWithLiteInviteTx` builds it. The read is `readGameSignUpRequirement` plus the lite gates at one pinned block, so its blockers are the account read's eight plus eight lite arms.
+`readLiteSignUpRequirement` answers whether leg 2 is worth submitting, and `signUpWithLiteInviteTx` builds it. The read is `readGameSignUpRequirement` plus the lite gates at one pinned block, so its blockers are the account read's eight plus nine lite arms.
 
 ```ts
 import {
@@ -613,7 +613,7 @@ Draw entry works exactly as it does on the account path: mint with `mintAccountA
 
 > **`tld` IS REQUIRED WHERE THE CHAIN PUBLISHES NO SUFFIX.** The read resolves the score context, so it carries the same overloads as `readScoreContext`: previewnet resolves it from `Score.Suffix`, paseo publishes no suffix at all. Passing a client that cannot resolve one, without a `tld`, does not compile.
 
-The eight lite arms, on top of every arm the account read can return:
+The nine lite arms, on top of every arm the account read can return:
 
 | Tag | Means |
 |---|---|
@@ -623,6 +623,7 @@ The eight lite arms, on top of every arm the account read can return:
 | `AnotherAccountInvited` | The forever `Game.LiteInvites` pin names a different account, carried in the blocker so a UI can name the seat |
 | `AlreadyPlaying` | A `Game.Players` entry exists. Use `signUpWithAccountTx` |
 | `AccountIsALitePerson` | The account is itself a lite person's canonical account. A dead end for it |
+| `AccountIsAStatementAccount` | The account is some alias's statement account, which `sign_up_inner` rejects before the gates above. Only that alias clears it |
 | `NotLiteMember` | Only when you passed `liteMemberKey`: it is not an `Included` member of the lite ring |
 | `ContextNotProductDerived` | The chain's score context is not product-derived, so no stock host can mint the proof. An environment fact |
 
