@@ -145,7 +145,7 @@ export interface LegacySuffixChain {
     individuality: {
         constants: {
             Score: {
-                /** The network's DotNS TLD, as UTF-8 bytes (`"test"`, `"paseo"`). */
+                /** The network's DotNS TLD, as UTF-8 bytes (`"testnet"`, `"paseo"`). */
                 Suffix(): Promise<Uint8Array>;
             };
         };
@@ -327,7 +327,7 @@ if (import.meta.vitest) {
         };
     }
 
-    /** Previewnet today. */
+    /** Pre-#20: a chain still publishing the `Score.Suffix` constant. Devnet only, now. */
     function legacyChain(
         scoreContext: string | Promise<string>,
         suffix: Uint8Array = utf8ToBytes("testnet"),
@@ -344,7 +344,7 @@ if (import.meta.vitest) {
         };
     }
 
-    /** Post-#20, and nothing yet. */
+    /** Post-#20: the suffix in storage. Both individuality chains, since the re-pin. */
     function storageChain(
         scoreContext: string | Promise<string>,
         suffix = "testnet",
