@@ -90,7 +90,9 @@ import {
     CHECK_NONCE,
     type CreateRingVRFProof,
     RESTRICT_ORIGINS,
+    RESTRICT_ORIGINS_ENABLED,
     VERIFY_SIGNATURE,
+    VERIFY_SIGNATURE_DISABLED,
     requestProof,
     withSlot,
 } from "./origin-extension.js";
@@ -113,10 +115,8 @@ const GENESIS_HEX = /^0x[0-9a-fA-F]{64}$/;
  * know, reported as a loud error naming the slot rather than a guessed byte.
  */
 const GENERAL_TX_EXTRAS: Record<string, unknown> = {
-    /** `Disabled`: no signature slot, so the origin stays `None`. */
-    [VERIFY_SIGNATURE]: { type: "Disabled", value: undefined },
-    /** Restricted origins are the point of this transaction. */
-    [RESTRICT_ORIGINS]: true,
+    [VERIFY_SIGNATURE]: VERIFY_SIGNATURE_DISABLED,
+    [RESTRICT_ORIGINS]: RESTRICT_ORIGINS_ENABLED,
     /** Immortal, so the mortality implicit is the genesis hash. */
     CheckMortality: { type: "Immortal", value: undefined },
     /** Pass-through for a non-account origin, but the bytes must be there. */
@@ -306,8 +306,8 @@ function generalTxExtensions(
  * @throws {ProductIndividualityError} when the chain serves no readable
  *   metadata or a malformed genesis hash.
  */
-export async function buildLiteAliasBindTx<Tx extends EncodedCallSource>(
-    chain: LiteAliasBindChain<Tx>,
+export async function buildLiteAliasBindTx(
+    chain: LiteAliasBindChain,
     options: BuildLiteAliasBindTxOptions,
 ): Promise<LiteAliasBindTx> {
     const { account, createProof, signal } = options;
