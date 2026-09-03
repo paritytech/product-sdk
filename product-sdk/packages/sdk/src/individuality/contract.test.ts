@@ -45,6 +45,7 @@ import type {
     GamePlayersChain,
     IndividualityChain,
     LegacySuffixChain,
+    LiteAliasBindChain,
     LiteSignUpChain,
     NetworkSuffixChain,
     PapiIndividualityChain,
@@ -416,6 +417,25 @@ type PreviewnetSatisfiesTheLiteReadFromItsConstant = Assert<
     PreviewnetClient extends LiteSignUpReadBase & LegacySuffixChain ? true : false
 >;
 type DevnetPredatesTheLiteRead = Assert<DevnetClient extends LiteSignUpReadBase ? false : true>;
+
+// Wider than the reads above: the builder assembles the extrinsic itself, so it
+// needs the chain spec and the metadata blob, not just the call.
+type PaseoSatisfiesBindContract = Assert<PaseoClient extends LiteAliasBindChain ? true : false>;
+type PreviewnetSatisfiesBindContract = Assert<
+    PreviewnetClient extends LiteAliasBindChain ? true : false
+>;
+type DevnetSatisfiesBindContract = Assert<DevnetClient extends LiteAliasBindChain ? true : false>;
+type FromPapiSatisfiesBindContract = Assert<
+    PapiIndividualityChain<
+        PaseoClient["individuality"],
+        PaseoClient["raw"]["individuality"]
+    > extends LiteAliasBindChain
+        ? true
+        : false
+>;
+type RejectsBogusBindClient = Assert<
+    ClientWithoutIndividuality extends LiteAliasBindChain ? false : true
+>;
 
 // Pinned by name for the same reason `sign_up_with_account`'s are: PAPI encodes
 // the object it is handed, so a renamed field silently encodes as `undefined` —
