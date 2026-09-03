@@ -83,6 +83,7 @@
  * Submission stays with the caller's client — the result is the finished
  * extrinsic, so any raw submit works and no signer is involved.
  */
+import { AccountId } from "polkadot-api";
 import { concatBytes } from "@parity/product-sdk-utils";
 import { compactNumber } from "@polkadot-api/substrate-bindings";
 
@@ -307,8 +308,8 @@ function generalTxExtensions(
  *   `PeopleLiteAuth` field list this package cannot encode (devnet predates
  *   the revision field), when a slot has no known general-transaction value,
  *   or when the proof request fails or resolves malformed.
- * @throws {ProductIndividualityError} when the chain serves no readable
- *   metadata or a malformed genesis hash.
+ * @throws {ProductIndividualityError} when `account` is not a valid address,
+ *   or the chain serves no readable metadata or a malformed genesis hash.
  */
 export async function buildLiteAliasBindTx(
     chain: LiteAliasBindChain,
@@ -316,6 +317,11 @@ export async function buildLiteAliasBindTx(
 ): Promise<LiteAliasBindTx> {
     const { account, createProof, signal } = options;
     signal?.throwIfAborted();
+    try {
+        AccountId().enc(account);
+    } catch (cause) {
+        throw new ProductIndividualityError("bind account is not a valid address", { cause });
+    }
 
     const [metadata, runtime, spec, validAtBlock] = await Promise.all([
         chainMetadata(chain, signal),
@@ -635,6 +641,16 @@ if (import.meta.vitest) {
             const { chain } = fakeChain(PREVIEWNET, { servedVersions: [] });
             await expect(build(chain)).rejects.toThrow(ProductIndividualityError);
             await expect(build(chain)).rejects.toThrow(/metadata/);
+        });
+
+        test("throws this package's error for an account that does not decode", async () => {
+            const { chain, metadataRequests } = fakeChain();
+            const createProof = vi.fn<CreateRingVRFProof>(async () => RING_PROOF);
+            await expect(
+                buildLiteAliasBindTx(chain, { account: "not-an-address", createProof }),
+            ).rejects.toThrow(ProductIndividualityError);
+            expect(metadataRequests).toEqual([]);
+            expect(createProof).not.toHaveBeenCalled();
         });
 
         test("throws on a malformed genesis hash before requesting a proof", async () => {
