@@ -438,6 +438,11 @@ if (import.meta.vitest) {
         LegacySuffixChain &
         LiteSignUpChain;
     type SuffixlessLiteChain = GameChain & SignUpChain & ScoreContextChain & LiteSignUpChain;
+    type StorageSuffixLiteChain = GameChain &
+        SignUpChain &
+        ScoreContextChain &
+        NetworkSuffixChain &
+        LiteSignUpChain;
 
     function fakeChain(
         overrides: {
@@ -452,6 +457,7 @@ if (import.meta.vitest) {
             root?: { revision: number };
             statementAlias?: string;
             noSuffix?: boolean;
+            suffixStorage?: string;
         } = {},
     ) {
         const calls: {
@@ -479,6 +485,16 @@ if (import.meta.vitest) {
                     },
                 },
                 query: {
+                    ...(overrides.suffixStorage === undefined
+                        ? {}
+                        : {
+                              NetworkSuffix: {
+                                  NetworkSuffix: {
+                                      getValue: async () =>
+                                          new TextEncoder().encode(overrides.suffixStorage),
+                                  },
+                              },
+                          }),
                     Game: {
                         GameIndex: { getValue: async () => 7 },
                         Game: {
@@ -687,6 +703,24 @@ if (import.meta.vitest) {
             );
 
             expect(value.blockers).toEqual([]);
+        });
+
+        test("resolves the suffix from storage, the live shape since the 2026-09-03 re-pin", async () => {
+            const { chain } = fakeChain({
+                binding: BOUND,
+                invited: ACCOUNT,
+                noSuffix: true,
+                suffixStorage: "test",
+            });
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain as unknown as StorageSuffixLiteChain, {
+                    account: ACCOUNT,
+                    now: 1_000,
+                }),
+            );
+
+            expect(value.blockers).toEqual([]);
+            expect(value.canSignUp).toBe(true);
         });
 
         test("a chain publishing no suffix answers when the caller supplies the tld", async () => {

@@ -134,23 +134,35 @@ type FromPapiSatisfiesContracts = Assert<
         : false
 >;
 
+// Storage is the only way either chain resolves a suffix since the re-pin, so the
+// bring-your-own-client path needs it asserted too.
+type FromPapiSatisfiesTheSuffixStorage = Assert<
+    PapiIndividualityChain<
+        PaseoClient["individuality"],
+        PaseoClient["raw"]["individuality"]
+    > extends NetworkSuffixChain
+        ? true
+        : false
+>;
+
 type PaseoSatisfiesScoreContext = Assert<PaseoClient extends ScoreContextChain ? true : false>;
 type DevnetSatisfiesScoreContext = Assert<DevnetClient extends ScoreContextChain ? true : false>;
 type PreviewnetSatisfiesScoreContext = Assert<
     PreviewnetClient extends ScoreContextChain ? true : false
 >;
 
-// Negative on purpose: a re-pin that flips either is the prompt to re-run the
-// read against that chain.
-type PreviewnetSatisfiesLegacySuffix = Assert<
-    PreviewnetClient extends LegacySuffixChain ? true : false
+// The suffix moved from a constant to storage upstream, and the 2026-09-03 re-pin
+// brought that to both live chains. Devnet still predates it, so it holds the old
+// shape and is the one asserted negatively now.
+type PreviewnetPredatesTheLegacySuffix = Assert<
+    PreviewnetClient extends LegacySuffixChain ? false : true
 >;
 type PaseoPredatesTheLegacySuffix = Assert<PaseoClient extends LegacySuffixChain ? false : true>;
 type DevnetPredatesTheLegacySuffix = Assert<DevnetClient extends LegacySuffixChain ? false : true>;
-type PreviewnetHasNoSuffixStorage = Assert<
-    PreviewnetClient extends NetworkSuffixChain ? false : true
+type PreviewnetHasSuffixStorage = Assert<
+    PreviewnetClient extends NetworkSuffixChain ? true : false
 >;
-type PaseoHasNoSuffixStorage = Assert<PaseoClient extends NetworkSuffixChain ? false : true>;
+type PaseoHasSuffixStorage = Assert<PaseoClient extends NetworkSuffixChain ? true : false>;
 type DevnetHasNoSuffixStorage = Assert<DevnetClient extends NetworkSuffixChain ? false : true>;
 
 // The two are declared separately, so a rename on either side would go
@@ -410,11 +422,16 @@ type LiteSignUpReadBase = GameChain & SignUpChain & ScoreContextChain & LiteSign
 type PaseoSatisfiesTheLiteReadWithATld = Assert<
     PaseoClient extends LiteSignUpReadBase ? true : false
 >;
-type PaseoCannotResolveTheSuffixItself = Assert<
-    PaseoClient extends LiteSignUpReadBase & LegacySuffixChain ? false : true
+// Both chains resolve the suffix from storage since the 2026-09-03 re-pin, so the
+// storage overload is the live path and neither can use the constant one.
+type PaseoSatisfiesTheLiteReadFromStorage = Assert<
+    PaseoClient extends LiteSignUpReadBase & NetworkSuffixChain ? true : false
 >;
-type PreviewnetSatisfiesTheLiteReadFromItsConstant = Assert<
-    PreviewnetClient extends LiteSignUpReadBase & LegacySuffixChain ? true : false
+type PreviewnetSatisfiesTheLiteReadFromStorage = Assert<
+    PreviewnetClient extends LiteSignUpReadBase & NetworkSuffixChain ? true : false
+>;
+type NeitherChainHasTheLegacyConstant = Assert<
+    PaseoClient | PreviewnetClient extends LiteSignUpReadBase & LegacySuffixChain ? false : true
 >;
 type DevnetPredatesTheLiteRead = Assert<DevnetClient extends LiteSignUpReadBase ? false : true>;
 

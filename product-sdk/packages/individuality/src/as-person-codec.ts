@@ -431,8 +431,8 @@ if (import.meta.vitest) {
             // Proves the negative case above is about AsPerson specifically, not
             // a blob this reader simply cannot parse.
             const pipeline = readExtensionPipeline(ASSET_HUB);
-            expect(pipeline.extensions).toHaveLength(18);
-            expect(pipeline.indexOf("CheckNonce")).toBe(12);
+            expect(pipeline.extensions).toHaveLength(17);
+            expect(pipeline.indexOf("CheckNonce")).toBe(11);
         });
     });
 
