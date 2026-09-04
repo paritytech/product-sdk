@@ -53,6 +53,10 @@ export type {
     RemotePermission,
 } from "./truapi.js";
 
+// Worker — this product's background worker, called from its rendered surface.
+export { getWorkerManager, WorkerCallError } from "./worker.js";
+export type { WorkerManager, WorkerErrorTag } from "./worker.js";
+
 // Host chain discovery.
 export { getHostChainInfo } from "./chain-discovery.js";
 export type { HostChainDiscovery, HostChainIdentifier } from "./chain-discovery.js";
