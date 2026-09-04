@@ -48,8 +48,10 @@ carries the pallet, where before only previewnet did.
 
 `@parity/product-sdk-cloud-storage` takes a minor because it now addresses a different chain:
 `CloudStorageNetworks.previewnet.genesisHash` restated the hash by hand and was pointing at a
-previewnet Bulletin that no longer exists. Read it from the descriptor rather than copying it, since
-these chains are re-genesised periodically.
+previewnet Bulletin that no longer exists. All three entries now read `.genesis` off the descriptor
+they already sit beside, so their declared type widens from the literal hash to `` `0x${string}` ``.
+Assignment is unaffected; only an annotation naming the literal breaks. Do the same with any hash
+you pinned yourself, since these chains are re-genesised periodically.
 
 `@parity/product-sdk-chain-client` needs no entry. It reads `.genesis` off the imported descriptor,
 so only its in-source tests restated the hashes, and its published output is unchanged.
