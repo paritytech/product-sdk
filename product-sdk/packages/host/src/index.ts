@@ -154,3 +154,25 @@ export type { ChainSpec, ChainProperties } from "./chain-spec.js";
 
 // Transaction broadcast lifecycle
 export { broadcastTransaction, stopTransaction } from "./chain-transaction.js";
+
+// Peer-to-peer media rooms (MoQ-over-iroh)
+export {
+    p2pStatus,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    mediaEndpoint,
+    publish as p2pPublish,
+    unpublish as p2pUnpublish,
+    roomEvents,
+} from "./p2p.js";
+export type {
+    P2pStatus,
+    P2pRoom,
+    P2pRoomOptions,
+    P2pDirections,
+    P2pEndpoint,
+    P2pRoomEvent,
+    P2pError,
+    P2pFailure,
+} from "./p2p.js";
