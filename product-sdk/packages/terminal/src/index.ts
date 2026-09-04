@@ -57,6 +57,12 @@ export type {
 // Session helpers
 export { waitForSessions } from "./sessions.js";
 
+// Entropy derivation (RFC-0007). Client-side product-entropy derivation from a
+// paired session, at parity with `@parity/product-sdk-host`'s `deriveEntropy`
+// (same bytes for the same wallet + context) but computed locally — no host
+// round-trip — since the session already carries `rootEntropySource`.
+export { deriveEntropy } from "./entropy.js";
+
 // QR Encoding
 export { renderQrCode } from "./qr-encode.js";
 export type { QrRenderOptions } from "./qr-encode.js";
