@@ -6,7 +6,7 @@
             "wsUrl": "wss://bulletin-paseo.tservices.es:8443",
             "metadata": "../../.papi/metadata/devnet_bulletin.scale",
             "genesis": "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
-            "codeHash": "0x919b08470811f08edef7c2d15d387182adf5b501c2a2c8486c5b829a2c78018b"
+            "codeHash": "0x744ee1c14a5e3b44873ffd1669c54621120d139b0e6101322bfe272e49a5d10e"
         }
     }
 }

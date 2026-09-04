@@ -200,7 +200,7 @@ export class CloudStorageClient {
 
     /** Renew a stored transaction by block + index. */
     renew(block: number, index: number): CallBuilder {
-        return this.inner.renew(block, index);
+        return this.inner.renew({ block, index });
     }
 
     /** Estimate the authorization (transactions + bytes) needed for `dataSize`. */

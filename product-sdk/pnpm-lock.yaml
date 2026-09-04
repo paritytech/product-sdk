@@ -404,8 +404,8 @@ importers:
   packages/cloud-storage:
     dependencies:
       '@parity/bulletin-sdk':
-        specifier: ^0.3.0
-        version: 0.3.0(multiformats@13.4.2)(polkadot-api@2.1.6(esbuild@0.28.1)(rxjs@7.8.2))
+        specifier: ^0.4.0
+        version: 0.4.0(multiformats@13.4.2)(polkadot-api@2.1.6(esbuild@0.28.1)(rxjs@7.8.2))
       '@parity/product-sdk-chain-client':
         specifier: workspace:*
         version: link:../chain-client
@@ -1679,11 +1679,11 @@ packages:
   '@novasamatech/substrate-slot-sr25519-wasm@0.8.9':
     resolution: {integrity: sha512-Y8tkYq7h9gGn0WwtxrdCjGBUdG+nVXEDzKDo+5WXe+MZI+kTc2zmhlaxXWe3f/gzqNktxKGEkJXyokB8b21buA==}
 
-  '@parity/bulletin-sdk@0.3.0':
-    resolution: {integrity: sha512-sxVwBzyH/egXze1muPXbaGwQuOkP8efVB4Lxunshixf18gJ6WT2tedgUy08QOfQ1848BDQS4wVpRRQfPfb09/g==}
+  '@parity/bulletin-sdk@0.4.0':
+    resolution: {integrity: sha512-ulXMobFF5MhoTskggwdBB9foXPZi3BD5s7SYoV3vXqrZBlHh55g3EYffBHJ6AW5EqvOwB13u6mE9pP4uFzlGgQ==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
-      multiformats: ^13.4.1
+      multiformats: ^14.0.0
       polkadot-api: ^2.1.2
 
   '@parity/host-api-test-sdk@0.12.1':
@@ -1786,11 +1786,11 @@ packages:
     peerDependencies:
       rxjs: '>=7.8.0'
 
-  '@polkadot-labs/hdkd-helpers@0.0.29':
-    resolution: {integrity: sha512-yiLm1Gj3j5NrQV+VFMlFzkBgcRBNfq2Sd/U3S8iau2bzhDwgsn4gy6FDt94TRPD5xLxOzi1I3wSLOrgOs2eLVw==}
-
   '@polkadot-labs/hdkd-helpers@0.0.30':
     resolution: {integrity: sha512-qWmmD6ayj14RenDuDFfjF3sHS7ObqPzwIIMPcSVoDeKFSeQV7RY0HwyhC5CG4i6FoguMzak2dbtjYpNN5XQiwQ==}
+
+  '@polkadot-labs/hdkd-helpers@0.0.31':
+    resolution: {integrity: sha512-BjunfAAlR/sGmBUVIZxgHYTA712oD2YPQhKRRxb45BtGfxdKBjs10hZWqOFxZbq9N4pICXp/1oosGe04znyhvw==}
 
   '@polkadot-labs/hdkd@0.0.28':
     resolution: {integrity: sha512-LpdqtQRpcgZQ5Mr8J0ddMA5ZufsbI4W3KuJkVdoYMnSmWs4179LigDb1rTYAOtyCg2jWUjf7rWP0mGxQQvNrHw==}
@@ -2491,8 +2491,8 @@ packages:
     resolution: {integrity: sha512-Yg7+ztRkqslMAS2iFaU+Oa4KTSidr63OsFGlOrJoW981kIYO3CGCS3wA95P1mUi/IVSJkn0D479KTJpVpvFNuw==}
     engines: {node: '>=18'}
 
-  ipfs-unixfs@12.0.2:
-    resolution: {integrity: sha512-uZ3rutVVZZ+tw52P+sgDSgOSK6ztExJVlfCjKvSD+NIEVlWQPDeKgdSFm+Kxchmgp7t6g1h+dzir+NgY+VsQXg==}
+  ipfs-unixfs@13.0.0:
+    resolution: {integrity: sha512-5Q9fw95zKA0h/LxRVkQDfp+5lRaDD6i4fzXt70f38b0CRkrbhuj2eUXDjEohfBwBeWcB7UJPW5DzAmgoSNEb8A==}
 
   is-extglob@2.1.1:
     resolution: {integrity: sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==}
@@ -2626,6 +2626,9 @@ packages:
 
   multiformats@13.4.2:
     resolution: {integrity: sha512-eh6eHCrRi1+POZ3dA+Dq1C6jhP1GNtr9CRINMb67OKzqW9I5DUuZM/3jLPlzhgpGeiNUlEGEbkCYChXMCc/8DQ==}
+
+  multiformats@14.0.5:
+    resolution: {integrity: sha512-vbIm83F2yZ1pWJGS0yl0ysracIvv56LtbrIyiIQHoLdYDJOMoLfVFsXhh9DUH4SFdkdkFhucyWniihsNzVEjkQ==}
 
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
@@ -2824,8 +2827,8 @@ packages:
     resolution: {integrity: sha512-gjVS5hOP+M3wMm5nmNOucbIrqudzs9v/57bWRHQWLYklXqoXKrVfYW2W9+glfGsqtPgpiz5WwyEEB+ksXIx3gQ==}
     engines: {node: '>=18'}
 
-  protons-runtime@6.0.1:
-    resolution: {integrity: sha512-ONL+jDj143WA1m+WKLuuqBIaDKxm32dx6HfJdyujrRcni/6KkhXzVnyg22nH/Wwqmbwnd1BKUVkD1hMEWZFeww==}
+  protons-runtime@7.0.0:
+    resolution: {integrity: sha512-r/e72006xoVND4Uvf1aIs4OQOkJaASBU3ip4DzOWAktoKAkTiOYqKoS3TYMBm8HnnYU8+h0uEzr5gIRwk/pmTg==}
 
   qrcode@1.5.4:
     resolution: {integrity: sha512-1ca71Zgiu6ORjHqFBDpnSMTR2ReToX4l1Au1VFLyVeBTFavzQnv5JxMFr3ukHVKpSrSA2MCk0lNJSykjUfz7Zg==}
@@ -3115,14 +3118,14 @@ packages:
   ufo@1.6.3:
     resolution: {integrity: sha512-yDJTmhydvl5lJzBmy/hyOAA0d+aqCBuwl818haVdYCRrWV84o7YyeVm4QlVHStqNrrJSTb6jKuFAVqAFsr+K3Q==}
 
-  uint8-varint@2.0.4:
-    resolution: {integrity: sha512-FwpTa7ZGA/f/EssWAb5/YV6pHgVF1fViKdW8cWaEarjB8t7NyofSWBdOTyFPaGuUG4gx3v1O3PQ8etsiOs3lcw==}
+  uint8-varint@3.0.0:
+    resolution: {integrity: sha512-S4DdpXBaLwKcFo7f0bWzWfHjbZ/i3QhM842qn+ZvHjxqFCfUcEB9SQNcmI69S+zMlcmIcKxsk9Iyw77S2Kxv6Q==}
 
-  uint8arraylist@2.4.9:
-    resolution: {integrity: sha512-KxWjyEFzchzik3aoQlK66oaoxIReoMo5bQRm1fcjBUZvE8xv/tyR3CTKhjh6K/faV8VaF6hd5pjr45CzbwuwkA==}
+  uint8arraylist@3.0.2:
+    resolution: {integrity: sha512-LDVoq9BQaGJzGDUovEnoX6rpKCvnY/Jbtws4ikwnBzjRbq5qBAFpBZevUEbSmMM87aO0Sp+wOZy2ZXf5yODmXQ==}
 
-  uint8arrays@5.1.1:
-    resolution: {integrity: sha512-9muQwa4wZG4dKi9gMAIBtnk2Pw87SRpvWTH6lOGm19V2Uqxr4uomUf2PGqPnWc+qs06sN8owUU4jfcoWOcfwVQ==}
+  uint8arrays@6.1.1:
+    resolution: {integrity: sha512-iz7JN0XCSZYA111lhFG2Ui9EhFvTNekqSRHw3lvMHq+dzwWy1OQftxFQREEh4rffU0oSoXdQHsk2TiHKVm4fsA==}
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
@@ -3930,12 +3933,12 @@ snapshots:
 
   '@novasamatech/substrate-slot-sr25519-wasm@0.8.9': {}
 
-  '@parity/bulletin-sdk@0.3.0(multiformats@13.4.2)(polkadot-api@2.1.6(esbuild@0.28.1)(rxjs@7.8.2))':
+  '@parity/bulletin-sdk@0.4.0(multiformats@13.4.2)(polkadot-api@2.1.6(esbuild@0.28.1)(rxjs@7.8.2))':
     dependencies:
       '@ipld/dag-pb': 4.1.5
       '@noble/hashes': 2.2.0
-      '@polkadot-labs/hdkd-helpers': 0.0.29
-      ipfs-unixfs: 12.0.2
+      '@polkadot-labs/hdkd-helpers': 0.0.31
+      ipfs-unixfs: 13.0.0
       multiformats: 13.4.2
       polkadot-api: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
 
@@ -4122,7 +4125,7 @@ snapshots:
       '@polkadot-api/utils': 0.4.0
       rxjs: 7.8.2
 
-  '@polkadot-labs/hdkd-helpers@0.0.29':
+  '@polkadot-labs/hdkd-helpers@0.0.30':
     dependencies:
       '@noble/curves': 2.2.0
       '@noble/hashes': 2.2.0
@@ -4130,12 +4133,12 @@ snapshots:
       '@scure/sr25519': 1.0.0
       scale-ts: 1.6.1
 
-  '@polkadot-labs/hdkd-helpers@0.0.30':
+  '@polkadot-labs/hdkd-helpers@0.0.31':
     dependencies:
       '@noble/curves': 2.2.0
       '@noble/hashes': 2.2.0
       '@scure/base': 2.2.0
-      '@scure/sr25519': 1.0.0
+      '@scure/sr25519': 2.2.0
       scale-ts: 1.6.1
 
   '@polkadot-labs/hdkd@0.0.28':
@@ -4756,10 +4759,10 @@ snapshots:
 
   index-to-position@1.2.0: {}
 
-  ipfs-unixfs@12.0.2:
+  ipfs-unixfs@13.0.0:
     dependencies:
-      protons-runtime: 6.0.1
-      uint8arraylist: 2.4.9
+      protons-runtime: 7.0.0
+      uint8arraylist: 3.0.2
 
   is-extglob@2.1.1: {}
 
@@ -4862,6 +4865,8 @@ snapshots:
   ms@2.1.3: {}
 
   multiformats@13.4.2: {}
+
+  multiformats@14.0.5: {}
 
   mz@2.7.0:
     dependencies:
@@ -5048,11 +5053,11 @@ snapshots:
     dependencies:
       parse-ms: 4.0.0
 
-  protons-runtime@6.0.1:
+  protons-runtime@7.0.0:
     dependencies:
-      uint8-varint: 2.0.4
-      uint8arraylist: 2.4.9
-      uint8arrays: 5.1.1
+      uint8-varint: 3.0.0
+      uint8arraylist: 3.0.2
+      uint8arrays: 6.1.1
 
   qrcode@1.5.4:
     dependencies:
@@ -5376,18 +5381,18 @@ snapshots:
 
   ufo@1.6.3: {}
 
-  uint8-varint@2.0.4:
+  uint8-varint@3.0.0:
     dependencies:
-      uint8arraylist: 2.4.9
-      uint8arrays: 5.1.1
+      uint8arraylist: 3.0.2
+      uint8arrays: 6.1.1
 
-  uint8arraylist@2.4.9:
+  uint8arraylist@3.0.2:
     dependencies:
-      uint8arrays: 5.1.1
+      uint8arrays: 6.1.1
 
-  uint8arrays@5.1.1:
+  uint8arrays@6.1.1:
     dependencies:
-      multiformats: 13.4.2
+      multiformats: 14.0.5
 
   undici-types@6.21.0: {}
 
