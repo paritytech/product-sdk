@@ -1,0 +1,38 @@
+{
+    "name": "@parity/product-sdk-react-renderer",
+    "version": "0.0.1",
+    "description": "React renderer for TrUAPI custom chat messages: maps a React component tree to CustomRendererNode widget trees",
+    "type": "module",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": ["dist", "src"],
+    "scripts": {
+        "build": "tsup",
+        "test": "vitest",
+        "clean": "rm -rf dist",
+        "typecheck": "tsc -p tsconfig.typecheck.json"
+    },
+    "dependencies": {
+        "@parity/truapi": "catalog:",
+        "react-reconciler": "0.33.0"
+    },
+    "peerDependencies": {
+        "react": "^19.2.0"
+    },
+    "devDependencies": {
+        "@types/react": "^19.0.0",
+        "@types/react-reconciler": "0.33.0",
+        "react": "^19.2.0",
+        "tsup": "catalog:",
+        "typescript": "^5.7.0",
+        "vitest": "^3.0.0"
+    },
+    "license": "Apache-2.0"
+}
