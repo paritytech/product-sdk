@@ -102,7 +102,7 @@ const subSigner = createSessionSignerForAccount(session, {
 });
 ```
 
-> **Wire format note:** `@novasamatech/host-papp` 0.7 expects `productAccountId: [productId, derivationIndex]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
+> **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
 
 ### `renderQrCode(data, options?): Promise<string>`
 
@@ -251,9 +251,9 @@ For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing se
 
 ### Why the signer API changed
 
-`@novasamatech/host-papp` 0.7 replaced `SigningRawRequest.address` with `productAccountId: [productId, derivationIndex]`. The wire format requires both fields, so a session-only argument is no longer enough — the signer needs to know *which sub-account of which product is asking*. We split that into two functions to keep the common case ergonomic:
+`@novasamatech/host-papp` 0.7 replaced `SigningRawRequest.address` with `productAccountId: [productId, derivationIndex]`, and 0.10 made the index a tagged `Index | Raw` selector. The wire format requires both fields, so a session-only argument is no longer enough — the signer needs to know *which sub-account of which product is asking*. We split that into two functions to keep the common case ergonomic:
 
-- `createSessionSigner(session, adapter)` for the default account (uses `[adapter.appId, 0]`)
+- `createSessionSigner(session, adapter)` for the default account (uses `[adapter.appId, { tag: "Index", value: 0 }]`)
 - `createSessionSignerForAccount(session, { productId, derivationIndex })` for everything else
 
 The single-argument `createSessionSigner(session)` from `@polkadot-apps/terminal` no longer works against host-papp 0.7 regardless of which package you use.

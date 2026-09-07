@@ -20,6 +20,9 @@ catalog:
   vitest: ^3.1.4
 
 overrides:
+  # host-papp asks for `polkadot-api: ">=2"`, which resolves to 3.x on its own.
+  # Terminal pins host-papp exact for the same reason: 0.10.1+ needs PAPI 3.
+  "polkadot-api": "^2.1.6"
   "@polkadot-api/json-rpc-provider": "^0.2.0"
   # Force the patched `ws` (GHSA: memory-exhaustion DoS from tiny fragments;
   # affects >=8.0.0 <8.21.0). Pulled transitively by smoldot (`^8.8.1`, satisfied)
