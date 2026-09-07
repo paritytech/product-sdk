@@ -520,10 +520,10 @@ if (import.meta.vitest) {
             // Mobile applies the <Bytes>...</Bytes> envelope on its side.
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, number];
+                productAccountId: [string, { tag: "Index"; value: number }];
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["test-app", 0]);
+            expect(req.productAccountId).toEqual(["test-app", { tag: "Index", value: 0 }]);
             expect(req.data.tag).toBe("Bytes");
             expect(req.data.value).toEqual(new Uint8Array([1, 2, 3]));
         });
@@ -611,30 +611,30 @@ if (import.meta.vitest) {
         test("wraps the payload as v1 with signer, callData, and txExtVersion", () => {
             const callData = new Uint8Array([0xca, 0x11]);
             const req = buildCreateTransactionRequest(
-                ["my-app", 3],
+                ["my-app", { tag: "Index", value: 3 }],
                 callData,
                 { CheckGenesis: checkGenesis },
                 5,
             );
             expect(req.payload.tag).toBe("v1");
-            expect(req.payload.value.signer).toEqual(["my-app", 3]);
+            expect(req.payload.value.signer).toEqual(["my-app", { tag: "Index", value: 3 }]);
             expect(req.payload.value.callData).toEqual(callData);
             expect(req.payload.value.txExtVersion).toBe(5);
         });
 
         test("takes the genesis hash from CheckGenesis.additionalSigned", () => {
             const req = buildCreateTransactionRequest(
-                ["my-app", 0],
+                ["my-app", { tag: "Index", value: 0 }],
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis },
                 0,
             );
-            expect(req.payload.value.genesisHash).toEqual(new Uint8Array([0x11, 0x22, 0x33]));
+            expect(req.payload.value.genesisHash).toBe("0x112233");
         });
 
         test("maps every signed extension to { id, extra, additionalSigned }", () => {
             const req = buildCreateTransactionRequest(
-                ["my-app", 0],
+                ["my-app", { tag: "Index", value: 0 }],
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis, CheckNonce: ext("CheckNonce", [0x07], []) },
                 0,
@@ -657,7 +657,7 @@ if (import.meta.vitest) {
             // The whole reason for moving off PJS: an extension PAPI's PJS
             // adapter doesn't know must pass through untouched.
             const req = buildCreateTransactionRequest(
-                ["my-app", 0],
+                ["my-app", { tag: "Index", value: 0 }],
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis, AsPgas: ext("AsPgas", [0xde, 0xad], [0xbe, 0xef]) },
                 0,
@@ -671,14 +671,19 @@ if (import.meta.vitest) {
 
         test("throws a clear error when CheckGenesis is absent", () => {
             expect(() =>
-                buildCreateTransactionRequest(["my-app", 0], new Uint8Array([0]), {}, 0),
+                buildCreateTransactionRequest(
+                    ["my-app", { tag: "Index", value: 0 }],
+                    new Uint8Array([0]),
+                    {},
+                    0,
+                ),
             ).toThrow(/CheckGenesis/);
         });
     });
 
     describe("requestSignedTransaction — SSO round-trip", () => {
         const request = buildCreateTransactionRequest(
-            ["my-app", 0],
+            ["my-app", { tag: "Index", value: 0 }],
             new Uint8Array([0]),
             { CheckGenesis: ext("CheckGenesis", [], [0x01]) },
             0,
@@ -797,15 +802,18 @@ if (import.meta.vitest) {
                 },
             });
 
-            const callback = makeRawBytesSignCallback(session, ["my-app", 5]);
+            const callback = makeRawBytesSignCallback(session, [
+                "my-app",
+                { tag: "Index", value: 5 },
+            ]);
             await callback(new Uint8Array([0xde, 0xad, 0xbe, 0xef]));
 
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, number];
+                productAccountId: [string, { tag: "Index"; value: number }];
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["my-app", 5]);
+            expect(req.productAccountId).toEqual(["my-app", { tag: "Index", value: 5 }]);
             expect(req.data.tag).toBe("Bytes");
             expect(Array.from(req.data.value)).toEqual([0xde, 0xad, 0xbe, 0xef]);
         });
@@ -816,7 +824,10 @@ if (import.meta.vitest) {
                 signRaw: async () => ok({ signature: sig }),
             });
 
-            const callback = makeRawBytesSignCallback(session, ["my-app", 0]);
+            const callback = makeRawBytesSignCallback(session, [
+                "my-app",
+                { tag: "Index", value: 0 },
+            ]);
             const out = await callback(new Uint8Array([0]));
 
             expect(out).toBe(sig);
@@ -828,7 +839,10 @@ if (import.meta.vitest) {
                 signRaw: async () => err(underlying),
             });
 
-            const callback = makeRawBytesSignCallback(session, ["my-app", 0]);
+            const callback = makeRawBytesSignCallback(session, [
+                "my-app",
+                { tag: "Index", value: 0 },
+            ]);
             await expect(callback(new Uint8Array([1]))).rejects.toBeInstanceOf(
                 AllowanceExpiredError,
             );
@@ -843,7 +857,10 @@ if (import.meta.vitest) {
                 signRaw: async () => err(new Error("user declined")),
             });
 
-            const callback = makeRawBytesSignCallback(session, ["my-app", 0]);
+            const callback = makeRawBytesSignCallback(session, [
+                "my-app",
+                { tag: "Index", value: 0 },
+            ]);
             await expect(callback(new Uint8Array([1]))).rejects.toThrow(
                 "Mobile signing rejected: user declined",
             );
@@ -868,10 +885,10 @@ if (import.meta.vitest) {
 
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, number];
+                productAccountId: [string, { tag: "Index"; value: number }];
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["my-app", 7]);
+            expect(req.productAccountId).toEqual(["my-app", { tag: "Index", value: 7 }]);
             expect(req.data.tag).toBe("Bytes");
             expect(req.data.value).toBeInstanceOf(Uint8Array);
         });
@@ -891,8 +908,10 @@ if (import.meta.vitest) {
             });
             await signer.signBytes(new Uint8Array([1]));
 
-            const req = captured[0] as { productAccountId: [string, number] };
-            expect(req.productAccountId).toEqual(["external-product", 0]);
+            const req = captured[0] as {
+                productAccountId: [string, { tag: "Index"; value: number }];
+            };
+            expect(req.productAccountId).toEqual(["external-product", { tag: "Index", value: 0 }]);
         });
     });
 }

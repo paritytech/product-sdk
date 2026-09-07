@@ -243,11 +243,41 @@ if (import.meta.vitest) {
         });
 
         test("disambiguates SmartContractAllowance by dest", () => {
-            expect(cacheKey({ tag: "SmartContractAllowance", value: 0 })).toBe(
-                "SmartContractAllowance::0",
-            );
-            expect(cacheKey({ tag: "SmartContractAllowance", value: 7 })).toBe(
-                "SmartContractAllowance::7",
+            expect(
+                cacheKey({ tag: "SmartContractAllowance", value: { tag: "Index", value: 0 } }),
+            ).toBe("SmartContractAllowance::Index::0");
+            expect(
+                cacheKey({ tag: "SmartContractAllowance", value: { tag: "Index", value: 7 } }),
+            ).toBe("SmartContractAllowance::Index::7");
+        });
+
+        // tsc misses this: a template literal accepts an object.
+        test("an Index and a Raw dest never share a cache key", () => {
+            const raw = new Uint8Array(32);
+            raw[0] = 7;
+            const indexKey = cacheKey({
+                tag: "SmartContractAllowance",
+                value: { tag: "Index", value: 7 },
+            });
+            const rawKey = cacheKey({
+                tag: "SmartContractAllowance",
+                value: { tag: "Raw", value: raw },
+            });
+
+            expect(rawKey).not.toBe(indexKey);
+            expect(rawKey).not.toContain("[object Object]");
+            expect(indexKey).not.toContain("[object Object]");
+        });
+
+        test("two different Raw dests get different keys", () => {
+            const a = new Uint8Array(32);
+            const b = new Uint8Array(32);
+            b[31] = 1;
+
+            expect(
+                cacheKey({ tag: "SmartContractAllowance", value: { tag: "Raw", value: a } }),
+            ).not.toBe(
+                cacheKey({ tag: "SmartContractAllowance", value: { tag: "Raw", value: b } }),
             );
         });
     });
@@ -255,12 +285,29 @@ if (import.meta.vitest) {
     describe("loadCache / saveCache round-trip", () => {
         test("loadCache on missing file returns empty cache, not an error", async () => {
             const cache = await loadCache("my-app", storageDir);
-            expect(cache).toEqual({ version: 1, entries: {} });
+            expect(cache).toEqual({ version: 2, entries: {} });
+        });
+
+        // v1 entries belong to sessions the x25519 change already invalidated.
+        test("a version 1 file on disk is dropped, not read", async () => {
+            const stale = {
+                version: 1,
+                entries: {
+                    BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0xdeadbeef" },
+                },
+            };
+            await mkdir(storageDir, { recursive: true });
+            await writeFile(
+                join(storageDir, "my-app_AllowanceKeys.json"),
+                JSON.stringify(stale, null, 2),
+            );
+
+            expect(await loadCache("my-app", storageDir)).toEqual({ version: 2, entries: {} });
         });
 
         test("saveCache then loadCache returns the same content", async () => {
-            const original: AllowanceCacheV1 = {
-                version: 1,
+            const original: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0xdeadbeef" },
                 },
@@ -271,14 +318,14 @@ if (import.meta.vitest) {
         });
 
         test("two appIds in the same storageDir don't collide", async () => {
-            const a: AllowanceCacheV1 = {
-                version: 1,
+            const a: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0x01" },
                 },
             };
-            const b: AllowanceCacheV1 = {
-                version: 1,
+            const b: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0x02" },
                 },
@@ -295,7 +342,7 @@ if (import.meta.vitest) {
 
         test("appId with non-alphanumeric characters sanitizes to a safe path", async () => {
             // Verifies a path-traversal-style appId can't escape storageDir.
-            const cache: AllowanceCacheV1 = { version: 1, entries: {} };
+            const cache: AllowanceCacheV2 = { version: 2, entries: {} };
             await expect(saveCache("../escape", cache, storageDir)).resolves.toBeUndefined();
             const reloaded = await loadCache("../escape", storageDir);
             expect(reloaded).toEqual(cache);
@@ -304,7 +351,7 @@ if (import.meta.vitest) {
         test("malformed cache file is treated as empty, not thrown", async () => {
             await writeFile(cachePath("my-app", storageDir), "{ not valid json", "utf-8");
             const cache = await loadCache("my-app", storageDir);
-            expect(cache).toEqual({ version: 1, entries: {} });
+            expect(cache).toEqual({ version: 2, entries: {} });
         });
 
         test("version mismatch is treated as empty, not thrown", async () => {
@@ -314,12 +361,12 @@ if (import.meta.vitest) {
                 "utf-8",
             );
             const cache = await loadCache("my-app", storageDir);
-            expect(cache).toEqual({ version: 1, entries: {} });
+            expect(cache).toEqual({ version: 2, entries: {} });
         });
 
         test("file is written with 0o600 permissions (defense-in-depth)", async () => {
             const { stat } = await import("node:fs/promises");
-            const cache: AllowanceCacheV1 = { version: 1, entries: {} };
+            const cache: AllowanceCacheV2 = { version: 2, entries: {} };
             await saveCache("my-app", cache, storageDir);
             const s = await stat(cachePath("my-app", storageDir));
             // Mask to permission bits only — file type bits are above 0o777.
@@ -341,8 +388,8 @@ if (import.meta.vitest) {
         });
 
         test("all slot-table resources cached → Increase", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0x01" },
                     StatementStoreAllowance: {
@@ -360,8 +407,8 @@ if (import.meta.vitest) {
         });
 
         test("mixed cached + uncached → Ignore (conservative)", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0x01" },
                 },
@@ -375,12 +422,12 @@ if (import.meta.vitest) {
         });
 
         test("AutoSigning in the request → Ignore even if cached (not slot-additive)", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     AutoSigning: {
                         tag: "AutoSigning",
-                        productDerivationSecret: "x",
+                        ringVrfDomainEntropy: "0x01",
                         productRootPrivateKey: "0xaa",
                     },
                 },
@@ -391,15 +438,20 @@ if (import.meta.vitest) {
         });
 
         test("SC in the request → Ignore (not slot-additive; PGAS claim is per-call)", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
-                    "SmartContractAllowance::5": { tag: "SmartContractAllowance", dest: 5 },
+                    "SmartContractAllowance::Index::5": {
+                        tag: "SmartContractAllowance",
+                        dest: "Index::5",
+                    },
                 },
             };
-            expect(pickOnExistingPolicy(cache, [{ tag: "SmartContractAllowance", value: 5 }])).toBe(
-                "Ignore",
-            );
+            expect(
+                pickOnExistingPolicy(cache, [
+                    { tag: "SmartContractAllowance", value: { tag: "Index", value: 5 } },
+                ]),
+            ).toBe("Ignore");
         });
     });
 
@@ -441,7 +493,9 @@ if (import.meta.vitest) {
 
         test("stores SmartContractAllowance with dest from the request", () => {
             const cache = emptyCache();
-            const requested: AllocatableResource[] = [{ tag: "SmartContractAllowance", value: 7 }];
+            const requested: AllocatableResource[] = [
+                { tag: "SmartContractAllowance", value: { tag: "Index", value: 7 } },
+            ];
             const outcomes: ApAllocationOutcome[] = [
                 {
                     tag: "Allocated",
@@ -449,9 +503,9 @@ if (import.meta.vitest) {
                 },
             ];
             const merged = mergeOutcomes(cache, requested, outcomes);
-            expect(merged.entries["SmartContractAllowance::7"]).toEqual({
+            expect(merged.entries["SmartContractAllowance::Index::7"]).toEqual({
                 tag: "SmartContractAllowance",
-                dest: 7,
+                dest: "Index::7",
             });
         });
 
@@ -464,7 +518,7 @@ if (import.meta.vitest) {
                     value: {
                         tag: "AutoSigning",
                         value: {
-                            productDerivationSecret: "secret-hex",
+                            ringVrfDomainEntropy: new Uint8Array([0xef]),
                             productRootPrivateKey: new Uint8Array([0xab, 0xcd]),
                         },
                     },
@@ -473,15 +527,15 @@ if (import.meta.vitest) {
             const merged = mergeOutcomes(cache, requested, outcomes);
             expect(merged.entries.AutoSigning).toEqual({
                 tag: "AutoSigning",
-                productDerivationSecret: "secret-hex",
+                ringVrfDomainEntropy: "0xef",
                 productRootPrivateKey: "0xabcd",
             });
         });
 
         test("returns the same cache reference when no Allocated outcomes (no-op)", () => {
             // Lets callers gate disk writes on reference equality.
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0xaa" },
                 },
@@ -552,8 +606,8 @@ if (import.meta.vitest) {
         });
 
         test("preserves existing entries when merging new ones", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     StatementStoreAllowance: {
                         tag: "StatementStoreAllowance",
@@ -587,21 +641,31 @@ if (import.meta.vitest) {
 
     describe("readCacheEntry", () => {
         test("returns the cached entry by resource discriminator", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
-                    "SmartContractAllowance::5": {
+                    "SmartContractAllowance::Index::5": {
                         tag: "SmartContractAllowance",
-                        dest: 5,
+                        dest: "Index::5",
                     },
                 },
             };
-            expect(readCacheEntry(cache, { tag: "SmartContractAllowance", value: 5 })).toEqual({
+            expect(
+                readCacheEntry(cache, {
+                    tag: "SmartContractAllowance",
+                    value: { tag: "Index", value: 5 },
+                }),
+            ).toEqual({
                 tag: "SmartContractAllowance",
-                dest: 5,
+                dest: "Index::5",
             });
             // Different dest doesn't match.
-            expect(readCacheEntry(cache, { tag: "SmartContractAllowance", value: 6 })).toBeNull();
+            expect(
+                readCacheEntry(cache, {
+                    tag: "SmartContractAllowance",
+                    value: { tag: "Index", value: 6 },
+                }),
+            ).toBeNull();
         });
 
         test("returns null when nothing cached", () => {

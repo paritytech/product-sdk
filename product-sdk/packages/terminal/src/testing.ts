@@ -305,7 +305,7 @@ if (import.meta.vitest) {
     });
 
     describe("createTestSession", () => {
-        test("writes both SsoSessionsV3 and UserSecretsV2 files by default", async () => {
+        test("writes both SsoSessionsV4 and UserSecretsV2 files by default", async () => {
             const result = await createTestSession({
                 appId: "my-app",
                 storageDir,
@@ -313,7 +313,7 @@ if (import.meta.vitest) {
                 remoteMnemonic: REMOTE_MNEMONIC,
             });
 
-            const sessions = await readFile(join(storageDir, "my-app_SsoSessionsV3.json"), "utf-8");
+            const sessions = await readFile(join(storageDir, "my-app_SsoSessionsV4.json"), "utf-8");
             expect(sessions).toMatch(/^0x[0-9a-f]+$/);
 
             const secrets = await readFile(
@@ -333,7 +333,7 @@ if (import.meta.vitest) {
             });
 
             await expect(
-                readFile(join(storageDir, "my-app_SsoSessionsV3.json"), "utf-8"),
+                readFile(join(storageDir, "my-app_SsoSessionsV4.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
 
             await expect(
@@ -344,7 +344,7 @@ if (import.meta.vitest) {
             ).rejects.toThrow(/ENOENT/);
         });
 
-        test("SsoSessionsV3 file decodes with the host-papp session codec shape", async () => {
+        test("SsoSessionsV4 file decodes with the host-papp session codec shape", async () => {
             const result = await createTestSession({
                 appId: "my-app",
                 storageDir,
@@ -353,7 +353,7 @@ if (import.meta.vitest) {
                 sessionId: "stable-test-id",
             });
 
-            const hex = await readFile(join(storageDir, "my-app_SsoSessionsV3.json"), "utf-8");
+            const hex = await readFile(join(storageDir, "my-app_SsoSessionsV4.json"), "utf-8");
             const decoded = sessionsCodec.dec(fromHex(hex));
 
             expect(decoded).toHaveLength(1);
@@ -411,10 +411,10 @@ if (import.meta.vitest) {
             await createTestSession({ appId: "app-b", storageDir, sessionId: "id" });
 
             await expect(
-                readFile(join(storageDir, "app-a_SsoSessionsV3.json"), "utf-8"),
+                readFile(join(storageDir, "app-a_SsoSessionsV4.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
             await expect(
-                readFile(join(storageDir, "app-b_SsoSessionsV3.json"), "utf-8"),
+                readFile(join(storageDir, "app-b_SsoSessionsV4.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
         });
 
@@ -425,7 +425,7 @@ if (import.meta.vitest) {
                 sessionId: "id",
             });
             await expect(
-                readFile(join(storageDir, "app_with_spaces_SsoSessionsV3.json"), "utf-8"),
+                readFile(join(storageDir, "app_with_spaces_SsoSessionsV4.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
         });
 
@@ -433,7 +433,7 @@ if (import.meta.vitest) {
             const nested = join(storageDir, "does", "not", "exist");
             await createTestSession({ appId: "my-app", storageDir: nested });
             await expect(
-                readFile(join(nested, "my-app_SsoSessionsV3.json"), "utf-8"),
+                readFile(join(nested, "my-app_SsoSessionsV4.json"), "utf-8"),
             ).resolves.toMatch(/^0x/);
         });
 
@@ -487,7 +487,7 @@ if (import.meta.vitest) {
                 sessionId: "second",
             });
 
-            const hex = await readFile(join(storageDir, "my-app_SsoSessionsV3.json"), "utf-8");
+            const hex = await readFile(join(storageDir, "my-app_SsoSessionsV4.json"), "utf-8");
             const decoded = sessionsCodec.dec(fromHex(hex));
             expect(decoded).toHaveLength(1);
             expect(decoded[0].id).toBe("second");

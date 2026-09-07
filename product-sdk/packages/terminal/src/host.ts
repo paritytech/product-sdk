@@ -408,13 +408,13 @@ if (import.meta.vitest) {
             });
 
             await requestResourceAllocation(session, fakeAdapter("p"), [
-                { tag: "SmartContractAllowance", value: 7 },
+                { tag: "SmartContractAllowance", value: { tag: "Index", value: 7 } },
             ]);
 
             const sent = captured[0].resources[0];
             expect(sent.tag).toBe("SmartContractAllowance");
             if (sent.tag === "SmartContractAllowance") {
-                expect(sent.value).toBe(7);
+                expect(sent.value).toEqual({ tag: "Index", value: 7 });
             }
         });
 
@@ -647,7 +647,7 @@ if (import.meta.vitest) {
                             value: {
                                 tag: "AutoSigning" as const,
                                 value: {
-                                    productDerivationSecret: "secret",
+                                    ringVrfDomainEntropy: new Uint8Array([0xcd]),
                                     productRootPrivateKey: new Uint8Array([0xab]),
                                 },
                             },
@@ -797,15 +797,21 @@ if (import.meta.vitest) {
             });
             const adapter = fakeAdapter("p");
             await requestResourceAllocation(session, adapter, [
-                { tag: "SmartContractAllowance", value: 5 },
+                { tag: "SmartContractAllowance", value: { tag: "Index", value: 5 } },
             ]);
 
             expect(
-                await getCachedAllocation(adapter, { tag: "SmartContractAllowance", value: 5 }),
-            ).toEqual({ tag: "SmartContractAllowance", dest: 5 });
+                await getCachedAllocation(adapter, {
+                    tag: "SmartContractAllowance",
+                    value: { tag: "Index", value: 5 },
+                }),
+            ).toEqual({ tag: "SmartContractAllowance", dest: "Index::5" });
             // Different dest doesn't match.
             expect(
-                await getCachedAllocation(adapter, { tag: "SmartContractAllowance", value: 6 }),
+                await getCachedAllocation(adapter, {
+                    tag: "SmartContractAllowance",
+                    value: { tag: "Index", value: 6 },
+                }),
             ).toBeNull();
         });
     });
