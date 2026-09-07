@@ -45,6 +45,7 @@ import { NoAllowanceError } from "@novasamatech/statement-store";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 import { AllowanceExpiredError } from "@parity/product-sdk-signer/errors";
+import { toHex } from "@polkadot-api/utils";
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { TerminalAdapter } from "./adapter.js";
@@ -98,7 +99,7 @@ function toAllowanceExpiredError(error: unknown): AllowanceExpiredError | null {
 /**
  * Identifies which sub-account of a paired session should sign.
  *
- * Mirrors the `host-papp` wire format `productAccountId: [productId, derivationIndex]`:
+ * Mirrors the `host-papp` wire format `productAccountId: [productId, index]`:
  * `productId` is the dotNS-style identifier for the requesting product (matches
  * the adapter's `appId` in normal usage); `derivationIndex` is the BIP32-style
  * child-key index, where `0` is the session's default account.
@@ -125,6 +126,14 @@ export interface ProductAccountRef {
     publicKey?: Uint8Array;
 }
 
+/** Derived from the session so a codec change fails to compile here. */
+type ProductAccountId = Parameters<UserSession["signRaw"]>[0]["productAccountId"];
+
+/** `Raw` is a host capability the SDK does not expose. */
+function toProductAccountId(ref: ProductAccountRef): ProductAccountId {
+    return [ref.productId, { tag: "Index", value: ref.derivationIndex }];
+}
+
 /**
  * The `signedExtensions` map PAPI hands to `PolkadotSigner.signTx`: keyed by
  * extension identifier, each entry carries the SCALE-encoded `extra` (goes in
@@ -144,7 +153,7 @@ type PapiSignedExtensions = Parameters<PolkadotSigner["signTx"]>[1];
  * paired phone; the metadata decode + SSO round-trip live in {@link makeTxSignTx}.
  */
 function buildCreateTransactionRequest(
-    productAccountId: [string, number],
+    productAccountId: ProductAccountId,
     callData: Uint8Array,
     signedExtensions: PapiSignedExtensions,
     txExtVersion: number,
@@ -162,7 +171,8 @@ function buildCreateTransactionRequest(
             value: {
                 signer: productAccountId,
                 // CheckGenesis carries the genesis hash as its additionalSigned (implicit) data.
-                genesisHash: checkGenesis.additionalSigned,
+                // `toHex` is typed `string`; the codec wants the 0x literal type.
+                genesisHash: toHex(checkGenesis.additionalSigned) as `0x${string}`,
                 callData,
                 extensions: Object.values(signedExtensions).map(
                     ({ identifier, value, additionalSigned }) => ({
@@ -237,7 +247,7 @@ async function requestSignedTransaction(
  */
 function makeTxSignTx(
     session: UserSession,
-    productAccountId: [string, number],
+    productAccountId: ProductAccountId,
 ): PolkadotSigner["signTx"] {
     return async (callData, signedExtensions, metadata) =>
         requestSignedTransaction(
@@ -263,7 +273,7 @@ function makeTxSignTx(
  * funnel raw-bytes signing through the same `sign` callback as tx signing
  * — the wrong wire tag for arbitrary user data).
  */
-function makeRawBytesSignCallback(session: UserSession, productAccountId: [string, number]) {
+function makeRawBytesSignCallback(session: UserSession, productAccountId: ProductAccountId) {
     return async (data: Uint8Array): Promise<Uint8Array> => {
         const result = await session.signRaw({
             productAccountId,
@@ -326,7 +336,7 @@ export function deriveProductPublicKey(session: UserSession, ref: ProductAccount
 }
 
 function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
-    const productAccountId: [string, number] = [ref.productId, ref.derivationIndex];
+    const productAccountId = toProductAccountId(ref);
 
     // The signer's public key must be the *product* account's key — the one the
     // wallet signs with for [productId, derivationIndex] — not the wallet's
@@ -392,6 +402,9 @@ export function createSessionSignerForAccount(
 }
 
 if (import.meta.vitest) {
+    const pid = (productId: string, derivationIndex: number) =>
+        toProductAccountId({ productId, derivationIndex });
+
     const { describe, test, expect, vi } = import.meta.vitest;
     const { ok, err } = await import("neverthrow");
     const { seedToAccount } = await import("@parity/product-sdk-keys");
@@ -520,10 +533,10 @@ if (import.meta.vitest) {
             // Mobile applies the <Bytes>...</Bytes> envelope on its side.
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, { tag: "Index"; value: number }];
+                productAccountId: ProductAccountId;
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["test-app", { tag: "Index", value: 0 }]);
+            expect(req.productAccountId).toEqual(pid("test-app", 0));
             expect(req.data.tag).toBe("Bytes");
             expect(req.data.value).toEqual(new Uint8Array([1, 2, 3]));
         });
@@ -611,20 +624,20 @@ if (import.meta.vitest) {
         test("wraps the payload as v1 with signer, callData, and txExtVersion", () => {
             const callData = new Uint8Array([0xca, 0x11]);
             const req = buildCreateTransactionRequest(
-                ["my-app", { tag: "Index", value: 3 }],
+                pid("my-app", 3),
                 callData,
                 { CheckGenesis: checkGenesis },
                 5,
             );
             expect(req.payload.tag).toBe("v1");
-            expect(req.payload.value.signer).toEqual(["my-app", { tag: "Index", value: 3 }]);
+            expect(req.payload.value.signer).toEqual(pid("my-app", 3));
             expect(req.payload.value.callData).toEqual(callData);
             expect(req.payload.value.txExtVersion).toBe(5);
         });
 
         test("takes the genesis hash from CheckGenesis.additionalSigned", () => {
             const req = buildCreateTransactionRequest(
-                ["my-app", { tag: "Index", value: 0 }],
+                pid("my-app", 0),
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis },
                 0,
@@ -634,7 +647,7 @@ if (import.meta.vitest) {
 
         test("maps every signed extension to { id, extra, additionalSigned }", () => {
             const req = buildCreateTransactionRequest(
-                ["my-app", { tag: "Index", value: 0 }],
+                pid("my-app", 0),
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis, CheckNonce: ext("CheckNonce", [0x07], []) },
                 0,
@@ -657,7 +670,7 @@ if (import.meta.vitest) {
             // The whole reason for moving off PJS: an extension PAPI's PJS
             // adapter doesn't know must pass through untouched.
             const req = buildCreateTransactionRequest(
-                ["my-app", { tag: "Index", value: 0 }],
+                pid("my-app", 0),
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis, AsPgas: ext("AsPgas", [0xde, 0xad], [0xbe, 0xef]) },
                 0,
@@ -671,19 +684,14 @@ if (import.meta.vitest) {
 
         test("throws a clear error when CheckGenesis is absent", () => {
             expect(() =>
-                buildCreateTransactionRequest(
-                    ["my-app", { tag: "Index", value: 0 }],
-                    new Uint8Array([0]),
-                    {},
-                    0,
-                ),
+                buildCreateTransactionRequest(pid("my-app", 0), new Uint8Array([0]), {}, 0),
             ).toThrow(/CheckGenesis/);
         });
     });
 
     describe("requestSignedTransaction — SSO round-trip", () => {
         const request = buildCreateTransactionRequest(
-            ["my-app", { tag: "Index", value: 0 }],
+            pid("my-app", 0),
             new Uint8Array([0]),
             { CheckGenesis: ext("CheckGenesis", [], [0x01]) },
             0,
@@ -810,10 +818,10 @@ if (import.meta.vitest) {
 
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, { tag: "Index"; value: number }];
+                productAccountId: ProductAccountId;
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["my-app", { tag: "Index", value: 5 }]);
+            expect(req.productAccountId).toEqual(pid("my-app", 5));
             expect(req.data.tag).toBe("Bytes");
             expect(Array.from(req.data.value)).toEqual([0xde, 0xad, 0xbe, 0xef]);
         });
@@ -885,10 +893,10 @@ if (import.meta.vitest) {
 
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, { tag: "Index"; value: number }];
+                productAccountId: ProductAccountId;
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["my-app", { tag: "Index", value: 7 }]);
+            expect(req.productAccountId).toEqual(pid("my-app", 7));
             expect(req.data.tag).toBe("Bytes");
             expect(req.data.value).toBeInstanceOf(Uint8Array);
         });
@@ -909,9 +917,9 @@ if (import.meta.vitest) {
             await signer.signBytes(new Uint8Array([1]));
 
             const req = captured[0] as {
-                productAccountId: [string, { tag: "Index"; value: number }];
+                productAccountId: ProductAccountId;
             };
-            expect(req.productAccountId).toEqual(["external-product", { tag: "Index", value: 0 }]);
+            expect(req.productAccountId).toEqual(pid("external-product", 0));
         });
     });
 }

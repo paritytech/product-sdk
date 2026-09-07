@@ -4,7 +4,7 @@
  * Persistent allowance-key cache. One JSON file per `appId`, 0o600.
  *
  * Cache key is the variant tag, except `SmartContractAllowance::{dest}`
- * which disambiguates per-derivation-index PGAS pre-warming.
+ * which disambiguates per-account PGAS pre-warming.
  *
  * @internal
  */
@@ -25,15 +25,15 @@ const CACHE_FILE_MODE = 0o600;
 export type CachedAllocation =
     | { tag: "BulletInAllowance"; slotAccountKey: string }
     | { tag: "StatementStoreAllowance"; slotAccountKey: string }
-    | { tag: "SmartContractAllowance"; dest: number }
+    | { tag: "SmartContractAllowance"; dest: string }
     | {
           tag: "AutoSigning";
-          productDerivationSecret: string;
+          ringVrfDomainEntropy: string;
           productRootPrivateKey: string;
       };
 
-interface AllowanceCacheV1 {
-    version: 1;
+interface AllowanceCacheV2 {
+    version: 2;
     entries: Record<string, CachedAllocation>;
 }
 
@@ -45,11 +45,11 @@ function cachePath(appId: string, storageDir?: string): string {
     return join(storageDir ?? DEFAULT_STORAGE_DIR, `${sanitizeAppId(appId)}_AllowanceKeys.json`);
 }
 
-function emptyCache(): AllowanceCacheV1 {
-    return { version: 1, entries: {} };
+function emptyCache(): AllowanceCacheV2 {
+    return { version: 2, entries: {} };
 }
 
-export async function loadCache(appId: string, storageDir?: string): Promise<AllowanceCacheV1> {
+export async function loadCache(appId: string, storageDir?: string): Promise<AllowanceCacheV2> {
     const path = cachePath(appId, storageDir);
     let raw: string;
     try {
@@ -59,9 +59,9 @@ export async function loadCache(appId: string, storageDir?: string): Promise<All
         throw e;
     }
     try {
-        const parsed = JSON.parse(raw) as AllowanceCacheV1;
+        const parsed = JSON.parse(raw) as AllowanceCacheV2;
         if (
-            parsed?.version !== 1 ||
+            parsed?.version !== 2 ||
             typeof parsed.entries !== "object" ||
             parsed.entries === null
         ) {
@@ -77,7 +77,7 @@ export async function loadCache(appId: string, storageDir?: string): Promise<All
 
 export async function saveCache(
     appId: string,
-    cache: AllowanceCacheV1,
+    cache: AllowanceCacheV2,
     storageDir?: string,
 ): Promise<void> {
     const path = cachePath(appId, storageDir);
@@ -91,9 +91,16 @@ export async function saveCache(
     await rename(tmp, path);
 }
 
+type SmartContractDest = Extract<AllocatableResource, { tag: "SmartContractAllowance" }>["value"];
+
+/** JSON-safe, so it doubles as the cached `dest`. */
+export function smartContractDest(dest: SmartContractDest): string {
+    return dest.tag === "Index" ? `Index::${dest.value}` : `Raw::${toHex(dest.value)}`;
+}
+
 export function cacheKey(resource: AllocatableResource): string {
     if (resource.tag === "SmartContractAllowance") {
-        return `${resource.tag}::${resource.value}`;
+        return `${resource.tag}::${smartContractDest(resource.value)}`;
     }
     return resource.tag;
 }
@@ -105,7 +112,7 @@ export function cacheKey(resource: AllocatableResource): string {
  * aren't slot-additive so they always force `Ignore`.
  */
 export function pickOnExistingPolicy(
-    cache: AllowanceCacheV1,
+    cache: AllowanceCacheV2,
     resources: AllocatableResource[],
 ): "Ignore" | "Increase" {
     if (resources.length === 0) return "Ignore";
@@ -127,10 +134,10 @@ export function pickOnExistingPolicy(
  * silently truncate.
  */
 export function mergeOutcomes(
-    cache: AllowanceCacheV1,
+    cache: AllowanceCacheV2,
     requested: AllocatableResource[],
     outcomes: ApAllocationOutcome[],
-): AllowanceCacheV1 {
+): AllowanceCacheV2 {
     if (requested.length !== outcomes.length) {
         throw new Error(
             `mergeOutcomes: length mismatch — requested ${requested.length}, got ${outcomes.length}`,
@@ -166,26 +173,29 @@ export function mergeOutcomes(
                 // Variant alignment is enforced above, so req.tag is guaranteed
                 // to be SmartContractAllowance here — the cast narrows it.
                 if (req.tag === "SmartContractAllowance") {
-                    entries[key] = { tag: "SmartContractAllowance", dest: req.value };
+                    entries[key] = {
+                        tag: "SmartContractAllowance",
+                        dest: smartContractDest(req.value),
+                    };
                     mutated = true;
                 }
                 break;
             case "AutoSigning":
                 entries[key] = {
                     tag: "AutoSigning",
-                    productDerivationSecret: inner.value.productDerivationSecret,
+                    ringVrfDomainEntropy: toHex(inner.value.ringVrfDomainEntropy),
                     productRootPrivateKey: toHex(inner.value.productRootPrivateKey),
                 };
                 mutated = true;
                 break;
         }
     }
-    return mutated ? { version: 1, entries } : cache;
+    return mutated ? { version: 2, entries } : cache;
 }
 
 /** Look up a single cached allocation, or `null` if absent. */
 export function readCacheEntry(
-    cache: AllowanceCacheV1,
+    cache: AllowanceCacheV2,
     resource: AllocatableResource,
 ): CachedAllocation | null {
     return cache.entries[cacheKey(resource)] ?? null;

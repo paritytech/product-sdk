@@ -17,7 +17,7 @@
  * and fails if the upstream format ever drifts from our reproduction.
  */
 import { gcm } from "@noble/ciphers/aes.js";
-import { p256 } from "@noble/curves/nist.js";
+import { x25519 } from "@noble/curves/ed25519.js";
 import { blake2b } from "@noble/hashes/blake2.js";
 import {
     AccountIdCodec,
@@ -52,21 +52,23 @@ import { sanitizeKey } from "./node-storage.js";
 // three are now required — and appended `rootEntropySource: Bytes(32)`,
 // the layer-1 entropy the host consumes via `deriveProductEntropyFromSource`.
 //
-// host-papp 0.8.7-1 (PR #212) appended `deviceEncPubKey: Bytes(65)` — the
-// paired phone's long-lived ECDH key, lifted from `HandshakeResponseV2.
-// deviceEncPubKey`, used by the host's device-sync channel to address
-// the paired device. The storage key was renamed `SsoSessionsV2 → SsoSessionsV3`
-// in the same release; the old graceful-degrade for V2 blobs is gone.
+// host-papp 0.8.7-1 (PR #212) appended `deviceEncPubKey` — the paired phone's
+// long-lived ECDH key, lifted from `HandshakeResponseV2.deviceEncPubKey`, used
+// by the host's device-sync channel to address the paired device.
+//
+// host-papp 0.9.0 moved the encryption keys to 32-byte X25519 and bumped the
+// storage key to V4: fixed-size `Bytes` does not length-check, so a V3 blob
+// would decode misaligned into a session that looks valid.
 const storedUserSessionCodec = Struct({
     id: str,
     localAccount: LocalSessionAccountCodec,
     remoteAccount: RemoteSessionAccountCodec,
     rootAccountId: AccountIdCodec,
     identityAccountId: AccountIdCodec,
-    identityChatPublicKey: Bytes(65),
-    ssoEncPubKey: Bytes(65),
+    identityChatPublicKey: Bytes(32),
+    ssoEncPubKey: Bytes(32),
     rootEntropySource: Bytes(32),
-    deviceEncPubKey: Bytes(65),
+    deviceEncPubKey: Bytes(32),
 }) satisfies Codec<StoredUserSession>;
 const sessionsCodec = Vector(storedUserSessionCodec);
 
@@ -91,11 +93,9 @@ function encryptSecrets(appId: string, plaintext: Uint8Array): string {
     return toHex(gcm(key, nonce).encrypt(plaintext));
 }
 
-/** Mirrors host-papp's createEncrSecret: pad the mini-secret to 48 bytes and feed it to P256 keygen. */
-function p256SecretFromEntropy(entropy: Uint8Array): Uint8Array {
-    const seed = new Uint8Array(48);
-    seed.set(entropyToMiniSecret(entropy));
-    return p256.keygen(seed).secretKey;
+/** Mirrors host-papp's createEncrSecret: the mini-secret is the X25519 scalar. */
+function x25519SecretFromEntropy(entropy: Uint8Array): Uint8Array {
+    return entropyToMiniSecret(entropy);
 }
 
 export interface CreateTestSessionOptions {
@@ -167,9 +167,9 @@ export interface TestSession {
  *   tracked via on-chain attestation state. See above for how expiry-path
  *   tests still work in practice.
  * - **Corrupted-session cases** don't need a helper — write garbage to
- *   `<storageDir>/<appId>_SsoSessionsV3.json` with `fs.writeFile` directly.
+ *   `<storageDir>/<appId>_SsoSessionsV4.json` with `fs.writeFile` directly.
  * - **Repeated calls replace the session list.** Each call writes a fresh
- *   single-entry `SsoSessionsV3` file, so calling twice on the same
+ *   single-entry `SsoSessionsV4` file, so calling twice on the same
  *   `storageDir`+`appId` leaves only the second session on disk. Use a
  *   fresh `mkdtempSync` per test to keep cases isolated.
  *
@@ -197,20 +197,18 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
     const localEntropy = mnemonicToEntropy(localMnemonic);
     const localSecret = createSr25519Secret(localEntropy, localDerivation);
     const localPublicKey = deriveSr25519PublicKey(localSecret);
-    const localEncrSecret = p256SecretFromEntropy(localEntropy);
+    const localEncrSecret = x25519SecretFromEntropy(localEntropy);
 
     const remoteMnemonic = options.remoteMnemonic ?? generateMnemonic();
     const remoteDerivation = options.remoteDerivation ?? "";
     const remoteEntropy = mnemonicToEntropy(remoteMnemonic);
     const remoteSecret = createSr25519Secret(remoteEntropy, remoteDerivation);
     const remotePublicKey = deriveSr25519PublicKey(remoteSecret);
-    const remoteEncrPublicKey = p256.getPublicKey(p256SecretFromEntropy(remoteEntropy), false);
+    const remoteEncrPublicKey = x25519.getPublicKey(x25519SecretFromEntropy(remoteEntropy));
 
-    // In production, `remoteAccount.publicKey` is the ECDH shared secret
-    // between the host's P256 encryption key and the phone's P256 encryption
-    // key. We compute the same thing from two mnemonic-derived P256 keys so
-    // the synthesized session is cryptographically well-formed.
-    const sharedSecret = p256.getSharedSecret(localEncrSecret, remoteEncrPublicKey).slice(1, 33);
+    // In production this is a real ECDH secret, so derive it from two
+    // mnemonic-derived X25519 keys rather than inventing bytes.
+    const sharedSecret = x25519.getSharedSecret(localEncrSecret, remoteEncrPublicKey);
 
     const sessionId = options.sessionId ?? nanoid(12);
 
@@ -219,10 +217,8 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
     // persisted session. host-papp 0.8.7-1 added `deviceEncPubKey` (the
     // peer device's long-lived ECDH key). For a synthesized test session
     // we collapse the identity-side keys onto the remote account (the
-    // wallet doubles as identity), reuse the peer's P-256 encryption
-    // pubkey for chat, SSO, and the new device-sync transport, and use
-    // the remote entropy as the RFC-0007 root entropy source so the value
-    // is reproducible.
+    // wallet doubles as identity) and reuse the peer's X25519 encryption
+    // pubkey for chat, SSO, and device-sync.
     const session = {
         id: sessionId,
         localAccount: createLocalSessionAccount(createAccountId(localPublicKey), undefined),
@@ -235,12 +231,12 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
         identityAccountId: createAccountId(remotePublicKey),
         identityChatPublicKey: remoteEncrPublicKey,
         ssoEncPubKey: remoteEncrPublicKey,
-        rootEntropySource: remoteEntropy,
+        rootEntropySource: entropyToMiniSecret(remoteEntropy),
         deviceEncPubKey: remoteEncrPublicKey,
     };
 
     await writeFile(
-        join(options.storageDir, `${sanitizeKey(options.appId, "SsoSessionsV3")}.json`),
+        join(options.storageDir, `${sanitizeKey(options.appId, "SsoSessionsV4")}.json`),
         toHex(sessionsCodec.enc([session])),
         "utf-8",
     );
@@ -249,8 +245,8 @@ export async function createTestSession(options: CreateTestSessionOptions): Prom
     if (includeSecrets) {
         // host-papp 0.8.6 dropped `entropy` (now lives on the session as
         // `rootEntropySource`) and requires a 32-byte `identityChatPrivateKey`
-        // (V2 — P-256 raw scalar). Reuse the local P-256 encryption secret
-        // for both — same domain (P-256, 32-byte scalar).
+        // (V2 — raw scalar). Reuse the local encryption secret for both:
+        // same domain, 32-byte X25519 scalar.
         const encoded = storedUserSecretsCodec.enc({
             ssSecret: localSecret,
             encrSecret: localEncrSecret,
@@ -400,9 +396,9 @@ if (import.meta.vitest) {
 
             // Sr25519 secret is 64 bytes (32-byte secret + 32-byte nonce).
             expect(decoded.ssSecret).toHaveLength(64);
-            // P256 secret is 32 bytes.
+            // X25519 secret is 32 bytes.
             expect(decoded.encrSecret).toHaveLength(32);
-            // V2 chat private key (P-256 raw scalar) is 32 bytes.
+            // V2 chat private key is a 32-byte raw scalar.
             expect(decoded.identityChatPrivateKey).toHaveLength(32);
         });
 
