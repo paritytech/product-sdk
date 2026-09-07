@@ -18,6 +18,9 @@ export {
     INCOMPLETE_SESSION_MESSAGE,
 } from "./signer.js";
 export type { ProductAccountRef } from "./signer.js";
+// Exported so a consumer can warm the cache before going offline.
+export { getProductSubtreePublicKey } from "./subtree-cache.js";
+export type { ProductSubtreeOptions } from "./subtree-cache.js";
 // Thrown by the session signers' signTx/signBytes when the paired session's
 // allowance has lapsed (chain-side NoAllowanceError). Authored in
 // @parity/product-sdk-signer — the SDK's signer error taxonomy — and
