@@ -46,12 +46,10 @@ import {
     createSessionSigner,
     createTerminalAdapter,
     renderQrCode,
-    SS_PASEO_STABLE_STAGE_ENDPOINTS,
     SS_STABLE_STAGE_ENDPOINTS,
+    StatementStoreNetworks,
     waitForSessions,
 } from "@parity/product-sdk-terminal";
-// Preview-stage statement store isn't re-exported by the terminal package; pull it from host-papp.
-import { SS_PREVIEW_STAGE_ENDPOINTS } from "@novasamatech/host-papp";
 import { getWsProvider } from "@polkadot-api/ws-provider";
 import { Binary, createClient } from "polkadot-api";
 
@@ -66,15 +64,15 @@ const STEP_TIMEOUT_MS = 120_000;
 
 // The statement-store "people" chain that relays the pairing handshake. The CLI
 // and your phone MUST be on the same one or authenticate() will time out.
-// Select with SS_STAGE=paseo|stable|preview, or pass raw URLs via SS_ENDPOINTS.
+// Select with SS_STAGE=paseoNextV2|previewnet|stable, or pass raw URLs via
+// SS_ENDPOINTS.
 const SS_STAGES = {
-    paseo: SS_PASEO_STABLE_STAGE_ENDPOINTS,
+    ...StatementStoreNetworks,
     stable: SS_STABLE_STAGE_ENDPOINTS,
-    preview: SS_PREVIEW_STAGE_ENDPOINTS,
 };
 const ENDPOINTS = process.env.SS_ENDPOINTS
     ? process.env.SS_ENDPOINTS.split(",").map((s) => s.trim())
-    : (SS_STAGES[process.env.SS_STAGE ?? "paseo"] ?? SS_PASEO_STABLE_STAGE_ENDPOINTS);
+    : (SS_STAGES[process.env.SS_STAGE ?? "paseoNextV2"] ?? StatementStoreNetworks.paseoNextV2);
 
 const storageDir = process.env.STORAGE_DIR ?? mkdtempSync(join(tmpdir(), "terminal-ct-"));
 const isReplay = Boolean(process.env.STORAGE_DIR) && existsSync(storageDir);

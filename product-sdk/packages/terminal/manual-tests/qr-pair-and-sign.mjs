@@ -79,7 +79,7 @@ import {
     createSessionSigner,
     createTerminalAdapter,
     renderQrCode,
-    SS_PASEO_STABLE_STAGE_ENDPOINTS,
+    StatementStoreNetworks,
     waitForSessions,
 } from "@parity/product-sdk-terminal";
 
@@ -135,7 +135,7 @@ try {
     adapter = createTerminalAdapter({
         appId: APP_ID,
         metadataUrl: META_URL,
-        endpoints: SS_PASEO_STABLE_STAGE_ENDPOINTS,
+        endpoints: StatementStoreNetworks.paseoNextV2,
         storageDir,
     });
     ok(`adapter.appId === "${adapter.appId}"`);
