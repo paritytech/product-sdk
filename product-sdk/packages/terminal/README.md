@@ -63,7 +63,7 @@ Creates a terminal adapter backed by the host-papp SDK.
 
 **Options:**
 - `appId` -- unique app identifier (used as storage namespace)
-- `endpoints?` -- statement store WebSocket endpoints (defaults to Paseo)
+- `endpoints?` -- statement store WebSocket endpoints (defaults to `StatementStoreNetworks.paseoNextV2`)
 - `hostMetadata?` -- optional host environment info
 - `storageDir?` -- override the on-disk session directory (defaults to `~/.polkadot-apps/`). Useful in tests and containerised environments.
 
@@ -72,6 +72,22 @@ Creates a terminal adapter backed by the host-papp SDK.
 - `sso` -- auth component (`.authenticate()`, `.abortAuthentication()`, status subscriptions)
 - `sessions` -- session manager (signing, disconnect)
 - `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Drops `@novasamatech/statement-store`'s benign `Statement subscription error: Client destroyed` line, which it emits synchronously while disconnecting a live subscription — only that line; every other `console.error` passes through.
+
+### `StatementStoreNetworks`
+
+The statement store endpoints terminal can pair against, keyed by network.
+
+| Key | Endpoint |
+| --- | --- |
+| `paseoNextV2` | `wss://paseo-people-next-system-rpc.polkadot.io` |
+| `previewnet` | `wss://previewnet.substrate.dev/people` |
+
+Pairing only works when the terminal and the phone are on the **same** people chain, and the phone
+picks its chain per build flavour. The Polkadot app's nightly build uses `paseoNextV2`, which is why
+that is the default; a preview-flavour phone needs `endpoints: StatementStoreNetworks.previewnet`.
+
+`SS_STABLE_STAGE_ENDPOINTS` is also exported. It is internal to the Parity network and does not
+answer from outside it.
 
 ### `isBenignTeardownError(error): boolean`
 
