@@ -60,8 +60,14 @@ export function contextSuffixBytes(suffix: ContextSuffix): Uint8Array {
     try {
         return derivationIndexBytes(suffix);
     } catch (cause) {
-        const message = cause instanceof Error ? cause.message : "invalid context suffix";
-        throw new ProductIndividualityError(message, { cause });
+        // Keep this module's own wording: a caller asked for a context suffix,
+        // not a derivation index.
+        throw new ProductIndividualityError(
+            suffix.tag === "Raw"
+                ? "raw context suffix must be 32 bytes"
+                : "context suffix index is out of range",
+            { cause },
+        );
     }
 }
 
@@ -171,6 +177,15 @@ if (import.meta.vitest) {
             expect(expanded).toEqual(raw);
             expanded[0] = 0xff;
             expect(raw[0]).toBe(7);
+        });
+
+        test("keeps this module's wording, not the shared helper's", () => {
+            expect(() => contextSuffixBytes({ tag: "Raw", value: new Uint8Array(31) })).toThrow(
+                "raw context suffix must be 32 bytes",
+            );
+            expect(() => contextSuffixBytes({ tag: "Index", value: -1 })).toThrow(
+                "context suffix index is out of range",
+            );
         });
 
         test.each([31, 33])("rejects %i Raw bytes", (length) => {
