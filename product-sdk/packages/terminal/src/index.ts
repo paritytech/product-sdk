@@ -1,12 +1,9 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 // Terminal Adapter
-export {
-    createTerminalAdapter,
-    isBenignTeardownError,
-    SS_STABLE_STAGE_ENDPOINTS,
-    SS_PASEO_STABLE_STAGE_ENDPOINTS,
-} from "./adapter.js";
+export { createTerminalAdapter, isBenignTeardownError } from "./adapter.js";
+export { StatementStoreNetworks, SS_STABLE_STAGE_ENDPOINTS } from "./networks.js";
+export type { StatementStoreEnvironment } from "./networks.js";
 export type { TerminalAdapterOptions, TerminalAdapter } from "./adapter.js";
 
 // Session Signer
