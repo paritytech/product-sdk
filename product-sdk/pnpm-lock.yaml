@@ -605,6 +605,9 @@ importers:
       '@parity/product-sdk-local-storage':
         specifier: workspace:*
         version: link:../local-storage
+      '@parity/product-sdk-utils':
+        specifier: workspace:*
+        version: link:../utils
       '@polkadot-labs/hdkd':
         specifier: ^0.0.28
         version: 0.0.28
@@ -617,9 +620,6 @@ importers:
       polkadot-api:
         specifier: ^2.1.6
         version: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
-      scale-ts:
-        specifier: ^1.6.1
-        version: 1.6.1
     devDependencies:
       typescript:
         specifier: ^5.7.0
