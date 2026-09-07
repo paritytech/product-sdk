@@ -8,9 +8,12 @@
  * just to render a product address.
  */
 import type { UserSession } from "@novasamatech/host-papp";
+import { createLogger } from "@parity/product-sdk-logger";
 import { fromHex, toHex } from "@polkadot-api/utils";
 
-import { cacheFilePath, loadJsonCache, saveJsonCache } from "./json-cache.js";
+import { cacheFilePath, loadJsonCache, saveJsonCache, withFileLock } from "./json-cache.js";
+
+const log = createLogger("terminal");
 
 const CACHE_KIND = "ProductSubtrees";
 const CACHE_VERSION = 1;
@@ -21,7 +24,8 @@ interface SubtreeCache {
     entries: Record<string, string>;
 }
 
-const memo = new Map<string, Uint8Array>();
+/** The promise, not the value: concurrent callers share one round trip. */
+const memo = new Map<string, Promise<Uint8Array>>();
 
 export interface ProductSubtreeOptions {
     /** Names the cache file. Defaults to the productId. */
@@ -29,7 +33,10 @@ export interface ProductSubtreeOptions {
     storageDir?: string;
 }
 
-/** Keyed by session too, so two users on one machine cannot read each other's. */
+/**
+ * Keyed by session so a re-pair, or a second wallet account, is not served the
+ * previous entry. Cross-user reads are prevented by the 0600 file mode.
+ */
 function entryKey(session: UserSession, productId: string): string {
     return `${session.id}::${productId}`;
 }
@@ -54,31 +61,63 @@ async function requestSubtree(session: UserSession, productId: string): Promise<
  *
  * @throws Error when the wallet rejects the request or returns a malformed key.
  */
-export async function getProductSubtreePublicKey(
+export function getProductSubtreePublicKey(
     session: UserSession,
     productId: string,
     options: ProductSubtreeOptions = {},
 ): Promise<Uint8Array> {
-    const key = entryKey(session, productId);
-    const memoized = memo.get(key);
-    if (memoized) return memoized;
-
     const path = cacheFilePath(options.appId ?? productId, CACHE_KIND, options.storageDir);
-    const cache = await loadJsonCache<SubtreeCache>(path, CACHE_VERSION, "product-subtree cache");
-    const stored = cache?.entries?.[key];
-    if (stored) {
-        const bytes = fromHex(stored);
-        memo.set(key, bytes);
-        return bytes;
-    }
+    const key = `${path}::${entryKey(session, productId)}`;
 
-    const fetched = await requestSubtree(session, productId);
-    memo.set(key, fetched);
-    await saveJsonCache(path, {
-        version: CACHE_VERSION,
-        entries: { ...(cache?.entries ?? {}), [key]: toHex(fetched) },
-    } satisfies SubtreeCache);
-    return fetched;
+    const inFlight = memo.get(key);
+    if (inFlight) return inFlight;
+
+    const pending = resolveSubtree(session, productId, path, entryKey(session, productId));
+    memo.set(key, pending);
+    // A refusal must not be remembered, or every later call fails without asking.
+    pending.catch(() => memo.delete(key));
+    return pending;
+}
+
+async function resolveSubtree(
+    session: UserSession,
+    productId: string,
+    path: string,
+    entry: string,
+): Promise<Uint8Array> {
+    return withFileLock(path, async () => {
+        const cache = await loadJsonCache<SubtreeCache>(
+            path,
+            CACHE_VERSION,
+            "product-subtree cache",
+        );
+        const stored = readEntry(cache, entry, path);
+        if (stored) return stored;
+
+        const fetched = await requestSubtree(session, productId);
+        const entries =
+            typeof cache?.entries === "object" && cache.entries !== null ? cache.entries : {};
+        await saveJsonCache(path, {
+            version: CACHE_VERSION,
+            entries: { ...entries, [entry]: toHex(fetched) },
+        } satisfies SubtreeCache);
+        return fetched;
+    });
+}
+
+/** Trusting a malformed entry would sign as an account the user does not own. */
+function readEntry(cache: SubtreeCache | null, entry: string, path: string): Uint8Array | null {
+    const stored = cache?.entries?.[entry];
+    if (typeof stored !== "string") return null;
+    let bytes: Uint8Array;
+    try {
+        bytes = fromHex(stored);
+    } catch {
+        bytes = new Uint8Array();
+    }
+    if (bytes.length === SUBTREE_KEY_BYTES) return bytes;
+    log.warn("product-subtree cache entry is malformed; refetching", { path });
+    return null;
 }
 
 /** @internal The memo outlives a single test otherwise. */
@@ -88,7 +127,7 @@ export function clearProductSubtreeMemo(): void {
 
 if (import.meta.vitest) {
     const { describe, test, expect, beforeEach, vi } = import.meta.vitest;
-    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const { ok, err } = await import("neverthrow");
@@ -167,6 +206,72 @@ if (import.meta.vitest) {
             );
 
             const session = makeSession(() => ok(SUBTREE));
+            const key = await getProductSubtreePublicKey(session, "app.dot", { storageDir });
+            expect(key).toEqual(SUBTREE);
+            expect(session.getProductSubtree).toHaveBeenCalledTimes(1);
+        });
+
+        test("shares one round trip between concurrent callers", async () => {
+            const session = makeSession(() => ok(SUBTREE));
+            const keys = await Promise.all([
+                getProductSubtreePublicKey(session, "app.dot", { storageDir }),
+                getProductSubtreePublicKey(session, "app.dot", { storageDir }),
+                getProductSubtreePublicKey(session, "app.dot", { storageDir }),
+            ]);
+
+            expect(keys.every((k) => k.every((b, i) => b === SUBTREE[i]))).toBe(true);
+            expect(session.getProductSubtree).toHaveBeenCalledTimes(1);
+        });
+
+        test("survives parallel fetches that share a cache file", async () => {
+            const other = new Uint8Array(32).fill(0xb2);
+            const first = makeSession(() => ok(SUBTREE));
+            const second = makeSession(() => ok(other), "session-2");
+
+            const [a, b] = await Promise.all([
+                getProductSubtreePublicKey(first, "app.dot", { appId: "shared", storageDir }),
+                getProductSubtreePublicKey(second, "app.dot", { appId: "shared", storageDir }),
+            ]);
+
+            expect(a).toEqual(SUBTREE);
+            expect(b).toEqual(other);
+            const onDisk = JSON.parse(
+                readFileSync(cacheFilePath("shared", CACHE_KIND, storageDir), "utf8"),
+            );
+            expect(Object.keys(onDisk.entries)).toHaveLength(2);
+        });
+
+        test("does not remember a refusal", async () => {
+            let refuse = true;
+            const session = makeSession(() =>
+                refuse ? err(new Error("user declined")) : ok(SUBTREE),
+            );
+
+            await expect(
+                getProductSubtreePublicKey(session, "app.dot", { storageDir }),
+            ).rejects.toThrow(/user declined/);
+            refuse = false;
+            await expect(
+                getProductSubtreePublicKey(session, "app.dot", { storageDir }),
+            ).resolves.toEqual(SUBTREE);
+        });
+
+        test.each([
+            ["not hex", "notahex"],
+            ["too short", `0x${"ab".repeat(31)}`],
+            ["too long", `0x${"ab".repeat(64)}`],
+            ["not a string", 42],
+        ])("refetches when a cached entry is %s", async (_label, value) => {
+            const path = cacheFilePath("app.dot", CACHE_KIND, storageDir);
+            writeFileSync(
+                path,
+                JSON.stringify({
+                    version: CACHE_VERSION,
+                    entries: { "session-1::app.dot": value },
+                }),
+            );
+
+            const session = makeSession(() => ok(SUBTREE), "session-1");
             const key = await getProductSubtreePublicKey(session, "app.dot", { storageDir });
             expect(key).toEqual(SUBTREE);
             expect(session.getProductSubtree).toHaveBeenCalledTimes(1);

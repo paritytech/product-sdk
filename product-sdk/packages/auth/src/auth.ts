@@ -145,6 +145,8 @@ export interface AuthClient {
  */
 export function createAuthClient(config: AuthConfig): AuthClient {
     const ref = { productId: config.productId, derivationIndex: config.derivationIndex };
+    // Without the dappId, clearLocalAppStorage's prefix sweep misses the cache.
+    const cacheOptions = { appId: config.dappId };
 
     function createAdapter(): TerminalAdapter {
         return createTerminalAdapter({
@@ -160,7 +162,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
      */
     async function deriveSessionAddresses(session: UserSession): Promise<SessionAddresses> {
         const rootBytes = sessionRootPublicKey(session);
-        const productPubkey = await deriveProductPublicKey(session, ref);
+        const productPubkey = await deriveProductPublicKey(session, ref, cacheOptions);
         return {
             rootAddress: ss58Encode(rootBytes),
             productAddress: ss58Encode(productPubkey),
@@ -169,7 +171,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
     }
 
     function createSigner(session: UserSession): Promise<PolkadotSigner> {
-        return createSessionSigner(session, ref);
+        return createSessionSigner(session, ref, cacheOptions);
     }
 
     function sessionRemoteAddress(session: UserSession): string | null {

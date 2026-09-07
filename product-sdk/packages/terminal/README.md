@@ -106,6 +106,22 @@ const subSigner = await createSessionSignerForAccount(session, {
 
 > **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
 
+### `getProductSubtreePublicKey(session, productId, options?): Promise<Uint8Array>`
+
+Fetches the sr25519 public key of `//product//{productId}` from the paired wallet (RFC-0022). Both signer factories call it for you; reach for it directly to warm the cache before going offline, or to derive a product address without building a signer.
+
+The request is consent-free, so it raises no prompt on the phone, but it does need the phone reachable. The result is cached in memory and on disk, so only a cold cache reaches the wallet.
+
+```ts
+await getProductSubtreePublicKey(session, adapter.appId, { appId: adapter.appId });
+```
+
+`options` is `ProductSubtreeOptions`:
+- `appId` -- names the cache file (`~/.polkadot-apps/${appId}_ProductSubtrees.json`). Defaults to `productId`. **Pass your app id.** Anything that sweeps `~/.polkadot-apps/` by app-id prefix, such as a sign-out that clears local state, only finds the file if it is named after the app.
+- `storageDir` -- overrides `~/.polkadot-apps/`, matching `createTerminalAdapter({ storageDir })`.
+
+The cache file is written with mode `0600` and keyed by session and product, so re-pairing or switching wallet account does not reuse a stale key.
+
 ### `renderQrCode(data, options?): Promise<string>`
 
 Render a string as a QR code using Unicode half-block characters for terminal display.

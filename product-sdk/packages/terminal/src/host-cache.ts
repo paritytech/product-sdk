@@ -11,7 +11,7 @@
 import { toHex } from "@polkadot-api/utils";
 
 import type { AllocatableResource, ApAllocationOutcome } from "./host.js";
-import { cacheFilePath, loadJsonCache, saveJsonCache } from "./json-cache.js";
+import { cacheFilePath, loadJsonCache, saveJsonCache, withFileLock } from "./json-cache.js";
 
 /** One cached allowance entry. Hex strings are 0x-prefixed. */
 export type CachedAllocation =
@@ -164,33 +164,12 @@ export function readCacheEntry(
     return cache.entries[cacheKey(resource)] ?? null;
 }
 
-/**
- * Serialize load/merge/save sequences for the same cache file within a
- * single process. Without this, parallel `requestResourceAllocation`
- * calls for *different* resources can race: each snapshots the cache
- * before the other writes, last writer wins, the loser's key is lost.
- *
- * Cross-process races are out of scope here — the Account Holder
- * serializes per user/product/resource and returns identical bytes
- * to concurrent callers for the same resource, so two CLI processes
- * writing the same key converge.
- */
-const cacheLocks = new Map<string, Promise<unknown>>();
-
 export function withCacheLock<T>(
     appId: string,
     storageDir: string | undefined,
     fn: () => Promise<T>,
 ): Promise<T> {
-    const key = cachePath(appId, storageDir);
-    const prev = cacheLocks.get(key) ?? Promise.resolve();
-    // Neutralize a prior rejection so one failure doesn't block subsequent waiters.
-    const next = prev.catch(() => {}).then(fn);
-    cacheLocks.set(
-        key,
-        next.catch(() => {}),
-    );
-    return next;
+    return withFileLock(cachePath(appId, storageDir), fn);
 }
 
 if (import.meta.vitest) {
