@@ -249,6 +249,7 @@ signer.
 
 ```ts
 import { createAuthClient, resolveSigner } from "@parity/product-sdk-auth";
+import { StatementStoreNetworks } from "@parity/product-sdk-terminal";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
 // 1. Bind an auth client to your product's config (inject per-product values).
@@ -256,7 +257,7 @@ const authClient = createAuthClient({
   dappId: "playground",              // scopes ~/.polkadot-apps/${dappId}_* + SSO pairing
   productId: "playground.dot",       // derives the product account
   derivationIndex: 0,                // 0 = default product account
-  peopleEndpoints: ["wss://<people-rpc>"],
+  peopleEndpoints: StatementStoreNetworks.paseo, // or .previewnet
 });
 
 // 2. Get a PolkadotSigner — dev SURI if provided, else the persisted QR session.

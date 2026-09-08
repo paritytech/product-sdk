@@ -79,13 +79,16 @@ import {
     createSessionSigner,
     createTerminalAdapter,
     renderQrCode,
-    SS_PASEO_STABLE_STAGE_ENDPOINTS,
     waitForSessions,
 } from "@parity/product-sdk-terminal";
+
+import { resolveEndpoints } from "./stages.mjs";
 
 const APP_ID = "terminal-manual-test";
 const META_URL = "https://example.com/metadata.json";
 const STEP_TIMEOUT_MS = 120_000; // 2 min per interactive step
+// Select with SS_STAGE=paseo|previewnet|stable, or pass raw URLs via SS_ENDPOINTS.
+const ENDPOINTS = resolveEndpoints();
 
 const storageDir = process.env.STORAGE_DIR ?? mkdtempSync(join(tmpdir(), "terminal-manual-"));
 const isReplay = Boolean(process.env.STORAGE_DIR) && existsSync(storageDir);
@@ -135,7 +138,7 @@ try {
     adapter = createTerminalAdapter({
         appId: APP_ID,
         metadataUrl: META_URL,
-        endpoints: SS_PASEO_STABLE_STAGE_ENDPOINTS,
+        endpoints: ENDPOINTS,
         storageDir,
     });
     ok(`adapter.appId === "${adapter.appId}"`);
