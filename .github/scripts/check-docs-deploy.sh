@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# docs-deploy.yml runs on release days only, so these are its regression tests.
+# docs-deploy.yml only runs on release days, so check it here instead.
 set -u
 
 wf="${1:-.github/workflows/docs-deploy.yml}"
