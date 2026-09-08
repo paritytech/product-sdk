@@ -64,15 +64,19 @@ const STEP_TIMEOUT_MS = 120_000;
 
 // The statement-store "people" chain that relays the pairing handshake. The CLI
 // and your phone MUST be on the same one or authenticate() will time out.
-// Select with SS_STAGE=paseoNextV2|previewnet|stable, or pass raw URLs via
+// Select with SS_STAGE=paseo|previewnet|stable, or pass raw URLs via
 // SS_ENDPOINTS.
 const SS_STAGES = {
     ...StatementStoreNetworks,
     stable: SS_STABLE_STAGE_ENDPOINTS,
 };
+const SS_STAGE = process.env.SS_STAGE ?? "paseo";
+if (!Object.hasOwn(SS_STAGES, SS_STAGE)) {
+    throw new Error(`Unknown SS_STAGE "${SS_STAGE}". Use one of: ${Object.keys(SS_STAGES).join(", ")}`);
+}
 const ENDPOINTS = process.env.SS_ENDPOINTS
     ? process.env.SS_ENDPOINTS.split(",").map((s) => s.trim())
-    : (SS_STAGES[process.env.SS_STAGE ?? "paseoNextV2"] ?? StatementStoreNetworks.paseoNextV2);
+    : SS_STAGES[SS_STAGE];
 
 const storageDir = process.env.STORAGE_DIR ?? mkdtempSync(join(tmpdir(), "terminal-ct-"));
 const isReplay = Boolean(process.env.STORAGE_DIR) && existsSync(storageDir);

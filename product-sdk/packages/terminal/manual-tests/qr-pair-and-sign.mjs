@@ -135,7 +135,7 @@ try {
     adapter = createTerminalAdapter({
         appId: APP_ID,
         metadataUrl: META_URL,
-        endpoints: StatementStoreNetworks.paseoNextV2,
+        endpoints: StatementStoreNetworks.paseo,
         storageDir,
     });
     ok(`adapter.appId === "${adapter.appId}"`);

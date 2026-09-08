@@ -15,9 +15,11 @@ addressed all along.
 
 **New: `StatementStoreNetworks`**, replacing the flat endpoint constants.
 
+Keys match `BULLETIN_RPCS` in `@parity/product-sdk-host`, so one network has one name across the SDK.
+
 | Key | Endpoint |
 | --- | --- |
-| `paseoNextV2` | `wss://paseo-people-next-system-rpc.polkadot.io` |
+| `paseo` | `wss://paseo-people-next-system-rpc.polkadot.io` |
 | `previewnet` | `wss://previewnet.substrate.dev/people` |
 
 `previewnet` was live before this change and was not re-exported, so reaching it meant importing
@@ -25,7 +27,7 @@ from `@novasamatech/host-papp` directly. `StatementStoreEnvironment` is exported
 
 **Removed: `SS_PASEO_STABLE_STAGE_ENDPOINTS`.** Minor rather than patch, because surface is removed,
 which on 0.x signals a breaking change. Nothing was reachable through it, so any caller passing it
-as `endpoints` was already unable to connect; replace it with `StatementStoreNetworks.paseoNextV2`.
+as `endpoints` was already unable to connect; replace it with `StatementStoreNetworks.paseo`.
 
 `SS_STABLE_STAGE_ENDPOINTS` is still exported. It resolves but refuses connections from outside the
 Parity network, which fits an internal-only host rather than a retired one, so it is kept until it

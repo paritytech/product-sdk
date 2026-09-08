@@ -25,7 +25,7 @@ const log = createLogger("terminal");
 export interface TerminalAdapterOptions {
     /** Unique app identifier. Used as the storage namespace. */
     appId: string;
-    /** Statement store WebSocket endpoints. Defaults to {@link StatementStoreNetworks.paseoNextV2}. */
+    /** Statement store WebSocket endpoints. Defaults to {@link StatementStoreNetworks.paseo}. */
     endpoints?: string[];
     /** Optional host metadata for the Sign-In screen. */
     hostMetadata?: HostMetadata;
@@ -90,7 +90,7 @@ export type TerminalAdapter = PappAdapter & {
 };
 
 export function createTerminalAdapter(options: TerminalAdapterOptions): TerminalAdapter {
-    const endpoints = options.endpoints ?? StatementStoreNetworks.paseoNextV2;
+    const endpoints = options.endpoints ?? StatementStoreNetworks.paseo;
 
     const storage = createNodeStorageAdapter(options.appId, options.storageDir);
     // ws-provider 0.9 takes endpoints positionally; relies on the global
