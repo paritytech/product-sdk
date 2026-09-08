@@ -4,14 +4,15 @@
  * The endpoint names were listed in both `adapter.ts` and `index.ts` and drifted
  * from the live chains (#365), so these pin the values and the adapter's default.
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { SS_PREVIEW_STAGE_ENDPOINTS } from "@novasamatech/host-papp";
 import { getWsProvider } from "@polkadot-api/ws-provider";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import type { TerminalAdapter } from "./index.js";
 import { createTerminalAdapter, StatementStoreNetworks } from "./index.js";
 
 // The PAPI raw client calls the provider, so the mock must return a function.
@@ -32,10 +33,20 @@ describe("StatementStoreNetworks", () => {
 });
 
 describe("createTerminalAdapter", () => {
-    test("defaults to paseo when no endpoints are given", () => {
-        const storageDir = mkdtempSync(join(tmpdir(), "terminal-networks-"));
+    let storageDir: string;
+    let adapter: TerminalAdapter | undefined;
 
-        createTerminalAdapter({ appId: "networks-test", storageDir });
+    beforeEach(async () => {
+        storageDir = await mkdtemp(join(tmpdir(), "terminal-networks-"));
+    });
+
+    afterEach(async () => {
+        await adapter?.destroy();
+        await rm(storageDir, { recursive: true, force: true });
+    });
+
+    test("defaults to paseo when no endpoints are given", () => {
+        adapter = createTerminalAdapter({ appId: "networks-test", storageDir });
 
         expect(getWsProvider).toHaveBeenCalledWith(StatementStoreNetworks.paseo, expect.anything());
     });
