@@ -33,6 +33,9 @@ as `endpoints` was already unable to connect; replace it with `StatementStoreNet
 Parity network, which fits an internal-only host rather than a retired one, so it is kept until it
 has been retested on VPN.
 
+**Smaller published bundle.** `treeshake` is now on, dropping the in-source test blocks that shipped
+as dead code. `dist/index.js` goes from 50,146 to 13,335 bytes, with every export unchanged.
+
 **Pairing needs both sides on the same chain**, and the pairing handshake does not carry one. The
 phone picks its people chain per build flavour, so a preview-flavour phone still needs
 `endpoints: StatementStoreNetworks.previewnet` passed explicitly.
