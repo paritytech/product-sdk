@@ -5,9 +5,9 @@
 **Default to a statement store endpoint that resolves (#365).**
 
 `createTerminalAdapter({ appId })` with no `endpoints` could not reach a statement store at all. Its
-default was `SS_PASEO_STABLE_STAGE_ENDPOINTS`, whose host has no A record. The Paseo people chain it
-names is not down: it moved to the system slot and its RPC gained a `-system-` segment. host-papp
-has not followed, and that constant is unchanged from 0.6.17 through 0.10.0.
+default was `SS_PASEO_STABLE_STAGE_ENDPOINTS`, whose hostname no longer exists. The Paseo people
+chain it names is not down: it moved to the system slot and its RPC gained a `-system-` segment.
+host-papp has not followed, and that constant is unchanged from 0.6.17 through 0.10.0.
 
 The new default is `wss://paseo-people-next-system-rpc.polkadot.io`, which is the chain the Polkadot
 app's nightly build connects to, and the one this repo's own `paseo-individuality` descriptor has
