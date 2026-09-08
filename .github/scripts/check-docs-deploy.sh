@@ -37,6 +37,11 @@ if ! printf '%s\n' "$bulletin_step" | grep -qE '^[[:space:]]*continue-on-error:[
     rc=1
 fi
 
+if ! printf '%s\n' "$bulletin_step" | grep -qE '^[[:space:]]*id:[[:space:]]*bulletin[[:space:]]*$'; then
+    echo "::error file=$wf,title=The Bulletin step lost its id::The re-raise step reads steps.bulletin.outcome, so the step must keep id: bulletin."
+    rc=1
+fi
+
 if ! grep -qE "steps\.bulletin\.outcome == 'failure'" "$wf"; then
     echo "::error file=$wf,title=A Bulletin failure would be silent::Keep the step that re-raises steps.bulletin.outcome."
     rc=1
