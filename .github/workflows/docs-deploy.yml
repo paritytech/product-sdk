@@ -114,7 +114,7 @@ jobs:
             - name: Install bulletin-deploy
               # Pinned: an upstream change would otherwise surface only on a release day.
               # No automation bumps this, so check it if a release fails here.
-              run: npm install -g bulletin-deploy@0.15.2
+              run: npm install -g bulletin-deploy@0.17.1
 
             - name: Deploy to Bulletin Chain
               id: bulletin
@@ -122,8 +122,8 @@ jobs:
               continue-on-error: true
               uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
               with:
-                  timeout_minutes: 10
-                  max_attempts: 3
+                  timeout_minutes: 30
+                  max_attempts: 2
                   command: cd docs && bulletin-deploy ./out product-sdk --env paseo-next-v2 --js-merkle
 
             - name: Rebuild static site for GitHub Pages
