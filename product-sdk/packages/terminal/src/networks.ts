@@ -22,6 +22,7 @@ export const StatementStoreNetworks = {
  */
 export { SS_STABLE_STAGE_ENDPOINTS };
 
+/** Network keys with built-in endpoints in {@link StatementStoreNetworks}. */
 export type StatementStoreEnvironment = keyof typeof StatementStoreNetworks;
 
 if (import.meta.vitest) {

@@ -82,7 +82,9 @@ The statement store endpoints terminal can pair against, keyed by network.
 | `paseo` | Paseo Next v2 | `wss://paseo-people-next-system-rpc.polkadot.io` |
 | `previewnet` | zombienet, a step ahead of paseo | whatever host-papp's `SS_PREVIEW_STAGE_ENDPOINTS` resolves to, today `wss://previewnet.substrate.dev/people` |
 
-Keyed the same way as `BULLETIN_RPCS` in `@parity/product-sdk-host`.
+Keyed the same way as `BULLETIN_RPCS` in `@parity/product-sdk-host`. There is deliberately no
+`devnet` key: that people chain has a statement store, but no endpoint for it is published here, and
+no phone build pairs against it. Pass `endpoints` explicitly to reach one.
 
 Pairing only works when the terminal and the phone are on the **same** people chain, and the phone
 picks its chain per build flavour. The Polkadot app's nightly build uses `paseo`, which is why that
