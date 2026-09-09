@@ -33,31 +33,21 @@
  * client-side. `readScoreContext` in `rings.ts` is the read that checks this
  * derivation against a published constant before anything trusts it.
  */
-import { blake2b256, concatBytes, utf8ToBytes } from "@parity/product-sdk-utils";
+import {
+    type DerivationIndex,
+    blake2b256,
+    concatBytes,
+    derivationIndexBytes,
+    utf8ToBytes,
+} from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
 
 /**
- * The RFC-0024 context-suffix selector: a plain index, or 32 raw bytes.
- *
- * Structurally the shape of truapi's `DerivationIndex` except that `Raw`
- * carries bytes rather than `0x` hex, because everything in this module is
- * byte-level. Wrap with your transport's hex conversion at the wire boundary.
+ * The RFC-0024 context-suffix selector: a plain index, or 32 raw bytes. The same
+ * selector RFC-0022 uses for a product account, under a name that reads right at
+ * a proof-context call site.
  */
-export type ContextSuffix = { tag: "Index"; value: number } | { tag: "Raw"; value: Uint8Array };
-
-/** Every expanded suffix, and every derived context, is 32 bytes. */
-const SUFFIX_BYTES = 32;
-
-/**
- * `blake2b-256("product-account-index")[..28]`, the trailing marker of an
- * expanded `Index` suffix per RFC-0022. A domain-separation constant, not
- * entropy: it keeps a plain index from colliding with a `Raw` payload that
- * happens to start with the same four bytes. Computed rather than pasted so the
- * definition, not a magic array, is what this module asserts.
- */
-const INDEX_MAGIC = blake2b256(utf8ToBytes("product-account-index")).subarray(0, SUFFIX_BYTES - 4);
-
-const U32_MAX = 0xff_ff_ff_ff;
+export type ContextSuffix = DerivationIndex;
 
 /**
  * Expand a {@link ContextSuffix} to the 32 bytes the context hash consumes,
@@ -67,19 +57,18 @@ const U32_MAX = 0xff_ff_ff_ff;
  *   that are not exactly 32.
  */
 export function contextSuffixBytes(suffix: ContextSuffix): Uint8Array {
-    if (suffix.tag === "Raw") {
-        if (suffix.value.length !== SUFFIX_BYTES) {
-            throw new ProductIndividualityError("raw context suffix must be 32 bytes");
-        }
-        return suffix.value.slice();
+    try {
+        return derivationIndexBytes(suffix);
+    } catch (cause) {
+        // Keep this module's own wording: a caller asked for a context suffix,
+        // not a derivation index.
+        throw new ProductIndividualityError(
+            suffix.tag === "Raw"
+                ? "raw context suffix must be 32 bytes"
+                : "context suffix index is out of range",
+            { cause },
+        );
     }
-    if (!Number.isInteger(suffix.value) || suffix.value < 0 || suffix.value > U32_MAX) {
-        throw new ProductIndividualityError("context suffix index is out of range");
-    }
-    const bytes = new Uint8Array(SUFFIX_BYTES);
-    new DataView(bytes.buffer).setUint32(0, suffix.value, true);
-    bytes.set(INDEX_MAGIC, 4);
-    return bytes;
 }
 
 /**
@@ -188,6 +177,15 @@ if (import.meta.vitest) {
             expect(expanded).toEqual(raw);
             expanded[0] = 0xff;
             expect(raw[0]).toBe(7);
+        });
+
+        test("keeps this module's wording, not the shared helper's", () => {
+            expect(() => contextSuffixBytes({ tag: "Raw", value: new Uint8Array(31) })).toThrow(
+                "raw context suffix must be 32 bytes",
+            );
+            expect(() => contextSuffixBytes({ tag: "Index", value: -1 })).toThrow(
+                "context suffix index is out of range",
+            );
         });
 
         test.each([31, 33])("rejects %i Raw bytes", (length) => {
