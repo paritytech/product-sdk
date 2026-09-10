@@ -20,8 +20,9 @@ addressing a chain that is not there.
 | `previewnet-bulletin` | `0x1144acd2…04e89` | `0xea9158d7…` |
 
 `devnet-asset-hub`, `devnet-individuality`, `kusama-asset-hub`, `paseo-bulletin` and
-`polkadot-asset-hub` kept their genesis and took a fresh `codeHash` only. All eleven chains now
-match their live runtimes.
+`polkadot-asset-hub` kept their genesis and took a fresh `codeHash` only. All eleven chains
+matched their live runtimes when this was cut; codeHash pins drift on their own schedule, tracked
+in #242.
 
 **Minor rather than patch, because surface is removed**, which on 0.x signals a breaking change.
 Check this before upgrading; a green `pnpm typecheck` here does not clear consumers.
@@ -55,6 +56,3 @@ you pinned yourself, since these chains are re-genesised periodically.
 
 `@parity/product-sdk-chain-client` needs no entry. It reads `.genesis` off the imported descriptor,
 so only its in-source tests restated the hashes, and its published output is unchanged.
-`CloudStorageNetworks.previewnet.genesisHash` was pointing at a previewnet Bulletin that no longer
-exists. If you pinned a hash yourself, read it from the descriptor instead: these chains are
-re-genesised periodically, so any copy goes stale on its own schedule.
