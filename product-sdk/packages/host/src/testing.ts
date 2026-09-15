@@ -239,6 +239,8 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
             createTransactionWithLegacyAccount: () => okAsync({ transaction: signature }),
             signRaw: () => okAsync({ signature }),
             signRawWithLegacyAccount: () => okAsync({ signature }),
+            signRawUnwatermarkedDeprecated: () => okAsync({ signature }),
+            signRawUnwatermarkedDeprecatedWithLegacyAccount: () => okAsync({ signature }),
             signPayload: () => okAsync({ signature }),
             signPayloadWithLegacyAccount: () => okAsync({ signature }),
         },
@@ -286,6 +288,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         notifications: notModeled("notifications"),
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),
+        renderer: notModeled("renderer"),
         resourceAllocation: notModeled("resourceAllocation"),
         theme: notModeled("theme"),
     };
