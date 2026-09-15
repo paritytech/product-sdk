@@ -386,7 +386,7 @@ await submitAndWatch(
 
 > **A RECOGNIZED PLAYER CANNOT ENTER THE DRAWS AT ALL.** `Alias` needs a ring-VRF proof at `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and hosts only sign at `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, which they compute themselves. That is a chain or host change, not more SDK code. It arrives as the `AliasVrfsUnavailable` blocker, and such a player **can** still sign up with an account, passing no draws.
 
-> **`sign_up_with_alias` CANNOT BE ASSEMBLED EITHER.** Its `sig`, the statement-account proof, is a bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it. `withAsPerson` gives the origin; that argument has no source. The example in the write section shows the origin, not a working flow.
+> **`sign_up_with_alias` STILL CANNOT BE ASSEMBLED.** Its `sig`, the statement-account proof, is a bare `blake2_256` hash, and the signer factories' `signBytes` (`signRaw`) `<Bytes>`-wraps it. `accounts.signRawUnwatermarkedDeprecated(account, data)` and its `…WithLegacyAccount` twin sign the bytes unwrapped — that is the escape hatch People chain's `Resources.register_person` uses, and it needs a host on `@parity/truapi` 0.16.0+ — but `withAsPerson` only gives the origin, and that `sig` argument still has no source here. The example in the write section shows the origin, not a working flow.
 
 The eight reasons a sign-up or its draw entry can be blocked:
 
