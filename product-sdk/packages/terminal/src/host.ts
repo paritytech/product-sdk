@@ -34,8 +34,6 @@ const log = createLogger("terminal");
 export type { CachedAllocation };
 export { createSlotAccountSigner };
 
-// Types derived from `UserSession['requestResourceAllocation']` so upstream
-// codec changes surface as compile errors here, not runtime decode failures.
 // host-papp doesn't re-export these codec types from its root.
 type ResourceAllocationRequest = Parameters<UserSession["requestResourceAllocation"]>[0];
 
@@ -292,6 +290,24 @@ if (import.meta.vitest) {
     >;
     type _OnExistingPolicyIsPinned = Expect<
         Equal<OnExistingAllowancePolicy, "Ignore" | "Increase">
+    >;
+
+    type PinnedAllocatedResource =
+        | { tag: "StatementStoreAllowance"; value: { slotAccountKey: Uint8Array } }
+        | { tag: "SmartContractAllowance"; value: undefined }
+        | {
+              tag: "AutoSigning";
+              value: { productRootPrivateKey: Uint8Array; ringVrfDomainEntropy: Uint8Array };
+          }
+        | { tag: "BulletInAllowance"; value: { slotAccountKey: Uint8Array } };
+
+    type _ApAllocationOutcomeIsPinned = Expect<
+        Equal<
+            ApAllocationOutcome,
+            | { tag: "Rejected"; value: undefined }
+            | { tag: "Allocated"; value: PinnedAllocatedResource }
+            | { tag: "NotAvailable"; value: undefined }
+        >
     >;
 
     let testStorageDir: string;

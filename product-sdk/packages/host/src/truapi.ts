@@ -370,6 +370,17 @@ if (import.meta.vitest) {
         Equal<AllocationOutcome, "Allocated" | "Rejected" | "NotAvailable">
     >;
 
+    type _RemotePermissionIsPinned = Expect<
+        Equal<
+            RemotePermission,
+            | { tag: "Remote"; value: { domains: string[] } }
+            | { tag: "WebRtc"; value?: undefined }
+            | { tag: "ChainSubmit"; value?: undefined }
+            | { tag: "PreimageSubmit"; value?: undefined }
+            | { tag: "StatementSubmit"; value?: undefined }
+        >
+    >;
+
     test("getTruApi returns null outside a container", async () => {
         const api = await getTruApi();
         expect(api === null || typeof api === "object").toBe(true);
