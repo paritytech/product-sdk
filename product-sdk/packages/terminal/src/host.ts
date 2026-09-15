@@ -271,6 +271,29 @@ if (import.meta.vitest) {
     const { mnemonicToMiniSecret, DEV_PHRASE } = await import("@polkadot-labs/hdkd-helpers");
     const { toHex } = await import("@polkadot-api/utils");
 
+    // Deriving from `UserSession` only catches a reshape of a variant this repo
+    // constructs; a bump to any other variant compiles clean.
+    type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+        ? true
+        : false;
+    type Expect<T extends true> = T;
+
+    type PinnedAllocatableResource =
+        | { tag: "StatementStoreAllowance"; value: undefined }
+        | {
+              tag: "SmartContractAllowance";
+              value: { tag: "Index"; value: number } | { tag: "Raw"; value: Uint8Array };
+          }
+        | { tag: "AutoSigning"; value: undefined }
+        | { tag: "BulletInAllowance"; value: undefined };
+
+    type _AllocatableResourceIsPinned = Expect<
+        Equal<AllocatableResource, PinnedAllocatableResource>
+    >;
+    type _OnExistingPolicyIsPinned = Expect<
+        Equal<OnExistingAllowancePolicy, "Ignore" | "Increase">
+    >;
+
     let testStorageDir: string;
     beforeEach(() => {
         // Per-test temp dir so cache writes don't leak between tests or
