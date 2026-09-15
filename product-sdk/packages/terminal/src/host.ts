@@ -4,7 +4,7 @@
  * Host-runner facet of `@parity/product-sdk-terminal`. A CLI using this
  * package plays the Host role per RFC-10; this module implements the
  * three §Stakeholders Host responsibilities (AP client, cache, signer)
- * over `@novasamatech/host-papp@0.7.7`'s `UserSession`.
+ * over `@novasamatech/host-papp@0.10.0`'s `UserSession`.
  *
  * @module
  */
