@@ -1,5 +1,180 @@
 # @parity/product-sdk
 
+## 0.28.0
+
+### Minor Changes
+
+- a85b489: **Re-pin every drifting chain (#242), including five that were re-genesised.**
+
+  The bundled descriptors addressed chains that no longer exist. Access is gated on the genesis
+  hash, so a stale genesis fails at connection with `GenesisMismatchError` before any storage read.
+  A stale `codeHash` only means decoding against an old metadata snapshot; a stale genesis means
+  addressing a chain that is not there.
+
+  | Chain                      | Old genesis        | New genesis        |
+  | -------------------------- | ------------------ | ------------------ |
+  | `paseo-individuality`      | `0x89a63b11…5440f` | `0x4a2b5b73…5ad48` |
+  | `previewnet-individuality` | `0x34999c29…5d220` | `0xf720c28f…35218` |
+  | `paseo-asset-hub`          | `0x23e730eb…a2ca6` | `0x4349b00e…`      |
+  | `previewnet-asset-hub`     | `0x627f5441…29659` | `0xc27c8bf3…`      |
+  | `previewnet-bulletin`      | `0x1144acd2…04e89` | `0xea9158d7…`      |
+
+  `devnet-asset-hub`, `devnet-individuality`, `kusama-asset-hub`, `paseo-bulletin` and
+  `polkadot-asset-hub` kept their genesis and took a fresh `codeHash` only. All eleven chains
+  matched their live runtimes when this was cut; codeHash pins drift on their own schedule, tracked
+  in #242.
+
+  **Minor rather than patch, because surface is removed**, which on 0.x signals a breaking change.
+  Check this before upgrading; a green `pnpm typecheck` here does not clear consumers.
+
+  | Chain                      | Removed                                                 | Added                                                                                    |
+  | -------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+  | `paseo-individuality`      | pallet `StorageInitialization`, `Score.Suffix` constant | pallets `NetworkSuffix`, `Parameters`, `AssetConversion`, `PoolAssets`, `PeopleAirdrops` |
+  | `previewnet-individuality` | `Score.Suffix` constant                                 | pallet `NetworkSuffix`                                                                   |
+  | `paseo-asset-hub`          | `AsRingAlias` transaction extension                     | pallet `NetworkSuffix`                                                                   |
+  | `previewnet-asset-hub`     | none                                                    | pallet `NetworkSuffix`                                                                   |
+  | `polkadot-asset-hub`       | none                                                    | pallet `Psm`                                                                             |
+
+  Two consequences worth reading if you use the individuality surface.
+
+  **The network suffix moved from a constant to storage on both individuality chains.** Neither
+  publishes `Score.Suffix` any more, so `readScoreContext` and `readLiteSignUpRequirement` now take
+  the `NetworkSuffixChain` overload and read it at a pinned block. A caller-supplied `tld` still wins
+  where you pass one. Previewnet's own suffix changed with it, from `test` to `testnet`, so its
+  `Score.score_context` moved from `0xa02ef8d9…` to `0x643d4ff6…`. Paseo's is unchanged at
+  `0x99f1920e…`. If you derived a context from a hardcoded `test`, it no longer matches previewnet.
+
+  **`paseo-individuality` gained `PeopleAirdrops`.** The airdrop read surface now has a chain that
+  carries the pallet, where before only previewnet did.
+
+  `@parity/product-sdk-cloud-storage` takes a minor because it now addresses a different chain:
+  `CloudStorageNetworks.previewnet.genesisHash` restated the hash by hand and was pointing at a
+  previewnet Bulletin that no longer exists. All three entries now read `.genesis` off the descriptor
+  they already sit beside, so their declared type widens from the literal hash to `` `0x${string}` ``.
+  Assignment is unaffected; only an annotation naming the literal breaks. Do the same with any hash
+  you pinned yourself, since these chains are re-genesised periodically.
+
+  `@parity/product-sdk-chain-client` needs no entry. It reads `.genesis` off the imported descriptor,
+  so only its in-source tests restated the hashes, and its published output is unchanged.
+
+- a85b489: **`buildLiteAliasBindTx` encodes the lite sign-up's bind leg entirely client-side.**
+
+  `PeopleLite.set_alias_account(account, valid_at_block)` under
+  `PeopleLiteAuth::AsLiteAliasWithProof` is an unsigned V5 _general_ extrinsic —
+  origin `None`, no signature — so it cannot ride a `PolkadotSigner`, and until
+  now the only way to assemble it was the host's `createTransaction`. With the
+  extension pipeline read from the chain's own metadata the SDK now builds the
+  whole extrinsic itself: every extra takes the value a general transaction needs
+  (`RestrictOrigins` enabled, `VerifyMultiSignature` disabled, immortal era,
+  zero nonce and tip, every origin `Option` slot `None`), the ring-VRF proof is
+  requested over the implication after `PeopleLiteAuth` — never chosen by the
+  caller — and the result is finished bytes for any raw submit, plus the proof's
+  ring coordinates for logging. `valid_at_block` is the chain's best block at
+  build time; `account` is a plain call parameter, which is what lets the
+  personhood product vouch for another product's account.
+
+  ```ts
+  const { transaction } = await buildLiteAliasBindTx(chain, {
+    account,
+    createProof: (message) =>
+      accounts.createRingVRFProof(
+        liteKeyHandle,
+        scoreContext,
+        litePeopleRing(genesis),
+        message
+      ),
+  });
+  await client.submit(`0x${bytesToHex(transaction)}`);
+  ```
+
+  The byte layout (`compact(len) ++ 0x45 ++ extensionVersion ++ extras ++ call`)
+  reproduces the encoding verified live on previewnet (spec 1000036) as the first
+  of the two lite sign-up transactions, and the tests pin it byte for byte
+  against the previewnet and paseo metadata. Chains whose `PeopleLiteAuth`
+  predates the deployed field list (devnet) are a loud error, not a plausible
+  wrong encoding. Nothing here chooses a chain, a product id or a context: run
+  `readScoreContext` first and stop on `NotProductDerived`, and skip the leg when
+  `PeopleLite.AccountToAlias` already holds the binding.
+
+  Two paths now reach this leg: `withLiteAlias({ tag: "AliasWithProof" })` has the
+  host assemble the envelope, and this builder assembles it client-side. Prefer
+  the builder unless you want the host to own the envelope, because it removes the
+  dependency on per-host `createTransaction` behaviour. Both remain supported.
+
+- a85b489: **The free lite sign-up: `readLiteSignUpRequirement` decides, `signUpWithLiteInviteTx` builds.**
+
+  `Game.sign_up_with_account_lite_invite(account, identifier_key, airdrops)` is the
+  `Pays::No`, deposit-free game sign-up a lite person's bound account submits —
+  signed by that account under `withLiteAlias({ tag: "AliasWithAccount" })`.
+  `signUpWithLiteInviteTx(chain, { account, identifierKey, airdrops, airdropsScheduled })`
+  builds it unsigned with the same width and count guards as the account sign-up.
+
+  `readLiteSignUpRequirement(chain, { account, liteMemberKey?, tld? })` is
+  `readGameSignUpRequirement` plus the lite gates, all at one pinned block. Its
+  blockers are the new `LiteSignUpBlocker` — a union of the existing
+  `SignUpBlocker` (which is unchanged, so exhaustive consumers of the account read
+  keep compiling) and nine lite arms: `AliasNotBound` (the proof-authorized
+  `PeopleLite.set_alias_account` bind leg has not run), `AliasBoundElsewhere` (the
+  binding exists outside `Score.score_context`), `StaleAlias` (the binding was
+  proven at a ring revision older than `Members.Root`, which the signed leg
+  rejects as `Custom(172)`), `AnotherAccountInvited` (the forever
+  `Game.LiteInvites` pin names a different account — carried in the blocker so a
+  UI can say which), `AlreadyPlaying` (a `Game.Players` entry exists, which
+  `sign_up_inner` rejects for an invited sign-up whatever its `registered` flag
+  says, so a returning player uses `signUpWithAccountTx`),
+  `AccountIsALitePerson` (the account is itself a lite person),
+  `AccountIsAStatementAccount` (the account is some alias's statement account,
+  which `sign_up_inner` rejects before it reaches either of the gates above),
+  `NotLiteMember` (the supplied member key is not an `Included` lite ring
+  member), and `ContextNotProductDerived` (the chain's score context is not
+  product-derived, so no stock host can mint the proof). Every lite arm blocks the
+  sign-up itself; the draw-only split carries over from the account read
+  unchanged.
+
+  ```ts
+  const req = await readLiteSignUpRequirement(chain, {
+    account,
+    liteMemberKey,
+  });
+  if (req.ok && req.value.canSignUp) {
+    const tx = signUpWithLiteInviteTx(chain, {
+      account,
+      identifierKey,
+      airdrops,
+    });
+    await submitAndWatch(
+      tx,
+      withLiteAlias(signer, { tag: "AliasWithAccount" })
+    );
+  }
+  ```
+
+  The new `LiteSignUpChain` contract (`PeopleLite.AccountToAlias`,
+  `PeopleLite.LitePeople`, `Game.LiteInvites`, `Game.StmtAccountToAlias`, `Members.Members`,
+  `Members.Root`, the sign-up call) is satisfied by paseo and previewnet; devnet predates it.
+
+  The read also resolves the score context, so it carries the same suffix
+  overloads as `readScoreContext`: previewnet resolves it from `Score.Suffix`,
+  and paseo publishes no suffix at all, so it needs `tld`. Passing a client that
+  cannot resolve one, with no `tld`, does not compile. TLDs, product ids and the
+  65-byte communication key stay caller-supplied throughout.
+
+### Patch Changes
+
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+  - @parity/product-sdk-cloud-storage@0.12.0
+  - @parity/product-sdk-individuality@0.5.0
+  - @parity/product-sdk-host@0.20.0
+  - @parity/product-sdk-chain-client@0.12.4
+  - @parity/product-sdk-local-storage@0.3.10
+  - @parity/product-sdk-signer@0.14.5
+  - @parity/product-sdk-keys@0.3.25
+  - @parity/product-sdk-contracts@0.10.8
+  - @parity/product-sdk-tx@0.4.8
+
 ## 0.27.0
 
 ### Minor Changes
