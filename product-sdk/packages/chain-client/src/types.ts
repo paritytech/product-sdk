@@ -2,14 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { ChainDefinition, PolkadotClient, TypedApi } from "polkadot-api";
 
-/** Supported chain environments for the Polkadot ecosystem. */
-export type Environment = "polkadot" | "kusama" | "paseo" | "devnet" | "local" | "westend";
-
 /**
  * Configuration for {@link createChainClient}.
  *
  * Provide named chain descriptors. The SDK routes all connections through the
- * host provider, so no RPC endpoints are required.
+ * host provider, so no RPC endpoints are required, and only chains the host routes
+ * are reachable.
  *
  * @typeParam TChains - Record mapping user-chosen chain names to PAPI descriptors.
  *

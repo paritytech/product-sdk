@@ -6,11 +6,9 @@
  * This is a backport of `@novasamatech/host-api-wrapper`'s
  * `createPapiProvider` (`dist/papiProvider.js`) into product-sdk, with the
  * call layer swapped from the novasama `hostApi` to the
- * `@parity/truapi` client. The JSON-RPC ↔ chainHead bridge — request dispatch,
- * the `chainHead_v1_followEvent` notification synthesis, the synthetic
- * follow-subscription ids, and the operation/broadcast bookkeeping — is carried
- * over from the upstream module; only the per-method transport calls and their
- * error/response unwrapping are re-pointed at `truApi.chain.*`.
+ * `@parity/truapi` client. The JSON-RPC ↔ chainHead bridge handles request
+ * dispatch, `chainHead_v1_followEvent` notification synthesis, and operation /
+ * broadcast bookkeeping over the structured `truApi.chain.*` methods.
  *
  * **Why a bridge at all.** PAPI speaks the JSON-RPC `chainHead`/`chainSpec`/
  * `transaction` API; the host exposes the same operations as structured,
@@ -51,8 +49,7 @@ import type {
 import { createLogger } from "@parity/product-sdk-logger";
 
 import { formatHostError } from "./errors.js";
-import { subscribeWithInterrupt } from "./transport.js";
-import type { HostSubscription } from "./types.js";
+import { subscribeWithInterrupt, type TransportSubscription } from "./transport.js";
 
 const log = createLogger("host:papi");
 
@@ -63,6 +60,38 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
 
 /** A `chainHead_v1_followEvent` payload (loosely typed — consumed by PAPI's substrate-client). */
 type FollowEvent = { event: string } & Record<string, unknown>;
+
+type BufferedOperation = {
+    announced: boolean;
+    items: RemoteChainHeadFollowItem[];
+};
+
+/** Return the operation id carried by an operation follow item. */
+function followOperationId(item: RemoteChainHeadFollowItem): string | undefined {
+    switch (item.tag) {
+        case "OperationBodyDone":
+        case "OperationCallDone":
+        case "OperationStorageItems":
+        case "OperationStorageDone":
+        case "OperationWaitingForContinue":
+        case "OperationInaccessible":
+        case "OperationError":
+            return item.value.operationId;
+        default:
+            return undefined;
+    }
+}
+
+/** Whether this item closes its operation. */
+function isTerminalOperationItem(item: RemoteChainHeadFollowItem): boolean {
+    return (
+        item.tag === "OperationBodyDone" ||
+        item.tag === "OperationCallDone" ||
+        item.tag === "OperationStorageDone" ||
+        item.tag === "OperationInaccessible" ||
+        item.tag === "OperationError"
+    );
+}
 
 /** Map a JSON-RPC storage query-type string to the truapi `StorageQueryType` tag. */
 const STORAGE_TYPE_MAP: Record<string, StorageQueryType> = {
@@ -195,11 +224,10 @@ export function createHostPapiProvider(
     const chain = client.chain;
 
     return (onMessage: (message: JsonRpcMessage) => void): JsonRpcConnection => {
-        const activeFollows = new Map<string, HostSubscription>();
+        const activeFollows = new Map<string, TransportSubscription>();
         const activeBroadcasts = new Set<string>();
-        let nextSubId = 0;
-
-        const getNextSubId = () => `follow_${nextSubId++}`;
+        const followOperations = new Map<string, Map<string, BufferedOperation>>();
+        const pendingOperationStarts = new Map<string, number>();
 
         function sendJsonRpcResponse(id: JsonRpcRequest["id"], result: unknown): void {
             onMessage({ jsonrpc: "2.0", id, result } as JsonRpcMessage);
@@ -215,6 +243,96 @@ export function createHostPapiProvider(
             } as JsonRpcMessage);
         }
 
+        function forwardFollowItem(
+            followSubscriptionId: string,
+            item: RemoteChainHeadFollowItem,
+        ): void {
+            const operationId = followOperationId(item);
+            if (operationId === undefined) {
+                sendFollowEvent(followSubscriptionId, convertFollowEventToJsonRpc(item));
+                return;
+            }
+
+            const operations = followOperations.get(followSubscriptionId);
+            if (!operations) return;
+
+            let operation = operations.get(operationId);
+            if (!operation) {
+                // A missing entry also means the operation already ended — the spec and
+                // PAPI's cancel path still emit then. With no start outstanding nothing
+                // can announce those, so buffering would strand them until unfollow.
+                if ((pendingOperationStarts.get(followSubscriptionId) ?? 0) === 0) {
+                    sendFollowEvent(followSubscriptionId, convertFollowEventToJsonRpc(item));
+                    return;
+                }
+                operation = { announced: false, items: [] };
+                operations.set(operationId, operation);
+            }
+            if (!operation.announced) {
+                operation.items.push(item);
+                return;
+            }
+
+            sendFollowEvent(followSubscriptionId, convertFollowEventToJsonRpc(item));
+            if (isTerminalOperationItem(item)) {
+                operations.delete(operationId);
+            }
+        }
+
+        function sendOperationStartedResponse(
+            id: JsonRpcRequest["id"],
+            followSubscriptionId: string,
+            result: OperationStartedResult,
+        ): void {
+            // The JSON-RPC response must be observable before any event naming its
+            // operation. TrUAPI request and subscription frames are independent,
+            // so a fast operation can complete before this request resolves.
+            sendJsonRpcResponse(id, convertOperationResultToJsonRpc(result));
+            if (result.tag !== "Started") return;
+
+            const operations = followOperations.get(followSubscriptionId);
+            if (!operations) return;
+
+            const operationId = result.value.operationId;
+            let operation = operations.get(operationId);
+            if (!operation) {
+                operation = { announced: true, items: [] };
+                operations.set(operationId, operation);
+                return;
+            }
+
+            operation.announced = true;
+            const pendingItems = operation.items;
+            operation.items = [];
+            for (const item of pendingItems) {
+                forwardFollowItem(followSubscriptionId, item);
+            }
+        }
+
+        // Both arms must clear the count: a failed start never sends `Started`, and a
+        // stuck count buffers forever.
+        function startOperationRequest(id: JsonRpcRequest["id"], followSubscriptionId: string) {
+            const pending = pendingOperationStarts.get(followSubscriptionId);
+            if (pending !== undefined) {
+                pendingOperationStarts.set(followSubscriptionId, pending + 1);
+            }
+            const settle = () => {
+                const outstanding = pendingOperationStarts.get(followSubscriptionId);
+                if (outstanding === undefined) return;
+                pendingOperationStarts.set(followSubscriptionId, Math.max(0, outstanding - 1));
+            };
+            return {
+                ok: (response: { operation: OperationStartedResult }) => {
+                    settle();
+                    sendOperationStartedResponse(id, followSubscriptionId, response.operation);
+                },
+                err: (error: unknown) => {
+                    settle();
+                    hostError(id)(error);
+                },
+            };
+        }
+
         /** Reject an inbound request with the host's error reason as the JSON-RPC message. */
         const hostError = (id: JsonRpcRequest["id"]) => (error: unknown) =>
             sendJsonRpcError(id, JSON_RPC_INTERNAL_ERROR, formatHostError(error));
@@ -227,31 +345,61 @@ export function createHostPapiProvider(
             switch (method) {
                 case "chainHead_v1_follow": {
                     const [withRuntime] = params as [boolean];
-                    const syntheticSubId = getNextSubId();
                     // The Stop branch unsubscribes its own host subscription, but the
                     // handle is this call's return value — the ref breaks that
                     // chicken-and-egg. (Releasing before forwarding the Stop is just
                     // cleanup; the consumer's synchronous refollow gets a fresh wire
                     // subscription either way.)
-                    const ref: { handle?: HostSubscription } = {};
+                    const ref: { handle?: TransportSubscription } = {};
+                    const pendingItems: RemoteChainHeadFollowItem[] = [];
+                    const forwardItem = (
+                        followSubscriptionId: string,
+                        item: RemoteChainHeadFollowItem,
+                    ) => {
+                        if (item.tag === "Stop" && activeFollows.delete(followSubscriptionId)) {
+                            ref.handle?.unsubscribe();
+                            followOperations.delete(followSubscriptionId);
+                            pendingOperationStarts.delete(followSubscriptionId);
+                        }
+                        forwardFollowItem(followSubscriptionId, item);
+                    };
                     ref.handle = subscribeWithInterrupt(
                         chain.followHeadSubscribe({ request: { genesisHash, withRuntime } }),
                         (item) => {
-                            if (item.tag === "Stop" && activeFollows.delete(syntheticSubId)) {
-                                ref.handle?.unsubscribe();
+                            const followSubscriptionId = ref.handle?.subscriptionId;
+                            if (!followSubscriptionId) {
+                                pendingItems.push(item);
+                                return;
                             }
-                            sendFollowEvent(syntheticSubId, convertFollowEventToJsonRpc(item));
+                            forwardItem(followSubscriptionId, item);
                         },
                     );
+                    const followSubscriptionId = ref.handle.subscriptionId;
+                    if (!followSubscriptionId) {
+                        ref.handle.unsubscribe();
+                        sendJsonRpcError(
+                            id,
+                            JSON_RPC_INTERNAL_ERROR,
+                            "Host follow subscription did not start",
+                        );
+                        break;
+                    }
                     // A transport interrupt/close ends the stream without a Stop
                     // item; synthesize one so the consumer refollows.
                     ref.handle.onInterrupt(() => {
-                        if (activeFollows.delete(syntheticSubId)) {
-                            sendFollowEvent(syntheticSubId, { event: "stop" });
+                        followOperations.delete(followSubscriptionId);
+                        pendingOperationStarts.delete(followSubscriptionId);
+                        if (activeFollows.delete(followSubscriptionId)) {
+                            sendFollowEvent(followSubscriptionId, { event: "stop" });
                         }
                     });
-                    activeFollows.set(syntheticSubId, ref.handle);
-                    sendJsonRpcResponse(id, syntheticSubId);
+                    activeFollows.set(followSubscriptionId, ref.handle);
+                    followOperations.set(followSubscriptionId, new Map());
+                    pendingOperationStarts.set(followSubscriptionId, 0);
+                    sendJsonRpcResponse(id, followSubscriptionId);
+                    for (const item of pendingItems) {
+                        forwardItem(followSubscriptionId, item);
+                    }
                     break;
                 }
                 case "chainHead_v1_unfollow": {
@@ -261,6 +409,8 @@ export function createHostPapiProvider(
                         follow.unsubscribe();
                         activeFollows.delete(followSubId);
                     }
+                    followOperations.delete(followSubId);
+                    pendingOperationStarts.delete(followSubId);
                     sendJsonRpcResponse(id, null);
                     break;
                 }
@@ -276,16 +426,10 @@ export function createHostPapiProvider(
                 }
                 case "chainHead_v1_body": {
                     const [followSubscriptionId, hash] = params as [string, HexString];
+                    const bodyStart = startOperationRequest(id, followSubscriptionId);
                     chain
                         .getHeadBody({ genesisHash, followSubscriptionId, hash })
-                        .match(
-                            (response) =>
-                                sendJsonRpcResponse(
-                                    id,
-                                    convertOperationResultToJsonRpc(response.operation),
-                                ),
-                            hostError(id),
-                        );
+                        .match(bodyStart.ok, bodyStart.err);
                     break;
                 }
                 case "chainHead_v1_storage": {
@@ -299,6 +443,7 @@ export function createHostPapiProvider(
                         key: item.key,
                         queryType: convertStorageType(item.type),
                     }));
+                    const storageStart = startOperationRequest(id, followSubscriptionId);
                     chain
                         .getHeadStorage({
                             genesisHash,
@@ -312,14 +457,7 @@ export function createHostPapiProvider(
                             // (`null.startsWith`). Coerce `null` → `undefined`.
                             childTrie: childTrie ?? undefined,
                         })
-                        .match(
-                            (response) =>
-                                sendJsonRpcResponse(
-                                    id,
-                                    convertOperationResultToJsonRpc(response.operation),
-                                ),
-                            hostError(id),
-                        );
+                        .match(storageStart.ok, storageStart.err);
                     break;
                 }
                 case "chainHead_v1_call": {
@@ -329,6 +467,7 @@ export function createHostPapiProvider(
                         string,
                         HexString,
                     ];
+                    const callStart = startOperationRequest(id, followSubscriptionId);
                     chain
                         .callHead({
                             genesisHash,
@@ -337,14 +476,7 @@ export function createHostPapiProvider(
                             function: fn,
                             callParameters,
                         })
-                        .match(
-                            (response) =>
-                                sendJsonRpcResponse(
-                                    id,
-                                    convertOperationResultToJsonRpc(response.operation),
-                                ),
-                            hostError(id),
-                        );
+                        .match(callStart.ok, callStart.err);
                     break;
                 }
                 case "chainHead_v1_unpin": {
@@ -369,7 +501,10 @@ export function createHostPapiProvider(
                     const [followSubscriptionId, operationId] = params as [string, string];
                     chain
                         .stopHeadOperation({ genesisHash, followSubscriptionId, operationId })
-                        .match(() => sendJsonRpcResponse(id, null), hostError(id));
+                        .match(() => {
+                            followOperations.get(followSubscriptionId)?.delete(operationId);
+                            sendJsonRpcResponse(id, null);
+                        }, hostError(id));
                     break;
                 }
                 case "chainSpec_v1_genesisHash": {
@@ -449,6 +584,8 @@ export function createHostPapiProvider(
                     handle.unsubscribe();
                 }
                 activeFollows.clear();
+                followOperations.clear();
+                pendingOperationStarts.clear();
                 for (const operationId of activeBroadcasts) {
                     // Fire-and-forget: the transport may already be torn down.
                     chain.stopTransaction({ genesisHash, operationId }).match(
@@ -473,24 +610,34 @@ if (import.meta.vitest) {
         responses?: Record<string, unknown>;
         /** Methods named here resolve to their `.match` error arm carrying the given value. */
         errors?: Record<string, unknown>;
+        /** Capture selected successful matches so tests can resolve them after follow events. */
+        deferMatch?: (method: string, resolve: () => unknown) => boolean;
         /** Unsubscribe spy used by the follow subscription (defaults to a fresh `vi.fn()`). */
         unsubscribe?: () => void;
+        /** Item emitted synchronously while the transport subscription starts. */
+        initialItem?: unknown;
         captureObserver?: (observer: {
             next: (i: unknown) => void;
             error: (e: unknown) => void;
             complete: () => void;
         }) => void;
+        /** Transport request id assigned to the follow subscription. */
+        subscriptionId?: string;
     }) {
-        const okMatch = (value: unknown) => ({
-            match: (ok: (v: unknown) => unknown, _err: (e: unknown) => unknown) => ok(value),
-        });
         const errMatch = (error: unknown) => ({
             match: (_ok: (v: unknown) => unknown, err: (e: unknown) => unknown) => err(error),
         });
         const method = (name: string, response: unknown) => (args: unknown) => {
             opts.onCall?.(name, args);
             const errors = opts.errors ?? {};
-            return name in errors ? errMatch(errors[name]) : okMatch(response);
+            if (name in errors) return errMatch(errors[name]);
+            return {
+                match: (ok: (value: unknown) => unknown, _err: (error: unknown) => unknown) => {
+                    const resolve = () => ok(response);
+                    if (opts.deferMatch?.(name, resolve)) return undefined;
+                    return resolve();
+                },
+            };
         };
         return {
             chain: {
@@ -501,7 +648,13 @@ if (import.meta.vitest) {
                         complete: () => void;
                     }) => {
                         opts.captureObserver?.(observer);
-                        return { unsubscribe: opts.unsubscribe ?? vi.fn() };
+                        if (opts.initialItem !== undefined) {
+                            observer.next(opts.initialItem);
+                        }
+                        return {
+                            subscriptionId: opts.subscriptionId ?? "p:41",
+                            unsubscribe: opts.unsubscribe ?? vi.fn(),
+                        };
                     },
                     [Symbol.observable as symbol]() {
                         return this;
@@ -511,13 +664,22 @@ if (import.meta.vitest) {
                     "getHeadHeader",
                     opts.responses?.getHeadHeader ?? { header: "0x01" },
                 ),
-                getHeadBody: method("getHeadBody", {
-                    operation: { tag: "Started", value: { operationId: "op1" } },
-                }),
-                getHeadStorage: method("getHeadStorage", { operation: { tag: "LimitReached" } }),
-                callHead: method("callHead", {
-                    operation: { tag: "Started", value: { operationId: "op2" } },
-                }),
+                getHeadBody: method(
+                    "getHeadBody",
+                    opts.responses?.getHeadBody ?? {
+                        operation: { tag: "Started", value: { operationId: "op1" } },
+                    },
+                ),
+                getHeadStorage: method(
+                    "getHeadStorage",
+                    opts.responses?.getHeadStorage ?? { operation: { tag: "LimitReached" } },
+                ),
+                callHead: method(
+                    "callHead",
+                    opts.responses?.callHead ?? {
+                        operation: { tag: "Started", value: { operationId: "op2" } },
+                    },
+                ),
                 unpinHead: method("unpinHead", undefined),
                 continueHead: method("continueHead", undefined),
                 stopHeadOperation: method("stopHeadOperation", undefined),
@@ -530,11 +692,14 @@ if (import.meta.vitest) {
         } as unknown as TrUApiClient;
     }
 
-    test("follow returns a synthetic id and forwards translated events", () => {
+    test("follow preserves the transport id for events and follow-up requests", () => {
         let observer:
             | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
             | undefined;
+        const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({
+            subscriptionId: "p:17",
+            onCall: (method, args) => calls.push([method, args]),
             captureObserver: (o) => {
                 observer = o;
             },
@@ -545,8 +710,7 @@ if (import.meta.vitest) {
         const conn = provider((m) => messages.push(m));
 
         conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
-        // The follow response carries the synthetic subscription id.
-        expect(messages[0]).toEqual({ jsonrpc: "2.0", id: 1, result: "follow_0" });
+        expect(messages[0]).toEqual({ jsonrpc: "2.0", id: 1, result: "p:17" });
 
         // A typed BestBlockChanged item becomes a chainHead_v1_followEvent.
         observer?.next({ tag: "BestBlockChanged", value: { bestBlockHash: "0xbeef" } });
@@ -554,10 +718,247 @@ if (import.meta.vitest) {
             jsonrpc: "2.0",
             method: "chainHead_v1_followEvent",
             params: {
-                subscription: "follow_0",
+                subscription: "p:17",
                 result: { event: "bestBlockChanged", bestBlockHash: "0xbeef" },
             },
         });
+
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_header",
+            params: ["p:17", "0xbeef"],
+        });
+        expect(calls).toContainEqual([
+            "getHeadHeader",
+            {
+                genesisHash: "0xfeed",
+                followSubscriptionId: "p:17",
+                hash: "0xbeef",
+            },
+        ]);
+    });
+
+    test("follow buffers an item emitted while the transport subscription starts", () => {
+        const client = makeFakeClient({
+            subscriptionId: "p:18",
+            initialItem: { tag: "BestBlockChanged", value: { bestBlockHash: "0xbeef" } },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
+
+        expect(messages).toEqual([
+            { jsonrpc: "2.0", id: 1, result: "p:18" },
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: {
+                    subscription: "p:18",
+                    result: { event: "bestBlockChanged", bestBlockHash: "0xbeef" },
+                },
+            },
+        ]);
+    });
+
+    test("buffers a call completion until after its operation-start response", () => {
+        let observer:
+            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
+            | undefined;
+        let resolveCall: (() => unknown) | undefined;
+        const client = makeFakeClient({
+            responses: {
+                callHead: { operation: { tag: "Started", value: { operationId: "op-call" } } },
+            },
+            captureObserver: (value) => {
+                observer = value;
+            },
+            deferMatch: (method, resolve) => {
+                if (method !== "callHead") return false;
+                resolveCall = resolve;
+                return true;
+            },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        messages.length = 0;
+
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_call",
+            params: ["p:41", "0xhash", "Test_call", "0x"],
+        });
+        observer?.next({
+            tag: "OperationCallDone",
+            value: { operationId: "op-call", output: "0x1234" },
+        });
+        expect(messages).toEqual([]);
+
+        resolveCall?.();
+        expect(messages).toEqual([
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                result: { result: "started", operationId: "op-call" },
+            },
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: {
+                    subscription: "p:41",
+                    result: {
+                        event: "operationCallDone",
+                        operationId: "op-call",
+                        output: "0x1234",
+                    },
+                },
+            },
+        ]);
+    });
+
+    test("preserves buffered storage item order after announcing the operation", () => {
+        let observer:
+            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
+            | undefined;
+        let resolveStorage: (() => unknown) | undefined;
+        const client = makeFakeClient({
+            responses: {
+                getHeadStorage: {
+                    operation: { tag: "Started", value: { operationId: "op-storage" } },
+                },
+            },
+            captureObserver: (value) => {
+                observer = value;
+            },
+            deferMatch: (method, resolve) => {
+                if (method !== "getHeadStorage") return false;
+                resolveStorage = resolve;
+                return true;
+            },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        messages.length = 0;
+
+        conn.send({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "chainHead_v1_storage",
+            params: ["p:41", "0xhash", [{ key: "0x01", type: "value" }], null],
+        });
+        observer?.next({
+            tag: "OperationStorageItems",
+            value: {
+                operationId: "op-storage",
+                items: [{ key: "0x01", value: "0xabcd" }],
+            },
+        });
+        observer?.next({
+            tag: "OperationStorageDone",
+            value: { operationId: "op-storage" },
+        });
+        expect(messages).toEqual([]);
+
+        resolveStorage?.();
+        expect(
+            messages.map((message) => ("id" in message ? message.id : message.params.result.event)),
+        ).toEqual([3, "operationStorageItems", "operationStorageDone"]);
+    });
+
+    test("forwards an operation event that arrives after the operation ended", () => {
+        let observer:
+            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
+            | undefined;
+        const client = makeFakeClient({
+            responses: {
+                callHead: { operation: { tag: "Started", value: { operationId: "op-late" } } },
+            },
+            captureObserver: (value) => {
+                observer = value;
+            },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_call",
+            params: ["p:41", "0xhash", "Test_call", "0x"],
+        });
+        observer?.next({
+            tag: "OperationCallDone",
+            value: { operationId: "op-late", output: "0x1" },
+        });
+        messages.length = 0;
+
+        observer?.next({
+            tag: "OperationStorageItems",
+            value: { operationId: "op-late", items: [{ key: "0x01", value: "0xabcd" }] },
+        });
+
+        expect(messages).toEqual([
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: {
+                    subscription: "p:41",
+                    result: {
+                        event: "operationStorageItems",
+                        operationId: "op-late",
+                        items: [{ key: "0x01", value: "0xabcd" }],
+                    },
+                },
+            },
+        ]);
+    });
+
+    test("a failed operation start releases the follow's buffering", () => {
+        let observer:
+            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
+            | undefined;
+        const client = makeFakeClient({
+            errors: { callHead: { reason: "host unavailable" } },
+            captureObserver: (value) => {
+                observer = value;
+            },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_call",
+            params: ["p:41", "0xhash", "Test_call", "0x"],
+        });
+        messages.length = 0;
+
+        // A failed start never sends `Started`. If it left the count raised, every
+        // later event for an unknown operation would buffer for the life of the follow.
+        observer?.next({
+            tag: "OperationStorageItems",
+            value: { operationId: "op-unknown", items: [{ key: "0x01", value: "0xabcd" }] },
+        });
+
+        expect(messages).toEqual([
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: {
+                    subscription: "p:41",
+                    result: {
+                        event: "operationStorageItems",
+                        operationId: "op-unknown",
+                        items: [{ key: "0x01", value: "0xabcd" }],
+                    },
+                },
+            },
+        ]);
     });
 
     test("chainSpec_v1_properties parses the JSON-encoded properties string", () => {
@@ -628,7 +1029,7 @@ if (import.meta.vitest) {
         expect(messages[1]).toEqual({
             jsonrpc: "2.0",
             method: "chainHead_v1_followEvent",
-            params: { subscription: "follow_0", result: { event: "stop" } },
+            params: { subscription: "p:41", result: { event: "stop" } },
         });
     });
 

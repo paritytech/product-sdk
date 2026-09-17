@@ -1,5 +1,361 @@
 # @parity/product-sdk-host
 
+## 0.20.0
+
+### Minor Changes
+
+- a85b489: **Pair with a codec-2 host.** `@parity/truapi` moves from `^0.13.1` to `^0.16.0`, which changes the wire envelope from codec 1 to codec 2.
+
+  The two codecs cannot negotiate. The handshake itself rides the changed envelope, so there is no version exchange to fall back on: a host still on codec 1 drops a codec-2 frame as an unroutable message type and answers nothing, and the call times out rather than failing fast. The same holds in reverse, so a product on this SDK talks only to a host that moved with it.
+
+  **Every host surface moves in the same window.** The desktop host takes `@parity/truapi-host` 0.16.0; the iOS app resolves the `@parity/ios-host` 0.16.0 SwiftPM tag; the Android app pins the same commit and builds the core from source. A product rebuilt on this SDK will not work against a host that has not been updated, and a host that has been updated will not serve a product that has not.
+
+  **Minor rather than patch**, which on 0.x signals a breaking change. Nothing in this package's own API changes: the break is in what it can talk to.
+
+## 0.19.1
+
+### Patch Changes
+
+- 5613196: Update `@parity/truapi` to 0.13.1. No SDK API changes: the client's domain
+  surface (`client.d.ts`) is identical to 0.12.0, so nothing in
+  `@parity/product-sdk-*` changes and the host testing fake needs no new modeling.
+  The only differing type files are truapi's own explorer / playground codegen and
+  `well-known-chains`, none of which the SDK imports. Bumping keeps the catalog
+  current with the latest published client (closes the release-bot bump issue).
+
+## 0.19.0
+
+### Minor Changes
+
+- d0260a1: **Add `getLocaleProvider` for the host's selected language.**
+
+  A product can now render in the language the user picked inside the host, rather than
+  inferring one from `navigator.language` — which reports the operating system's preference
+  and is wrong whenever the two differ.
+
+  ```ts
+  import { getLocaleProvider } from "@parity/product-sdk-host";
+
+  const provider = await getLocaleProvider();
+  const sub = provider?.subscribeLocale((locale) => {
+    i18n.activate(
+      SUPPORTED.has(locale.languageTag) ? locale.languageTag : "en"
+    );
+  });
+  ```
+
+  `subscribeLocale` fires with the current locale and again on every change; the returned
+  `HostSubscription` carries `unsubscribe` and `onInterrupt`. `getLocaleProvider` resolves to
+  `null` outside a host container.
+
+  `languageTag` is a BCP 47 tag such as `"en"`, `"pt-BR"` or `"zh-Hans"`. The set is open — a
+  host adds languages without an SDK release — so a product that ships no catalog entry for
+  the tag it receives picks its own fallback.
+
+  The `locale` domain arrived in `@parity/truapi` 0.12.0, already on the catalog.
+
+### Patch Changes
+
+- d0260a1: Update `@parity/truapi` to 0.12.0. No SDK API changes: the bump is additive on
+  truapi's side and nothing in `@parity/product-sdk-host` consumes the new surface
+  yet. 0.12.0 adds the `locale` domain (`locale.subscribe`, the host's selected
+  language as a BCP 47 tag), `system.info` / `system.getProductContext`, and
+  `development_createAccountProof` for raw proof contexts. The testing fake tracks
+  the new surface: the `locale` domain is not modeled, and the `system` domain
+  still models `handshake` / `featureSupported` / `navigateTo` while the new
+  `info` and `getProductContext` throw the descriptive not-modeled error instead
+  of an `undefined is not a function`. Bumping keeps the catalog current with the
+  latest published client and unblocks the upcoming locale provider.
+- d0260a1: **Derive `txExtVersion` from the extrinsic format list, so a V5-only runtime can be signed again.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion`. Since host `0.18.0` and terminal `0.8.0` the V5 value was gated on the runtime's transaction-extension version map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`) containing `5`. No runtime declares extension version `5`, every deployed runtime declares only `0`, so that branch was unreachable and signing threw on any runtime offering extrinsic format 5 without format 4.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `metadata.extrinsic.version` alone: format 4 gives `0`, otherwise format 5 gives `5`, otherwise a throw naming the formats the runtime offers. That restores the behaviour published in host `0.17.0` and terminal `0.7.4`, and keeps the explicit rejection `0.18.0` added for a runtime offering neither format, where earlier versions sent the highest format number to a host that cannot use it. Both packages now also decode the tracked chain metadata under test, which is the check that would have caught this.
+
+  `0` and `5` are the values host-rust-core's `build_local_transaction` accepts, and that is the host iOS and dot.li run. What the field means is still open in product-sdk#339: the truapi protocol documents it as a transaction-extension version and the Android host reads it that way, so `5` is not universally correct. This release does not settle that.
+
+  No behaviour change on any chain the SDK ships against. They all offer extrinsic format 4, so `txExtVersion` was and remains `0`.
+
+## 0.18.0
+
+### Minor Changes
+
+- 84134e0: **Surface a clear error when a host reply can't be decoded, instead of an opaque `RangeError`.**
+
+  When the host app and the `@parity/truapi` version a product is built against are on different protocol versions, a host call can return a frame the client's SCALE codec can't decode. The truapi client catches that decode throw in its message handler and turns it into a promise rejection, then wraps the call with `fromSafePromise`, which installs no rejection handler — so the rejection escaped the `Result` channel rather than landing on its err side, surfacing as a raw `RangeError: Offset is outside the bounds of the DataView` with a stack that named neither the call nor the cause (reported for `createRingVRFProof`).
+
+  The host boundaries now re-home that rejection onto the `Result` err channel (or, for the throwing helper, as a typed throw) as a new `HostResponseDecodeError` that names the failing call and preserves the original error as `cause`. This covers every path: `getAccountsProvider()`'s ten lookup methods, the flat public operations that fold through `mapHostResult` (`requestPermission`, `deriveEntropy`, `requestResourceAllocation`, …), and the adapter-object / signer methods that go through `unwrapHostResult`. Well-formed responses and each call's own typed `Err` values pass through untouched.
+
+  New exports: the `HostResponseDecodeError` class (extends `HostError`, so `isHostError` / `instanceof HostError` catch it) and the `WithDecodeError<E>` type alias. Every `AccountsProvider` lookup method's `err` type is widened to `WithDecodeError<…>`; consumers matching on the err channel gain one additional case.
+
+### Patch Changes
+
+- 84134e0: **Derive `txExtVersion` from the transaction-extension version map, not the extrinsic format version.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion` with the **transaction-extension** version the host must decode extension values under. It was being derived from `metadata.extrinsic.version` — the extrinsic _format_ versions (`4` / `5`) — which is a different concept (host-rust-core#528). For a V4 extrinsic the value is a fixed `0`; for a V5 general transaction it is a transaction-extension version from the runtime's v16 `transactionExtensionsByVersion` map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`), which the host and runtime agree is `5` — a value that must exist in that map, not the highest extrinsic format number.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `extrinsic.signedExtensions`: V4 → `0`, else the general transaction-extension version `5` if the runtime lists it (throwing otherwise, rather than sending a format number the host can't decode under).
+
+  No behaviour change on the chains the SDK ships against today: they all offer extrinsic V4, so `txExtVersion` was and remains `0`. The bug was latent — it only produced a wrong value (the format number `5`) on a hypothetical V5-only runtime, which is exactly the case this corrects.
+
+## 0.17.0
+
+### Minor Changes
+
+- 46e3592: **Export `subscribeConnectionStatus` for host-channel connection state.**
+
+  Watching whether the host channel is up previously meant importing `@parity/truapi/sandbox`
+  directly. The callback fires synchronously with the current status and again on every change;
+  the returned function unsubscribes. Repeats of the status you already hold are suppressed.
+
+  ```ts
+  import {
+    subscribeConnectionStatus,
+    type HostConnectionStatus,
+  } from "@parity/product-sdk-host";
+
+  const unsubscribe = subscribeConnectionStatus((status) => setStatus(status));
+  ```
+
+  This is the **transport** channel — for the host's account-level connection, use
+  `AccountsProvider.subscribeAccountConnectionStatus`. The type is `HostConnectionStatus` because
+  `@parity/product-sdk-signer` already exports `ConnectionStatus` for a signer provider's lifecycle:
+  same three states, different meaning.
+
+  Also fixes a stuck status. `@parity/truapi` never clears its cached client when the pipe closes, so
+  a subscriber arriving after a disconnect reported `"connecting"` — permanently, and for every other
+  subscriber too. This holds `"disconnected"` until a real `"connected"` arrives. Still unfixed as of
+  `@parity/truapi` 0.9.0, so the workaround stays until a later release drops it.
+
+  **Testing.** `@parity/product-sdk-host/testing` gains `emitConnectionStatus(status)`, also on
+  `FakeHost`, so a product can drive its reconnecting / offline UI. `setTruApiClient` now notifies live
+  subscribers when it injects or clears a client.
+
+  **Breaking for implementors.** `emitConnectionStatus` is a required member of the exported `FakeHost`
+  interface, so hand-rolled test doubles must add it. Callers of `createFakeHost()` are unaffected.
+
+- 46e3592: **Re-add `previewnet` as a first-class environment.**
+
+  Previewnet was dropped when its identity endpoints weren't secured for public use and its runtime matched paseo. Both have changed: the endpoints are secured, and previewnet now runs a Paseo runtime kept a step ahead of paseo-next-v2 (asset-hub `2000039` vs `2000036`, individuality `1000036` vs `1000032`), so products can build against upcoming runtime changes weeks early.
+
+  - `@parity/product-sdk-descriptors` re-adds the `./previewnet-asset-hub`, `./previewnet-bulletin`, and `./previewnet-individuality` subpath exports, generated fresh against the live endpoints with real (non-zero) `codeHash` values so previewnet is covered by descriptor-drift detection like every other chain.
+  - `@parity/product-sdk-chain-client` re-adds `"previewnet"` to the `Environment` union; `getChainAPI("previewnet")` resolves again, routing to the `previewnet.substrate.dev` endpoints for asset-hub, bulletin, and people (individuality).
+  - `@parity/product-sdk-cloud-storage` re-adds the `previewnet` entry to `CloudStorageNetworks`.
+  - `@parity/product-sdk-host` re-adds `BULLETIN_RPCS.previewnet`.
+
+  Consumers on paseo or a production environment are unaffected; this is purely additive.
+
+### Patch Changes
+
+- 46e3592: **Preserve chain-head operation ordering over TrUAPI.**
+
+  TrUAPI request responses and follow-subscription events travel independently, so a fast body, call, or storage operation can finish before its `Started(operationId)` response reaches the PAPI bridge. The host provider now buffers those early operation events by follow subscription and operation id, emits the JSON-RPC start response first, and then replays the events in arrival order. Buffers are released when the operation, follow subscription, or provider closes. This prevents PAPI from dropping an early completion and waiting indefinitely. No public API changes or consumer migration are required.
+
+- 46e3592: **Use the signed V4 envelope when a runtime also advertises V5.**
+
+  Product-account signers now prefer an advertised Extrinsic V4 format because metadata alone cannot prove that the connected host implements a runtime's V5 authorization pipeline. V5-only runtimes continue to use V5, preserving explicit host capability errors and future authorization support.
+
+- 46e3592: Update `@parity/truapi` to 0.10.0. No SDK API changes: the bump is additive on
+  truapi's side and nothing in `@parity/product-sdk-host` consumes the new surface
+  yet. 0.10.0 adds `createWebSocketProvider(url)` / `connectWebSocketHost(url)` for
+  hosts that serve protocol frames over a WebSocket (so a plain browser tab against
+  such a host is detected as hosted and shares the cached client), and exports the
+  `PREVIEWNET_INDIVIDUALITY` / `PREVIEWNET_ASSET_HUB` well-known chains. Bumping
+  keeps the catalog current with the latest published client.
+
+## 0.16.0
+
+### Minor Changes
+
+- 3655724: **Wrap `account.signVrf` (RFC-0023) in the accounts surface (#288).**
+
+  Producing an sr25519 VRF over a caller-supplied Merlin transcript previously meant
+  reaching for the raw `getTruApi()` client. `AccountsProvider` now has
+  `signVrf(account, transcriptLabel, items)`, with `HostProvider.signVrf` and
+  `SignerManager.signVrf` alongside `createRingVRFProof`. Bytes in, bytes out: the adapter
+  owns the hex encoding and the tagged derivation-index selector, and errors use the same
+  `Result` channel as every other account call.
+
+  New exported types, also re-exported from `@parity/product-sdk-signer`:
+  `VrfTranscriptItem`, `VrfSignature`, and `ProductAccountLookup`
+  (`{ dotNsIdentifier, derivationIndex? }`), which a `ProductAccount` satisfies.
+
+  **Breaking for implementors.** `signVrf` is a required member of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test doubles
+  must add it. Callers are unaffected, and the fake at `@parity/product-sdk-host/testing`
+  already implements it.
+
+  **Host-only.** There is no `DevProvider` implementation and the e2e test host does not
+  expose the call, so this returns `HOST_UNAVAILABLE` outside a host container, matching
+  `createRingVRFProof`. Use `createFakeHost()` for local tests.
+
+  The caller owns four things the types cannot enforce:
+
+  - _Domain separation_ — a label borrowed from another protocol makes the output
+    replayable across both.
+  - _Freshness_ — the VRF is deterministic, so per-round values must enter the transcript
+    as items; otherwise every call returns the same signature.
+  - _Size_ — hosts cap the transcript at 32 items and 8 KiB total and reject anything
+    larger as an unknown error. The SDK does not pre-validate.
+  - _Authorization_ — an `AutoSigning` allowance makes these calls silent. It is not
+    VRF-scoped, so granting it also authorizes other signing with that account.
+
+  Hosts predating the call reject it through the error channel rather than hanging.
+
+- 3655724: Consume TrUAPI host chain discovery. `@parity/product-sdk-host`
+  gains `getHostChainInfo()`, a cached facade over `chain.getChainInfo()` that
+  resolves chain roles (`AssetHub`, `Bulletin`, `People`, …) to genesis hashes
+  and returns `null` on hosts predating discovery. `getChainAPI()` can now be
+  called with no argument to derive the environment from the host by matching
+  the discovered asset hub genesis against the bundled descriptors; an explicit
+  environment is validated the same way, failing with the new `EnvironmentMismatchError` /
+  `GenesisMismatchError` instead of an opaque unsupported-genesis error. Only the
+  asset hub is fatal there, since it anchors the environment; a bulletin or
+  individuality descriptor that disagrees warns and leaves that one chain
+  throwing on use, as any chain the host cannot serve already does. Calls
+  that pass an environment keep exactly the previous behavior on legacy hosts;
+  the zero-arg form needs discovery, so it throws there and outside a container.
+  `createFakeTruApiClient` / `createFakeHost` model `chain.getChainInfo` behind a
+  new `chainInfo` option, so tests can drive discovery; omitting it models a host
+  predating the call. The `chain.getChainInfo` binding this rides on ships in
+  `@parity/truapi` 0.9.0, adopted separately.
+
+  The explicit form is only unchanged on legacy hosts. On a host that serves discovery,
+  `getChainAPI("paseo")` can now fail where it previously connected:
+  `EnvironmentMismatchError` when the host's asset hub genesis matches a different bundled
+  environment, and `GenesisMismatchError` when it matches none and the bundled asset hub
+  descriptor disagrees with the host. Both surface at the call rather than at the first
+  storage read, so an unchanged call site fails earlier and with a different error type.
+
+- 3655724: Add `AccountsProvider.ringVrfSign(keyHandle, message)`, the plain signature under a
+  registered ring-VRF member key for protocols that carry their own proof, as opposed to
+  `createRingVRFProof`, which proves ring membership. It takes the same opaque
+  `RingVrfKeyHandle` as the alias and proof calls, from `listRingVrfKeys` /
+  `findRingVrfKeyHandle`, and hands back the signature as bytes. `SignerManager` does not
+  wrap it; call the host package's `AccountsProvider` directly.
+
+  **Breaking for implementors.** `ringVrfSign` is a required member of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test doubles
+  must add it. Callers are unaffected, and the fake at `@parity/product-sdk-host/testing`
+  already implements it.
+
+- 3655724: **Update TrUAPI to 0.9 and require registered ring-VRF key handles.**
+
+  `AccountsProvider`, `HostProvider`, and `SignerManager` now expose
+  `registerRingVrfKey(index, ring)` and `listRingVrfKeys(owner, disclosure?)`. Registration returns
+  the decoded ring-VRF public key; listing returns `RegisteredRingVrfKey` entries with opaque
+  `RingVrfKeyHandle` values. `findRingVrfKeyHandle(keys, ring)` selects a handle by declared
+  `RingLocation`, so products do not hard-code another product's derivation index.
+
+  `getProductAccountAlias` and `createRingVRFProof` now require that handle as their first argument.
+  This is a compile-time breaking change. It matches TrUAPI 0.9, where the host no longer chooses a
+  ring member key implicitly and rejects malformed legacy requests before application dispatch.
+
+  The dependency update also adopts TrUAPI's renamed derivation-index variants: `Index` replaces
+  `Left` and `Raw` replaces `Right`. The SDK's ergonomic numeric product-account APIs are unchanged;
+  the host adapter performs the `Index` conversion at the wire boundary.
+
+  The signer package's re-exported `RingLocation` now uses TrUAPI's `` chainId: `0x${string}` ``
+  instead of a plain `string`; callers loading chain IDs from configuration must narrow or validate
+  them before assignment. Custom `HostProviderOptions.loadAccountsProvider` implementations must
+  also provide the newly required `registerRingVrfKey` and `listRingVrfKeys` methods.
+
+  `findRingVrfKeyHandle` is exported from `@parity/product-sdk-host`, not from
+  `@parity/product-sdk-signer`, which re-exports the ring-VRF types only. A product depending on
+  the signer package alone needs `@parity/product-sdk-host` as a second direct dependency for the
+  selection step. Prefer the helper over an inline comparison: it requires the junction path to
+  match in order and compares chain and collection ids case-insensitively, so a shortcut that
+  checks only `chainId` can pick a key registered for a different ring on the same chain.
+
+## 0.15.1
+
+### Patch Changes
+
+- 70c30f3: Update `@parity/truapi` to 0.7.0. No SDK API changes; the client is
+  byte-identical to 0.6.0 apart from its embedded `packageVersion` string. It
+  pairs with `@parity/truapi-host@0.4.0`, which requires `@parity/truapi`
+  `^0.7.0` and holds the actual work: a rebuilt WASM server plus host-side review
+  surfaces for RFC-0023 VRF transcript signing (`SignVrfReview`) and RFC-0010
+  per-subtree AutoSigning keys (`AutoSigningKey`). Bumping keeps products inside
+  the version range that hosts running truapi-host 0.4.0 resolve.
+
+## 0.15.0
+
+### Minor Changes
+
+- bffc04a: Update `@parity/truapi` to 0.6.0. Product-account derivation indexes are now
+  tagged `DerivationIndex` selectors on the wire (`{ tag: "Left", value: number }`
+  for a plain index, `{ tag: "Right", value: <32-byte hex> }` for a raw index).
+  The ergonomic account surfaces keep plain numbers — `getProductAccount(id,
+index)` and `ProductAccount.derivationIndex` are unchanged, with the host
+  adapter wrapping them as `Left` — but the pass-through shapes track the
+  protocol: `ProductProofContext.suffix` (ring VRF contexts, exported from both
+  host and signer) is now the tagged selector instead of a hex string, and
+  `PaymentTopUpSource`'s `ProductAccount` source and `AllocatableResource`'s
+  `SmartContractAllowance` value carry it too. The
+  `DerivationIndex` type is exported from host and signer. The release also
+  brings the host's new sr25519 `account.signVrf` API (not yet wrapped by an SDK
+  accessor).
+
+### Patch Changes
+
+- bffc04a: Update `@parity/truapi` to 0.5.1. No SDK API changes; the embedded sandbox
+  client gains a fallback for legacy iframe hosts that don't yet answer the
+  `truapi-ready` / `truapi-init` MessagePort handoff (it recognizes their
+  first raw frame instead), and reports a real `"connecting"` status while
+  waiting for the host channel.
+
+## 0.14.1
+
+### Patch Changes
+
+- 8ab88ba: Use the TrUAPI transport subscription ID for PAPI ChainHead follow-up requests.
+
+## 0.14.0
+
+### Minor Changes
+
+- c3fccfa: **Breaking: remove the Summit Network (Web3 Summit) environment.**
+
+  The Summit event is over and its chains are being decommissioned. Removes
+  the `summit-asset-hub`, `summit-bulletin`, and `summit-individuality`
+  descriptors, `"summit"` from `Environment` / `CloudStorageEnvironment`
+  (`getChainAPI("summit")` and `CloudStorageClient.create({ environment:
+"summit" })` no longer compile), the `CloudStorageNetworks.summit` preset,
+  and `BULLETIN_RPCS.summit`. `paseo` and `devnet` are unaffected.
+
+- c3fccfa: **Update `@parity/truapi` to 0.5.0 (versioned call errors, CoinPayment, Ring
+  VRF redesign).**
+
+  truapi 0.4 wraps every call error in its canonical `CallErrorValue`
+  envelope: domain failures arrive as `{ tag: "Domain", value: { tag: "V1",
+value: <domain error> } }`, alongside the transport-level `Denied` /
+  `Unsupported` / `MalformedFrame` / `HostFailure` variants. truapi 0.5
+  reworks the Ring VRF surface around product-scoped proof contexts. The SDK
+  tracks the protocol:
+
+  - `AccountsProvider` lookup methods now carry
+    `CallErrorValue<Versioned…Error>` on their `err` channel instead of the
+    bare per-domain error unions.
+  - `HostErrorPayload` is now the `CallErrorValue` envelope itself
+    (protocol-sourced, replacing the previous hand-widened union), and
+    `formatHostError` / `HostCallFailedError` messages unwrap the `Domain`
+    envelope down to the domain error, so rendered messages read as before.
+  - **Ring VRF**: `getProductAccountAlias` and `createRingVRFProof` (on
+    `AccountsProvider`, `SignerManager`, and the signer's `HostProvider`)
+    now take a `ProductProofContext` (`{ productId, suffix }`) plus the
+    restructured `RingLocation` (`{ chainId, junctions }`) — the host
+    selects the ring member key, so per-account `dotNsIdentifier` /
+    `derivationIndex` addressing is gone. `createRingVRFProof` returns a
+    `RingVRFProof` (`{ proof, contextualAlias, ringIndex, ringRevision }`)
+    instead of bare proof bytes, carrying the values needed to verify the
+    proof downstream.
+  - `PaymentManager` purse parameters follow truapi's rename of
+    `PaymentPurseId` to `CoinPaymentPurseId` (same underlying type).
+  - The `createFakeTruApiClient` test fake covers the new `coinPayment`
+    domain as an unmodeled (throwing) surface and the richer Ring VRF proof
+    response.
+
 ## 0.13.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-auth",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Authentication and session signing for Polkadot CLI apps — QR/mobile sign-in",
     "type": "module",
     "sideEffects": false,
@@ -22,7 +22,7 @@
         "build": "tsup",
         "test": "vitest run",
         "clean": "rm -rf dist",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc -p tsconfig.typecheck.json"
     },
     "dependencies": {
         "@parity/product-sdk-address": "workspace:*",

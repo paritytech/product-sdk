@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
 
-import { TxBatchError, TxDispatchError, TxSigningRejectedError, TxTimeoutError } from "./errors.js";
+import {
+    TxBatchError,
+    TxDispatchError,
+    TxSigningRejectedError,
+    TxTimeoutError,
+    TxValidityError,
+} from "./errors.js";
 import type { RetryOptions } from "./types.js";
 
 const log = createLogger("tx:retry");
@@ -17,6 +23,8 @@ function sleep(ms: number): Promise<void> {
  * - Batch errors are deterministic input validation failures (e.g., empty calls array).
  * - Dispatch errors are on-chain failures (e.g., insufficient balance) that will
  *   produce the same result on retry.
+ * - Validity errors are pre-inclusion rejections (e.g. Invalid.Payment) that
+ *   are deterministic for the same account state.
  * - Signing rejections are explicit user intent.
  * - Timeouts mean we already waited the full duration; retrying would double the wait.
  */
@@ -24,6 +32,11 @@ function isNonRetryable(error: unknown): boolean {
     return (
         error instanceof TxBatchError ||
         error instanceof TxDispatchError ||
+        // Some validity reasons (e.g. Stale / future nonce) are transient, but
+        // these failures were non-retryable back when they surfaced as
+        // TxDispatchError — kept non-retryable for consistency; callers with a
+        // transient case can retry explicitly.
+        error instanceof TxValidityError ||
         error instanceof TxSigningRejectedError ||
         error instanceof TxTimeoutError
     );
@@ -45,9 +58,9 @@ export function calculateDelay(attempt: number, baseDelayMs: number, maxDelayMs:
  * Wrap an async function with retry logic and exponential backoff.
  *
  * Only retries transient errors (network disconnects, temporary RPC failures).
- * Deterministic errors ({@link TxDispatchError}, {@link TxBatchError}), user
- * rejections ({@link TxSigningRejectedError}), and timeouts ({@link TxTimeoutError})
- * are rethrown immediately without retry.
+ * Deterministic errors ({@link TxDispatchError}, {@link TxValidityError},
+ * {@link TxBatchError}), user rejections ({@link TxSigningRejectedError}), and
+ * timeouts ({@link TxTimeoutError}) are rethrown immediately without retry.
  *
  * @param fn - The async function to retry.
  * @param options - Retry configuration.
@@ -149,6 +162,25 @@ if (import.meta.vitest) {
                     { maxAttempts: 3, baseDelayMs: 1 },
                 ),
             ).rejects.toThrow(TxDispatchError);
+            expect(calls).toBe(1);
+        });
+
+        test("does NOT retry TxValidityError", async () => {
+            let calls = 0;
+            await expect(
+                withRetry(
+                    () => {
+                        calls++;
+                        return Promise.reject(
+                            new TxValidityError(
+                                { type: "Invalid", value: { type: "Payment" } },
+                                "Invalid.Payment",
+                            ),
+                        );
+                    },
+                    { maxAttempts: 3, baseDelayMs: 1 },
+                ),
+            ).rejects.toThrow(TxValidityError);
             expect(calls).toBe(1);
         });
 

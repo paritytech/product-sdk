@@ -27,6 +27,28 @@ export interface AuthorizationStatus {
 }
 
 /**
+ * {@link AuthorizationStatus} plus block-relative liveness, evaluated against
+ * the current Bulletin chain height.
+ *
+ * Returned by {@link getBulletinAllowanceStatus}. Where `AuthorizationStatus`
+ * reports the raw quota and absolute `expiration` block, this adds the two
+ * derived fields every consumer otherwise re-computes by hand: how many
+ * blocks are left and whether the authorization is usable *right now*.
+ */
+export interface BulletinAllowanceStatus extends AuthorizationStatus {
+    /** Blocks until expiry; 0 if expired or not authorized. */
+    remainingBlocks: number;
+    /**
+     * Usable *right now*: `authorized`, not expired (`currentBlock < expiration`),
+     * and with quota left (`remainingTransactions > 0 && remainingBytes > 0n`).
+     * Expiry is not the only hard gate — the chain also rejects a store once the
+     * transaction or byte quota is exhausted. Callers must still size-check
+     * `remainingBytes` against their actual payload.
+     */
+    usable: boolean;
+}
+
+/**
  * Options for {@link CloudStorageClient.fetchBytes} / {@link CloudStorageClient.fetchJson}.
  */
 export interface QueryOptions {

@@ -249,6 +249,7 @@ signer.
 
 ```ts
 import { createAuthClient, resolveSigner } from "@parity/product-sdk-auth";
+import { StatementStoreNetworks } from "@parity/product-sdk-terminal";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
 // 1. Bind an auth client to your product's config (inject per-product values).
@@ -256,7 +257,7 @@ const authClient = createAuthClient({
   dappId: "playground",              // scopes ~/.polkadot-apps/${dappId}_* + SSO pairing
   productId: "playground.dot",       // derives the product account
   derivationIndex: 0,                // 0 = default product account
-  peopleEndpoints: ["wss://<people-rpc>"],
+  peopleEndpoints: StatementStoreNetworks.paseo, // or .previewnet
 });
 
 // 2. Get a PolkadotSigner — dev SURI if provided, else the persisted QR session.
@@ -393,6 +394,8 @@ Mirrors the algorithm used by polkadot-desktop and polkadot-app-android-v2. sr25
 6. **Not calling `resolved.destroy()`** (auth) - session signers own a WebSocket that keeps the Node event loop alive; the CLI won't exit cleanly until it's torn down. Call it in a `finally`.
 
 7. **Signing on a fresh session without allocations** (auth) - per the package's own note, RFC-0010 allowances are needed before a fresh session can sign (statement store / Bulletin / smart-contract). Run `authClient.requestAllocation(session)` once after first login and let the user approve it on the phone.
+
+8. **Submitting a person-origin call with a plain signer** (individuality) - a call that must dispatch as a *person* rather than an account needs the `AsPerson` transaction extension, which no plain signer sets. Wrap the signer with `withAsPerson` from `@parity/product-sdk-individuality` and pass it to `submitAndWatch` as usual; see the `product-sdk-individuality` skill. Doing it by hand fails `Invalid.Call` before dispatch for a reason that is not in the error.
 
 ## Reference Files
 

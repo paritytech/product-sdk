@@ -27,7 +27,7 @@ export {
     isValidH160,
 } from "./h160.js";
 
-export { truncateAddress, addressesEqual } from "./display.js";
+export { truncateAddress, addressesEqual, publicKeysEqual } from "./display.js";
 
 /**
  * An SS58-encoded Substrate address (e.g. `5GrwvaEF...`). The brand marks strings

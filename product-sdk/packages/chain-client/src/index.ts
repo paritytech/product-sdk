@@ -10,6 +10,11 @@
  * `createChainClient` is the bring-your-own-descriptors path for custom or
  * pre-release chains.
  *
+ * **A descriptor is not a transport.** Both paths connect through the host
+ * provider, keyed by the descriptor's genesis, with no WebSocket fallback, so a
+ * chain is reachable only if the active host routes it. Check first with
+ * `isChainSupported(genesisHash)` from `@parity/product-sdk-host`. See #94, #102.
+ *
  * @packageDocumentation
  */
 
@@ -26,6 +31,9 @@ export type { ChainClient, ChainClientConfig, ChainEntry } from "./types.js";
 // Well-known chain genesis hashes
 export { WellKnownChain } from "./well-known-chain.js";
 export type { WellKnownChainHash } from "./well-known-chain.js";
+
+// Chain-discovery validation errors
+export { EnvironmentMismatchError, GenesisMismatchError } from "./errors.js";
 
 // Re-export from host
 export {

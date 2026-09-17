@@ -5,16 +5,17 @@
  * `truApi.payment.*`.
  *
  * Exposes balance subscription, top-up, payment requests, and payment-status
- * subscription. Distinct from the CoinPayment / merchant-payments surface
- * (RFC-0017): RFC-0006 is the user-initiated balance / top-up / payment-request
- * flow.
+ * subscription. The flow is distinct from the CoinPayment / merchant-payments
+ * surface (RFC-0017) — RFC-0006 is the user-initiated balance / top-up /
+ * payment-request flow — but both operate on the same CoinPayment purses,
+ * hence the shared `CoinPaymentPurseId` (omitted = the main purse).
  *
  * @module
  */
 
 import type {
     Balance,
-    PaymentPurseId,
+    CoinPaymentPurseId,
     HexString,
     HostPaymentBalanceSubscribeItem,
     HostPaymentStatusSubscribeItem,
@@ -37,13 +38,13 @@ import type { HostSubscription } from "./types.js";
 export interface PaymentManager {
     subscribeBalance(
         callback: (balance: HostPaymentBalanceSubscribeItem) => void,
-        purse?: PaymentPurseId,
+        purse?: CoinPaymentPurseId,
     ): HostSubscription;
-    topUp(amount: Balance, source: PaymentTopUpSource, into?: PaymentPurseId): Promise<void>;
+    topUp(amount: Balance, source: PaymentTopUpSource, into?: CoinPaymentPurseId): Promise<void>;
     requestPayment(
         amount: Balance,
         destination: HexString,
-        from?: PaymentPurseId,
+        from?: CoinPaymentPurseId,
     ): Promise<{ id: string }>;
     subscribePaymentStatus(
         paymentId: string,
@@ -96,7 +97,7 @@ function adaptPaymentManager(client: TrUApiClient): PaymentManager {
  * const payments = await getPaymentManager();
  * if (payments) {
  *   const sub = payments.subscribeBalance((b) => { ... });
- *   await payments.topUp(1_000_000n, { tag: "ProductAccount", value: { derivationIndex: 0 } });
+ *   await payments.topUp(1_000_000n, { tag: "ProductAccount", value: { derivationIndex: { tag: "Index", value: 0 } } });
  *   const { id } = await payments.requestPayment(500n, "0x…");
  *   sub.unsubscribe();
  * }

@@ -431,7 +431,9 @@ function fmtDelta(b) {
 }
 
 function severityIcon(s) {
-    return { ok: "🟢", warn: "🟡", fail: "🔴" }[s] ?? "⚪";
+    // Bundle size is a guardrail, not a gate: the top tier is 🟠 (a loud
+    // "this is large"), not 🔴 — the CI check never fails on it.
+    return { ok: "🟢", warn: "🟡", fail: "🟠" }[s] ?? "⚪";
 }
 
 function renderReportMd(report) {
@@ -496,7 +498,7 @@ function renderDiffMd(rows, ctx) {
 
     lines.push(``);
     lines.push(
-        `Thresholds — warn: ≥${THRESHOLDS.warn.pct}% or ≥${fmt(THRESHOLDS.warn.bytes)} · fail: ≥${THRESHOLDS.fail.pct}% or ≥${fmt(THRESHOLDS.fail.bytes)} (bundled). Percentage only applies once the baseline is ≥ 10 KB.`,
+        `Thresholds — 🟡 ≥${THRESHOLDS.warn.pct}% or ≥${fmt(THRESHOLDS.warn.bytes)} · 🟠 ≥${THRESHOLDS.fail.pct}% or ≥${fmt(THRESHOLDS.fail.bytes)} (bundled). Percentage only applies once the baseline is ≥ 10 KB. Informational — this check never blocks merge.`,
     );
     return `${lines.join("\n")}\n`;
 }

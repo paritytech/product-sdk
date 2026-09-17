@@ -1,5 +1,242 @@
 # @parity/product-sdk-bulletin
 
+## 0.12.0
+
+### Minor Changes
+
+- a85b489: **Re-pin every drifting chain (#242), including five that were re-genesised.**
+
+  The bundled descriptors addressed chains that no longer exist. Access is gated on the genesis
+  hash, so a stale genesis fails at connection with `GenesisMismatchError` before any storage read.
+  A stale `codeHash` only means decoding against an old metadata snapshot; a stale genesis means
+  addressing a chain that is not there.
+
+  | Chain                      | Old genesis        | New genesis        |
+  | -------------------------- | ------------------ | ------------------ |
+  | `paseo-individuality`      | `0x89a63b11…5440f` | `0x4a2b5b73…5ad48` |
+  | `previewnet-individuality` | `0x34999c29…5d220` | `0xf720c28f…35218` |
+  | `paseo-asset-hub`          | `0x23e730eb…a2ca6` | `0x4349b00e…`      |
+  | `previewnet-asset-hub`     | `0x627f5441…29659` | `0xc27c8bf3…`      |
+  | `previewnet-bulletin`      | `0x1144acd2…04e89` | `0xea9158d7…`      |
+
+  `devnet-asset-hub`, `devnet-individuality`, `kusama-asset-hub`, `paseo-bulletin` and
+  `polkadot-asset-hub` kept their genesis and took a fresh `codeHash` only. All eleven chains
+  matched their live runtimes when this was cut; codeHash pins drift on their own schedule, tracked
+  in #242.
+
+  **Minor rather than patch, because surface is removed**, which on 0.x signals a breaking change.
+  Check this before upgrading; a green `pnpm typecheck` here does not clear consumers.
+
+  | Chain                      | Removed                                                 | Added                                                                                    |
+  | -------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+  | `paseo-individuality`      | pallet `StorageInitialization`, `Score.Suffix` constant | pallets `NetworkSuffix`, `Parameters`, `AssetConversion`, `PoolAssets`, `PeopleAirdrops` |
+  | `previewnet-individuality` | `Score.Suffix` constant                                 | pallet `NetworkSuffix`                                                                   |
+  | `paseo-asset-hub`          | `AsRingAlias` transaction extension                     | pallet `NetworkSuffix`                                                                   |
+  | `previewnet-asset-hub`     | none                                                    | pallet `NetworkSuffix`                                                                   |
+  | `polkadot-asset-hub`       | none                                                    | pallet `Psm`                                                                             |
+
+  Two consequences worth reading if you use the individuality surface.
+
+  **The network suffix moved from a constant to storage on both individuality chains.** Neither
+  publishes `Score.Suffix` any more, so `readScoreContext` and `readLiteSignUpRequirement` now take
+  the `NetworkSuffixChain` overload and read it at a pinned block. A caller-supplied `tld` still wins
+  where you pass one. Previewnet's own suffix changed with it, from `test` to `testnet`, so its
+  `Score.score_context` moved from `0xa02ef8d9…` to `0x643d4ff6…`. Paseo's is unchanged at
+  `0x99f1920e…`. If you derived a context from a hardcoded `test`, it no longer matches previewnet.
+
+  **`paseo-individuality` gained `PeopleAirdrops`.** The airdrop read surface now has a chain that
+  carries the pallet, where before only previewnet did.
+
+  `@parity/product-sdk-cloud-storage` takes a minor because it now addresses a different chain:
+  `CloudStorageNetworks.previewnet.genesisHash` restated the hash by hand and was pointing at a
+  previewnet Bulletin that no longer exists. All three entries now read `.genesis` off the descriptor
+  they already sit beside, so their declared type widens from the literal hash to `` `0x${string}` ``.
+  Assignment is unaffected; only an annotation naming the literal breaks. Do the same with any hash
+  you pinned yourself, since these chains are re-genesised periodically.
+
+  `@parity/product-sdk-chain-client` needs no entry. It reads `.genesis` off the imported descriptor,
+  so only its in-source tests restated the hashes, and its published output is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+  - @parity/product-sdk-descriptors@0.12.0
+  - @parity/product-sdk-host@0.20.0
+  - @parity/product-sdk-chain-client@0.12.4
+  - @parity/product-sdk-tx@0.4.8
+
+## 0.11.3
+
+### Patch Changes
+
+- Updated dependencies [5613196]
+  - @parity/product-sdk-host@0.19.1
+  - @parity/product-sdk-chain-client@0.12.3
+  - @parity/product-sdk-tx@0.4.7
+
+## 0.11.2
+
+### Patch Changes
+
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+  - @parity/product-sdk-host@0.19.0
+  - @parity/product-sdk-chain-client@0.12.2
+  - @parity/product-sdk-tx@0.4.6
+
+## 0.11.1
+
+### Patch Changes
+
+- Updated dependencies [84134e0]
+- Updated dependencies [84134e0]
+  - @parity/product-sdk-host@0.18.0
+  - @parity/product-sdk-chain-client@0.12.1
+  - @parity/product-sdk-tx@0.4.5
+
+## 0.11.0
+
+### Minor Changes
+
+- 46e3592: **Re-add `previewnet` as a first-class environment.**
+
+  Previewnet was dropped when its identity endpoints weren't secured for public use and its runtime matched paseo. Both have changed: the endpoints are secured, and previewnet now runs a Paseo runtime kept a step ahead of paseo-next-v2 (asset-hub `2000039` vs `2000036`, individuality `1000036` vs `1000032`), so products can build against upcoming runtime changes weeks early.
+
+  - `@parity/product-sdk-descriptors` re-adds the `./previewnet-asset-hub`, `./previewnet-bulletin`, and `./previewnet-individuality` subpath exports, generated fresh against the live endpoints with real (non-zero) `codeHash` values so previewnet is covered by descriptor-drift detection like every other chain.
+  - `@parity/product-sdk-chain-client` re-adds `"previewnet"` to the `Environment` union; `getChainAPI("previewnet")` resolves again, routing to the `previewnet.substrate.dev` endpoints for asset-hub, bulletin, and people (individuality).
+  - `@parity/product-sdk-cloud-storage` re-adds the `previewnet` entry to `CloudStorageNetworks`.
+  - `@parity/product-sdk-host` re-adds `BULLETIN_RPCS.previewnet`.
+
+  Consumers on paseo or a production environment are unaffected; this is purely additive.
+
+### Patch Changes
+
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+- Updated dependencies [46e3592]
+  - @parity/product-sdk-chain-client@0.12.0
+  - @parity/product-sdk-host@0.17.0
+  - @parity/product-sdk-descriptors@0.11.0
+  - @parity/product-sdk-tx@0.4.4
+
+## 0.10.2
+
+### Patch Changes
+
+- @parity/product-sdk-tx@0.4.3
+
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+  - @parity/product-sdk-host@0.16.0
+  - @parity/product-sdk-descriptors@0.10.0
+  - @parity/product-sdk-chain-client@0.11.0
+  - @parity/product-sdk-tx@0.4.2
+
+## 0.10.0
+
+### Minor Changes
+
+- 5ccab21: **Regenerate `paseo-bulletin` descriptors for the upcoming `v0.0.22-paseo` runtime (spec `1_000_022`).**
+
+  Metadata was extracted offline from the `polkadot-bulletin-chain` `v0.0.22-paseo` release wasm (`papi add --wasm`) ahead of its deployment to Paseo Next v2, which currently runs spec `1_000_021`. Merge/publish this once the runtime upgrade is enacted on-chain.
+
+  Runtime changes surfaced in the descriptors:
+
+  - New `DataRenewal` pallet (`pallet_bulletin_data_renewal`, pallet index 42) — new tx/query/event API surface, hence the minor bump.
+  - `renew`, `force_renew`, `enable_auto_renew` and `disable_auto_renew` **move off `TransactionStorage`** onto the new pallet. `CloudStorageClient.renew()` builds the old call via `@parity/bulletin-sdk`, so it will throw until that package is repointed at `DataRenewal.renew`.
+
+  The pinned `codeHash` is pre-set to the release blob's blake2-256 (`0xabb9c076…`, matching what on-chain `:code` will hash to after the upgrade); `genesis` is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [5ccab21]
+  - @parity/product-sdk-descriptors@0.9.0
+  - @parity/product-sdk-chain-client@0.10.0
+
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [70c30f3]
+  - @parity/product-sdk-host@0.15.1
+  - @parity/product-sdk-chain-client@0.9.3
+  - @parity/product-sdk-tx@0.4.1
+
+## 0.9.0
+
+### Minor Changes
+
+- bffc04a: Bulletin allowance status read-back: `getBulletinAllowanceStatus`.
+
+  New `getBulletinAllowanceStatus(api, slotAddress)` returns
+  `Result<BulletinAllowanceStatus, CloudStorageAuthorizationError>`, composing
+  the existing `checkAuthorization` quota read with a `System.Number`
+  current-block read. `BulletinAllowanceStatus extends AuthorizationStatus` with
+  the two derived fields every consumer re-computes by hand:
+  `remainingBlocks` (`max(0, expiration - currentBlock)`) and `usable`.
+
+  `usable` folds in every hard gate the chain enforces: the authorization must
+  exist, be unexpired (`currentBlock < expiration`), **and** have quota left
+  (`remainingTransactions > 0` and `remainingBytes > 0`). Expiry is not the only
+  gate — the chain also rejects a store once the transaction or byte quota is
+  exhausted. `usable === true` still does not guarantee a given store will fit:
+  callers must size-check `remainingBytes` against their actual payload.
+
+  Errors from either on-chain read propagate on the `err` channel.
+
+### Patch Changes
+
+- Updated dependencies [bffc04a]
+- Updated dependencies [bffc04a]
+- Updated dependencies [bffc04a]
+  - @parity/product-sdk-host@0.15.0
+  - @parity/product-sdk-tx@0.4.0
+  - @parity/product-sdk-chain-client@0.9.2
+
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [8ab88ba]
+  - @parity/product-sdk-host@0.14.1
+  - @parity/product-sdk-chain-client@0.9.1
+  - @parity/product-sdk-tx@0.3.2
+
+## 0.8.0
+
+### Minor Changes
+
+- c3fccfa: **Breaking: remove the Summit Network (Web3 Summit) environment.**
+
+  The Summit event is over and its chains are being decommissioned. Removes
+  the `summit-asset-hub`, `summit-bulletin`, and `summit-individuality`
+  descriptors, `"summit"` from `Environment` / `CloudStorageEnvironment`
+  (`getChainAPI("summit")` and `CloudStorageClient.create({ environment:
+"summit" })` no longer compile), the `CloudStorageNetworks.summit` preset,
+  and `BULLETIN_RPCS.summit`. `paseo` and `devnet` are unaffected.
+
+### Patch Changes
+
+- Updated dependencies [c3fccfa]
+- Updated dependencies [c3fccfa]
+- Updated dependencies [c3fccfa]
+  - @parity/product-sdk-descriptors@0.8.0
+  - @parity/product-sdk-host@0.14.0
+  - @parity/product-sdk-chain-client@0.9.0
+  - @parity/product-sdk-tx@0.3.1
+
 ## 0.7.0
 
 ### Minor Changes

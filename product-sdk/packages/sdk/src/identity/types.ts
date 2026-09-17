@@ -2,50 +2,41 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Identity module types
- *
- * Types for DotNS name resolution and context-alias derivation
  */
 
 /** DotNS name resolution result */
 export interface DotNsRecord {
-    /** Resolved SS58 address */
-    address: string;
-    /** Name that was resolved */
+    /**
+     * H160 the name resolves to, `0x` and 20 bytes. Not SS58: DotNS is a set of
+     * Revive contracts and both address fields come back as EVM addresses.
+     * Convert with `h160ToSs58` from `@parity/product-sdk-address` if a
+     * Substrate-shaped address is needed.
+     *
+     * Absent when the name is registered but has no forward record yet, the
+     * state of every name just after registration. An unregistered name is
+     * `null` from `resolveDotNs`, not a record.
+     */
+    address?: `0x${string}`;
+    /**
+     * Name that was resolved, normalized: lowercased, and carrying the
+     * deployment's own TLD suffix — `.paseo` on Paseo Asset Hub Next V2, `.dot`
+     * on Previewnet. A bare label passed in comes back suffixed.
+     *
+     * Note for a **lite-person** registrant: the registry stores their label
+     * flattened, so `alice.42` is registered as `alice42` and this field reads
+     * `alice42.paseo`. Pass the flattened spelling when resolving; the dotted
+     * one derives a different node and finds nothing.
+     */
     name: string;
-    /** Owner address */
-    owner: string;
-    /** Expiration timestamp (if applicable) */
+    /** H160 of the node's owner. Not SS58, same as {@link DotNsRecord.address}. */
+    owner: `0x${string}`;
+    /**
+     * Expiration timestamp, if the deployment has one.
+     *
+     * Always absent today: the Paseo Asset Hub registrar exposes no expiry
+     * getter, so nothing populates this.
+     */
     expiresAt?: number;
-}
-
-/** Context alias info: a deterministic, context-bound alias derived from a parent account */
-export interface ContextAliasInfo {
-    /** Alias SS58 address */
-    address: string;
-    /** H160 EVM address */
-    h160Address: `0x${string}`;
-    /** Parent account address */
-    parentAddress: string;
-    /** Context string used for derivation */
-    context: string;
-}
-
-/** Ring VRF alias info */
-export interface AnonymousAliasInfo {
-    /** Anonymous alias identifier */
-    alias: string;
-    /** Ring location for proof generation */
-    ringLocation: RingLocation;
-    /** Context used for alias derivation */
-    context: string;
-}
-
-/** Ring location for VRF proofs */
-export interface RingLocation {
-    /** Ring index */
-    ringIndex: number;
-    /** Member index within ring */
-    memberIndex: number;
 }
 
 /** Identity verification result */

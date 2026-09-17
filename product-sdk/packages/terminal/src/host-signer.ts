@@ -71,10 +71,15 @@ export function buildSignerFromEntry(entry: CachedAllocation): PolkadotSigner {
 
 /**
  * `PolkadotSigner` backed by the cached slot account key. Returns `null`
- * when nothing's cached for `(adapter.appId, resource)`. Throws for SC
- * and AutoSigning (no slot account key — see module docstring).
+ * when nothing's cached for `(productId, resource)`, where `productId`
+ * defaults to `adapter.appId`. Throws for SC and AutoSigning (no slot
+ * account key — see module docstring).
  *
  * Signs locally with sr25519 — no wallet round-trip on the hot path.
+ *
+ * @param productId Slot-cache namespace to read. Defaults to
+ *   `adapter.appId`; pass the same id the allocation was requested under
+ *   when the product id differs from the terminal's storage `appId`.
  *
  * @example
  * ```ts
@@ -87,8 +92,9 @@ export function buildSignerFromEntry(entry: CachedAllocation): PolkadotSigner {
 export async function createSlotAccountSigner(
     adapter: TerminalAdapter,
     resource: AllocatableResource,
+    productId?: string,
 ): Promise<PolkadotSigner | null> {
-    const cache = await loadCache(adapter.appId, adapter.storageDir);
+    const cache = await loadCache(productId ?? adapter.appId, adapter.storageDir);
     const entry = readCacheEntry(cache, resource);
     if (!entry) return null;
     return buildSignerFromEntry(entry);
@@ -148,7 +154,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: hex },
                     },
@@ -169,7 +175,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: hex },
                     },
@@ -207,7 +213,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: {
                             tag: "BulletInAllowance",
@@ -246,7 +252,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         StatementStoreAllowance: {
                             tag: "StatementStoreAllowance",
@@ -268,9 +274,12 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
-                        "SmartContractAllowance::5": { tag: "SmartContractAllowance", dest: 5 },
+                        "SmartContractAllowance::Index::5": {
+                            tag: "SmartContractAllowance",
+                            dest: "Index::5",
+                        },
                     },
                 },
                 storageDir,
@@ -279,7 +288,7 @@ if (import.meta.vitest) {
             await expect(
                 createSlotAccountSigner(fakeAdapter("p"), {
                     tag: "SmartContractAllowance",
-                    value: 5,
+                    value: { tag: "Index", value: 5 },
                 }),
             ).rejects.toThrow(/SmartContractAllowance does not carry a slot account key/);
         });
@@ -288,11 +297,11 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         AutoSigning: {
                             tag: "AutoSigning",
-                            productDerivationSecret: "secret",
+                            ringVrfDomainEntropy: "0xcd",
                             productRootPrivateKey: "0xabcd",
                         },
                     },
@@ -308,6 +317,37 @@ if (import.meta.vitest) {
             ).rejects.toThrow(/AutoSigning does not carry a slot account key/);
         });
 
+        test("explicit productId reads that cache namespace instead of adapter.appId", async () => {
+            const { hex, publicKey } = knownSecret();
+            // Key cached under the product id, not the adapter's appId.
+            await saveCache(
+                "my-product.dot",
+                {
+                    version: 2,
+                    entries: {
+                        BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: hex },
+                    },
+                },
+                storageDir,
+            );
+
+            const adapter = fakeAdapter("my-cli");
+            // Default (appId) namespace has nothing cached.
+            expect(
+                await createSlotAccountSigner(adapter, {
+                    tag: "BulletInAllowance",
+                    value: undefined,
+                }),
+            ).toBeNull();
+            // The productId override finds the key.
+            const signer = await createSlotAccountSigner(
+                adapter,
+                { tag: "BulletInAllowance", value: undefined },
+                "my-product.dot",
+            );
+            expect(signer?.publicKey).toEqual(publicKey);
+        });
+
         test("different appIds yield different signers from disjoint caches", async () => {
             const a = knownSecret();
             // Distinct mini-secret → distinct derived keypair.
@@ -321,7 +361,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "app-a",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: a.hex },
                     },
@@ -331,7 +371,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "app-b",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: {
                             tag: "BulletInAllowance",
@@ -361,7 +401,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: {
                             tag: "BulletInAllowance",

@@ -1,5 +1,137 @@
 # @parity/product-sdk-contracts
 
+## 0.10.8
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.14.5
+- @parity/product-sdk-keys@0.3.25
+- @parity/product-sdk-tx@0.4.8
+
+## 0.10.7
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.14.4
+- @parity/product-sdk-keys@0.3.24
+- @parity/product-sdk-tx@0.4.7
+
+## 0.10.6
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.14.3
+- @parity/product-sdk-keys@0.3.23
+- @parity/product-sdk-tx@0.4.6
+
+## 0.10.5
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.14.2
+- @parity/product-sdk-keys@0.3.22
+- @parity/product-sdk-tx@0.4.5
+
+## 0.10.4
+
+### Patch Changes
+
+- Updated dependencies [46e3592]
+  - @parity/product-sdk-signer@0.14.1
+  - @parity/product-sdk-keys@0.3.21
+  - @parity/product-sdk-tx@0.4.4
+
+## 0.10.3
+
+### Patch Changes
+
+- Updated dependencies [f987fd7]
+- Updated dependencies [f987fd7]
+- Updated dependencies [f987fd7]
+  - @parity/product-sdk-signer@0.14.0
+  - @parity/product-sdk-address@0.2.0
+  - @parity/product-sdk-keys@0.3.20
+  - @parity/product-sdk-tx@0.4.3
+
+## 0.10.2
+
+### Patch Changes
+
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+  - @parity/product-sdk-signer@0.13.0
+  - @parity/product-sdk-keys@0.3.19
+  - @parity/product-sdk-tx@0.4.2
+
+## 0.10.1
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.12.1
+- @parity/product-sdk-keys@0.3.18
+- @parity/product-sdk-tx@0.4.1
+
+## 0.10.0
+
+### Minor Changes
+
+- bffc04a: Export the pallet-revive account-mapping read probe.
+
+  New `isContractAccountMapped(runtime, address)` returns
+  `Result<boolean, ContractError>` — the read-only half of
+  `ensureContractAccountMapped`, extracted from its inline checker. It derives
+  the H160 via `ss58ToH160` and reads `Revive.OriginalAccount`; no signer, no
+  transaction, no wallet prompt, so it's safe for "is this account ready to make
+  contract calls?" checks. `ensureContractAccountMapped` now reuses it
+  internally (a failed probe still surfaces as `TxAccountMappingError`, with the
+  `ContractError` attached on the cause chain).
+
+- bffc04a: Validate the dry-run/tx origin before it reaches PAPI's `AccountId` codec.
+
+  A non-SS58 origin — most commonly the account's H160 (`0x…`), since
+  pallet-revive derives the H160 `msg.sender` _from_ the SS58 origin — used to
+  fail deep inside the encode stack as a bare `Invalid checksum` with no hint
+  about the cause. All three call paths now validate the resolved origin with
+  `isValidSs58` and produce a new `ContractInvalidOriginError extends
+ContractError` (message includes the rejected value, plus a "looks like an
+  H160 — convert it with `h160ToSs58`" hint when applicable):
+
+  - `.tx()` and `.prepare()` return it as `err(ContractInvalidOriginError)`;
+  - `.query()` **throws** it (`QueryResult` has no error channel — the one
+    deliberate asymmetry).
+
+  Validation only — no auto-conversion, so the SDK never silently changes which
+  account the caller believes is calling.
+
+### Patch Changes
+
+- Updated dependencies [bffc04a]
+- Updated dependencies [bffc04a]
+- Updated dependencies [bffc04a]
+- Updated dependencies [bffc04a]
+  - @parity/product-sdk-signer@0.12.0
+  - @parity/product-sdk-tx@0.4.0
+  - @parity/product-sdk-keys@0.3.17
+
+## 0.9.2
+
+### Patch Changes
+
+- Updated dependencies [8ab88ba]
+  - @parity/product-sdk-signer@0.11.1
+  - @parity/product-sdk-keys@0.3.16
+  - @parity/product-sdk-tx@0.3.2
+
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [c3fccfa]
+  - @parity/product-sdk-signer@0.11.0
+  - @parity/product-sdk-keys@0.3.15
+  - @parity/product-sdk-tx@0.3.1
+
 ## 0.9.0
 
 ### Minor Changes

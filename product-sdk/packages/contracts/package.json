@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-contracts",
     "description": "Typed contract interactions on Polkadot Asset Hub",
-    "version": "0.9.0",
+    "version": "0.10.8",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -31,7 +31,8 @@
     "scripts": {
         "build": "tsup",
         "clean": "rm -rf dist",
-        "test": "vitest run"
+        "test": "vitest run",
+        "typecheck": "tsc -p tsconfig.typecheck.json"
     },
     "dependencies": {
         "@parity/product-sdk-address": "workspace:*",

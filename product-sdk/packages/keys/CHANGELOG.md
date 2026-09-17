@@ -1,5 +1,72 @@
 # @parity/product-sdk-keys
 
+## 0.3.25
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.10
+
+## 0.3.24
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.9
+
+## 0.3.23
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.8
+
+## 0.3.22
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.7
+
+## 0.3.21
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.6
+
+## 0.3.20
+
+### Patch Changes
+
+- Updated dependencies [f987fd7]
+  - @parity/product-sdk-address@0.2.0
+
+## 0.3.19
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.5
+
+## 0.3.18
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.4
+
+## 0.3.17
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.3
+
+## 0.3.16
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.2
+
+## 0.3.15
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.1
+
 ## 0.3.14
 
 ### Patch Changes

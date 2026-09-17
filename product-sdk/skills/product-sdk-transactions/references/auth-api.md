@@ -54,7 +54,7 @@ type LogoutStatus =
   | { step: "error"; message: string };
 
 interface SessionAddresses {
-  rootAddress: string;             // SS58 of the mobile root account (input for lookupUsername)
+  rootAddress: string;             // SS58 of the mobile root account (input for lookupUsername, from @parity/product-sdk-individuality)
   productAddress: string;          // SS58 of the derived product account — signs on-chain
   productH160: `0x${string}`;      // same product pubkey as a 20-byte EVM address (Revive/contracts)
 }
@@ -100,7 +100,7 @@ interface ResolvedSigner {
 ### Allocations (RFC-0010)
 
 ```ts
-const DEFAULT_RESOURCES: AllocatableResource[]; // BulletInAllowance, StatementStoreAllowance, SmartContractAllowance(0)
+const DEFAULT_RESOURCES: AllocatableResource[]; // BulletInAllowance, StatementStoreAllowance, SmartContractAllowance { tag: "Index", value: 0 }
 
 // Standalone twin of authClient.requestAllocation — for callers that already have a session + productId.
 function requestResourceAllocation(
@@ -117,7 +117,8 @@ function summarizeOutcomes(
 ): { granted: AllocatableResource[]; rejected: AllocatableResource[]; unavailable: AllocatableResource[] };
 
 type AllocationOutcome;              // re-export of terminal's ApAllocationOutcome; .tag: "Allocated" | "Rejected" | …
-type AllocatableResource;            // re-export from terminal ({ tag, value })
+type AllocatableResource;            // re-export from terminal; NOT the host package's same-named
+                                     // type (that one spells BulletinAllowance, Raw is hex)
 type ResourceTag = AllocatableResource["tag"];
 type OnExistingAllowancePolicy;      // re-export from terminal
 ```

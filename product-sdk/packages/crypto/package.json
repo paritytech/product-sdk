@@ -17,7 +17,8 @@
     "scripts": {
         "build": "tsup",
         "test": "vitest",
-        "clean": "rm -rf dist"
+        "clean": "rm -rf dist",
+        "typecheck": "tsc -p tsconfig.typecheck.json"
     },
     "dependencies": {
         "@noble/ciphers": "^1.2.1",

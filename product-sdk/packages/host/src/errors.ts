@@ -18,38 +18,43 @@
  * @module
  */
 import type { SdkError } from "@parity/product-sdk-errors";
-import type { GenericError } from "@parity/truapi";
+import type { scale } from "@parity/truapi";
 
 /**
- * The structured error payload `@parity/truapi` surfaces on the `Err` channel of
- * a host call, once unwrapped from the versioned wire envelope. Every host error
- * union is built from these:
- *
- * - the catch-all {@link GenericError} (`{ reason }`),
- * - a unit tagged variant (`{ tag }`), or
- * - a tagged variant carrying a reason (`{ tag, value: { reason } }`).
- *
- * `GenericError` is imported from `@parity/truapi`; the `{ tag }` members are a
- * deliberate widening of truapi's per-domain named variants (the formatter is
- * tag-agnostic). truapi has no umbrella error union to import today — once it
- * exports a canonical tagged-error union from codegen, replace these local
- * members with that import so the type is protocol-sourced rather than
- * hand-widened.
- *
- * This is the *payload* the host public API carries inside a
- * {@link HostCallFailedError} on the `err` channel of its `Result` returns — not
- * the error type consumers branch on.
+ * What a `Domain`-tagged call error carries. Widened from truapi's per-domain
+ * `Versioned*Error` types (all `{ tag: "V1", value: <domain error> }` today)
+ * so one payload type covers every call.
  */
-export type HostErrorPayload =
-    | GenericError
-    | { tag: string; value?: undefined }
-    | { tag: string; value: { reason: string } };
+type VersionedDomainError = { tag: string; value?: unknown };
 
-/** Narrow an unknown `Err`-channel value to a {@link HostErrorPayload}. */
-function isHostErrorPayload(error: unknown): error is HostErrorPayload {
-    if (error == null || typeof error !== "object") return false;
-    const obj = error as Record<string, unknown>;
-    return typeof obj.reason === "string" || typeof obj.tag === "string";
+/**
+ * The error a host call puts on its `Err` channel — truapi's canonical
+ * {@link scale.CallErrorValue} envelope. `Denied` / `Unsupported` /
+ * `MalformedFrame` / `HostFailure` are transport-level failures; `Domain`
+ * wraps the actual per-domain error in a versioned envelope, which
+ * {@link formatHostError} digs through when rendering.
+ *
+ * This is the payload {@link HostCallFailedError} carries — not the error
+ * type consumers branch on.
+ */
+export type HostErrorPayload = scale.CallErrorValue<VersionedDomainError>;
+
+/** Narrow to a tagged-union member: `{ tag, value? }`. */
+function isTagged(value: unknown): value is { tag: string; value?: unknown } {
+    return (
+        value != null &&
+        typeof value === "object" &&
+        typeof (value as { tag?: unknown }).tag === "string"
+    );
+}
+
+/** Narrow to a reason-carrying payload — truapi's `GenericError` shape. */
+function hasReason(value: unknown): value is { reason: string } {
+    return (
+        value != null &&
+        typeof value === "object" &&
+        typeof (value as { reason?: unknown }).reason === "string"
+    );
 }
 
 /**
@@ -67,16 +72,20 @@ export function formatHostError(error: unknown): string {
     if (error instanceof Error) return error.message;
     if (typeof error === "string") return error;
 
-    if (isHostErrorPayload(error)) {
-        if ("tag" in error) {
-            // Tagged variant carrying a reason: { tag, value: { reason } }
-            if (error.value != null && typeof error.value.reason === "string") {
-                return `${error.tag}: ${error.value.reason}`;
-            }
-            // Unit tagged variant, e.g. { tag: "Full" } / { tag: "PermissionDenied" }
-            return error.tag;
+    if (isTagged(error)) {
+        // `Domain` carries the real error inside a versioned envelope — unwrap it.
+        if (error.tag === "Domain" && isTagged(error.value) && error.value.value !== undefined) {
+            return formatHostError(error.value.value);
         }
-        // GenericError: { reason }
+        // Tagged variant carrying a reason: { tag, value: { reason } }
+        if (hasReason(error.value)) {
+            return `${error.tag}: ${error.value.reason}`;
+        }
+        // Unit tagged variant, e.g. { tag: "Denied" } / { tag: "PermissionDenied" }
+        return error.tag;
+    }
+    // GenericError: { reason }
+    if (hasReason(error)) {
         return error.reason;
     }
 
@@ -135,6 +144,38 @@ export class HostCallFailedError extends HostError {
     }
 }
 
+/**
+ * A host call could not be processed to completion: the `ResultAsync` the
+ * truapi client returns rejected instead of resolving to an ok/err. The usual
+ * cause is a response the client's SCALE codec can't decode (a
+ * `RangeError: Offset is outside the bounds of the DataView`) because the host
+ * and the `@parity/truapi` version the product is built against disagree on the
+ * wire shape of that call — a protocol-version skew. A host channel that closed
+ * mid-call looks identical from here, so this does not assert the skew; the
+ * real error is preserved on {@link cause}.
+ *
+ * The truapi client catches the decode throw in its message handler and turns
+ * it into a promise rejection, then wraps the call with
+ * `ResultAsync.fromSafePromise`, which installs no rejection handler — so the
+ * rejection escapes the `Result` channel rather than landing on its err side.
+ * Without this boundary that surfaces as a raw `RangeError` with a stack naming
+ * neither the call nor the cause. This names the call, so a bug report has
+ * somewhere to start.
+ */
+export class HostResponseDecodeError extends HostError {
+    /** The host-API call whose response failed to decode, e.g. `"createRingVRFProof"`. */
+    readonly call: string;
+
+    constructor(call: string, cause: unknown) {
+        super(
+            `Could not process the host's response to ${call}: ${formatHostError(cause)}. The usual cause is a protocol-version skew between the host app and the @parity/truapi version this product is built against; a host channel that closed mid-call looks the same.`,
+            { cause },
+        );
+        this.name = "HostResponseDecodeError";
+        this.call = call;
+    }
+}
+
 /** Check whether a value is any {@link HostError}. */
 export function isHostError(error: unknown): error is HostError {
     return error instanceof HostError;
@@ -161,7 +202,13 @@ if (import.meta.vitest) {
         });
 
         test("HostCallFailedError renders payload and preserves it", () => {
-            const payload = { tag: "PermissionDenied", value: { reason: "user said no" } };
+            const payload: HostErrorPayload = {
+                tag: "Domain",
+                value: {
+                    tag: "V1",
+                    value: { tag: "PermissionDenied", value: { reason: "user said no" } },
+                },
+            };
             const e = new HostCallFailedError("requestPermission failed", payload);
             expect(e).toBeInstanceOf(HostError);
             expect(e.payload).toBe(payload);
@@ -169,14 +216,31 @@ if (import.meta.vitest) {
             expect(e.message).toBe("requestPermission failed: PermissionDenied: user said no");
         });
 
-        test("HostCallFailedError renders a GenericError payload", () => {
-            const e = new HostCallFailedError("submit failed", { reason: "timeout" });
+        test("HostCallFailedError renders a Domain-wrapped GenericError payload", () => {
+            const e = new HostCallFailedError("submit failed", {
+                tag: "Domain",
+                value: { tag: "V1", value: { reason: "timeout" } },
+            });
             expect(e.message).toBe("submit failed: timeout");
+        });
+
+        test("HostResponseDecodeError names the call, interpolates the cause, and preserves it", () => {
+            const cause = new RangeError("Offset is outside the bounds of the DataView");
+            const e = new HostResponseDecodeError("createRingVRFProof", cause);
+            expect(e).toBeInstanceOf(HostError);
+            expect(e.name).toBe("HostResponseDecodeError");
+            expect(e.call).toBe("createRingVRFProof");
+            expect(e.cause).toBe(cause);
+            expect(e.message).toContain("createRingVRFProof");
+            // The rendered cause is in the message, not just on `.cause`.
+            expect(e.message).toContain("Offset is outside the bounds of the DataView");
+            expect(e.message).toContain("protocol-version skew");
         });
 
         test("isHostError narrows host errors only", () => {
             expect(isHostError(new HostUnavailableError())).toBe(true);
-            expect(isHostError(new HostCallFailedError("x", { reason: "y" }))).toBe(true);
+            expect(isHostError(new HostCallFailedError("x", { tag: "Denied" }))).toBe(true);
+            expect(isHostError(new HostResponseDecodeError("c", new Error("boom")))).toBe(true);
             expect(isHostError(new Error("plain"))).toBe(false);
             expect(isHostError("string")).toBe(false);
         });
@@ -192,6 +256,24 @@ if (import.meta.vitest) {
             );
             // Unit tagged variant: { tag }
             expect(formatHostError({ tag: "Full" })).toBe("Full");
+        });
+
+        test("unwraps the CallError Domain envelope to the domain error", () => {
+            // { tag: "Domain", value: { tag: "V1", value: <domain error> } }
+            expect(
+                formatHostError({
+                    tag: "Domain",
+                    value: { tag: "V1", value: { tag: "PermissionDenied" } },
+                }),
+            ).toBe("PermissionDenied");
+            expect(
+                formatHostError({ tag: "Domain", value: { tag: "V1", value: { reason: "boom" } } }),
+            ).toBe("boom");
+            // Transport-level CallError variants render as-is.
+            expect(formatHostError({ tag: "Denied" })).toBe("Denied");
+            expect(formatHostError({ tag: "HostFailure", value: { reason: "crashed" } })).toBe(
+                "HostFailure: crashed",
+            );
         });
 
         test("falls back for non-host-error input", () => {

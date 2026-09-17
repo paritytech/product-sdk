@@ -13,6 +13,7 @@ export default defineConfig({
         "crypto/index": "src/crypto/index.ts",
         "host/index": "src/host/index.ts",
         "identity/index": "src/identity/index.ts",
+        "individuality/index": "src/individuality/index.ts",
         "react/index": "src/react/index.ts",
         "local-storage/index": "src/local-storage/index.ts",
         "wallet/index": "src/wallet/index.ts",

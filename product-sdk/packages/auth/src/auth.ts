@@ -64,7 +64,8 @@ const QR_TIMEOUT_MS = 60_000;
  * - `rootAddress` — SS58 of `session.rootAccountId`, the `rootUserAccountId`
  *   the mobile app sent over the SSO handshake (bare-mnemonic sr25519 root on
  *   current mobile builds). Keyed by `Resources.Consumers` on the People
- *   parachain, so it's the right input for `lookupUsername`.
+ *   parachain, so it's the right input for `lookupUsername` from
+ *   `@parity/product-sdk-individuality`, which reads that account's usernames.
  * - `productAddress` — SS58 of the product account derived via
  *   `product/{productId}/{index}` from `rootAccountId`. This is what actually
  *   signs on-chain transactions from the CLI.

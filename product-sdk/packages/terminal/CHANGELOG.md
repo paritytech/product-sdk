@@ -1,5 +1,232 @@
 # @parity/product-sdk-terminal
 
+## 0.9.0
+
+### Minor Changes
+
+- a85b489: **Pair with a 0.9.0+ host.** `@novasamatech/host-papp` and its three lockstep siblings move from `^0.8.9` to `0.10.0`.
+
+  The old caret admitted only `>=0.8.9 <0.9.0`. host-papp 0.9.0 changed the pairing envelope from P-256 / AES-GCM to X25519 / ChaCha20-Poly1305 and shrank the encryption keys from 65 bytes to 32, and the handshake codec is fixed-width SCALE, so an SDK on the old pin could not complete a handshake. Both shipping mobile hosts moved to the new envelope in mid-August 2026, so this has been broken in the field since then.
+
+  **Existing paired sessions are invalidated. Users re-pair once.** The persisted session storage key moved `SsoSessionsV3` → `SsoSessionsV4`, so sessions written by an earlier CLI run are not read. `UserSecretsV2_<sessionId>.json` files are left behind but cause no errors, and the `DeviceIdentity` blob is unaffected. Same shape of break as the 0.8.7-1 bump.
+
+  **The on-disk allowance cache is versioned 1 → 2 and stale files are dropped.** Its entries belong to sessions that can no longer exist, and two fields changed shape, so a v1 file is discarded rather than half-read. The first allocation after upgrading is one extra round trip.
+
+  **Breaking, for anyone importing these types directly:**
+
+  - `AllocatableResource` — `SmartContractAllowance`'s payload is now a tagged `{ tag: "Index"; value: number } | { tag: "Raw"; value: Uint8Array }` instead of a bare `number`.
+  - `ApAllocationOutcome` — `AutoSigning` drops `productDerivationSecret` and gains `ringVrfDomainEntropy`.
+  - `CachedAllocation` — `SmartContractAllowance.dest` is a string (`"Index::7"`, `"Raw::0x…"`), and the `AutoSigning` entry carries `ringVrfDomainEntropy`.
+
+  `ProductAccountRef` is unchanged: the SDK still takes a plain `derivationIndex` and emits the `Index` variant for you.
+
+  **Not taking 0.10.1 or newer.** They raise their `polkadot-api` floor to `>=3` and this workspace is on PAPI 2. 0.10.0 is wire-identical to 0.10.2 for pairing, handshake, signing and resource allocation, so nothing is lost by holding here. A `polkadot-api` override keeps host-papp's open `>=2` range from pulling a second PAPI copy into the graph.
+
+  **This restores pairing, not phone-paired signing.** Product-account derivation in `@parity/product-sdk-keys` predates RFC-0022 and does not match any current host, so a signature still carries the wrong address. That is a separate, pre-existing defect, tracked on its own.
+
+- a85b489: **Default to a statement store endpoint that resolves (#365).**
+
+  `createTerminalAdapter({ appId })` with no `endpoints` could not reach a statement store at all. Its
+  default was `SS_PASEO_STABLE_STAGE_ENDPOINTS`, whose hostname no longer exists. The Paseo people
+  chain it names is not down: it moved to the system slot and its RPC gained a `-system-` segment.
+  host-papp has not followed, and that constant is unchanged from 0.6.17 through 0.10.0.
+
+  The new default is `wss://paseo-people-next-system-rpc.polkadot.io`, which is the chain the Polkadot
+  app's nightly build connects to, and the one this repo's own `paseo-individuality` descriptor has
+  addressed all along.
+
+  **New: `StatementStoreNetworks`**, replacing the flat endpoint constants.
+
+  Keys match `BULLETIN_RPCS` in `@parity/product-sdk-host`, so one network has one name across the SDK.
+
+  | Key          | Endpoint                                         |
+  | ------------ | ------------------------------------------------ |
+  | `paseo`      | `wss://paseo-people-next-system-rpc.polkadot.io` |
+  | `previewnet` | `wss://previewnet.substrate.dev/people`          |
+
+  `previewnet` was live before this change and was not re-exported, so reaching it meant importing
+  from `@novasamatech/host-papp` directly. `StatementStoreEnvironment` is exported as its key type.
+
+  **Removed: `SS_PASEO_STABLE_STAGE_ENDPOINTS`.** Minor rather than patch, because surface is removed,
+  which on 0.x signals a breaking change. Nothing was reachable through it, so any caller passing it
+  as `endpoints` was already unable to connect; replace it with `StatementStoreNetworks.paseo`.
+
+  `SS_STABLE_STAGE_ENDPOINTS` is still exported. It resolves but refuses connections from outside the
+  Parity network, which fits an internal-only host rather than a retired one, so it is kept until it
+  has been retested on VPN.
+
+  **Smaller published bundle.** `treeshake` is now on, dropping the in-source test blocks that shipped
+  as dead code. `dist/index.js` goes from 50,146 to 13,335 bytes, with every export unchanged.
+
+  **Pairing needs both sides on the same chain**, and the pairing handshake does not carry one. The
+  phone picks its people chain per build flavour, so a preview-flavour phone still needs
+  `endpoints: StatementStoreNetworks.previewnet` passed explicitly.
+
+### Patch Changes
+
+- a85b489: **Name the host-papp version the module actually pins.** The `host.ts` module doc still said `0.7.7` three bumps after the fact; the package pins `0.10.0` exactly.
+
+  No behaviour change. The public shapes of `AllocatableResource` and `OnExistingAllowancePolicy` are now pinned by a type assertion in the module's test block, so a future host-papp bump that reshapes either fails typecheck naming the type instead of depending on whether this repo happens to construct the changed variant.
+
+  - @parity/product-sdk-signer@0.14.5
+  - @parity/product-sdk-keys@0.3.25
+
+## 0.8.2
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.14.4
+- @parity/product-sdk-keys@0.3.24
+
+## 0.8.1
+
+### Patch Changes
+
+- d0260a1: **Derive `txExtVersion` from the extrinsic format list, so a V5-only runtime can be signed again.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion`. Since host `0.18.0` and terminal `0.8.0` the V5 value was gated on the runtime's transaction-extension version map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`) containing `5`. No runtime declares extension version `5`, every deployed runtime declares only `0`, so that branch was unreachable and signing threw on any runtime offering extrinsic format 5 without format 4.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `metadata.extrinsic.version` alone: format 4 gives `0`, otherwise format 5 gives `5`, otherwise a throw naming the formats the runtime offers. That restores the behaviour published in host `0.17.0` and terminal `0.7.4`, and keeps the explicit rejection `0.18.0` added for a runtime offering neither format, where earlier versions sent the highest format number to a host that cannot use it. Both packages now also decode the tracked chain metadata under test, which is the check that would have caught this.
+
+  `0` and `5` are the values host-rust-core's `build_local_transaction` accepts, and that is the host iOS and dot.li run. What the field means is still open in product-sdk#339: the truapi protocol documents it as a transaction-extension version and the Android host reads it that way, so `5` is not universally correct. This release does not settle that.
+
+  No behaviour change on any chain the SDK ships against. They all offer extrinsic format 4, so `txExtVersion` was and remains `0`.
+
+  - @parity/product-sdk-signer@0.14.3
+  - @parity/product-sdk-keys@0.3.23
+
+## 0.8.0
+
+### Minor Changes
+
+- 84134e0: **Stop `adapter.destroy()` from logging benign `DestroyedError` teardown noise, and export the filter consumers were hand-rolling.**
+
+  Destroying the terminal adapter while a statement-subscription observable is still live makes `@novasamatech/statement-store` log `Statement subscription error: Client destroyed` to `console.error` synchronously, from inside `disconnect()`. Draining the tracked unsubscribe RPCs does not cover that observable's error emission, so the line still escaped, and every consumer (bulletin-deploy, playground-cli, d3pot) hand-rolled a filter to keep clean CLI output.
+
+  `destroy()` now runs the disconnect under a scoped `console.error` filter that drops only the benign teardown line and restores itself in a `finally` — every other `console.error` passes through untouched, so a genuine error during teardown is still visible, and overlapping `destroy()`s can't strand the patch. This restores (and narrows) the suppression a previous refactor had removed in favour of an ordering-only approach that didn't reach the upstream error.
+
+  Also exports `isBenignTeardownError(error: unknown): boolean`, the predicate `destroy()` uses. It matches on the message text (`Client destroyed`), not the error name, so it never swallows another package's `DestroyedError` — notably `@parity/product-sdk-signer`'s. Export it so a consumer with its own `console.error` guard can drop the same line without reinventing the match.
+
+### Patch Changes
+
+- 84134e0: **Derive `txExtVersion` from the transaction-extension version map, not the extrinsic format version.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion` with the **transaction-extension** version the host must decode extension values under. It was being derived from `metadata.extrinsic.version` — the extrinsic _format_ versions (`4` / `5`) — which is a different concept (host-rust-core#528). For a V4 extrinsic the value is a fixed `0`; for a V5 general transaction it is a transaction-extension version from the runtime's v16 `transactionExtensionsByVersion` map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`), which the host and runtime agree is `5` — a value that must exist in that map, not the highest extrinsic format number.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `extrinsic.signedExtensions`: V4 → `0`, else the general transaction-extension version `5` if the runtime lists it (throwing otherwise, rather than sending a format number the host can't decode under).
+
+  No behaviour change on the chains the SDK ships against today: they all offer extrinsic V4, so `txExtVersion` was and remains `0`. The bug was latent — it only produced a wrong value (the format number `5`) on a hypothetical V5-only runtime, which is exactly the case this corrects.
+
+  - @parity/product-sdk-signer@0.14.2
+  - @parity/product-sdk-keys@0.3.22
+
+## 0.7.4
+
+### Patch Changes
+
+- 46e3592: **Use the signed V4 envelope when a runtime also advertises V5.**
+
+  Product-account signers now prefer an advertised Extrinsic V4 format because metadata alone cannot prove that the connected host implements a runtime's V5 authorization pipeline. V5-only runtimes continue to use V5, preserving explicit host capability errors and future authorization support.
+
+- Updated dependencies [46e3592]
+  - @parity/product-sdk-signer@0.14.1
+  - @parity/product-sdk-keys@0.3.21
+
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [f987fd7]
+- Updated dependencies [f987fd7]
+  - @parity/product-sdk-signer@0.14.0
+  - @parity/product-sdk-keys@0.3.20
+
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+- Updated dependencies [3655724]
+  - @parity/product-sdk-signer@0.13.0
+  - @parity/product-sdk-keys@0.3.19
+
+## 0.7.1
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.12.1
+- @parity/product-sdk-keys@0.3.18
+
+## 0.7.0
+
+### Minor Changes
+
+- bffc04a: Typed `AllowanceExpiredError` for signs that fail on a lapsed allowance.
+
+  New `AllowanceExpiredError` in `@parity/product-sdk-signer` (extends
+  `SignerError`, so it carries the shared `SdkError` marker; `.resource` names
+  the lapsed allowance, `.cause` holds the underlying failure). The terminal
+  session signers (`signTx` via `session.createTransaction`, `signBytes` via
+  `session.signRaw`) now reject with it when the failure is the statement-store
+  `NoAllowanceError` (matched directly or anywhere on the `cause` chain) instead
+  of a generic `Error` — so consumers can `catch (e) { if (e instanceof
+AllowanceExpiredError) … }` and prompt a re-pair, rather than string-matching
+  console output.
+
+  Deliberately **thrown**, not returned as a `Result` `err`: it surfaces at
+  PAPI's `PolkadotSigner.signTx`/`signBytes` boundary, whose contract is a
+  rejecting Promise — an intentional exception to the SDK-wide Result
+  convention. Re-exported from `@parity/product-sdk-terminal` (which gains a
+  `@parity/product-sdk-signer` workspace dependency).
+
+  Note: the root-cause fix for the 240 s hang before this error is even
+  reachable lives upstream in `@novasamatech/host-papp`
+  (`awaitReplyOrAckFailure` drops rejected ACKs) and is tracked separately.
+
+- bffc04a: Allow the `-terminal/host` allocation APIs to target an explicit `productId`.
+
+  `requestResourceAllocation` (via `options.productId`), `getCachedAllocation`,
+  `ensureSlotAccountSigner`, and `createSlotAccountSigner` (via a trailing
+  optional `productId` parameter) can now override `adapter.appId` for both the
+  wire `callingProductId` and the slot-cache namespace. Defaults to
+  `adapter.appId` — no behavior change for existing callers.
+
+  Fixes the PGAS mis-mapping footgun where an app whose product id differs from
+  the terminal's storage `appId` gets its sponsored-gas allowance minted and
+  auto-mapped on the wrong on-chain account, and brings the allocation side in
+  line with the signer/read side (`createSessionSignerForAccount`,
+  `getBulletinSigner`), which already takes an explicit `productId`. Consumers
+  can delete their `{ ...adapter, appId: productId }` spread workarounds.
+
+  > **Warning:** thread the **same** `productId` through **all four** allocation
+  > APIs — `requestResourceAllocation`, `getCachedAllocation`,
+  > `ensureSlotAccountSigner`, and `createSlotAccountSigner`. Deleting the
+  > `{ ...adapter, appId }` spread without passing `productId` everywhere silently
+  > reintroduces the wrong-account PGAS mint (allowance minted / auto-mapped on
+  > the account derived from `adapter.appId` instead of your product's account),
+  > which is exactly the footgun this change closes.
+
+### Patch Changes
+
+- Updated dependencies [bffc04a]
+- Updated dependencies [bffc04a]
+- Updated dependencies [bffc04a]
+  - @parity/product-sdk-signer@0.12.0
+  - @parity/product-sdk-keys@0.3.17
+
+## 0.6.2
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.16
+
+## 0.6.1
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.15
+
 ## 0.6.0
 
 ### Minor Changes

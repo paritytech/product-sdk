@@ -63,7 +63,7 @@ Creates a terminal adapter backed by the host-papp SDK.
 
 **Options:**
 - `appId` -- unique app identifier (used as storage namespace)
-- `endpoints?` -- statement store WebSocket endpoints (defaults to Paseo)
+- `endpoints?` -- statement store WebSocket endpoints (defaults to `StatementStoreNetworks.paseo`)
 - `hostMetadata?` -- optional host environment info
 - `storageDir?` -- override the on-disk session directory (defaults to `~/.polkadot-apps/`). Useful in tests and containerised environments.
 
@@ -71,7 +71,31 @@ Creates a terminal adapter backed by the host-papp SDK.
 - `appId` -- the value you passed in (re-exposed so `createSessionSigner` can pull the productId from the adapter)
 - `sso` -- auth component (`.authenticate()`, `.abortAuthentication()`, status subscriptions)
 - `sessions` -- session manager (signing, disconnect)
-- `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Suppresses `@novasamatech/statement-store`'s noisy `Statement subscription error` log for ~50 ms after the call.
+- `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Drops `@novasamatech/statement-store`'s benign `Statement subscription error: Client destroyed` line, which it emits synchronously while disconnecting a live subscription — only that line; every other `console.error` passes through.
+
+### `StatementStoreNetworks`
+
+The statement store endpoints terminal can pair against, keyed by network.
+
+| Key | Network | Endpoint |
+| --- | --- | --- |
+| `paseo` | Paseo Next v2 | `wss://paseo-people-next-system-rpc.polkadot.io` |
+| `previewnet` | zombienet, a step ahead of paseo | whatever host-papp's `SS_PREVIEW_STAGE_ENDPOINTS` resolves to, today `wss://previewnet.substrate.dev/people` |
+
+Keyed the same way as `BULLETIN_RPCS` in `@parity/product-sdk-host`. There is deliberately no
+`devnet` key: that people chain has a statement store, but no endpoint for it is published here, and
+no phone build pairs against it. Pass `endpoints` explicitly to reach one.
+
+Pairing only works when the terminal and the phone are on the **same** people chain, and the phone
+picks its chain per build flavour. The Polkadot app's nightly build uses `paseo`, which is why that
+is the default; a preview-flavour phone needs `endpoints: StatementStoreNetworks.previewnet`.
+
+`SS_STABLE_STAGE_ENDPOINTS` is also exported. It is internal to the Parity network and does not
+answer from outside it.
+
+### `isBenignTeardownError(error): boolean`
+
+Whether `error` is the benign teardown noise above (`Client destroyed`, matched on the message so it never swallows another package's `DestroyedError`). `destroy()` already drops it during its own teardown; export it so a consumer with its own `console.error` guard can drop the same line without reinventing the match.
 
 ### `createSessionSigner(session, adapter): PolkadotSigner`
 
@@ -98,7 +122,7 @@ const subSigner = createSessionSignerForAccount(session, {
 });
 ```
 
-> **Wire format note:** `@novasamatech/host-papp` 0.7 expects `productAccountId: [productId, derivationIndex]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
+> **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
 
 ### `renderQrCode(data, options?): Promise<string>`
 
@@ -243,13 +267,13 @@ For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing se
 | Override session storage dir | not supported (hard-coded `~/.polkadot-apps/`) | `createTerminalAdapter({ ..., storageDir })` option |
 | E2E test helper for sessions | none | `createTestSession` from `@parity/product-sdk-terminal/testing` |
 | Node version | any (bundled `ws`) | **≥21** (uses global `WebSocket`) |
-| `destroy()` shutdown noise | emitted `Statement subscription error` to stderr | suppressed; `console.error` muted for ~50 ms |
+| `destroy()` shutdown noise | emitted `Statement subscription error` to stderr | only the benign `Client destroyed` line dropped (synchronously, during disconnect); other `console.error` untouched |
 
 ### Why the signer API changed
 
-`@novasamatech/host-papp` 0.7 replaced `SigningRawRequest.address` with `productAccountId: [productId, derivationIndex]`. The wire format requires both fields, so a session-only argument is no longer enough — the signer needs to know *which sub-account of which product is asking*. We split that into two functions to keep the common case ergonomic:
+`@novasamatech/host-papp` 0.7 replaced `SigningRawRequest.address` with `productAccountId: [productId, derivationIndex]`, and 0.10 made the index a tagged `Index | Raw` selector. The wire format requires both fields, so a session-only argument is no longer enough — the signer needs to know *which sub-account of which product is asking*. We split that into two functions to keep the common case ergonomic:
 
-- `createSessionSigner(session, adapter)` for the default account (uses `[adapter.appId, 0]`)
+- `createSessionSigner(session, adapter)` for the default account (uses `[adapter.appId, { tag: "Index", value: 0 }]`)
 - `createSessionSignerForAccount(session, { productId, derivationIndex })` for everything else
 
 The single-argument `createSessionSigner(session)` from `@polkadot-apps/terminal` no longer works against host-papp 0.7 regardless of which package you use.

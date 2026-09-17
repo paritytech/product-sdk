@@ -1,18 +1,24 @@
 name: "docs: Verify Build"
 
 on:
+    # docs-deploy.yml is in both filters for the guard job below. Filters are
+    # workflow-level, so the build job runs on it too.
     push:
         branches: [main]
         paths:
             - "product-sdk/**"
             - "docs/**"
             - ".github/workflows/docs-verify.yml"
+            - ".github/workflows/docs-deploy.yml"
+            - ".github/scripts/check-docs-deploy.sh"
     pull_request:
         branches: [main]
         paths:
             - "product-sdk/**"
             - "docs/**"
             - ".github/workflows/docs-verify.yml"
+            - ".github/workflows/docs-deploy.yml"
+            - ".github/scripts/check-docs-deploy.sh"
 
 # Read-only build: only needs to clone the repo to verify it builds.
 permissions:
@@ -66,3 +72,14 @@ jobs:
             - name: Build static site
               working-directory: docs
               run: pnpm build
+
+    bulletin-domain:
+        name: "docs: Bulletin deploy guard"
+        runs-on: parity-default
+        steps:
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+              with:
+                  persist-credentials: false
+
+            - name: Check the deploy workflow
+              run: bash .github/scripts/check-docs-deploy.sh

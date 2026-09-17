@@ -57,8 +57,8 @@ export type ResourceTag = AllocatableResource["tag"];
 export const DEFAULT_RESOURCES: AllocatableResource[] = [
     { tag: "BulletInAllowance", value: undefined },
     { tag: "StatementStoreAllowance", value: undefined },
-    // derivation index 0 = the default product account.
-    { tag: "SmartContractAllowance", value: 0 },
+    // index 0 = the default product account.
+    { tag: "SmartContractAllowance", value: { tag: "Index", value: 0 } },
 ];
 
 /**

@@ -33,17 +33,44 @@ export class SignerError extends Error implements SdkError {
  * in a Polkadot host, or pick a dev provider" message to the user.
  */
 export class HostUnavailableError extends SignerError {
-    constructor(message = "Host API is not available") {
-        super(message);
+    /**
+     * `options.cause` carries whatever made the host unreachable, when there is
+     * such a thing: the error the accounts-provider loader threw. Absent when
+     * the host is simply not there, which is a state rather than a failure.
+     */
+    constructor(message = "Host API is not available", options?: ErrorOptions) {
+        super(message, options);
         this.name = "HostUnavailableError";
     }
 }
 
 /** The host rejected the account or signing request. */
 export class HostRejectedError extends SignerError {
-    constructor(message = "Host rejected the request") {
-        super(message);
+    /**
+     * True when the rejection reflects an expected, non-transient state (e.g.
+     * the user is signed out / `NotConnected`) rather than a fault. Callers use
+     * this to degrade to read-only instead of erroring and retrying.
+     */
+    readonly nonTransient: boolean;
+
+    /**
+     * `options.cause` carries the host's own error value untouched, so a caller
+     * can narrow it instead of matching the message text. From `HostProvider`
+     * that is truapi's `scale.CallErrorValue<Versioned…Error>`, whose tagged
+     * union already separates a domain rejection (`NotAllowlisted`, …) from a
+     * transport failure.
+     *
+     * `options` is third so the addition stays source-compatible:
+     * `nonTransient` is passed positionally, here and by consumers.
+     */
+    constructor(
+        message = "Host rejected the request",
+        nonTransient = false,
+        options?: ErrorOptions,
+    ) {
+        super(message, options);
         this.name = "HostRejectedError";
+        this.nonTransient = nonTransient;
     }
 }
 
@@ -63,6 +90,30 @@ export class SigningFailedError extends SignerError {
             { cause },
         );
         this.name = "SigningFailedError";
+    }
+}
+
+/**
+ * The wallet session's allowance for a resource has expired (or is no longer
+ * granted), so the sign request was rejected by the chain instead of reaching
+ * the wallet. Re-pair the wallet / re-request the allowance to recover.
+ *
+ * Deliberately **thrown**, not returned as an `Err`: it surfaces at PAPI's
+ * `PolkadotSigner.signTx` / `signBytes` boundary, whose contract is a
+ * rejecting Promise.
+ */
+export class AllowanceExpiredError extends SignerError {
+    /** The resource whose allowance lapsed. */
+    readonly resource: "statementStore" | "bulletin";
+
+    constructor(resource: "statementStore" | "bulletin", cause?: unknown, message?: string) {
+        super(
+            message ??
+                `Wallet session allowance for "${resource}" has expired — re-pair the wallet.`,
+            { cause },
+        );
+        this.name = "AllowanceExpiredError";
+        this.resource = resource;
     }
 }
 
@@ -143,10 +194,42 @@ if (import.meta.vitest) {
             expect(e.message).toBe("custom");
         });
 
+        test("HostUnavailableError carries a cause when given one", () => {
+            const cause = new Error("loader blew up");
+            const e = new HostUnavailableError("host accounts provider failed", { cause });
+            expect(e.cause).toBe(cause);
+            expect(e.name).toBe("HostUnavailableError");
+            expect(new HostUnavailableError().cause).toBeUndefined();
+        });
+
         test("HostRejectedError", () => {
             const e = new HostRejectedError();
             expect(e).toBeInstanceOf(SignerError);
             expect(e.message).toContain("rejected");
+        });
+
+        test("HostRejectedError carries the raw host error as cause", () => {
+            const raw = { tag: "Domain", value: { tag: "V1", value: { tag: "NotAllowlisted" } } };
+            const e = new HostRejectedError("Ring VRF proof rejected", false, { cause: raw });
+            expect(e.cause).toBe(raw);
+            expect(e.name).toBe("HostRejectedError");
+            expect(e.message).toBe("Ring VRF proof rejected");
+            expect(e.nonTransient).toBe(false);
+        });
+
+        test("HostRejectedError keeps nonTransient independent of the cause", () => {
+            const raw = { tag: "Domain", value: { tag: "V1", value: { tag: "NotConnected" } } };
+            const e = new HostRejectedError("signed out", true, { cause: raw });
+            expect(e.nonTransient).toBe(true);
+            expect(e.cause).toBe(raw);
+        });
+
+        test("HostRejectedError without a cause is unchanged", () => {
+            const e = new HostRejectedError();
+            expect(e.cause).toBeUndefined();
+            expect(e.message).toBe("Host rejected the request");
+            expect(e.nonTransient).toBe(false);
+            expect(new HostRejectedError("custom", true).nonTransient).toBe(true);
         });
 
         test("HostDisconnectedError", () => {
@@ -171,6 +254,23 @@ if (import.meta.vitest) {
         test("SigningFailedError with custom message", () => {
             const e = new SigningFailedError("oops", "custom msg");
             expect(e.message).toBe("custom msg");
+        });
+
+        test("AllowanceExpiredError carries resource and cause", () => {
+            const cause = new Error("Submit failed, no allowance set for account");
+            const e = new AllowanceExpiredError("statementStore", cause);
+            expect(e).toBeInstanceOf(SignerError);
+            expect(e.name).toBe("AllowanceExpiredError");
+            expect(e.resource).toBe("statementStore");
+            expect(e.cause).toBe(cause);
+            expect(e.message).toContain("statementStore");
+            expect(e.message).toContain("expired");
+        });
+
+        test("AllowanceExpiredError with custom message", () => {
+            const e = new AllowanceExpiredError("bulletin", undefined, "custom msg");
+            expect(e.message).toBe("custom msg");
+            expect(e.resource).toBe("bulletin");
         });
 
         test("NoAccountsError", () => {

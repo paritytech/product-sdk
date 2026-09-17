@@ -588,7 +588,9 @@ if (import.meta.vitest) {
             });
 
             const resolved = await withLiveContractAddresses(flattenedCdm, runtime, {
-                registryOrigin: "5LiveOrigin" as SS58String,
+                // A real (Alice) SS58 — the wrap layer validates query origins
+                // before dry-running, so placeholder strings are rejected.
+                registryOrigin: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String,
             });
 
             expect(resolved.ok).toBe(true);

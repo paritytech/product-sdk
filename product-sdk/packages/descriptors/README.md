@@ -14,6 +14,9 @@ PAPI-generated chain descriptors for the Polkadot ecosystem. These provide fully
 | Devnet Asset Hub | `@parity/product-sdk-descriptors/devnet-asset-hub` | Paseo testnet (products devnet) |
 | Devnet Bulletin | `@parity/product-sdk-descriptors/devnet-bulletin` | Paseo testnet (products devnet) |
 | Devnet Individuality | `@parity/product-sdk-descriptors/devnet-individuality` | Paseo testnet (products devnet) |
+| Previewnet Asset Hub | `@parity/product-sdk-descriptors/previewnet-asset-hub` | Testnet |
+| Previewnet Bulletin | `@parity/product-sdk-descriptors/previewnet-bulletin` | Testnet |
+| Previewnet Individuality | `@parity/product-sdk-descriptors/previewnet-individuality` | Testnet |
 
 ## Which network does each descriptor target?
 

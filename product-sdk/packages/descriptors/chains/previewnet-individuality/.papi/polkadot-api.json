@@ -1,0 +1,12 @@
+{
+    "version": 0,
+    "descriptorPath": "generated",
+    "entries": {
+        "previewnet_individuality": {
+            "wsUrl": "wss://previewnet.substrate.dev/people",
+            "metadata": "../../.papi/metadata/previewnet_individuality.scale",
+            "genesis": "0xf720c28fe3315e67fa799a616fc59abad47dd257b1a336af6538435844d35218",
+            "codeHash": "0x97d5e78153b239f6f4ac762f4d4e1d3c56c1c2ae19484ecfa395f0d817ded696"
+        }
+    }
+}

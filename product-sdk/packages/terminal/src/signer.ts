@@ -41,16 +41,65 @@
  * ```
  */
 import type { UserSession } from "@novasamatech/host-papp";
+import { NoAllowanceError } from "@novasamatech/statement-store";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
+import { AllowanceExpiredError } from "@parity/product-sdk-signer/errors";
+import { toHex } from "@polkadot-api/utils";
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { TerminalAdapter } from "./adapter.js";
 
 /**
+ * Detect the statement-store `NoAllowanceError` — the chain-side rejection a
+ * sign request hits when the session's statement-store allowance has lapsed.
+ *
+ * Walks the `cause` chain: host-papp may wrap the underlying submit failure
+ * before it reaches the `createTransaction`/`signRaw` error channel. Besides
+ * `instanceof`, matches by constructor name (a duplicated copy of
+ * `@novasamatech/statement-store` in the module graph defeats `instanceof`)
+ * and by the fixed message statement-store mints — the only signal left once
+ * the error crossed a serialization boundary (`NoAllowanceError` never sets
+ * `this.name`, so name-matching would never fire).
+ */
+function isNoAllowanceError(error: unknown): boolean {
+    // Bounded walk — cause chains are short; the cap guards against cycles.
+    for (let current = error, depth = 0; current != null && depth < 8; depth++) {
+        if (current instanceof NoAllowanceError) return true;
+        if (current instanceof Error) {
+            if (
+                current.constructor.name === "NoAllowanceError" ||
+                current.message.includes("no allowance set")
+            ) {
+                return true;
+            }
+            current = current.cause;
+        } else {
+            break;
+        }
+    }
+    return false;
+}
+
+/**
+ * Map a sign failure to the typed {@link AllowanceExpiredError} when its cause
+ * is the statement-store `NoAllowanceError`; `null` otherwise. Single decision
+ * point for both sign paths — `signTx` (via `session.createTransaction`) and
+ * `signBytes` (via `session.signRaw`) both submit through the statement store,
+ * so the lapsed resource is always `"statementStore"`.
+ *
+ * The caller *throws* the returned error (PAPI's `PolkadotSigner` contract is
+ * a rejecting Promise), making allowance expiry a typed, catchable condition
+ * rather than a generic `Error`.
+ */
+function toAllowanceExpiredError(error: unknown): AllowanceExpiredError | null {
+    return isNoAllowanceError(error) ? new AllowanceExpiredError("statementStore", error) : null;
+}
+
+/**
  * Identifies which sub-account of a paired session should sign.
  *
- * Mirrors the `host-papp` wire format `productAccountId: [productId, derivationIndex]`:
+ * Mirrors the `host-papp` wire format `productAccountId: [productId, index]`:
  * `productId` is the dotNS-style identifier for the requesting product (matches
  * the adapter's `appId` in normal usage); `derivationIndex` is the BIP32-style
  * child-key index, where `0` is the session's default account.
@@ -77,6 +126,14 @@ export interface ProductAccountRef {
     publicKey?: Uint8Array;
 }
 
+/** Derived from the session so a codec change fails to compile here. */
+type ProductAccountId = Parameters<UserSession["signRaw"]>[0]["productAccountId"];
+
+/** `Raw` is a host capability the SDK does not expose. */
+function toProductAccountId(ref: ProductAccountRef): ProductAccountId {
+    return [ref.productId, { tag: "Index", value: ref.derivationIndex }];
+}
+
 /**
  * The `signedExtensions` map PAPI hands to `PolkadotSigner.signTx`: keyed by
  * extension identifier, each entry carries the SCALE-encoded `extra` (goes in
@@ -96,7 +153,7 @@ type PapiSignedExtensions = Parameters<PolkadotSigner["signTx"]>[1];
  * paired phone; the metadata decode + SSO round-trip live in {@link makeTxSignTx}.
  */
 function buildCreateTransactionRequest(
-    productAccountId: [string, number],
+    productAccountId: ProductAccountId,
     callData: Uint8Array,
     signedExtensions: PapiSignedExtensions,
     txExtVersion: number,
@@ -114,7 +171,8 @@ function buildCreateTransactionRequest(
             value: {
                 signer: productAccountId,
                 // CheckGenesis carries the genesis hash as its additionalSigned (implicit) data.
-                genesisHash: checkGenesis.additionalSigned,
+                // `toHex` is typed `string`; the codec wants the 0x literal type.
+                genesisHash: toHex(checkGenesis.additionalSigned) as `0x${string}`,
                 callData,
                 extensions: Object.values(signedExtensions).map(
                     ({ identifier, value, additionalSigned }) => ({
@@ -129,15 +187,32 @@ function buildCreateTransactionRequest(
     };
 }
 
+const V5_FORMAT_SELECTOR = 5;
+
 /**
- * Transaction-extension version the mobile app must assemble:
- *  - Extrinsic V4 → `0` (the protocol mandates 0 for V4).
- *  - Extrinsic V5 → the runtime's version (highest the metadata advertises).
+ * Pick the `txExtVersion` for the paired host's `createTransaction` from the extrinsic
+ * formats the runtime offers. The host treats the field as a format switch: `0` builds
+ * V4, `5` builds a V5 general transaction, anything else is `NotSupported`. Prefer V4
+ * while offered, since it carries the account signature in its envelope. The host
+ * derives the transaction-extension version from the metadata itself.
  */
+function selectTxExtVersion(formatVersions: readonly number[]): number {
+    if (formatVersions.length === 0) {
+        throw new Error("No extrinsic version found in metadata");
+    }
+    if (formatVersions.includes(4)) {
+        return 0;
+    }
+    if (formatVersions.includes(5)) {
+        return V5_FORMAT_SELECTOR;
+    }
+    throw new Error(
+        `Runtime offers no extrinsic format 4 or 5 (offers: ${formatVersions.join(", ")}); the host protocol has no txExtVersion for it.`,
+    );
+}
+
 function txExtVersionFromMetadata(metadata: Uint8Array): number {
-    const decoded = unifyMetadata(decAnyMetadata(metadata));
-    const latestVersion = decoded.extrinsic.version.reduce((max, v) => Math.max(max, v), 0);
-    return latestVersion === 4 ? 0 : latestVersion;
+    return selectTxExtVersion(unifyMetadata(decAnyMetadata(metadata)).extrinsic.version);
 }
 
 /**
@@ -153,6 +228,8 @@ async function requestSignedTransaction(
 ): Promise<Uint8Array> {
     const result = await session.createTransaction(request);
     if (result.isErr()) {
+        const expired = toAllowanceExpiredError(result.error);
+        if (expired) throw expired;
         throw new Error(`Mobile transaction signing rejected: ${result.error.message}`);
     }
     // host-papp returns the fully signed extrinsic bytes.
@@ -170,7 +247,7 @@ async function requestSignedTransaction(
  */
 function makeTxSignTx(
     session: UserSession,
-    productAccountId: [string, number],
+    productAccountId: ProductAccountId,
 ): PolkadotSigner["signTx"] {
     return async (callData, signedExtensions, metadata) =>
         requestSignedTransaction(
@@ -196,7 +273,7 @@ function makeTxSignTx(
  * funnel raw-bytes signing through the same `sign` callback as tx signing
  * — the wrong wire tag for arbitrary user data).
  */
-function makeRawBytesSignCallback(session: UserSession, productAccountId: [string, number]) {
+function makeRawBytesSignCallback(session: UserSession, productAccountId: ProductAccountId) {
     return async (data: Uint8Array): Promise<Uint8Array> => {
         const result = await session.signRaw({
             productAccountId,
@@ -204,6 +281,8 @@ function makeRawBytesSignCallback(session: UserSession, productAccountId: [strin
         });
 
         if (result.isErr()) {
+            const expired = toAllowanceExpiredError(result.error);
+            if (expired) throw expired;
             throw new Error(`Mobile signing rejected: ${result.error.message}`);
         }
 
@@ -257,7 +336,7 @@ export function deriveProductPublicKey(session: UserSession, ref: ProductAccount
 }
 
 function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
-    const productAccountId: [string, number] = [ref.productId, ref.derivationIndex];
+    const productAccountId = toProductAccountId(ref);
 
     // The signer's public key must be the *product* account's key — the one the
     // wallet signs with for [productId, derivationIndex] — not the wallet's
@@ -323,6 +402,9 @@ export function createSessionSignerForAccount(
 }
 
 if (import.meta.vitest) {
+    const pid = (productId: string, derivationIndex: number) =>
+        toProductAccountId({ productId, derivationIndex });
+
     const { describe, test, expect, vi } = import.meta.vitest;
     const { ok, err } = await import("neverthrow");
     const { seedToAccount } = await import("@parity/product-sdk-keys");
@@ -451,10 +533,10 @@ if (import.meta.vitest) {
             // Mobile applies the <Bytes>...</Bytes> envelope on its side.
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, number];
+                productAccountId: ProductAccountId;
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["test-app", 0]);
+            expect(req.productAccountId).toEqual(pid("test-app", 0));
             expect(req.data.tag).toBe("Bytes");
             expect(req.data.value).toEqual(new Uint8Array([1, 2, 3]));
         });
@@ -497,35 +579,75 @@ if (import.meta.vitest) {
         // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
         // a real phone.
 
+        test("prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
+            expect(selectTxExtVersion([4, 5])).toBe(0);
+        });
+
+        test("uses the V5 selector when the runtime offers no V4", () => {
+            expect(selectTxExtVersion([5])).toBe(5);
+        });
+
+        test("maps a V4-only runtime to the wire sentinel", () => {
+            expect(selectTxExtVersion([4])).toBe(0);
+        });
+
+        test("prefers V5 over a format it does not know", () => {
+            // max(formats) would send 6, which no host accepts.
+            expect(selectTxExtVersion([5, 6])).toBe(5);
+        });
+
+        test("rejects a runtime offering neither format 4 nor 5", () => {
+            expect(() => selectTxExtVersion([6])).toThrow(/no extrinsic format 4 or 5/i);
+        });
+
+        test("rejects metadata with no extrinsic version", () => {
+            expect(() => selectTxExtVersion([])).toThrow("No extrinsic version found in metadata");
+        });
+
+        test("txExtVersionFromMetadata reads the format list out of every tracked chain's metadata", async () => {
+            const { readFileSync, readdirSync } = await import("node:fs");
+            const { join } = await import("node:path");
+            // Not new URL(): without treeshake the literal reaches dist, and bundlers resolve it.
+            const dir = join(import.meta.dirname, "..", "..", "descriptors", ".papi", "metadata");
+            const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
+
+            expect(blobs.length, "raise when a chain is added").toBeGreaterThanOrEqual(11);
+            // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
+            for (const name of blobs) {
+                const metadata = new Uint8Array(readFileSync(join(dir, name)));
+                expect(txExtVersionFromMetadata(metadata), name).toBe(0);
+            }
+        });
+
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
 
         test("wraps the payload as v1 with signer, callData, and txExtVersion", () => {
             const callData = new Uint8Array([0xca, 0x11]);
             const req = buildCreateTransactionRequest(
-                ["my-app", 3],
+                pid("my-app", 3),
                 callData,
                 { CheckGenesis: checkGenesis },
                 5,
             );
             expect(req.payload.tag).toBe("v1");
-            expect(req.payload.value.signer).toEqual(["my-app", 3]);
+            expect(req.payload.value.signer).toEqual(pid("my-app", 3));
             expect(req.payload.value.callData).toEqual(callData);
             expect(req.payload.value.txExtVersion).toBe(5);
         });
 
         test("takes the genesis hash from CheckGenesis.additionalSigned", () => {
             const req = buildCreateTransactionRequest(
-                ["my-app", 0],
+                pid("my-app", 0),
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis },
                 0,
             );
-            expect(req.payload.value.genesisHash).toEqual(new Uint8Array([0x11, 0x22, 0x33]));
+            expect(req.payload.value.genesisHash).toBe("0x112233");
         });
 
         test("maps every signed extension to { id, extra, additionalSigned }", () => {
             const req = buildCreateTransactionRequest(
-                ["my-app", 0],
+                pid("my-app", 0),
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis, CheckNonce: ext("CheckNonce", [0x07], []) },
                 0,
@@ -548,7 +670,7 @@ if (import.meta.vitest) {
             // The whole reason for moving off PJS: an extension PAPI's PJS
             // adapter doesn't know must pass through untouched.
             const req = buildCreateTransactionRequest(
-                ["my-app", 0],
+                pid("my-app", 0),
                 new Uint8Array([0]),
                 { CheckGenesis: checkGenesis, AsPgas: ext("AsPgas", [0xde, 0xad], [0xbe, 0xef]) },
                 0,
@@ -562,14 +684,14 @@ if (import.meta.vitest) {
 
         test("throws a clear error when CheckGenesis is absent", () => {
             expect(() =>
-                buildCreateTransactionRequest(["my-app", 0], new Uint8Array([0]), {}, 0),
+                buildCreateTransactionRequest(pid("my-app", 0), new Uint8Array([0]), {}, 0),
             ).toThrow(/CheckGenesis/);
         });
     });
 
     describe("requestSignedTransaction — SSO round-trip", () => {
         const request = buildCreateTransactionRequest(
-            ["my-app", 0],
+            pid("my-app", 0),
             new Uint8Array([0]),
             { CheckGenesis: ext("CheckGenesis", [], [0x01]) },
             0,
@@ -613,6 +735,69 @@ if (import.meta.vitest) {
                 "Mobile transaction signing rejected: user declined",
             );
         });
+
+        test("throws AllowanceExpiredError when the failure is a NoAllowanceError", async () => {
+            const underlying = new NoAllowanceError();
+            const session = makeSession({
+                createTransaction: async () => err(underlying),
+            });
+
+            await expect(requestSignedTransaction(session, request)).rejects.toBeInstanceOf(
+                AllowanceExpiredError,
+            );
+            await expect(requestSignedTransaction(session, request)).rejects.toMatchObject({
+                name: "AllowanceExpiredError",
+                resource: "statementStore",
+                cause: underlying,
+            });
+        });
+
+        test("throws AllowanceExpiredError for a wire-serialized failure (message match only)", async () => {
+            // After a serialization boundary the NoAllowanceError prototype
+            // and constructor name are gone — the fixed message upstream
+            // mints is the only remaining signal. This pins statement-store's
+            // exact wording: if upstream rephrases it, this test fails
+            // instead of the classification silently downgrading to the
+            // generic rejection.
+            // Pin upstream's wording first: if statement-store rephrases the
+            // message, this assertion fails loudly.
+            expect(new NoAllowanceError().message).toBe(
+                "Submit failed, no allowance set for account",
+            );
+
+            const serialized = new Error("Submit failed, no allowance set for account");
+            const session = makeSession({
+                createTransaction: async () => err(serialized),
+            });
+
+            await expect(requestSignedTransaction(session, request)).rejects.toBeInstanceOf(
+                AllowanceExpiredError,
+            );
+        });
+
+        test("throws AllowanceExpiredError when the NoAllowanceError is wrapped as a cause", async () => {
+            // host-papp may wrap the chain-side submit failure before it hits
+            // the createTransaction error channel — the cause chain must be
+            // walked, not just the top-level error.
+            const wrapped = new Error("submitRequest failed", { cause: new NoAllowanceError() });
+            const session = makeSession({
+                createTransaction: async () => err(wrapped),
+            });
+
+            await expect(requestSignedTransaction(session, request)).rejects.toBeInstanceOf(
+                AllowanceExpiredError,
+            );
+        });
+
+        test("a non-allowance Error still surfaces as the generic rejection", async () => {
+            const session = makeSession({
+                createTransaction: async () => err(new Error("transport exploded")),
+            });
+
+            await expect(requestSignedTransaction(session, request)).rejects.toThrow(
+                "Mobile transaction signing rejected: transport exploded",
+            );
+        });
     });
 
     describe("makeRawBytesSignCallback", () => {
@@ -625,15 +810,18 @@ if (import.meta.vitest) {
                 },
             });
 
-            const callback = makeRawBytesSignCallback(session, ["my-app", 5]);
+            const callback = makeRawBytesSignCallback(session, [
+                "my-app",
+                { tag: "Index", value: 5 },
+            ]);
             await callback(new Uint8Array([0xde, 0xad, 0xbe, 0xef]));
 
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, number];
+                productAccountId: ProductAccountId;
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["my-app", 5]);
+            expect(req.productAccountId).toEqual(pid("my-app", 5));
             expect(req.data.tag).toBe("Bytes");
             expect(Array.from(req.data.value)).toEqual([0xde, 0xad, 0xbe, 0xef]);
         });
@@ -644,10 +832,46 @@ if (import.meta.vitest) {
                 signRaw: async () => ok({ signature: sig }),
             });
 
-            const callback = makeRawBytesSignCallback(session, ["my-app", 0]);
+            const callback = makeRawBytesSignCallback(session, [
+                "my-app",
+                { tag: "Index", value: 0 },
+            ]);
             const out = await callback(new Uint8Array([0]));
 
             expect(out).toBe(sig);
+        });
+
+        test("throws AllowanceExpiredError when the failure is a NoAllowanceError", async () => {
+            const underlying = new NoAllowanceError();
+            const session = makeSession({
+                signRaw: async () => err(underlying),
+            });
+
+            const callback = makeRawBytesSignCallback(session, [
+                "my-app",
+                { tag: "Index", value: 0 },
+            ]);
+            await expect(callback(new Uint8Array([1]))).rejects.toBeInstanceOf(
+                AllowanceExpiredError,
+            );
+            await expect(callback(new Uint8Array([1]))).rejects.toMatchObject({
+                resource: "statementStore",
+                cause: underlying,
+            });
+        });
+
+        test("a non-allowance failure still surfaces as the generic rejection", async () => {
+            const session = makeSession({
+                signRaw: async () => err(new Error("user declined")),
+            });
+
+            const callback = makeRawBytesSignCallback(session, [
+                "my-app",
+                { tag: "Index", value: 0 },
+            ]);
+            await expect(callback(new Uint8Array([1]))).rejects.toThrow(
+                "Mobile signing rejected: user declined",
+            );
         });
     });
 
@@ -669,10 +893,10 @@ if (import.meta.vitest) {
 
             expect(captured).toHaveLength(1);
             const req = captured[0] as {
-                productAccountId: [string, number];
+                productAccountId: ProductAccountId;
                 data: { tag: string; value: Uint8Array };
             };
-            expect(req.productAccountId).toEqual(["my-app", 7]);
+            expect(req.productAccountId).toEqual(pid("my-app", 7));
             expect(req.data.tag).toBe("Bytes");
             expect(req.data.value).toBeInstanceOf(Uint8Array);
         });
@@ -692,8 +916,10 @@ if (import.meta.vitest) {
             });
             await signer.signBytes(new Uint8Array([1]));
 
-            const req = captured[0] as { productAccountId: [string, number] };
-            expect(req.productAccountId).toEqual(["external-product", 0]);
+            const req = captured[0] as {
+                productAccountId: ProductAccountId;
+            };
+            expect(req.productAccountId).toEqual(pid("external-product", 0));
         });
     });
 }
