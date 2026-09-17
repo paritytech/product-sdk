@@ -1,5 +1,13 @@
 # @parity/product-sdk-auth
 
+## 0.3.1
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.26
+- @parity/product-sdk-terminal@0.9.1
+- @parity/product-sdk-tx@0.4.9
+
 ## 0.3.0
 
 ### Minor Changes
