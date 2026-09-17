@@ -288,6 +288,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         notifications: notModeled("notifications"),
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),
+        pocket: notModeled("pocket"),
         renderer: notModeled("renderer"),
         resourceAllocation: notModeled("resourceAllocation"),
         theme: notModeled("theme"),
