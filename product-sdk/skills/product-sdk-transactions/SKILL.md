@@ -233,13 +233,13 @@ For **command-line products**, `@parity/product-sdk-auth` is the shared sign-in
 layer: QR/mobile pairing, persisted sessions, a sign-out flow, and a
 product-account signer — all bound to a product via injected config (no per-CLI
 `config.ts`). It sits on top of `@parity/product-sdk-terminal` and derives the
-product account with the same *derivation scheme* the mobile wallet uses (via
-terminal's `deriveProductPublicKey`, the CLI counterpart of the keys package's
-`deriveProductAccountPublicKey` below).
+product account the RFC-0022 way the mobile wallet does, via terminal's
+`deriveProductPublicKey`.
 
-> The signer it returns signs as the **product account** (`/product/{productId}/{index}`),
-> NOT the wallet's selected account — so its address matches the funded /
-> allowance-granted account. This is the CLI analogue of `SignerManager.getProductAccount()`.
+> The signer it returns signs as the **product account** (`//product//{productId}/{index}`),
+> NOT the wallet's selected account and NOT its root account — so its address matches the
+> funded / allowance-granted account. This is the CLI analogue of
+> `SignerManager.getProductAccount()`. It is async; see `references/keys-api.md`.
 
 ### Getting a signer
 
@@ -364,20 +364,17 @@ const info = await skm.getOrCreate();
 // info.account  - DerivedAccount with signer
 ```
 
-## deriveProductAccountPublicKey: Canonical sr25519 Product-Account Derivation
+## deriveProductAccountPublicKey: RFC-0022 Product-Account Derivation
 
 ```ts
+import { getProductSubtreePublicKey } from "@parity/product-sdk-terminal";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 
-// Derive the same product-account public key the mobile wallet derives privately
-const derivedPubKey = deriveProductAccountPublicKey(
-  parentPublicKey,    // 32-byte sr25519 public key
-  "playground.dot",   // productId (typically a dotNS name)
-  0,                  // derivationIndex
-);
+const subtree = await getProductSubtreePublicKey(session, "playground.dot");
+const derivedPubKey = deriveProductAccountPublicKey(subtree, { tag: "Index", value: 0 });
 ```
 
-Mirrors the algorithm used by polkadot-desktop and polkadot-app-android-v2. sr25519 soft derivation is composable on the parent *public* key alone, so external clients (CLI, web hosts) can compute the same address without seeing the secret key. See `references/keys-api.md` for the cross-platform parity constraint on `productId`.
+The subtree key comes from the wallet because `//product//{productId}` is hard; a root account key will not work. In a CLI, `deriveProductPublicKey(session, ref)` does both steps. See `references/keys-api.md`.
 
 ## Common Mistakes
 
