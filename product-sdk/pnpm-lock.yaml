@@ -656,6 +656,19 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@22.19.17)
 
+  packages/renderer:
+    dependencies:
+      '@parity/truapi':
+        specifier: 'catalog:'
+        version: 0.17.0
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/result:
     devDependencies:
       typescript:
@@ -700,6 +713,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-renderer':
+        specifier: workspace:*
+        version: link:../renderer
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
