@@ -18,8 +18,10 @@
  * storage per product (confirmed by probe:
  * `truapi:product-storage:v1:<n>:<productId>:<key>`), so the raw
  * "test-host:" localStorage prefix no longer exists. So store.set("mykey",
- * "val") is observable host-side via `testHost.getProductStorage()`, not
- * page `localStorage`.
+ * "val") is observable host-side via `testHost.getProductStorageValue("mykey")`
+ * (added in 0.15.0), not page `localStorage`. Prefer it over
+ * `getProductStorage()`, whose keys have to be suffix-matched — ambiguous
+ * as soon as a local key itself contains a `:`.
  */
 
 import { isInsideContainer } from "@parity/product-sdk-host";

@@ -4,14 +4,10 @@ import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
 test.describe("@parity/product-sdk-signer — permission rejection", () => {
-    // workers:1 means this test's decision state would leak into later specs
-    // if we don't reset. approve-all + explicit grant restores the default
-    // the fixture would provide at startup.
-    test.afterEach(async ({ testHost }) => {
-        await testHost.setPermissionBehavior("approve-all");
-        await testHost.setUserConfirmationBehavior("approve-all");
-        await testHost.grantPermission("ChainSubmit");
-    });
+    // No afterEach reset is needed, despite workers:1: createTestHostFixture
+    // stands up a fresh createTestHostServer() per test on its own port, so
+    // permission behavior, the core's stored decisions and product storage are
+    // all per-test state that cannot reach a later spec.
 
     // The original test asserted that signRaw fails after `revokePermission`,
     // but on test-sdk 0.14 `revokePermission()` was a no-op against the core:

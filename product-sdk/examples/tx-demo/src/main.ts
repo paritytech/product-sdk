@@ -271,7 +271,7 @@ async function init() {
     // Step 2: request the product account. The fixture maps
     // "tx-demo.dot" → bob via `productAccounts`, so this returns Bob's
     // funded account but signs through host_create_transaction.
-    log("Requesting product account tx-demo.dot/0…");
+    log("Requesting product account tx-demo.dot (index 0)…");
     const productRes = await manager.getProductAccount("tx-demo.dot", 0);
     if (!productRes.ok) {
         log(`getProductAccount failed: ${productRes.error.message}`, "err");

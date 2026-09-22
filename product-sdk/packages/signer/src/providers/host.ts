@@ -2000,8 +2000,13 @@ if (import.meta.vitest) {
             const { configure: configureLogs } = await import("@parity/product-sdk-logger");
             const warnings: string[] = [];
             // No `level` override: the point of the fix is that the denial is visible at
-            // the logger's default level, and mutating the global level would leak into
-            // every later test in this file (`resetState` is package-internal).
+            // the logger's default level (`warn`), and mutating the global level would
+            // leak into every later test in this file (`resetState` is package-internal).
+            // The `finally` below installs a noop handler rather than restoring the
+            // previous one — `configure()` reads `undefined` as "leave alone", so there
+            // is no way to clear it — which leaks benignly: later emissions in this
+            // worker go to the noop instead of the console. Setting `PRODUCT_SDK_LOG`
+            // below `warn` in the environment would also break this test.
             configureLogs({
                 handler: (entry) => {
                     if (entry.level === "warn") warnings.push(entry.message);

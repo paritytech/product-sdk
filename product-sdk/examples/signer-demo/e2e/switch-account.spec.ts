@@ -66,8 +66,12 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         expect(rowsAfterSwitch).toContain("connected → connecting");
 
         // Empirically (host-api-test-sdk 0.15.0, this harness): the auto-
-        // reconnect above reliably loses a race against the mock host's own
-        // session re-mint. `account.connectionStatusSubscribe()` delivers
+        // reconnect above races the mock host's own session re-mint, and loses
+        // often enough that its outcome cannot be asserted on directly —
+        // probing the rendered transition rows across repeated full-suite runs
+        // showed the closing `connecting → connected` arriving in some runs and
+        // not others. When it loses,
+        // `account.connectionStatusSubscribe()` delivers
         // "Disconnected" and SignerManager re-queries the product account
         // before the core has finished re-minting the SSO session under
         // Charlie, hitting `Domain → V1 → NotConnected`. This is NOT a
@@ -81,9 +85,10 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         // `error.nonTransient` and otherwise returns the error so the retry
         // loop can act — its own comment claims to match the `dappName`
         // branch, but the two are not symmetric; `isNonTransientHostError` is
-        // never consulted on the path this test exercises. No amount of
-        // waiting recovers from it: verified empirically (10/10 runs),
-        // independent of this branch's `AutoSigning` fixture change. A page
+        // never consulted on the path this test exercises. When the reconnect
+        // does lose, no amount of waiting recovers it — there is no retry to
+        // wait for — and this is independent of the branch's `AutoSigning`
+        // fixture change. A page
         // reload forces the clean re-handshake needed to read a reliable
         // final state — a real, separate workaround from the one this
         // restoration removed above, not a reversion of it: the

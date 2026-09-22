@@ -41,8 +41,12 @@ const fixture = createTestHostFixture({
     // land). With AutoSigning granted, the core signs inside its own worker
     // with no host round-trip, so nothing reaches getSigningLog(). Withholding
     // it routes signing back through the SSO path, where it's observable
-    // again. The record form grants everything it doesn't mention, so other
-    // allowances (e.g. ChainSubmit) are unaffected.
+    // again. The record form grants everything it doesn't mention, so the
+    // other allocatable resources (StatementStoreAllowance, BulletinAllowance,
+    // SmartContractAllowance) are unaffected. Note this record governs
+    // resource allocation only — permission tags such as ChainSubmit sit on a
+    // different axis entirely (setPermissionBehavior / grantPermission) and
+    // are untouched by it.
     behaviors: { resourceAllocation: { AutoSigning: false } },
 });
 
