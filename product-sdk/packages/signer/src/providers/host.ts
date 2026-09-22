@@ -805,7 +805,13 @@ export class HostProvider implements SignerProvider {
                     tag: "ChainSubmit",
                     value: undefined,
                 });
-                log.debug("ChainSubmit permission result", { granted });
+                if (granted) {
+                    log.debug("ChainSubmit permission granted");
+                } else {
+                    log.warn(
+                        "host denied the ChainSubmit permission; signing will fail until it is granted",
+                    );
+                }
             } catch (cause) {
                 log.warn("failed to request ChainSubmit permission", {
                     error: cause instanceof Error ? cause.message : String(cause),
@@ -1988,6 +1994,28 @@ if (import.meta.vitest) {
                 .mockRejectedValue(new Error("host unreachable"));
             const result = await providerWithPermission(requestFn).connect();
             expect(result.ok).toBe(true);
+        });
+
+        test("a denial is logged at warn, not swallowed at debug", async () => {
+            const { configure: configureLogs } = await import("@parity/product-sdk-logger");
+            const warnings: string[] = [];
+            configureLogs({
+                level: "debug",
+                handler: (entry) => {
+                    if (entry.level === "warn") warnings.push(entry.message);
+                },
+            });
+
+            const requestFn = vi
+                .fn<(permission: RemotePermission) => Promise<boolean>>()
+                .mockResolvedValue(false);
+            const result = await providerWithPermission(requestFn).connect();
+
+            expect(result.ok).toBe(true);
+            expect(warnings.some((w) => w.includes("ChainSubmit"))).toBe(true);
+
+            // Restore silent handler
+            configureLogs({ handler: () => {} });
         });
     });
 
