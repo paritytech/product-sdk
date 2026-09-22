@@ -33,26 +33,6 @@ pnpm add @parity/product-sdk
 pnpm add @parity/product-sdk-chain-client @parity/product-sdk-tx
 ```
 
-## Create an app
-
-```ts
-import { createApp } from "@parity/product-sdk";
-
-const app = await createApp();
-const { accounts } = await app.wallet.connect();
-await app.localStorage.set("lastVisit", new Date().toISOString());
-console.log(app.getAppInfo().name, accounts);
-```
-
-`createApp()` reads the product ID from the host's `system.getProductContext()`.
-Wallet accounts use that full ID. The app name and local-storage prefix omit its
-final domain suffix: `my-app.dot` uses `my-app`, preserving existing storage.
-`app.getAppInfo().name` reports the app name. Local IDs such as `localhost:3000`
-stay unchanged.
-
-Pass options such as `{ logLevel: "info" }` when needed. The `name` option is
-deprecated; if supplied, it is ignored and emits a warning.
-
 ## Development
 
 ```bash

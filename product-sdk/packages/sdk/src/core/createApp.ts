@@ -51,10 +51,7 @@ const log = createLogger("app");
 /**
  * Create a new Product SDK app instance
  *
- * The full host product ID selects wallet accounts. The app name and storage
- * prefix omit its final domain suffix.
- *
- * @param config - Optional application configuration
+ * @param config - Application configuration
  * @returns App instance with all APIs
  *
  * @example
