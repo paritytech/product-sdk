@@ -28,11 +28,21 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         // arrives FROM the product. What the product DOES observe is the
         // core pushing the switch down `account.connectionStatusSubscribe()`
         // — SignerManager's status listener sees "disconnected" while it's
-        // "connected" and runs its normal auto-reconnect (status flips to
-        // "connecting", then back to "connected"), each flip recorded in
-        // `transition-count`. So wait for that reaction — proof the product
+        // "connected" and starts its normal auto-reconnect, flipping the
+        // status to "connecting" and recording the flip in
+        // `transition-count`. So wait for that flip — proof the product
         // actually observed the switch — instead of for a connection event
         // that never arrives.
+        //
+        // Gate on the ONE `connected → connecting` transition, not on a
+        // "connecting → connected" pair. The reconnect's *completion* is the
+        // very thing the race documented below makes unreliable: probing the
+        // rendered transition list over repeated full-suite runs showed
+        // `connected → connecting` arriving every time and the following
+        // `connecting → connected` arriving only sometimes, so a `+2` gate
+        // flakes (observed failing in 2 of 5 full-suite runs, while passing
+        // 3/3 when the spec ran alone). `+1` is also all this gate needs:
+        // a no-op `switchAccount()` would push no status change at all.
         await testHost.switchAccount("charlie");
 
         await expect
@@ -43,7 +53,17 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
                     ),
                 { timeout: 30_000 },
             )
-            .toBeGreaterThanOrEqual(transitionCountBefore + 2);
+            .toBeGreaterThanOrEqual(transitionCountBefore + 1);
+
+        // …and that the flip was the switch being observed, not some other
+        // status movement: a `connected → connecting` row must appear among
+        // the rows added after the baseline. Don't assert on `.last()` — when
+        // the reconnect below happens to win its race, one more row
+        // (`connecting → connected`) lands after this one.
+        const rowsAfterSwitch = (
+            await frame.locator('[data-testid="transition-row"]').allTextContents()
+        ).slice(transitionCountBefore);
+        expect(rowsAfterSwitch).toContain("connected → connecting");
 
         // Empirically (host-api-test-sdk 0.15.0, this harness): the auto-
         // reconnect above reliably loses a race against the mock host's own
@@ -85,8 +105,8 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         // switchAccount() were a complete no-op — the pin fixes the derived
         // address regardless of which identity is active — though the test
         // as a whole is not no-op-blind: a no-op switchAccount() pushes no
-        // "Disconnected"/"Connected" pair, so the transition-count wait above
-        // would never reach +2 and would time out instead.
+        // status change at all, so the transition-count wait above would
+        // never reach +1 and would time out instead.
         //
         // TODO(test-sdk-switch-account): a test that also proves the address
         // WOULD change for a product that isn't dapp-scoped needs a fixture
