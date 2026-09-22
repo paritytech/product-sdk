@@ -56,6 +56,10 @@
             "import": "./dist/local-storage/index.js",
             "types": "./dist/local-storage/index.d.ts"
         },
+        "./renderer": {
+            "import": "./dist/renderer/index.js",
+            "types": "./dist/renderer/index.d.ts"
+        },
         "./wallet": {
             "import": "./dist/wallet/index.js",
             "types": "./dist/wallet/index.d.ts"
@@ -86,6 +90,7 @@
         "@parity/result": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-local-storage": "workspace:*",
+        "@parity/product-sdk-renderer": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "polkadot-api": "catalog:"
     },
