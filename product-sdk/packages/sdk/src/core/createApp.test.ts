@@ -158,7 +158,7 @@ describe("host-derived app identity", () => {
                 {
                     level: "warn",
                     message:
-                        "createApp: name is deprecated and ignored; the host product ID is used.",
+                        "createApp: name is deprecated and ignored. Remove the name option. The SDK resolves the app name from system.getProductContext(), dropping the product ID's final domain suffix (my-app.dot -> my-app). Local development IDs stay unchanged.",
                 },
             ],
         });
