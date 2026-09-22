@@ -20,6 +20,27 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         // host-api-test-sdk 0.14 re-mints the host session without reloading the
         // product iframe or notifying the product, so nothing would prompt a
         // re-handshake on its own — reload to force one.
+        //
+        // What this proves, post-0.14: that the dapp-scoped product account is
+        // re-derived from "signer-demo.dot" on a reconnect and does not bind to
+        // whichever identity happens to be active on the host at that moment.
+        //
+        // What this does NOT prove: that the product survives a *live* account
+        // switch with no reload in between. 0.14's switchAccount() re-mints the
+        // host session without notifying the product, so there is no
+        // product-visible event to react to — that path is not exercisable
+        // through this SDK version. And because the fixture's productAccounts
+        // pins "signer-demo.dot" to bob (see ./fixtures), this test would also
+        // pass if switchAccount() were a complete no-op — the reload alone,
+        // with no switch at all, would derive the same address. Keeping this
+        // test is a deliberate choice: it still guards the regression class
+        // where derivation wrongly binds to the host's active identity across
+        // a reconnect, which is real and worth keeping green.
+        //
+        // TODO(test-sdk-switch-account): restoring a meaningful live-switch
+        // assertion (no reload) needs either an upstream switchAccount() that
+        // notifies the product, or a fixture whose productAccounts doesn't pin
+        // "signer-demo.dot" to a fixed account.
         await testHost.switchAccount("charlie");
         await testHost.page.reload();
         await waitForAppReady(testHost);
