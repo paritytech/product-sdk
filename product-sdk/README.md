@@ -53,33 +53,6 @@ The `name` option is deprecated. If supplied, it is ignored and emits a warning.
 If your previous `name` differs from the host product ID, existing local-storage
 data remains under the former prefix and may need an explicit migration.
 
-## Using an existing host connection
-
-A CLI runner can supply a ready `truapi` client and a host context with its `apiVersion` and connection `signal`. Bind that connection before using SDK host APIs:
-
-```ts
-import { bindHost, getAccountsProvider } from "@parity/product-sdk/host";
-
-const unbind = bindHost({
-    client: truapi,
-    signal: host.signal,
-    apiVersion: host.apiVersion,
-});
-try {
-    const accounts = await getAccountsProvider();
-    if (!accounts) throw new Error("Host unavailable");
-    const result = await accounts.getUserId();
-    if (result.isErr()) throw result.error;
-    console.log(result.value);
-} finally {
-    unbind();
-}
-```
-
-The runner owns and closes the transport. `unbind()` only releases the SDK binding; it is safe to call repeatedly. The runner aborts `host.signal` when the connection closes, which releases the binding and updates connection-status subscribers. Test overrides take precedence over a binding, and browser discovery resumes after unbinding.
-
-`apiVersion` is the runner's bundled `@parity/truapi` version. Stable 0.17.x is supported. An unsupported version fails before binding, with instructions to update the project's SDK or use a compatible host. Keep the project's SDK version pinned until you deliberately upgrade it. SDK-aware runner declarations should use the installed SDK's exported `TruApi` type, since independently copied generated client classes are not assignable to each other.
-
 ## Development
 
 ```bash

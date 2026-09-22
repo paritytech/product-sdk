@@ -21,7 +21,6 @@ import {
 } from "@parity/truapi/sandbox";
 
 import type { HostSubscription } from "./types.js";
-import { HostError, HostUnavailableError } from "./errors.js";
 
 /** A {@link HostSubscription} carrying the transport-assigned subscription id. */
 export interface TransportSubscription extends HostSubscription {
@@ -34,54 +33,10 @@ export interface TransportSubscription extends HostSubscription {
 // no-ops there.
 let clientOverride: TrUApiClient | null = null;
 
-/** A ready, externally owned host connection. */
-export interface HostBindingOptions {
-    client: TrUApiClient;
-    /** Aborted by the connection owner when its transport closes. */
-    signal: AbortSignal;
-    /** Exact bundled @parity/truapi version. Stable 0.17.x is supported. */
-    apiVersion: string;
-}
-
-let boundHost: (HostBindingOptions & { unbind(): void }) | null = null;
-
-/**
- * Borrow a ready host client. Call before using SDK host accessors.
- * The owner retains transport ownership; unbinding never closes it.
- * Rebinding the same client and signal returns the same unbind function.
- */
-export function bindHost(options: HostBindingOptions): () => void {
-    const { client, signal, apiVersion } = options;
-    if (!/^0\.17\.(0|[1-9]\d*)(?:\+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?$/.test(apiVersion)) {
-        throw new HostError(
-            `Host TrUAPI ${JSON.stringify(apiVersion)} is unsupported. This SDK supports stable 0.17.x. Update this project's @parity/product-sdk or use a compatible host.`,
-        );
-    }
-    if (signal.aborted) throw new HostUnavailableError("Cannot bind a disconnected host");
-    if (boundHost) {
-        if (boundHost.client === client && boundHost.signal === signal) return boundHost.unbind;
-        throw new HostError("Unbind the current host before binding another connection");
-    }
-
-    const binding = {
-        ...options,
-        unbind() {
-            if (boundHost !== binding) return;
-            signal.removeEventListener("abort", binding.unbind);
-            boundHost = null;
-            notifyLocalStatusListeners(null);
-        },
-    };
-    boundHost = binding;
-    signal.addEventListener("abort", binding.unbind, { once: true });
-    notifyLocalStatusListeners(null);
-    return binding.unbind;
-}
-
 // Status subscribers registered here rather than only in the sandbox, so that
 // flipping the test seam is an *event*. The sandbox tracks only the client it
 // built itself, so it cannot know an injected client appeared or went away.
-const localStatusListeners = new Set<(status: HostConnectionStatus | null) => void>();
+const localStatusListeners = new Set<(status: HostConnectionStatus) => void>();
 
 function isProductionBuild(): boolean {
     try {
@@ -117,22 +72,24 @@ export function setTruApiClient(client: TrUApiClient | null): void {
     const wasOverridden = clientOverride !== null;
     clientOverride = client;
     if (wasOverridden !== (client !== null)) {
-        notifyLocalStatusListeners(null);
+        notifyLocalStatusListeners(client !== null ? "connected" : "disconnected");
     }
 }
 
 /**
- * Test overrides take precedence over an explicit binding, then browser discovery.
+ * Synchronous TruAPI client accessor. Returns the injected test client when one
+ * is set, otherwise the sandbox client (`null` outside a host container).
  */
 export function getClientSync(): TrUApiClient | null {
-    return clientOverride ?? boundHost?.client ?? sandboxGetClientSync();
+    return clientOverride ?? sandboxGetClientSync();
 }
 
 /**
- * Host availability, including an explicit binding or test override.
+ * Host-container detection. `true` when a test client is injected, otherwise the
+ * sandbox heuristic (iframe / webview marker / injected message port).
  */
 export function isCorrectEnvironment(): boolean {
-    return clientOverride !== null || boundHost !== null || sandboxIsCorrectEnvironment();
+    return clientOverride !== null || sandboxIsCorrectEnvironment();
 }
 
 /**
@@ -175,7 +132,7 @@ function latchDisconnected(
     return next === "connecting" && previous === "disconnected" ? "disconnected" : next;
 }
 
-function notifyLocalStatusListeners(status: HostConnectionStatus | null): void {
+function notifyLocalStatusListeners(status: HostConnectionStatus): void {
     // Iterate a snapshot: a listener that unsubscribes itself, or re-enters
     // `setTruApiClient`, must not mutate the set mid-loop.
     for (const listener of [...localStatusListeners]) listener(status);
@@ -208,8 +165,8 @@ export function emitConnectionStatus(status: HostConnectionStatus): void {
  * Subscribing is not passive: outside an established channel the first subscribe
  * builds the client and provider, so this can be what constructs the transport.
  *
- * Bound clients are connected until their signal aborts or they are unbound.
- * Test overrides take precedence over both explicit bindings and the sandbox.
+ * Honours the `setTruApiClient` seam — an injected client is connected by
+ * definition, and injecting or clearing one notifies live subscribers.
  */
 export function subscribeConnectionStatus(
     callback: (status: HostConnectionStatus) => void,
@@ -225,27 +182,18 @@ export function subscribeConnectionStatus(
         callback(next);
     };
 
-    let unsubscribeSandbox: (() => void) | undefined;
-    const onLocal = (status: HostConnectionStatus | null): void => {
-        if (status !== null) {
-            deliver(status, false);
-            return;
-        }
-        unsubscribeSandbox?.();
-        unsubscribeSandbox = undefined;
-        if (clientOverride !== null || boundHost !== null) {
-            deliver("connected", false);
-        } else {
-            unsubscribeSandbox = sandboxSubscribeConnectionStatus((next) => {
-                if (clientOverride === null && boundHost === null) deliver(next, true);
-            });
-        }
-    };
+    const onLocal = (status: HostConnectionStatus) => deliver(status, false);
     localStatusListeners.add(onLocal);
-    onLocal(null);
+
+    if (clientOverride !== null) {
+        onLocal("connected");
+        return () => void localStatusListeners.delete(onLocal);
+    }
+
+    const unsubscribeSandbox = sandboxSubscribeConnectionStatus((status) => deliver(status, true));
     return () => {
         localStatusListeners.delete(onLocal);
-        unsubscribeSandbox?.();
+        unsubscribeSandbox();
     };
 }
 
@@ -280,180 +228,9 @@ export function subscribeWithInterrupt<Item, Reason = never>(
 }
 
 if (import.meta.vitest) {
-    const { test, expect, afterEach, vi } = import.meta.vitest;
-    const bindingCleanups: Array<() => void> = [];
+    const { test, expect, afterEach } = import.meta.vitest;
 
-    function bind(client: TrUApiClient, controller = new AbortController(), apiVersion = "0.17.0") {
-        const unbind = bindHost({ client, signal: controller.signal, apiVersion });
-        bindingCleanups.push(unbind);
-        return unbind;
-    }
-
-    afterEach(() => {
-        for (const unbind of bindingCleanups.splice(0)) unbind();
-        setTruApiClient(null);
-        vi.restoreAllMocks();
-        vi.unstubAllGlobals();
-    });
-
-    test("binding borrows the ready client without creating a sandbox transport", async () => {
-        const client = {} as TrUApiClient;
-        const windowAccess = vi.fn();
-        vi.stubGlobal("window", new Proxy({}, { get: windowAccess }));
-        bind(client);
-        const statuses: HostConnectionStatus[] = [];
-        const unsubscribe = subscribeConnectionStatus((status) => statuses.push(status));
-
-        expect([getClientSync(), await getClient(), isCorrectEnvironment(), statuses]).toEqual([
-            client,
-            client,
-            true,
-            ["connected"],
-        ]);
-        expect(windowAccess).not.toHaveBeenCalled();
-        unsubscribe();
-    });
-
-    test.each(["0.17.0", "0.17.9", "0.17.2+build.1"])(
-        "binding accepts stable TrUAPI %s",
-        (version) => {
-            const client = {} as TrUApiClient;
-            bind(client, new AbortController(), version);
-            expect(getClientSync()).toBe(client);
-        },
-    );
-
-    test.each(["0.16.9", "0.18.0", "1.17.0", "0.17.0-rc.1", "0.17.01", "0.17", ""])(
-        "binding rejects unsupported TrUAPI %s before reporting connected",
-        (version) => {
-            const statuses: HostConnectionStatus[] = [];
-            const unsubscribe = subscribeConnectionStatus((status) => statuses.push(status));
-
-            expect(() => bind({} as TrUApiClient, new AbortController(), version)).toThrow(
-                `Host TrUAPI ${JSON.stringify(version)} is unsupported. This SDK supports stable 0.17.x. Update this project's @parity/product-sdk or use a compatible host.`,
-            );
-            expect([getClientSync(), isCorrectEnvironment(), statuses]).toEqual([
-                null,
-                false,
-                ["disconnected"],
-            ]);
-            unsubscribe();
-        },
-    );
-
-    test("a disconnected host cannot become the SDK client", () => {
-        const controller = new AbortController();
-        controller.abort();
-
-        expect(() => bind({} as TrUApiClient, controller)).toThrow(
-            "Cannot bind a disconnected host",
-        );
-        expect([getClientSync(), isCorrectEnvironment()]).toEqual([null, false]);
-    });
-
-    test.each(["abort", "unbind"])(
-        "%s releases the client and abort listener exactly once",
-        (action) => {
-            const controller = new AbortController();
-            const removeListener = vi.spyOn(controller.signal, "removeEventListener");
-            const unbind = bind({} as TrUApiClient, controller);
-            const statuses: HostConnectionStatus[] = [];
-            const unsubscribe = subscribeConnectionStatus((status) => statuses.push(status));
-
-            if (action === "abort") controller.abort();
-            else unbind();
-            unbind();
-            controller.abort();
-
-            expect([
-                getClientSync(),
-                isCorrectEnvironment(),
-                statuses,
-                removeListener.mock.calls.length,
-            ]).toEqual([null, false, ["connected", "disconnected"], 1]);
-            unsubscribe();
-        },
-    );
-
-    test("binding notifies existing listeners and cannot replace another live connection", () => {
-        const statuses: HostConnectionStatus[] = [];
-        const unsubscribe = subscribeConnectionStatus((status) => statuses.push(status));
-        const client = {} as TrUApiClient;
-        const controller = new AbortController();
-        const unbind = bind(client, controller);
-
-        expect(bind(client, controller)).toBe(unbind);
-        expect(() => bind({} as TrUApiClient)).toThrow(
-            "Unbind the current host before binding another connection",
-        );
-        expect(() => bind(client)).toThrow(
-            "Unbind the current host before binding another connection",
-        );
-        expect([getClientSync(), statuses]).toEqual([client, ["disconnected", "connected"]]);
-        unbind();
-        const replacement = {} as TrUApiClient;
-        bind(replacement);
-        unbind();
-        expect(getClientSync()).toBe(replacement);
-        unsubscribe();
-    });
-
-    test("test overrides take precedence without losing the real binding", () => {
-        const client = {} as TrUApiClient;
-        const fake = {} as TrUApiClient;
-        const controller = new AbortController();
-        bind(client, controller);
-        const statuses: HostConnectionStatus[] = [];
-        const unsubscribe = subscribeConnectionStatus((status) => statuses.push(status));
-
-        setTruApiClient(fake);
-        expect(getClientSync()).toBe(fake);
-        setTruApiClient(null);
-        expect([getClientSync(), statuses]).toEqual([client, ["connected"]]);
-        setTruApiClient(fake);
-        controller.abort();
-        expect([getClientSync(), statuses]).toEqual([fake, ["connected"]]);
-        setTruApiClient(null);
-        expect(statuses).toEqual(["connected", "disconnected"]);
-        unsubscribe();
-    });
-
-    test("unbinding resumes browser status and ignores browser changes while bound", async () => {
-        const makePort = () => ({
-            start: vi.fn(),
-            postMessage: vi.fn(),
-            close: vi.fn(),
-            onmessageerror: null as (() => void) | null,
-        });
-        const firstPort = makePort();
-        const window = {
-            __HOST_API_PORT__: firstPort,
-            get top() {
-                return this;
-            },
-        };
-        vi.stubGlobal("window", window);
-        const statuses: HostConnectionStatus[] = [];
-        const unsubscribe = subscribeConnectionStatus((status) => statuses.push(status));
-        await vi.waitFor(() => expect(firstPort.start).toHaveBeenCalledOnce());
-        const unbind = bind({} as TrUApiClient);
-        firstPort.onmessageerror?.();
-        expect(statuses).toEqual(["connecting", "connected"]);
-
-        const secondPort = makePort();
-        window.__HOST_API_PORT__ = secondPort;
-        unbind();
-        await vi.waitFor(() => expect(secondPort.start).toHaveBeenCalledOnce());
-        secondPort.onmessageerror?.();
-        expect(statuses).toEqual([
-            "connecting",
-            "connected",
-            "connecting",
-            "connected",
-            "disconnected",
-        ]);
-        unsubscribe();
-    });
+    afterEach(() => setTruApiClient(null));
 
     // Environment detection and client building are covered by `@parity/truapi`'s
     // own sandbox tests; here we only assert the local glue degrades outside a
