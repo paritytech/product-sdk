@@ -123,6 +123,17 @@ export type {
     ChatBotRegistrationResult,
 } from "./chat.js";
 
+// Renderer (the shared `onRender` slot)
+export { getRendererManager, registerRenderContext, renderFailure } from "./renderer.js";
+export type {
+    RenderCleanup,
+    RenderContextTag,
+    RendererManager,
+    RenderFailure,
+    RenderHandler,
+    RenderRegistration,
+} from "./renderer.js";
+
 // Pocket
 export { getPocketManager } from "./pocket.js";
 export type {

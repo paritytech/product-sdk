@@ -9,16 +9,14 @@
  * face over `renderer.onRender` whenever one is on screen. `Pocket` itself only
  * lists cards and removes them, so drawing goes through the renderer.
  *
- * A client has **one** `onRender` slot: registering again replaces whatever was
- * there. So the registration and the card registry belong to the client rather
- * than to a manager, and every manager built over one client shares them. Two
- * calls to {@link getPocketManager} therefore cooperate instead of cancelling
- * each other's cards.
+ * A client has **one** `onRender` slot, so the card registry belongs to the
+ * client rather than to a manager, and every manager built over one client
+ * shares it. Two calls to {@link getPocketManager} therefore cooperate instead
+ * of cancelling each other's cards.
  *
- * That single slot is also why this module answers every render request it is
- * given. A product cannot draw pocket cards through here and chat bodies
- * through its own `onRender` at the same time: the second registration wins and
- * the first stops being called.
+ * The slot itself is owned by `renderer.ts`, which dispatches by context. This
+ * module claims `PocketCard` and routes it per card. Claiming it leaves the
+ * chat and input contexts free for whatever else the product draws.
  *
  * @module
  */
@@ -32,7 +30,8 @@ import type {
     VersionedProductRendererRenderError,
 } from "@parity/truapi";
 
-import { getClient, subscribeWithInterrupt } from "./transport.js";
+import { registerRenderContext, renderFailure } from "./renderer.js";
+import { getClient, getClientSync, subscribeWithInterrupt } from "./transport.js";
 import { unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -152,34 +151,21 @@ function registryFor(client: TrUApiClient): PocketRegistry {
     return created;
 }
 
-/** The interrupt channel's reason, so a refusal reaches the host instead of dying here. */
-function renderFailure(reason: string): CallErrorValue<VersionedProductRendererRenderError> {
-    return { tag: "Domain", value: { tag: "V1", value: { reason } } };
-}
-
 /**
- * Take the client's render slot, once.
+ * Claim the `PocketCard` context, once.
  *
- * This is never unsubscribed. Giving the slot back makes the transport buffer
- * incoming render requests and replay them at whoever registers next, which
- * would draw a card that left the screen long ago.
+ * Never given back. The claim is what routes a card to its handler, and a
+ * product that has drawn a card once will be asked for it again whenever it
+ * comes back on screen.
  */
 function registerRenderer(client: TrUApiClient, registry: PocketRegistry): void {
     if (registry.renderRegistered) return;
     registry.renderRegistered = true;
 
-    client.renderer.onRender((request, send, interrupt) => {
-        if (request.context.tag !== "PocketCard") {
-            // Pocket holds the only render slot, so nothing else can answer this.
-            // Leaving it unanswered would hang the body on the device forever.
-            log.warn(`declined a ${request.context.tag} body: pocket holds the renderer slot`);
-            interrupt(
-                renderFailure(
-                    `this product's renderer draws pocket cards, not a ${request.context.tag} body`,
-                ),
-            );
-            return;
-        }
+    registerRenderContext(client, "PocketCard", (request, send, interrupt) => {
+        // The slot only routes `PocketCard` here. The guard is for the compiler,
+        // which cannot know that from the handler's type.
+        if (request.context.tag !== "PocketCard") return;
 
         const { cardId } = request.context.value;
         const entry = registry.cards.get(cardId);
@@ -438,10 +424,10 @@ if (import.meta.vitest) {
                     },
                 );
             },
-            drawChat() {
+            drawChat(sent: unknown[] = []) {
                 return installed?.(
                     { context: { tag: "ChatMessage", value: {} }, payload: "0x" },
-                    () => {},
+                    (body) => sent.push(body),
                     (reason) => reasons.push(reasonText(reason)),
                 );
             },
@@ -569,17 +555,34 @@ if (import.meta.vitest) {
 
     // Pocket holds the only render slot, so nothing else can answer a chat body.
     // Leaving it unanswered hangs it on the device forever.
-    test("another context is declined rather than left hanging", async () => {
+    // Drawing a card must not cost the product the other two render contexts.
+    // Pocket claims `PocketCard` and nothing else, so a chat body the product
+    // draws itself still reaches its own handler.
+    test("drawing a card leaves the other contexts free", async () => {
+        const host = renderer();
+        hostWith(host);
+        const client = getClientSync();
+
+        const pocket = await getPocketManager();
+        pocket?.drawCard("loyalty", (send) => send(face));
+
+        const chats: unknown[] = [];
+        registerRenderContext(client!, "ChatMessage", (_request, send) => send(face));
+        host.drawChat(chats);
+
+        expect(chats).toEqual([face]);
+        expect(host.declined).toEqual([]);
+    });
+
+    test("a context nothing claims is declined rather than left hanging", async () => {
         const host = renderer();
         hostWith(host);
 
         const pocket = await getPocketManager();
         pocket?.drawCard("loyalty", (send) => send(face));
 
-        host.drawChat();
-        expect(host.declined).toEqual([
-            "this product's renderer draws pocket cards, not a ChatMessage body",
-        ]);
+        host.drawChat([]);
+        expect(host.declined).toEqual(["this product draws no ChatMessage body"]);
     });
 
     test("the handler is given the card id and the payload the host echoed", async () => {
