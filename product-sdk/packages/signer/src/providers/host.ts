@@ -1999,23 +1999,26 @@ if (import.meta.vitest) {
         test("a denial is logged at warn, not swallowed at debug", async () => {
             const { configure: configureLogs } = await import("@parity/product-sdk-logger");
             const warnings: string[] = [];
+            // No `level` override: the point of the fix is that the denial is visible at
+            // the logger's default level, and mutating the global level would leak into
+            // every later test in this file (`resetState` is package-internal).
             configureLogs({
-                level: "debug",
                 handler: (entry) => {
                     if (entry.level === "warn") warnings.push(entry.message);
                 },
             });
 
-            const requestFn = vi
-                .fn<(permission: RemotePermission) => Promise<boolean>>()
-                .mockResolvedValue(false);
-            const result = await providerWithPermission(requestFn).connect();
+            try {
+                const requestFn = vi
+                    .fn<(permission: RemotePermission) => Promise<boolean>>()
+                    .mockResolvedValue(false);
+                const result = await providerWithPermission(requestFn).connect();
 
-            expect(result.ok).toBe(true);
-            expect(warnings.some((w) => w.includes("ChainSubmit"))).toBe(true);
-
-            // Restore silent handler
-            configureLogs({ handler: () => {} });
+                expect(result.ok).toBe(true);
+                expect(warnings.some((w) => w.includes("denied the ChainSubmit"))).toBe(true);
+            } finally {
+                configureLogs({ handler: () => {} });
+            }
         });
     });
 
