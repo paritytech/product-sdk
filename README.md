@@ -8,10 +8,6 @@ Monorepo for the `@parity/product-sdk` family of packages and tooling.
 
 Full documentation is published at **[paritytech.github.io/product-sdk](https://paritytech.github.io/product-sdk/)**.
 
-Start with `await createApp()`. The SDK uses the host's product identity for
-wallet accounts and local storage. See the [quickstart](./docs/content/getting-started/quickstart.mdx)
-for examples and configuration.
-
 ## product-sdk
 
 TypeScript SDK for building products in the Polkadot ecosystem. Provides typed APIs for chain interactions, transaction signing, key management, and storage across Polkadot Desktop, Mobile, and browser environments.
