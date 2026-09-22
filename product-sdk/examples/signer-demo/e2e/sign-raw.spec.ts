@@ -4,11 +4,8 @@ import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
 test.describe("@parity/product-sdk-signer — signRaw", () => {
-    test("returns a hex signature and the host receives a raw sign request", async ({
-        testHost,
-    }) => {
+    test("returns a hex signature", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
-        await testHost.clearSigningLog();
 
         await frame.locator('[data-testid="raw-input"]').fill("e2e-signer-demo");
         await frame.locator('[data-testid="btn-sign-raw"]').click();
@@ -21,8 +18,19 @@ test.describe("@parity/product-sdk-signer — signRaw", () => {
 
         // Button re-enables after the promise resolves.
         await expect(frame.locator('[data-testid="btn-sign-raw"]')).toBeEnabled();
+    });
 
-        // The host's raw-sign handler was hit exactly once.
+    test("the host records the raw sign request in the signing log", async ({ testHost }) => {
+        const frame = await waitForAppReady(testHost);
+        await testHost.clearSigningLog();
+
+        await frame.locator('[data-testid="raw-input"]').fill("e2e-signer-demo");
+        await frame.locator('[data-testid="btn-sign-raw"]').click();
+        await expect(frame.locator('[data-testid="last-signature"]')).toHaveText(
+            /^0x[0-9a-f]+$/i,
+            { timeout: 30_000 },
+        );
+
         const log = await testHost.getSigningLog();
         expect(log).toHaveLength(1);
         expect(log[0].type).toBe("raw");

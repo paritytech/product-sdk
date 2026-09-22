@@ -12,21 +12,46 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
             .textContent();
         expect(beforeAddress).toBeTruthy();
 
-        // Flip the host's active account to Charlie. The host connect path
-        // derives a *dapp-scoped* product account ("signer-demo.dot/0"),
-        // not the host's currently-active identity account, so switching the
-        // host account must NOT change the account the signer surfaces — it
-        // re-derives the same product account and stays connected.
-        await testHost.switchAccount("charlie");
-        await waitForAppReady(testHost);
+        const transitionCountBefore = Number(
+            await frame.locator('[data-testid="transition-count"]').textContent(),
+        );
 
+        await testHost.switchAccount("charlie");
+
+        // `waitForConnection()` would hang: it polls the host's view of the
+        // product link, which only moves when a frame arrives from the product,
+        // and a live switch sends none. The core instead pushes the switch down
+        // `account.connectionStatusSubscribe()`, which SignerManager reacts to
+        // by starting a reconnect — so gate on that reconnect starting. Its
+        // completion is covered by the connection-status assertion at the end.
+        await expect
+            .poll(
+                async () =>
+                    Number(
+                        await frame.locator('[data-testid="transition-count"]').textContent(),
+                    ),
+                { timeout: 30_000 },
+            )
+            .toBeGreaterThanOrEqual(transitionCountBefore + 1);
+
+        // Not `.last()`: `connecting → connected` lands after the row we want
+        // once the reconnect completes.
+        const rowsAfterSwitch = (
+            await frame.locator('[data-testid="transition-row"]').allTextContents()
+        ).slice(transitionCountBefore);
+        expect(rowsAfterSwitch).toContain("connected → connecting");
+
+        // The fixture pins "signer-demo.dot" to bob, so this comparison alone
+        // would pass even against a no-op switchAccount(). The gate above is
+        // what rules that out.
+        // TODO(test-sdk-switch-account): proving the address *would* change for
+        // a product that isn't dapp-scoped needs an unpinned fixture.
         const afterAddress = await frame
             .locator('[data-testid="selected-address"]')
             .textContent();
         expect(afterAddress).toBeTruthy();
         expect(afterAddress).toEqual(beforeAddress);
 
-        // Status must still read "connected" after the swap.
         await expect(frame.locator('[data-testid="connection-status"]')).toHaveText("connected");
     });
 });

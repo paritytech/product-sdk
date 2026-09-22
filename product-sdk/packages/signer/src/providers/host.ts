@@ -295,11 +295,11 @@ export class HostProvider implements SignerProvider {
         log.debug("attempting Host API connection");
 
         return withRetry(
-            async () => {
+            async (attempt) => {
                 if (signal?.aborted) {
                     return err(new HostUnavailableError("Connection aborted"));
                 }
-                return this.tryConnect();
+                return this.tryConnect(attempt >= this.maxRetries - 1);
             },
             {
                 maxAttempts: this.maxRetries,
@@ -661,7 +661,9 @@ export class HostProvider implements SignerProvider {
 
     // ── Private ──────────────────────────────────────────────────────
 
-    private async tryConnect(): Promise<Result<SignerAccount[], SignerError>> {
+    private async tryConnect(
+        isFinalAttempt: boolean,
+    ): Promise<Result<SignerAccount[], SignerError>> {
         // Step 1: Obtain the host accounts provider. `null` (or a thrown error)
         // means we're not inside a host container.
         let provider: AccountsProvider | null;
@@ -730,13 +732,7 @@ export class HostProvider implements SignerProvider {
                 this.productAccount.requestName ?? true,
             );
             if (!accountResult.ok) {
-                // Signed-out / non-transient: soft-degrade to read-only, matching
-                // the `dappName` branch. Returning `ok([])` (not the error) also
-                // means `connect()`'s retry loop doesn't burn attempts on a state
-                // no retry can fix. Genuine transient faults still surface as an
-                // error and get retried.
-                const error = accountResult.error;
-                if (error instanceof HostRejectedError && error.nonTransient) {
+                if (degradeOnAccountFailure(accountResult.error, isFinalAttempt)) {
                     log.warn(
                         "product account unavailable (signed out or unregistered); resolving with empty accounts",
                         { dotNsIdentifier: this.productAccount.dotNsIdentifier },
@@ -759,11 +755,9 @@ export class HostProvider implements SignerProvider {
                 true,
             );
             if (!accountResult.ok) {
-                // Soft-degrade: host couldn't derive a product account for
-                // this dappName (most commonly because the identifier isn't
-                // registered for this user). Returning [] lets `connect()`
-                // resolve successfully — consumers handle the empty list
-                // and drive explicit signing paths.
+                if (!degradeOnAccountFailure(accountResult.error, isFinalAttempt)) {
+                    return accountResult;
+                }
                 log.warn(
                     "host could not derive a product account for dappName; resolving with empty accounts",
                     {
@@ -805,7 +799,13 @@ export class HostProvider implements SignerProvider {
                     tag: "ChainSubmit",
                     value: undefined,
                 });
-                log.debug("ChainSubmit permission result", { granted });
+                if (granted) {
+                    log.debug("ChainSubmit permission granted");
+                } else {
+                    log.warn(
+                        "host denied the ChainSubmit permission; signing will fail until it is granted",
+                    );
+                }
             } catch (cause) {
                 log.warn("failed to request ChainSubmit permission", {
                     error: cause instanceof Error ? cause.message : String(cause),
@@ -901,6 +901,36 @@ const NON_TRANSIENT_HOST_TAGS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Non-transient tags that are nonetheless worth one more attempt.
+ *
+ * `NotConnected` carries two states the host does not distinguish: the user is
+ * signed out, and the session exists but is being re-established (after a host
+ * account switch, the core re-mints it, and a product account queried in that
+ * window is refused). The first is permanent, the second clears on its own in
+ * milliseconds, and both arrive as the same tag.
+ *
+ * So retry it, and only degrade to read-only once the attempts are spent.
+ * Signed-out reaches the same empty-accounts state as before, just a retry
+ * cycle later; a re-mint in flight now recovers instead of leaving the product
+ * connected with no accounts and nothing to prompt another try.
+ */
+const RETRY_BEFORE_DEGRADING_TAGS: ReadonlySet<string> = new Set(["NotConnected"]);
+
+/**
+ * Should a failed product-account fetch degrade `connect()` to read-only
+ * (`ok([])`), or be returned so the retry loop can have another go?
+ *
+ * Both `connect()` branches ask this, so `productAccount` and `dappName` stay
+ * symmetric — they did not, and the `dappName` branch degraded on any failure
+ * at all, including timeouts no retry had been given a chance to clear.
+ */
+function degradeOnAccountFailure(error: SignerError, isFinalAttempt: boolean): boolean {
+    if (!(error instanceof HostRejectedError) || !error.nonTransient) return false;
+    if (isFinalAttempt) return true;
+    return !hasHostErrorTag(error.cause, RETRY_BEFORE_DEGRADING_TAGS);
+}
+
+/**
  * Does a host error represent a non-transient, expected condition (e.g. the
  * user is signed out)? Walks the tagged-enum chain the same way
  * {@link formatError} does — the identifying tag can sit at the outer level or
@@ -908,11 +938,16 @@ const NON_TRANSIENT_HOST_TAGS: ReadonlySet<string> = new Set([
  * match anywhere in the chain counts.
  */
 function isNonTransientHostError(error: unknown): boolean {
+    return hasHostErrorTag(error, NON_TRANSIENT_HOST_TAGS);
+}
+
+/** Walk a host error's tagged-enum chain looking for any of `tags`. */
+function hasHostErrorTag(error: unknown, tags: ReadonlySet<string>): boolean {
     let node: unknown = error;
     // Bounded walk: envelopes are shallow (Domain → V1 → domain error).
     for (let depth = 0; node && typeof node === "object" && depth < 8; depth++) {
         const tag = (node as { tag?: unknown }).tag;
-        if (typeof tag === "string" && NON_TRANSIENT_HOST_TAGS.has(tag)) return true;
+        if (typeof tag === "string" && tags.has(tag)) return true;
         node = (node as { value?: unknown }).value;
     }
     return false;
@@ -1268,8 +1303,9 @@ if (import.meta.vitest) {
             // Resolves read-only rather than erroring.
             expect(result.ok).toBe(true);
             if (result.ok) expect(result.value).toEqual([]);
-            // And does NOT retry a signed-out state — one attempt only.
-            expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(1);
+            // Retried first: `NotConnected` is also what an in-flight session
+            // re-mint returns, and the host doesn't distinguish the two.
+            expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(3);
         });
 
         test("connect with productAccount soft-degrades on a bare NotConnected tag too", async () => {
@@ -1288,7 +1324,45 @@ if (import.meta.vitest) {
 
             expect(result.ok).toBe(true);
             if (result.ok) expect(result.value).toEqual([]);
-            expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(1);
+            expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(3);
+        });
+
+        test("connect recovers when a re-minting session frees up mid-retry", async () => {
+            // The switch-account case: the first query lands while the core is
+            // re-minting the session, the next one succeeds. Before both
+            // branches shared a classifier this degraded to [] and stayed there.
+            const productPubkey = new Uint8Array(32).fill(0x42);
+            const mockProvider = createMockProvider({
+                accounts: [{ publicKey: productPubkey, name: undefined }],
+            });
+            let calls = 0;
+            mockProvider.getProductAccount.mockReturnValue({
+                match: async (
+                    onOk: (v: RawAccountTest) => unknown,
+                    onErr: (e: unknown) => unknown,
+                ) => {
+                    calls += 1;
+                    if (calls === 1) {
+                        return onErr({
+                            tag: "Domain",
+                            value: { tag: "V1", value: { tag: "NotConnected", value: undefined } },
+                        });
+                    }
+                    return onOk({ publicKey: productPubkey, name: undefined });
+                },
+            });
+            const provider = new HostProvider({
+                maxRetries: 3,
+                retryDelay: 0,
+                dappName: "my-cli",
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(true);
+            if (result.ok) expect(result.value).toHaveLength(1);
+            expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(2);
         });
 
         test("connect with productAccount surfaces + retries a transient failure", async () => {
@@ -1370,15 +1444,19 @@ if (import.meta.vitest) {
             }
         });
 
-        test("connect with dappName fallback resolves to [] when host rejects derivation", async () => {
-            // Soft-degrade: when the host can't derive a product account
-            // for the dappName (commonly because the dotNS identifier isn't
-            // registered for this user), connect() returns ok([]) rather
-            // than throwing. Consumers handle the empty list and drive
-            // explicit signing paths.
-            const mockProvider = createMockProvider({ shouldReject: true, error: "Rejected" });
+        test("connect with dappName resolves to [] when the identifier isn't registered", async () => {
+            // `DomainNotValid` is permanent — degrade to read-only at once, no
+            // retry, so consumers can drive the explicit signing paths.
+            const mockProvider = createMockProvider({
+                shouldReject: true,
+                error: {
+                    tag: "Domain",
+                    value: { tag: "V1", value: { tag: "DomainNotValid", value: undefined } },
+                },
+            });
             const provider = new HostProvider({
-                maxRetries: 1,
+                maxRetries: 3,
+                retryDelay: 0,
                 dappName: "not-registered",
                 loadAccountsProvider: loadProvider(mockProvider),
                 requestChainSubmitPermissionFn: grantPermission(),
@@ -1386,9 +1464,27 @@ if (import.meta.vitest) {
             const result = await provider.connect();
 
             expect(result.ok).toBe(true);
-            if (result.ok) {
-                expect(result.value).toEqual([]);
-            }
+            if (result.ok) expect(result.value).toEqual([]);
+            expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(1);
+        });
+
+        test("connect with dappName surfaces + retries an unclassified rejection", async () => {
+            // The asymmetry this fixes: the dappName branch used to degrade to
+            // [] on ANY failure, so a timeout looked exactly like an
+            // unregistered identifier and connect() reported success with no
+            // accounts and nothing to prompt another try.
+            const mockProvider = createMockProvider({ shouldReject: true, error: "Rejected" });
+            const provider = new HostProvider({
+                maxRetries: 3,
+                retryDelay: 0,
+                dappName: "not-registered",
+                loadAccountsProvider: loadProvider(mockProvider),
+                requestChainSubmitPermissionFn: grantPermission(),
+            });
+            const result = await provider.connect();
+
+            expect(result.ok).toBe(false);
+            expect(mockProvider.getProductAccount).toHaveBeenCalledTimes(3);
         });
 
         test("connect resolves to [] when neither productAccount nor dappName is set", async () => {
@@ -1988,6 +2084,33 @@ if (import.meta.vitest) {
                 .mockRejectedValue(new Error("host unreachable"));
             const result = await providerWithPermission(requestFn).connect();
             expect(result.ok).toBe(true);
+        });
+
+        test("a denial is logged at warn, not swallowed at debug", async () => {
+            const { configure: configureLogs } = await import("@parity/product-sdk-logger");
+            const warnings: string[] = [];
+            // No `level` override — `warn` is the default, and `configure()` merges,
+            // so any override would be irreversible from outside the logger package.
+            // For the same reason the `finally` installs a noop handler rather than
+            // restoring the previous one: there is no way to clear it, so every later
+            // emission in this file goes to the noop. Assumes `PRODUCT_SDK_LOG` unset.
+            configureLogs({
+                handler: (entry) => {
+                    if (entry.level === "warn") warnings.push(entry.message);
+                },
+            });
+
+            try {
+                const requestFn = vi
+                    .fn<(permission: RemotePermission) => Promise<boolean>>()
+                    .mockResolvedValue(false);
+                const result = await providerWithPermission(requestFn).connect();
+
+                expect(result.ok).toBe(true);
+                expect(warnings.some((w) => w.includes("denied the ChainSubmit"))).toBe(true);
+            } finally {
+                configureLogs({ handler: () => {} });
+            }
         });
     });
 

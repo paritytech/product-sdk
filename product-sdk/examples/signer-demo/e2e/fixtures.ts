@@ -31,9 +31,16 @@ const PASEO_AH: NetworkConfig = {
  */
 const fixture = createTestHostFixture({
     productUrl: PRODUCT_URL,
+    productId: "signer-demo.dot",
     accounts: ["bob", "charlie"],
     networks: [PASEO_AH],
-    productAccounts: { "signer-demo.dot/0": "bob" },
+    productAccounts: { "signer-demo.dot": "bob" },
+    // Granted AutoSigning makes the core sign in its own worker with no host
+    // round-trip, so nothing reaches getSigningLog(). Withholding it restores
+    // the observable SSO path. Must be a boot option:
+    // setResourceAllocationBehavior() lands after onConnect has already asked.
+    // Unlisted resources stay granted; permission tags are a separate axis.
+    behaviors: { resourceAllocation: { AutoSigning: false } },
 });
 
 export const test = base.extend<{ testHost: TestHost }>(fixture);
