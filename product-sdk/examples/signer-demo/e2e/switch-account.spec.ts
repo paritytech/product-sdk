@@ -48,24 +48,31 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         // Empirically (host-api-test-sdk 0.15.0, this harness): the auto-
         // reconnect above reliably loses a race against the mock host's own
         // session re-mint. `account.connectionStatusSubscribe()` delivers
-        // "Disconnected" and SignerManager's reconnect re-queries the product
-        // account before the core has finished re-minting the SSO session
-        // under Charlie, hitting `Domain → V1 → NotConnected`. The SDK
-        // classifies that as non-transient ("signed out" is a legitimate
-        // terminal state elsewhere) and soft-degrades to an empty account
-        // list with no further retry — see
-        // `packages/signer/src/providers/host.ts` (`isNonTransientHostError`,
-        // `fetchProductSignerAccount`'s soft-degrade branch). No amount of
-        // waiting recovers from it: this was verified empirically (10/10
-        // runs), independent of this branch's `AutoSigning` fixture change.
-        // A page reload forces the clean re-handshake needed to read a
-        // reliable final state — a real, separate workaround from the one
-        // this restoration removed above, not a reversion of it: the
+        // "Disconnected" and SignerManager re-queries the product account
+        // before the core has finished re-minting the SSO session under
+        // Charlie, hitting `Domain → V1 → NotConnected`. This is NOT a
+        // non-transient misclassification — signer-demo configures
+        // SignerManager with `dappName` (see ../src/main.ts), so `connect()`
+        // takes the `dappName` branch at
+        // `packages/signer/src/providers/host.ts:751-777`, and that branch
+        // soft-degrades to an empty account list on ANY fetch failure,
+        // unconditionally, with no transience check and therefore no retry.
+        // The sibling `productAccount` branch at lines 725-750 *does* check
+        // `error.nonTransient` and otherwise returns the error so the retry
+        // loop can act — its own comment claims to match the `dappName`
+        // branch, but the two are not symmetric; `isNonTransientHostError` is
+        // never consulted on the path this test exercises. No amount of
+        // waiting recovers from it: verified empirically (10/10 runs),
+        // independent of this branch's `AutoSigning` fixture change. A page
+        // reload forces the clean re-handshake needed to read a reliable
+        // final state — a real, separate workaround from the one this
+        // restoration removed above, not a reversion of it: the
         // transition-count wait already proves the *live* reaction; the
         // reload here only recovers from the confirmed race in that
-        // reaction's outcome. TODO(test-sdk-switch-account): file the race
-        // against host-api-test-sdk (or the non-transient classification in
-        // packages/signer) and drop this reload once fixed.
+        // reaction's outcome. TODO(test-sdk-switch-account): fix the
+        // `dappName` branch to check `nonTransient` and retry like
+        // `productAccount` does (or file the push-before-mint ordering
+        // against host-api-test-sdk), then drop this reload.
         await testHost.page.reload();
         await waitForAppReady(testHost);
 
@@ -73,7 +80,13 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         // (see ./fixtures — unrelated to the live-switch path above, and out
         // of scope to unpin here since that would change account derivation
         // for all 10 tests in this suite), the product account is expected to
-        // stay bob's regardless of which host identity is active.
+        // stay bob's regardless of which host identity is active. The
+        // address comparison below, taken alone, would still pass if
+        // switchAccount() were a complete no-op — the pin fixes the derived
+        // address regardless of which identity is active — though the test
+        // as a whole is not no-op-blind: a no-op switchAccount() pushes no
+        // "Disconnected"/"Connected" pair, so the transition-count wait above
+        // would never reach +2 and would time out instead.
         //
         // TODO(test-sdk-switch-account): a test that also proves the address
         // WOULD change for a product that isn't dapp-scoped needs a fixture
