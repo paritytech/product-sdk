@@ -19,6 +19,14 @@
  * bridge is involved, so opaque signed extensions (e.g. Paseo Next's `AsPgas`)
  * survive end-to-end.
  *
+ * Every one of those raw-signing paths `<Bytes>`-wraps the payload before the
+ * key touches it. A runtime that verifies a bare-byte ownership proof — today
+ * People chain's `Resources.register_person` — therefore rejects them, so the
+ * provider also exposes the deprecated `signRawUnwatermarkedDeprecated` pair,
+ * which signs the bytes exactly as given. Reach for those two only when a
+ * runtime check leaves no alternative; they are temporary on the host side too
+ * (paritytech/host-rust-core#612).
+ *
  * @module
  */
 
@@ -35,6 +43,7 @@ import type {
     ProductAccount as WireProductAccount,
     ProductAccountId,
     ProductProofContext,
+    RawPayload,
     RegisteredRingVrfKey as WireRegisteredRingVrfKey,
     RingLocation,
     RingVrfKeyDisclosure,
@@ -366,6 +375,18 @@ export interface AccountsProvider {
      * derived from `publicKey` alone.
      */
     getLegacyAccountSigner(account: { publicKey: Uint8Array; name?: string }): PolkadotSigner;
+    /**
+     * @deprecated Temporary — signs `data` with NO `<Bytes>` watermark so a
+     * People-chain runtime that verifies a raw-byte proof accepts it
+     * (paritytech/host-rust-core#612). Removed once the runtime accepts
+     * watermarked proofs. Hosts show a stronger warning for this call.
+     */
+    signRawUnwatermarkedDeprecated(account: ProductAccount, data: Uint8Array): Promise<Uint8Array>;
+    /** @deprecated Same as {@link signRawUnwatermarkedDeprecated} for a legacy (wallet) account. */
+    signRawUnwatermarkedDeprecatedWithLegacyAccount(
+        account: { publicKey: Uint8Array },
+        data: Uint8Array,
+    ): Promise<Uint8Array>;
     subscribeAccountConnectionStatus(
         callback: (status: HostAccountConnectionStatusSubscribeItem) => void,
     ): HostSubscription;
@@ -430,6 +451,17 @@ function toWireProductAccountId({
     derivationIndex = 0,
 }: ProductAccountLookup): ProductAccountId {
     return { dotNsIdentifier, derivationIndex: { tag: "Index", value: derivationIndex } };
+}
+
+// The SS58 address the host's raw-signing calls match a legacy (wallet) account
+// by, unlike `createTransactionWithLegacyAccount`, which takes the raw hex
+// account id. One codec for the whole module: `AccountId()` is a pure factory,
+// so rebuilding it per signer bought nothing.
+const accountIdCodec = AccountId();
+
+/** Wrap raw bytes in the wire's `Bytes` raw-payload variant, shared by all four raw-signing calls. */
+function toBytesPayload(data: Uint8Array): RawPayload {
+    return { tag: "Bytes", value: { bytes: toHex(data) } };
 }
 
 /**
@@ -611,7 +643,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     const response = await unwrapHostResult(
                         signing.signRaw({
                             account: productAccountId,
-                            payload: { tag: "Bytes", value: { bytes: toHex(data) } },
+                            payload: toBytesPayload(data),
                         }),
                         "signRaw failed",
                     );
@@ -624,7 +656,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
             // raw account id (hex public key); `signRawWithLegacyAccount` takes an
             // SS58 address the wallet can match. Compute both up front.
             const signerHex = toHex(account_.publicKey);
-            const ss58Address = AccountId().dec(account_.publicKey);
+            const ss58Address = accountIdCodec.dec(account_.publicKey);
 
             return {
                 publicKey: account_.publicKey,
@@ -650,13 +682,33 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     const response = await unwrapHostResult(
                         signing.signRawWithLegacyAccount({
                             signer: ss58Address,
-                            payload: { tag: "Bytes", value: { bytes: toHex(data) } },
+                            payload: toBytesPayload(data),
                         }),
                         "signRawWithLegacyAccount failed",
                     );
                     return fromHex(response.signature);
                 },
             };
+        },
+        async signRawUnwatermarkedDeprecated(account_, data) {
+            const response = await unwrapHostResult(
+                signing.signRawUnwatermarkedDeprecated({
+                    account: toWireProductAccountId(account_),
+                    payload: toBytesPayload(data),
+                }),
+                "signRawUnwatermarkedDeprecated failed",
+            );
+            return fromHex(response.signature);
+        },
+        async signRawUnwatermarkedDeprecatedWithLegacyAccount(account_, data) {
+            const response = await unwrapHostResult(
+                signing.signRawUnwatermarkedDeprecatedWithLegacyAccount({
+                    signer: accountIdCodec.dec(account_.publicKey),
+                    payload: toBytesPayload(data),
+                }),
+                "signRawUnwatermarkedDeprecatedWithLegacyAccount failed",
+            );
+            return fromHex(response.signature);
         },
         subscribeAccountConnectionStatus(callback) {
             return subscribeWithInterrupt(account.connectionStatusSubscribe(), callback);
@@ -787,6 +839,13 @@ if (import.meta.vitest) {
                 signRawWithLegacyAccount: method("signRawWithLegacyAccount", {
                     signature: "0xcafe",
                 }),
+                signRawUnwatermarkedDeprecated: method("signRawUnwatermarkedDeprecated", {
+                    signature: "0xd00d",
+                }),
+                signRawUnwatermarkedDeprecatedWithLegacyAccount: method(
+                    "signRawUnwatermarkedDeprecatedWithLegacyAccount",
+                    { signature: "0xf00d" },
+                ),
             },
         } as unknown as TrUApiClient;
     }
@@ -1074,6 +1133,52 @@ if (import.meta.vitest) {
             },
         ]);
         expect(signature).toEqual(fromHex("0xcafe"));
+    });
+
+    test("signRawUnwatermarkedDeprecated sends the product account and the raw Bytes payload", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const signature = await provider.signRawUnwatermarkedDeprecated(
+            {
+                dotNsIdentifier: "app.dot",
+                derivationIndex: 3,
+                publicKey: new Uint8Array(32).fill(0xaa),
+            },
+            new Uint8Array([9, 9]),
+        );
+        // Same wire request as `signRaw`: only the method the host resolves differs,
+        // so a mix-up here is what silently re-introduces the `<Bytes>` wrap.
+        expect(calls.at(-1)).toEqual([
+            "signRawUnwatermarkedDeprecated",
+            {
+                account: {
+                    dotNsIdentifier: "app.dot",
+                    derivationIndex: { tag: "Index", value: 3 },
+                },
+                payload: { tag: "Bytes", value: { bytes: toHex(new Uint8Array([9, 9])) } },
+            },
+        ]);
+        expect(signature).toEqual(fromHex("0xd00d"));
+    });
+
+    test("signRawUnwatermarkedDeprecatedWithLegacyAccount addresses the signer by SS58 address", async () => {
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const publicKey = new Uint8Array(32).fill(0xbb);
+        const signature = await provider.signRawUnwatermarkedDeprecatedWithLegacyAccount(
+            { publicKey },
+            new Uint8Array([7, 7]),
+        );
+        expect(calls.at(-1)).toEqual([
+            "signRawUnwatermarkedDeprecatedWithLegacyAccount",
+            {
+                signer: AccountId().dec(publicKey),
+                payload: { tag: "Bytes", value: { bytes: toHex(new Uint8Array([7, 7])) } },
+            },
+        ]);
+        expect(signature).toEqual(fromHex("0xf00d"));
     });
 
     test("the legacy signer's signTx throws without a CheckGenesis extension", async () => {

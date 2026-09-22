@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-keys",
-    "version": "0.3.24",
+    "version": "0.3.26",
     "description": "Hierarchical key derivation and session key management for Polkadot accounts",
     "type": "module",
     "sideEffects": false,
