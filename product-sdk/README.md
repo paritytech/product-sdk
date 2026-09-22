@@ -33,6 +33,26 @@ pnpm add @parity/product-sdk
 pnpm add @parity/product-sdk-chain-client @parity/product-sdk-tx
 ```
 
+## Create an app
+
+```ts
+import { createApp } from "@parity/product-sdk";
+
+const app = await createApp();
+const { accounts } = await app.wallet.connect();
+await app.localStorage.set("lastVisit", new Date().toISOString());
+console.log(app.getAppInfo().name, accounts);
+```
+
+`createApp()` reads the product ID from the host's `system.getProductContext()`.
+That ID selects the wallet product and local-storage prefix, and is returned by
+`app.getAppInfo().name`. Initialization rejects if the host cannot provide the
+product context. Pass options such as `{ logLevel: "info" }` when needed.
+
+The `name` option is deprecated. If supplied, it is ignored and emits a warning.
+If your previous `name` differs from the host product ID, existing local-storage
+data remains under the former prefix and may need an explicit migration.
+
 ## Using an existing host connection
 
 A CLI runner can supply a ready `truapi` client and a host context with its `apiVersion` and connection `signal`. Bind that connection before using SDK host APIs:

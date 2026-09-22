@@ -10,11 +10,14 @@
  * makes a default `SignerManager`, `local-storage` auto-detection, and the
  * `statement-store` / `cloud-storage` host paths testable.
  *
+ * `system.getProductContext` returns the `productId` option (default
+ * `"fake-app.dot"`), so `createApp()` can resolve its host identity.
+ *
  * Of the `chain` domain only `getChainInfo` is modeled, so host chain discovery
  * (and `getChainAPI()` on top of it) resolves in tests; see the `chainInfo`
  * option. Not modeled: the rest of the PAPI `chain` JSON-RPC surface behind
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
- * selection — the `system` domain's `info` / `getProductContext`, and the
+ * selection — the `system` domain's `info`, and the
  * `chat` / `coinPayment` / `entropy` / `locale` / `notifications` / `payment` /
  * `permissions` / `resourceAllocation` / `theme` domains. Touching
  * an unmodeled domain throws a descriptive error rather than failing with
@@ -144,6 +147,8 @@ export interface FakeChainInfo {
 
 /** Options for {@link createFakeTruApiClient}. */
 export interface CreateFakeTruApiClientOptions {
+    /** `system.getProductContext` product ID. Default `"fake-app.dot"`. */
+    productId?: string;
     /** `account.getUserId` primary username. Default `"alice.dot"`. */
     primaryUsername?: string;
     /** Product-account public key. Default 32 bytes of `0x11`. */
@@ -173,6 +178,7 @@ export interface CreateFakeTruApiClientOptions {
  * see the module header) throw on member access.
  */
 export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions): TrUApiClient {
+    const productId = options?.productId ?? "fake-app.dot";
     const primaryUsername = options?.primaryUsername ?? "alice.dot";
     const publicKey = toHex(options?.publicKey ?? new Uint8Array(32).fill(0x11));
     const signature = toHex(options?.signature ?? new Uint8Array(64).fill(0x22));
@@ -252,11 +258,12 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 okAsync({ proof: { tag: "Sr25519", value: { signature, signer: publicKey } } }),
             submit: () => okAsync(undefined),
         },
-        // `info` and `getProductContext` are not modeled; they still throw.
+        // `info` is not modeled; it still throws.
         system: notModeled("system", {
             handshake: () => okAsync(undefined),
             featureSupported: () => okAsync({ supported: chainSupported }),
             navigateTo: () => okAsync(undefined),
+            getProductContext: () => okAsync({ productId }),
         }),
         preimage: {
             lookupSubscribe: ({ request: { key } }) =>
@@ -397,6 +404,18 @@ if (import.meta.vitest) {
     afterEach(() => setTruApiClient(null));
 
     describe("createFakeHost / createFakeTruApiClient", () => {
+        test.each([
+            { options: undefined, productId: "fake-app.dot" },
+            { options: { productId: "session.paseo" }, productId: "session.paseo" },
+        ])("provides the app's host product context $productId", async ({ options, productId }) => {
+            const host = createFakeHost(options);
+            const context = await host.client.system.getProductContext().match(
+                (value) => value,
+                () => null,
+            );
+            expect(context).toEqual({ productId });
+        });
+
         test("host localStorage round-trips through the real adapter", async () => {
             createFakeHost();
             const ls = await getHostLocalStorage();

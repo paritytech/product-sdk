@@ -719,6 +719,9 @@ importers:
       '@types/react':
         specifier: ^18.0.0
         version: 18.3.28
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
       react:
         specifier: ^18.0.0
         version: 18.3.1

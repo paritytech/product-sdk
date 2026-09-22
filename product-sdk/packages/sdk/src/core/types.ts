@@ -25,8 +25,8 @@ export interface CloudStorageConfig {
 
 /** Configuration for createApp */
 export interface AppConfig {
-    /** Application name - used to derive product accounts and namespace storage */
-    name: string;
+    /** @deprecated Ignored with a warning. The host product ID supplies the app name. */
+    name?: string;
     /** Log level for SDK operations (default: 'info') */
     logLevel?: LogLevel;
     /**
@@ -35,6 +35,12 @@ export interface AppConfig {
      * - Pass `false` to disable cloud storage initialization
      */
     cloudStorage?: CloudStorageConfig | false;
+}
+
+/** App configuration with the identity resolved from the host. */
+export interface AppInfo extends Omit<AppConfig, "name"> {
+    /** Host product ID used for wallet identity and the local-storage prefix. */
+    name: string;
 }
 
 /** Wallet API exposed by the SDK */
@@ -176,8 +182,8 @@ export interface App {
     chain: ChainApi;
     /** Cloud Storage operations (null if disabled via config) */
     cloudStorage: CloudStorageApi | null;
-    /** Get app configuration */
-    getAppInfo(): AppConfig;
+    /** Get app configuration with the host-derived name. */
+    getAppInfo(): AppInfo;
 }
 
 /** Account information */
