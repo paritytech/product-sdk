@@ -58,3 +58,7 @@ validateFace(face, { host: androidLimits }); // a breach is now an error
 
 A face that passes with no `host` is correct against the shared protocol and owes nothing to any
 particular renderer.
+
+The size check measures what you give it. A string is measured as it stands, a tree as compact JSON. If
+you write a preview file with indentation, pass the text you are about to write, or the check measures
+something smaller than the file.

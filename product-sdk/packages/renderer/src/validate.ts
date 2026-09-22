@@ -5,10 +5,13 @@ import {
     COLOR_TOKENS,
     type Field,
     type FieldKind,
-    IMAGE_SOURCE_TAGS,
+    isImageSource,
     MODIFIER_SCHEMA,
+    modifierValue,
     NODE_SCHEMA,
+    nodeSchema,
     SHAPE_SCHEMA,
+    shapeValue,
 } from "./schema.js";
 
 /** What is wrong with a face. */
@@ -27,6 +30,7 @@ export type FaceIssueCode =
     | "size-negative"
     | "size-too-large"
     | "opacity-out-of-range"
+    | "tree-too-deep"
     | "unknown-field"
     | "button-without-action"
     | "text-field-without-action"
@@ -64,6 +68,15 @@ export interface ValidateFaceOptions {
 /** The largest value the protocol's `Compact<u64>` can carry. */
 const MAX_PROTOCOL_SIZE = 18446744073709551615n;
 
+/**
+ * How deep this walk goes before it gives up.
+ *
+ * No host draws anything close to this. A tree that reaches it is almost
+ * certainly a cycle, which only a tree built in memory can be, and the
+ * alternative to stopping is a stack overflow.
+ */
+const MAX_WALK_DEPTH = 512;
+
 const SIZE: FieldKind = { kind: "size" };
 
 const DIMENSIONS_SHORTHAND =
@@ -94,6 +107,25 @@ class Verdict {
     hostLimit(path: string, code: FaceIssueCode, message: string): void {
         (this.limitsAreErrors ? this.errors : this.warnings).push({ path, code, message });
     }
+
+    /**
+     * One host's depth bound, said once however many nodes sit below it.
+     *
+     * The walk carries on past the bound, because the protocol has no depth
+     * limit and a broken node underneath still has to be found. Repeating it at
+     * every node below would drown the rest of the verdict.
+     */
+    depthBound(path: string, limit: HostLimits, depth: number): void {
+        if (this.depthReported.has(limit.name)) return;
+        this.depthReported.add(limit.name);
+        this.hostLimit(
+            path,
+            "host-limit-depth",
+            `nested ${depth} levels deep, past what ${limit.name} draws (${limit.maxDepth})`,
+        );
+    }
+
+    private readonly depthReported = new Set<string>();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -118,6 +150,11 @@ function leaf(path: string): string {
  *
  * Pass `options.host` when you are about to ship to one host and want its own
  * bounds enforced rather than merely reported.
+ *
+ * A host's cap on face size is measured against what you pass. A string is
+ * measured as it stands, and a tree is measured as compact JSON. If you write
+ * a preview file with indentation, pass the text you are about to write rather
+ * than the tree, or the check will measure something smaller than the file.
  */
 export function validateFace(face: unknown, options: ValidateFaceOptions = {}): FaceVerdict {
     const verdict = new Verdict(options.host);
@@ -128,13 +165,32 @@ export function validateFace(face: unknown, options: ValidateFaceOptions = {}): 
 
 /** Takes the face either parsed or as JSON text, and measures it either way. */
 function readInput(face: unknown, verdict: Verdict): { tree: unknown } | undefined {
-    const json = typeof face === "string" ? face : JSON.stringify(face);
+    if (typeof face === "string") {
+        measureBytes(face, verdict);
+        try {
+            return { tree: JSON.parse(face) as unknown };
+        } catch (cause) {
+            verdict.error("", "invalid-json", `the face is not valid JSON: ${String(cause)}`);
+            return undefined;
+        }
+    }
+
+    const json = asJson(face);
     if (json !== undefined) measureBytes(json, verdict);
-    if (typeof face !== "string") return { tree: face };
+    return { tree: face };
+}
+
+/**
+ * The face as JSON text, or `undefined` when it has none.
+ *
+ * A `Size` may be a bigint, which SCALE carries and JSON cannot, and a tree
+ * built in memory may be cyclic. Neither can be measured in bytes, and neither
+ * is a reason to refuse to check the rest of the face.
+ */
+function asJson(face: unknown): string | undefined {
     try {
-        return { tree: JSON.parse(face) as unknown };
-    } catch (cause) {
-        verdict.error("", "invalid-json", `the face is not valid JSON: ${String(cause)}`);
+        return JSON.stringify(face);
+    } catch {
         return undefined;
     }
 }
@@ -157,14 +213,22 @@ function validateNode(node: unknown, path: string, depth: number, verdict: Verdi
         verdict.error(path, "not-an-object", "a renderer node must be a JSON object");
         return;
     }
-    if (breachesDepth(depth, path, verdict)) return;
+    if (depth > MAX_WALK_DEPTH) {
+        verdict.error(
+            path,
+            "tree-too-deep",
+            `stopped after ${MAX_WALK_DEPTH} levels. A face this deep is almost certainly a cycle.`,
+        );
+        return;
+    }
+    noteDepthBounds(depth, path, verdict);
 
     const tag = node.tag;
     if (typeof tag !== "string") {
         verdict.error(path, "missing-tag", "a renderer node needs a string 'tag'");
         return;
     }
-    const schema = NODE_SCHEMA[tag];
+    const schema = nodeSchema(tag);
     if (schema === undefined) {
         verdict.error(
             path,
@@ -195,35 +259,29 @@ function validateNode(node: unknown, path: string, depth: number, verdict: Verdi
         validateFields(value, schema.fields, valuePath, verdict);
     }
 
-    const props =
-        schema.props === undefined
-            ? {}
-            : (readChild(value.props, `${valuePath}.props`, verdict) ?? {});
+    // Undefined means the props were there and unreadable. Reading fields off an
+    // empty stand-in would report every required one as missing, and advise on a
+    // button with no action, for one problem the caller already knows about.
+    let props: Record<string, unknown> | undefined;
     if (schema.props !== undefined) {
-        validateFields(props, schema.props, `${valuePath}.props`, verdict);
-        reportUnknownFields(props, Object.keys(schema.props), `${valuePath}.props`, verdict);
+        props = readChild(value.props, `${valuePath}.props`, verdict);
+        if (props !== undefined) {
+            validateFields(props, schema.props, `${valuePath}.props`, verdict);
+            reportUnknownFields(props, Object.keys(schema.props), `${valuePath}.props`, verdict);
+        }
     }
 
     if (schema.children === true) {
         validateChildren(value.children, `${valuePath}.children`, depth, verdict);
     }
 
-    advise(tag, value, props, valuePath, verdict);
+    if (props !== undefined) advise(tag, value, props, valuePath, verdict);
 }
 
-function breachesDepth(depth: number, path: string, verdict: Verdict): boolean {
-    let breached = false;
+function noteDepthBounds(depth: number, path: string, verdict: Verdict): void {
     for (const limit of verdict.limits) {
-        if (depth > limit.maxDepth) {
-            verdict.hostLimit(
-                path,
-                "host-limit-depth",
-                `nested ${depth} levels deep, past what ${limit.name} draws (${limit.maxDepth})`,
-            );
-            breached = true;
-        }
+        if (depth > limit.maxDepth) verdict.depthBound(path, limit, depth);
     }
-    return breached;
 }
 
 /** Reads a nested object. Absent means empty, which is what an omitted container means. */
@@ -272,7 +330,7 @@ function validateModifier(modifier: unknown, path: string, verdict: Verdict): vo
         verdict.error(path, "missing-tag", "a modifier needs a string 'tag'");
         return;
     }
-    const kind = MODIFIER_SCHEMA[tag];
+    const kind = modifierValue(tag);
     if (kind === undefined) {
         verdict.error(
             path,
@@ -480,7 +538,8 @@ function validateShape(value: unknown, path: string, verdict: Verdict): void {
         verdict.error(path, "missing-tag", "a shape needs a string 'tag'");
         return;
     }
-    if (!(tag in SHAPE_SCHEMA)) {
+    const kind = shapeValue(tag);
+    if (kind === undefined) {
         verdict.error(
             path,
             "unknown-shape",
@@ -489,7 +548,6 @@ function validateShape(value: unknown, path: string, verdict: Verdict): void {
         return;
     }
     reportUnknownFields(value, ["tag", "value"], path, verdict);
-    const kind = SHAPE_SCHEMA[tag];
     if (kind !== null) validateValue(value.value, kind, `${path}.value`, true, verdict);
 }
 
@@ -503,7 +561,7 @@ function validateImageSource(value: unknown, path: string, verdict: Verdict): vo
         verdict.error(path, "missing-tag", "an image source needs a string 'tag'");
         return;
     }
-    if (!(IMAGE_SOURCE_TAGS as readonly string[]).includes(tag)) {
+    if (!isImageSource(tag)) {
         verdict.error(
             path,
             "unknown-image-source",
@@ -971,6 +1029,91 @@ if (import.meta.vitest) {
             expect(() =>
                 assertFaceValid({ tag: "Button", value: { props: { text: "Add" } } }),
             ).not.toThrow();
+        });
+    });
+    describe("input the validator must not choke on", () => {
+        // `Size` is `number | bigint`. A face carrying a bigint cannot be written
+        // as JSON at all, which is a reason not to measure its bytes, not a
+        // reason to give up on checking it.
+        test("returns a verdict for a face carrying a bigint size", () => {
+            const face = { tag: "Column", value: { modifiers: [{ tag: "Width", value: 10n }] } };
+            expect(() => validateFace(face)).not.toThrow();
+            expect(validateFace(face).errors).toEqual([]);
+        });
+
+        test("stops on a cyclic tree and says so, rather than overflowing the stack", () => {
+            const face: Record<string, unknown> = { tag: "Column" };
+            face.value = { children: [face] };
+            expect(() => validateFace(face)).not.toThrow();
+            expect(validateFace(face).errors.map((issue) => issue.code)).toContain("tree-too-deep");
+        });
+    });
+
+    describe("the vocabulary is closed against inherited names", () => {
+        // The schema tables are object literals, so a bare lookup also finds
+        // everything on Object.prototype. "toString" is not a renderer node, and
+        // every host refuses it.
+        test("refuses a node named after an Object.prototype member", () => {
+            for (const tag of ["toString", "constructor", "valueOf", "hasOwnProperty"]) {
+                expect(errorCodes({ tag }), tag).toEqual(["unknown-node"]);
+            }
+        });
+
+        test("refuses a modifier named after an Object.prototype member", () => {
+            const face = { tag: "Column", value: { modifiers: [{ tag: "valueOf", value: 1 }] } };
+            expect(errorCodes(face)).toEqual(["unknown-modifier"]);
+        });
+
+        test("refuses a shape named after an Object.prototype member", () => {
+            const face = {
+                tag: "Box",
+                value: {
+                    modifiers: [
+                        {
+                            tag: "Background",
+                            value: { color: "FgPrimary", shape: { tag: "toString" } },
+                        },
+                    ],
+                },
+            };
+            expect(errorCodes(face)).toEqual(["unknown-shape"]);
+        });
+    });
+
+    describe("a host's depth bound never stops the protocol check", () => {
+        const deepWith = (levels: number, innermost: unknown): unknown => {
+            let node = innermost;
+            for (let level = 1; level < levels; level += 1) {
+                node = { tag: "Column", value: { children: [node] } };
+            }
+            return node;
+        };
+
+        // The protocol has no depth limit, only hosts do. Abandoning the walk at
+        // one host's bound would let a broken node below it pass as valid, which
+        // is worse than the advice is worth.
+        test("still finds a bad node below android's bound", () => {
+            const verdict = validateFace(deepWith(40, { tag: "Nope" }));
+            expect(verdict.errors.map((issue) => issue.code)).toEqual(["unknown-node"]);
+            expect(verdict.ok).toBe(false);
+        });
+
+        test("reports the breach once, not once per node below it", () => {
+            const verdict = validateFace(deepWith(40, { tag: "Nil" }));
+            expect(
+                verdict.warnings.filter((issue) => issue.code === "host-limit-depth"),
+            ).toHaveLength(1);
+        });
+    });
+
+    describe("a broken props is reported once", () => {
+        // Reading fields off a props that is not an object produced a missing
+        // field for every required one, plus advice about a button that has no
+        // action. One problem, one message.
+        test("a props that is not an object gives one error and no advice", () => {
+            const verdict = validateFace({ tag: "Button", value: { props: "Add" } });
+            expect(verdict.errors.map((issue) => issue.code)).toEqual(["wrong-type"]);
+            expect(verdict.warnings).toEqual([]);
         });
     });
 }

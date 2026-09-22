@@ -3,10 +3,12 @@
 /**
  * The renderer vocabulary, as data the validator reads and the compiler checks.
  *
- * Every table is pinned to the matching union in `@parity/truapi` through
- * {@link closedSet}, so a vocabulary that grows in a later protocol version
- * fails `pnpm typecheck` here. Without that pin the validator would quietly
- * reject a node the protocol had just gained.
+ * Every table is pinned to the matching type in `@parity/truapi`, so a
+ * vocabulary that grows in a later protocol version fails `pnpm typecheck`
+ * here. Without that pin the validator would quietly reject a node the
+ * protocol had just gained. The tables of names use {@link closedSet}, and the
+ * tables keyed by a variant tag are typed as a `Record` over that tag, which
+ * requires every one of them and admits no others.
  *
  * @module
  */
@@ -19,6 +21,10 @@ import type {
     Effect,
     HorizontalAlignment,
     ImageFit,
+    ImageSource,
+    Modifier,
+    RendererNode,
+    Shape,
     TypographyStyle,
     VerticalAlignment,
 } from "@parity/truapi";
@@ -157,8 +163,12 @@ export interface NodeSchema {
     fields?: Record<string, Field>;
 }
 
-/** The eleven node types, keyed by their `tag`. */
-export const NODE_SCHEMA: Record<string, NodeSchema> = {
+type NodeTag = RendererNode["tag"];
+type ModifierTag = Modifier["tag"];
+type ShapeTag = Shape["tag"];
+
+/** The node types, keyed by their `tag`. Typing the key requires every one of them. */
+export const NODE_SCHEMA: Record<NodeTag, NodeSchema> = {
     Nil: {},
     String: { fields: { text: { type: str, required: true } } },
     Box: {
@@ -222,8 +232,8 @@ export const NODE_SCHEMA: Record<string, NodeSchema> = {
     Effect: { children: true, props: { effect: { type: enumOf(EFFECTS), required: true } } },
 };
 
-/** The twelve modifiers, keyed by their `tag`, each mapped to what its `value` holds. */
-export const MODIFIER_SCHEMA: Record<string, FieldKind> = {
+/** The modifiers, keyed by their `tag`, each mapped to what its `value` holds. */
+export const MODIFIER_SCHEMA: Record<ModifierTag, FieldKind> = {
     Margin: { kind: "dimensions" },
     Padding: { kind: "dimensions" },
     Background: { kind: "background" },
@@ -238,12 +248,41 @@ export const MODIFIER_SCHEMA: Record<string, FieldKind> = {
     BlendingMode: enumOf(BLENDING_MODES),
 };
 
-/** The three shapes, keyed by their `tag`, mapped to what `value` holds, or `null` for a unit variant. */
-export const SHAPE_SCHEMA: Record<string, FieldKind | null> = {
+/** The shapes, keyed by their `tag`, mapped to what `value` holds, or `null` for a unit variant. */
+export const SHAPE_SCHEMA: Record<ShapeTag, FieldKind | null> = {
     Rounded: size,
     Circle: null,
     Square: null,
 };
 
-/** The two image sources. Both carry a string. */
-export const IMAGE_SOURCE_TAGS = ["Bulletin", "Archive"] as const;
+/** The image sources. Both carry a string. */
+export const IMAGE_SOURCE_TAGS = closedSet<ImageSource["tag"]>()(["Bulletin", "Archive"] as const);
+
+/*
+ * The tables above are object literals, so a plain `TABLE[tag]` lookup reaches
+ * Object.prototype and answers for names like "toString" and "constructor".
+ * Every lookup goes through one of these, which ask only about own keys.
+ */
+
+/** The schema for a node tag, or `undefined` when the vocabulary has no such node. */
+export function nodeSchema(tag: string): NodeSchema | undefined {
+    return Object.hasOwn(NODE_SCHEMA, tag) ? NODE_SCHEMA[tag as NodeTag] : undefined;
+}
+
+/** What a modifier's `value` holds, or `undefined` when the vocabulary has no such modifier. */
+export function modifierValue(tag: string): FieldKind | undefined {
+    return Object.hasOwn(MODIFIER_SCHEMA, tag) ? MODIFIER_SCHEMA[tag as ModifierTag] : undefined;
+}
+
+/**
+ * What a shape's `value` holds: a kind, `null` for a shape that carries none,
+ * or `undefined` when the vocabulary has no such shape.
+ */
+export function shapeValue(tag: string): FieldKind | null | undefined {
+    return Object.hasOwn(SHAPE_SCHEMA, tag) ? SHAPE_SCHEMA[tag as ShapeTag] : undefined;
+}
+
+/** Whether the vocabulary has this image source. */
+export function isImageSource(tag: string): boolean {
+    return (IMAGE_SOURCE_TAGS as readonly string[]).includes(tag);
+}
