@@ -660,7 +660,7 @@ importers:
     dependencies:
       '@parity/truapi':
         specifier: 'catalog:'
-        version: 0.17.0
+        version: 0.18.0
     devDependencies:
       typescript:
         specifier: ^5.7.0
