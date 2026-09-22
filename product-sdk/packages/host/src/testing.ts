@@ -16,7 +16,8 @@
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
  * selection — the `system` domain's `info` / `getProductContext`, and the
  * `chat` / `coinPayment` / `entropy` / `locale` / `notifications` / `payment` /
- * `permissions` / `resourceAllocation` / `theme` domains. Touching
+ * `permissions` / `pocket` / `resourceAllocation` / `theme` / `worker` domains.
+ * Touching
  * an unmodeled domain throws a descriptive error rather than failing with
  * `undefined is not a function`.
  *
@@ -210,6 +211,9 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 kv.delete(key);
                 return okAsync(undefined);
             },
+            // Inert like connectionStatusSubscribe: the fake's kv store is driven
+            // through read/write, not change emission, so nothing to stream here.
+            subscribe: () => inertObservable(),
         },
         account: {
             getUserId: () => okAsync({ primaryUsername }),
@@ -288,9 +292,11 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         notifications: notModeled("notifications"),
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),
+        pocket: notModeled("pocket"),
         renderer: notModeled("renderer"),
         resourceAllocation: notModeled("resourceAllocation"),
         theme: notModeled("theme"),
+        worker: notModeled("worker"),
     };
 
     // A plain downcast, not an `unknown` bridge: each generated class is
