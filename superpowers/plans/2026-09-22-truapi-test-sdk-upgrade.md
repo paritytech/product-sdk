@@ -646,6 +646,126 @@ If Step 1 was clean, there is nothing to commit.
 
 ---
 
+### Task 5b: Migrate the host-side observability assertions
+
+**Files:**
+- Modify: `product-sdk/examples/keys-demo/e2e/session.spec.ts:126-141`
+- Modify: `product-sdk/examples/storage-demo/e2e/prefix.spec.ts:40-42`
+- Modify: `product-sdk/examples/storage-demo/e2e/kv-ops.spec.ts:119-121`
+- Modify: `product-sdk/examples/host-demo/e2e/storage-ops.spec.ts:118-120`
+- Modify (pending diagnosis): `product-sdk/examples/signer-demo/e2e/` — the `lifecycle`, `permission`, `sign-raw` and `persistence` specs
+
+**Interfaces:**
+- Consumes: `@parity/host-api-test-sdk@0.14.0`'s fixture surface, and the nine migrated fixtures from Task 3.
+- Produces: eight currently-failing tests passing, or explicitly skipped with a tracked issue.
+
+**Why this task exists.** It was not in the original plan. Task 5's sweep found eight
+genuinely-new failures across four demos, all one root cause: **the test host's
+observability surface moved between 0.12.1 and 0.14.0.** In every case the product-side
+UI confirms the operation succeeded, but the host-side check the test makes comes back
+empty. These are not product regressions — they are tests asserting against accessors
+that changed.
+
+Two distinct sub-causes:
+
+**(a) Product storage — 4 tests.** These read `localStorage.getItem("test-host:<key>")`
+directly off the host page. In 0.14.0 the host core is WebAssembly-backed and namespaces
+product storage per product; the `test-host:` localStorage prefix no longer exists. The
+documented replacement is `getProductStorage(): Promise<Record<string, string>>`, which
+returns every entry decoded as UTF-8. There is also `seedProductStorage(key, value)` and
+`clearProductStorage()`.
+
+**(b) Signing and permission logs — 4 tests.** `getSigningLog()` and `getPermissionLog()`
+return empty although signing demonstrably succeeded. Note `SigningLogEntry`'s *shape* is
+byte-identical between 0.12.1 and 0.14.0, so this is not a shape mismatch — the entries
+are simply not there. The leading hypothesis is that signing now takes the
+user-confirmation path rather than the auto-signing path: `getSigningLog()` is documented
+as "all auto-signed payloads", and 0.13+ added `setUserConfirmationBehavior()` /
+`getUserConfirmationLog()` alongside it. `PermissionLogEntry` also gained a `decision`
+field ("the answer's lifetime, as the core now records it"), which suggests one-use grants
+are now modelled separately. **Diagnose before editing.**
+
+- [ ] **Step 1: Confirm sub-cause (a) with a probe**
+
+Pick the simplest failing storage test (`storage-demo/e2e/kv-ops.spec.ts`, "host routing
+verification"). After the product writes its value, print what the host actually holds:
+
+```ts
+console.log("PRODUCT STORAGE:", await testHost.getProductStorage());
+```
+
+Run that one spec and read the output. It tells you the real key shape — in particular
+whether keys are bare (`e2e-host-check`), product-namespaced, or prefixed some third way.
+**Do not guess the key format; read it.** Remove the probe afterwards.
+
+- [ ] **Step 2: Migrate the four product-storage assertions**
+
+Replace each `testHost.page.evaluate(() => localStorage.getItem("test-host:<key>"))` with a
+`getProductStorage()` read, keyed as Step 1 showed. Keep each assertion's original intent:
+these tests verify the value reached host-side storage, so assert on the value, not merely
+that some entry exists.
+
+`storage-demo/e2e/prefix.spec.ts` is the subtle one — it asserts the SDK's `prefix:key`
+composition (`demo:mykey`), so the prefixing must still be observable in whatever
+`getProductStorage()` returns. If prefixing is no longer visible there, that is a finding
+worth reporting, not a test to weaken.
+
+Update each assertion's accompanying comment — several say "stored in the HOST page's
+localStorage with the test-host: prefix", which is now false.
+
+- [ ] **Step 3: Diagnose sub-cause (b)**
+
+For one failing signer-demo test, dump all three logs after the operation:
+
+```ts
+console.log("SIGNING:", await testHost.getSigningLog());
+console.log("CONFIRMATIONS:", await testHost.getUserConfirmationLog());
+console.log("PERMISSIONS:", await testHost.getPermissionLog());
+```
+
+Report what each contains. If the signing evidence has moved to the confirmation log, the
+migration is to assert there instead. If all three are empty, that is a more serious
+finding — say so rather than inventing an assertion that passes.
+
+- [ ] **Step 4: Migrate or skip, per the diagnosis**
+
+Where a documented accessor carries the evidence, migrate the assertion to it, preserving
+the original intent. Where nothing does, mark that test `test.skip` with a
+`TODO(test-sdk-observability)` comment naming the accessor that disappeared and the
+tracking issue — and say so explicitly in the report. **Do not weaken an assertion until
+it passes.** A test that asserts something trivially true is worse than a skipped one,
+because it looks like coverage.
+
+- [ ] **Step 5: Re-run the four affected demos**
+
+```bash
+cd product-sdk
+for p in signer host keys local-storage; do
+  echo "═══ $p"
+  pnpm --filter "@parity/product-sdk-$p-demo" test:e2e 2>&1 | tail -20
+done
+```
+
+Expected: every previously-failing test passes or is explicitly skipped, and no test that
+passed in Task 5 regresses. The `signer-demo` `switch-account` failure is Task 6's and
+should still be failing here — that is correct, not a regression.
+
+- [ ] **Step 6: Typecheck, lint and commit**
+
+```bash
+/private/tmp/claude-501/-Users-zhuravlev-Projects-Parity-product-sdk/923c5bf5-452c-4098-81fd-05c440844ae3/scratchpad/typecheck-e2e.sh
+cd product-sdk && pnpm check
+```
+
+The typecheck gate stays differential: only `TS2591` ×9 and `TS2307` ×1 may remain.
+
+```bash
+git add product-sdk/examples/
+git commit -m "test(examples): migrate host-side observability assertions to the 0.14 API"
+```
+
+---
+
 ### Task 6: Resolve the signer-demo account switch
 
 **Files:**
