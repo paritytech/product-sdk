@@ -10,7 +10,7 @@ import { waitForAppReady } from "./helpers";
  *   - SessionKeyManager.create() — generates mnemonic, persists to host storage
  *   - SessionKeyManager.getOrCreate() — loads existing or creates new
  *   - SessionKeyManager.clear() — removes from host storage
- *   - Host-side storage verification (reads directly from the host page's localStorage)
+ *   - Host-side storage verification (reads via getProductStorage())
  *
  * Host API surface tested:
  *   - LocalKvStore.set(key, value) via product-sdk hostLocalStorage
@@ -123,11 +123,17 @@ test.describe("@parity/product-sdk-keys via Host API — session key lifecycle",
         const mnemonic = await frame.locator('[data-testid="last-mnemonic"]').textContent();
         expect(mnemonic).toBeTruthy();
 
-        // Verify the mnemonic is stored in the HOST page's localStorage with the test-host: prefix
-        const storedValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:default"),
-        );
-        expect(storedValue).toBe(mnemonic!.trim());
+        // Verify the mnemonic reached host-side product storage. test-sdk
+        // 0.14.0's host core is WebAssembly-backed and namespaces product
+        // storage per product (confirmed by probe:
+        // `truapi:product-storage:v1:<n>:<productId>:<key>`), so the raw
+        // `test-host:` localStorage prefix no longer exists — read through
+        // getProductStorage() and match on the local key's suffix, since the
+        // namespacing prefix isn't part of the documented contract.
+        const storage = await testHost.getProductStorage();
+        const entry = Object.entries(storage).find(([key]) => key.endsWith(":default"));
+        expect(entry, "expected a default entry in product storage").toBeDefined();
+        expect(entry?.[1]).toBe(mnemonic!.trim());
 
         // Clear the key
         await frame.locator('[data-testid="btn-clear"]').click();
@@ -136,10 +142,16 @@ test.describe("@parity/product-sdk-keys via Host API — session key lifecycle",
             { timeout: 30_000 },
         );
 
-        // Verify the key is removed from host storage
-        const clearedValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:default"),
+        // Verify the key is removed from host storage (confirmed by probe: a
+        // cleared key is absent from getProductStorage(), not present with an
+        // empty value).
+        const storageAfterClear = await testHost.getProductStorage();
+        const clearedEntry = Object.entries(storageAfterClear).find(([key]) =>
+            key.endsWith(":default"),
         );
-        expect(clearedValue).toBeNull();
+        expect(
+            clearedEntry,
+            "expected the default entry to be gone from product storage",
+        ).toBeUndefined();
     });
 });

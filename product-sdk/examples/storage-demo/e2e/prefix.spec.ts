@@ -37,11 +37,17 @@ test.describe("@parity/product-sdk-local-storage via Host API — prefix namespa
             { timeout: 30_000 },
         );
 
-        // Verify host-side: the key should be stored as "test-host:demo:mykey"
-        const hostValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:demo:mykey"),
-        );
-        expect(hostValue).toBe("prefixed-val");
+        // Verify host-side: the SDK's prefix:key composition ("demo:mykey") must
+        // still be observable. test-sdk 0.14.0's host core is WebAssembly-backed
+        // and namespaces product storage per product (confirmed by probe:
+        // `truapi:product-storage:v1:<n>:<productId>:<key>`), so the raw
+        // `test-host:` localStorage prefix no longer exists — read through
+        // getProductStorage() and match on the local key's suffix, since only
+        // the local key (not the namespacing prefix) is documented.
+        const storage = await testHost.getProductStorage();
+        const entry = Object.entries(storage).find(([key]) => key.endsWith(":demo:mykey"));
+        expect(entry, "expected a demo:mykey entry in product storage").toBeDefined();
+        expect(entry?.[1]).toBe("prefixed-val");
     });
 
     test("prefixed and unprefixed stores don't collide", async ({ testHost }) => {

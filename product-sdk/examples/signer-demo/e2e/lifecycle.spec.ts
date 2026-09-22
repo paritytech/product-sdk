@@ -38,16 +38,22 @@ test.describe("@parity/product-sdk-signer — disconnect + reconnect", () => {
         await expect(frame.locator('[data-testid="btn-sign-raw"]')).toBeEnabled();
 
         // Most importantly: the sign flow still works after the round-trip.
-        // If reconnect leaked a stale provider reference, signRaw would fail.
-        await testHost.clearSigningLog();
+        // If reconnect leaked a stale provider reference, signRaw would fail
+        // and this regex match would time out — that's the load-bearing
+        // assertion here.
+        //
+        // TODO(test-sdk-observability): this used to also assert
+        // `getSigningLog()` had one 'raw' entry, as extra host-side
+        // corroboration. host-api-test-sdk 0.14.0 no longer records anything
+        // there for a signRaw() call that demonstrably succeeds — see the
+        // Step 3 probe finding in task-5b-report.md and the skipped
+        // "the host records the raw sign request in the signing log" test in
+        // sign-raw.spec.ts, which tracks the same gap.
         await frame.locator('[data-testid="raw-input"]').fill("post-reconnect");
         await frame.locator('[data-testid="btn-sign-raw"]').click();
         await expect(frame.locator('[data-testid="last-signature"]')).toHaveText(
             /^0x[0-9a-f]+$/i,
             { timeout: 30_000 },
         );
-        const log = await testHost.getSigningLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].type).toBe("raw");
     });
 });

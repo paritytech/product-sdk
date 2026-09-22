@@ -10,7 +10,7 @@ import { waitForAppReady } from "./helpers";
  *   - hostLocalStorage.writeString() / readString()
  *   - hostLocalStorage.writeJSON() / readJSON()
  *   - hostLocalStorage.clear()
- *   - Host-side storage verification (reads directly from the host page's localStorage)
+ *   - Host-side storage verification (reads via getProductStorage())
  *
  * Host API surface tested:
  *   - product-sdk hostLocalStorage.writeString(key, value)
@@ -115,10 +115,15 @@ test.describe("@parity/product-sdk-host via Host API — localStorage operations
             { timeout: 30_000 },
         );
 
-        // Verify the value is stored in the HOST page's localStorage with the test-host: prefix
-        const storedValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:e2e-verify"),
-        );
-        expect(storedValue).toBe("host-check");
+        // Verify the value reached host-side product storage. test-sdk 0.14.0's
+        // host core is WebAssembly-backed and namespaces product storage per
+        // product (confirmed by probe: `truapi:product-storage:v1:<n>:<productId>:<key>`),
+        // so the raw `test-host:` localStorage prefix no longer exists — read
+        // through getProductStorage() and match on the local key's suffix, since
+        // the namespacing prefix isn't part of the documented contract.
+        const storage = await testHost.getProductStorage();
+        const entry = Object.entries(storage).find(([key]) => key.endsWith(":e2e-verify"));
+        expect(entry, "expected an e2e-verify entry in product storage").toBeDefined();
+        expect(entry?.[1]).toBe("host-check");
     });
 });

@@ -116,10 +116,15 @@ test.describe("@parity/product-sdk-local-storage via Host API — LocalKvStore o
             { timeout: 30_000 },
         );
 
-        // Verify the value landed in the host page's localStorage with "test-host:" prefix
-        const hostValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:e2e-host-check"),
-        );
-        expect(hostValue).toBe("routed");
+        // Verify the value landed in host-side product storage. test-sdk 0.14.0's
+        // host core is WebAssembly-backed and namespaces product storage per
+        // product (confirmed by probe: `truapi:product-storage:v1:<n>:<productId>:<key>`),
+        // so the raw `test-host:` localStorage prefix no longer exists — read
+        // through getProductStorage() and match on the local key's suffix, since
+        // the namespacing prefix isn't part of the documented contract.
+        const storage = await testHost.getProductStorage();
+        const entry = Object.entries(storage).find(([key]) => key.endsWith(":e2e-host-check"));
+        expect(entry, "expected an e2e-host-check entry in product storage").toBeDefined();
+        expect(entry?.[1]).toBe("routed");
     });
 });
