@@ -553,19 +553,18 @@ Expected: no output. Any hit is a call site missed in Steps 1–5.
 This is a **differential** gate, not a zero-errors gate. The harness reports
 pre-existing errors that this upgrade does not address and must not try to.
 
-Expected: these 14 errors, and only these, disappear from the output —
+Expected: these 7 errors, and only these, disappear from the output —
 
 - `e2e/publish.spec.ts(92,54): error TS2339` ×1 — the `.statement` property access (Step 1)
-- `e2e/subscribe.spec.ts` `error TS2322` ×12 — at lines 46, 47, 80, 81, 127, 129, the
-  `Uint8Array`-vs-hex argument mismatches (Steps 3–5)
-- `e2e/publish.spec.ts` `error TS2339` ×1 — second occurrence from the same line
+- `e2e/subscribe.spec.ts` `error TS2322` ×6 — one each at lines 46, 47, 80, 81, 127 and 129,
+  the `Uint8Array`-vs-hex argument mismatches (Steps 3–5)
 
 Expected to **remain**, untouched, in both `statement-store-demo` and elsewhere:
 
-- `error TS2591` ×18 — `Cannot find name 'process'`, in every `e2e/fixtures.ts` that reads
+- `error TS2591` ×9 — `Cannot find name 'process'`, one in each of the nine `e2e/fixtures.ts` that read
   `process.env.PASEO_AH_RPC`. Pre-existing: `@types/node` is not resolvable from any
   `examples/*` package under pnpm's strict isolation (see the harness note in Task 3).
-- `error TS2307` ×2 — the `node:crypto` import in `contracts-demo/e2e/query.spec.ts`. Same
+- `error TS2307` ×1 — the `node:crypto` import in `contracts-demo/e2e/query.spec.ts`. Same
   cause, different demo, and not a file this task touches.
 
 Do **not** try to clear TS2591 or TS2307. Adding `@types/node` as a devDependency to nine
