@@ -168,9 +168,10 @@ export interface CreateFakeTruApiClientOptions {
 
 /**
  * Build a fake `TrUApiClient` covering the domains the host accessors use:
- * `localStorage` (real in-memory KV), `account` / `signing` (canned data),
- * `statementStore`, `preimage`, and `system`. Unmodeled domains (`chain` et al —
- * see the module header) throw on member access.
+ * `localStorage` (real in-memory KV for `read`/`write`/`clear`; `subscribe` is
+ * not modeled), `account` / `signing` (canned data), `statementStore`,
+ * `preimage`, and `system`. Unmodeled domains (`chain` et al — see the module
+ * header) throw on member access.
  */
 export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions): TrUApiClient {
     const primaryUsername = options?.primaryUsername ?? "alice.dot";
@@ -200,7 +201,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
     // structurally checked, so a truapi signature change breaks this file's build,
     // not a consumer's test run.
     const client: PublicTruApiClient = {
-        localStorage: {
+        localStorage: notModeled("localStorage", {
             read: ({ key }) => okAsync({ value: kv.get(key) }),
             write: ({ key, value }) => {
                 kv.set(key, value);
@@ -210,7 +211,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 kv.delete(key);
                 return okAsync(undefined);
             },
-        },
+        }),
         account: {
             getUserId: () => okAsync({ primaryUsername }),
             requestLogin: () => okAsync("Success"),
@@ -292,6 +293,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         renderer: notModeled("renderer"),
         resourceAllocation: notModeled("resourceAllocation"),
         theme: notModeled("theme"),
+        worker: notModeled("worker"),
     };
 
     // A plain downcast, not an `unknown` bridge: each generated class is
