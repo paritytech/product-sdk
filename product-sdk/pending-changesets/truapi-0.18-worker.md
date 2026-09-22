@@ -12,5 +12,3 @@
 **Call errors can now be `Cancelled`.** `CallErrorValue` gains a `Cancelled` unit variant, which the host returns for a call it stopped. Code that exhaustively matches on a call error's `tag` needs a new arm; code that formats by tag — including this package's own `formatHostError` — is unaffected.
 
 **Every call takes an optional `CallOptions`.** Generated request methods accept a trailing `{ signal }` argument for withdrawing a call. A host predating the cancel leg drops the frame, and the call settles on its deadline instead; there is no way to detect that in advance. This package does not yet surface the option through its own facades.
-
-**Minor rather than patch**, which on 0.x signals a breaking change. This package's own API is unchanged; the break is the wire codec and what it can talk to.
