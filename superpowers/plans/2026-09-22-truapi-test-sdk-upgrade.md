@@ -550,7 +550,27 @@ Expected: no output. Any hit is a call site missed in Steps 1–5.
 /private/tmp/claude-501/-Users-zhuravlev-Projects-Parity-product-sdk/923c5bf5-452c-4098-81fd-05c440844ae3/scratchpad/typecheck-e2e.sh
 ```
 
-Expected: **clean for `statement-store-demo`** — the baseline errors from Task 3 Step 2 are now gone. This is the only mechanical check on this rewrite, so do not proceed past a failure here.
+This is a **differential** gate, not a zero-errors gate. The harness reports
+pre-existing errors that this upgrade does not address and must not try to.
+
+Expected: these 14 errors, and only these, disappear from the output —
+
+- `e2e/publish.spec.ts(92,54): error TS2339` ×1 — the `.statement` property access (Step 1)
+- `e2e/subscribe.spec.ts` `error TS2322` ×12 — at lines 46, 47, 80, 81, 127, 129, the
+  `Uint8Array`-vs-hex argument mismatches (Steps 3–5)
+- `e2e/publish.spec.ts` `error TS2339` ×1 — second occurrence from the same line
+
+Expected to **remain**, untouched, in both `statement-store-demo` and elsewhere:
+
+- `error TS2591` ×18 — `Cannot find name 'process'`, in every `e2e/fixtures.ts` that reads
+  `process.env.PASEO_AH_RPC`. Pre-existing: `@types/node` is not resolvable from any
+  `examples/*` package under pnpm's strict isolation (see the harness note in Task 3).
+- `error TS2307` ×2 — the `node:crypto` import in `contracts-demo/e2e/query.spec.ts`. Same
+  cause, different demo, and not a file this task touches.
+
+Do **not** try to clear TS2591 or TS2307. Adding `@types/node` as a devDependency to nine
+example packages is scope creep on a dependency bump, and a `declare const process` shim
+would be worse. If your run shows any error other than the ones listed above, stop and report.
 
 - [ ] **Step 8: Run the suite**
 
