@@ -34,7 +34,12 @@ import {
     destroyAll,
 } from "@parity/product-sdk-chain-client";
 import { accountIdBytes } from "@parity/product-sdk-address";
-import { getAccountsProvider } from "@parity/product-sdk-host";
+import {
+    getAccountsProvider,
+    getTruApi,
+    HostCallFailedError,
+    HostUnavailableError,
+} from "@parity/product-sdk-host";
 import {
     accountIdBytesToHex,
     type PeopleUsernameQueryApi,
@@ -55,19 +60,16 @@ const log = createLogger("app");
  *
  * // Default: cloud storage enabled with paseo environment
  * const app = await createApp({
- *   name: 'my-app',
  *   logLevel: 'info',
  * });
  *
  * // Custom cloud storage environment
  * const prodApp = await createApp({
- *   name: 'my-app',
  *   cloudStorage: { environment: 'polkadot' },
  * });
  *
  * // Disable cloud storage entirely
  * const noCloudStorageApp = await createApp({
- *   name: 'my-app',
  *   cloudStorage: false,
  * });
  *
@@ -83,20 +85,40 @@ const log = createLogger("app");
  * }
  * ```
  */
-export async function createApp(config: AppConfig): Promise<App> {
+export async function createApp(config: AppConfig = {}): Promise<App> {
     // Set log level if specified
     if (config.logLevel) {
         configure({ level: config.logLevel });
     }
 
-    log.info("Creating Product SDK app", { name: config.name });
+    if (config.name !== undefined) {
+        log.warn(
+            "createApp: name is deprecated and ignored. Remove the name option. The SDK resolves the app name from system.getProductContext(), dropping the product ID's final domain suffix (my-app.dot -> my-app). Local development IDs stay unchanged.",
+        );
+    }
+
+    const truApi = await getTruApi();
+    if (!truApi) {
+        throw new HostUnavailableError("createApp requires a host product context");
+    }
+    const { productId } = await truApi.system.getProductContext().match(
+        (context) => context,
+        (error) => {
+            throw new HostCallFailedError("system.getProductContext", error);
+        },
+    );
+
+    const isLocalHost = /^(?:localhost|127\.0\.0\.1|[^:]+\.localhost)(?::\d+)?$/i.test(productId);
+    const name = isLocalHost ? productId : productId.replace(/\.[^.]+$/, "");
+
+    log.info("Creating Product SDK app", { name });
 
     // Initialize storage (container-only - will throw if not in container)
-    const localKvStore = await createLocalKvStore({ prefix: config.name });
+    const localKvStore = await createLocalKvStore({ prefix: name });
 
     // Initialize signer manager
     const signerManager = new SignerManager({
-        dappName: config.name,
+        dappName: productId,
     });
 
     // Initialize cloud storage client (configurable, defaults to paseo).
@@ -197,7 +219,7 @@ export async function createApp(config: AppConfig): Promise<App> {
         : null;
 
     log.info("Product SDK app created", {
-        name: config.name,
+        name,
         cloudStorage: cloudStorageEnabled ? cloudStorageEnvironment : "disabled",
     });
 
@@ -206,7 +228,7 @@ export async function createApp(config: AppConfig): Promise<App> {
         localStorage: localStorageApi,
         chain: chainApi,
         cloudStorage: cloudStorageApi,
-        getAppInfo: () => ({ ...config }),
+        getAppInfo: () => ({ ...config, name }),
     };
 }
 

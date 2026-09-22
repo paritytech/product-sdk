@@ -11,8 +11,8 @@ import type { App, LogLevel } from "../core/types.js";
 
 /** Props for ProductSDKProvider */
 export interface ProductSDKProviderProps {
-    /** Application name - used for storage namespacing and product account derivation */
-    name: string;
+    /** @deprecated Ignored with a warning. The host product ID supplies the app name. */
+    name?: string;
     /** Log level (default: 'info') */
     logLevel?: LogLevel;
     /** Child components */
@@ -30,7 +30,7 @@ export interface ProductSDKProviderProps {
  *
  * function App() {
  *   return (
- *     <ProductSDKProvider name="my-app" fallback={<Loading />}>
+ *     <ProductSDKProvider fallback={<Loading />}>
  *       <MyApp />
  *     </ProductSDKProvider>
  *   );

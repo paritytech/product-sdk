@@ -10,11 +10,14 @@
  * makes a default `SignerManager`, `local-storage` auto-detection, and the
  * `statement-store` / `cloud-storage` host paths testable.
  *
+ * `system.getProductContext` returns `"fake-app.dot"` so `createApp()` can
+ * resolve its host identity.
+ *
  * Of the `chain` domain only `getChainInfo` is modeled, so host chain discovery
  * (and `getChainAPI()` on top of it) resolves in tests; see the `chainInfo`
  * option. Not modeled: the rest of the PAPI `chain` JSON-RPC surface behind
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
- * selection — the `system` domain's `info` / `getProductContext`, and the
+ * selection — the `system` domain's `info`, and the
  * `chat` / `coinPayment` / `entropy` / `locale` / `notifications` / `payment` /
  * `permissions` / `pocket` / `renderer` / `resourceAllocation` / `theme` /
  * `worker` domains. Touching an unmodeled domain throws a descriptive error
@@ -302,11 +305,12 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 okAsync({ proof: { tag: "Sr25519", value: { signature, signer: publicKey } } }),
             submit: () => okAsync(undefined),
         },
-        // `info` and `getProductContext` are not modeled; they still throw.
+        // `info` is not modeled; it still throws.
         system: notModeled("system", {
             handshake: () => okAsync(undefined),
             featureSupported: () => okAsync({ supported: chainSupported }),
             navigateTo: () => okAsync(undefined),
+            getProductContext: () => okAsync({ productId: "fake-app.dot" }),
         }),
         preimage: {
             lookupSubscribe: ({ request: { key } }) =>
@@ -460,6 +464,15 @@ if (import.meta.vitest) {
     afterEach(() => setTruApiClient(null));
 
     describe("createFakeHost / createFakeTruApiClient", () => {
+        test("provides the app's host product context", async () => {
+            const host = createFakeHost();
+            const context = await host.client.system.getProductContext().match(
+                (value) => value,
+                () => null,
+            );
+            expect(context).toEqual({ productId: "fake-app.dot" });
+        });
+
         test("host localStorage round-trips through the real adapter", async () => {
             createFakeHost();
             const ls = await getHostLocalStorage();
