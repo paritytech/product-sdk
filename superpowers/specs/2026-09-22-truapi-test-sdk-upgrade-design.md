@@ -77,10 +77,25 @@ equality check at `packages/host/src/chain-discovery.ts:137`, which a new
 variant cannot break. The `switch (… .tag)` sites in `papi-provider.ts`,
 `individuality/*` and `terminal/host-cache.ts` are over unrelated unions.
 
-**`TrUApiClient` gained a `worker` member**, so the fake client in
-`packages/host/src/testing.ts` must model it or stop satisfying the interface.
-This mirrors exactly what the 0.17.0 bump (`55a2320`) did for the then-new
-`pocket` domain, and takes the same one-line form.
+**Two additions force a change to the fake client** in
+`packages/host/src/testing.ts`, which enumerates every domain to satisfy
+`TrUApiClient`:
+
+- `TrUApiClient` gained a `worker` member. This mirrors exactly what the
+  0.17.0 bump (`55a2320`) did for the then-new `pocket` domain, and takes the
+  same one-line `notModeled("worker")` form.
+- `LocalStorageClient` gained `subscribe`. This one is less obvious, because
+  `localStorage` is a *real* in-memory KV in the fake rather than a
+  `notModeled` stub, so it stops satisfying the interface outright. The fix is
+  the two-argument `notModeled(domain, modeled)` form, documented at
+  `testing.ts:100-102` for "a domain where the fake covers some calls but not
+  the whole surface", with existing precedents at `system` and `chain`.
+  Reads, writes and clears stay real; `subscribe` throws.
+
+*(Corrected after implementation began: an earlier draft of this section named
+only `worker`. `localStorage.subscribe` was listed among the additive changes
+above but not traced to the fake client — the gap surfaced as a build failure
+in Task 2.)*
 
 ### `@parity/host-api-test-sdk` 0.12.1 → 0.14.0
 

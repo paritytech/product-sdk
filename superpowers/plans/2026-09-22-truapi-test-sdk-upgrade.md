@@ -145,6 +145,8 @@ git commit -m "chore: bump @parity/truapi to 0.18.0 and host-api-test-sdk to 0.1
 
 truapi 0.18.0 adds a `worker` domain (`beginOperation` / `endOperation`). The fake client enumerates every domain to satisfy `TrUApiClient`, so it needs an entry. Leave it **unmodeled**, exactly as the 0.17.0 bump (`55a2320`) handled the then-new `pocket` domain: unmodeled domains throw when touched. Modelling it is a feature, not part of this upgrade.
 
+**0.18.0 adds a second member the fake must answer for:** `LocalStorageClient.subscribe`. Unlike `worker`, `localStorage` is a *real* in-memory KV in the fake, not a `notModeled` stub, so it stops satisfying the interface outright. Use the two-argument `notModeled(domain, modeled)` form — documented at `testing.ts:100-102` as being for "a domain where the fake covers some calls but not the whole surface", with existing precedents at `system` (line 256) and `chain` (line 271). Both edits land in this one task and one commit.
+
 - [ ] **Step 1: Run the build to see the failure this task fixes**
 
 ```bash
@@ -153,7 +155,7 @@ cd product-sdk && pnpm --filter "@parity/product-sdk-host" build
 
 Expected: FAIL, with a TypeScript error saying the fake client object is missing the `worker` property required by `TrUApiClient`. If it passes, 0.18.0 did not resolve — go back to Task 1.
 
-- [ ] **Step 2: Add the `worker` entry**
+- [ ] **Step 2a: Add the `worker` entry**
 
 In `packages/host/src/testing.ts`, the unmodeled domains are listed alphabetically at the end of the client object. Change:
 
@@ -175,6 +177,30 @@ to:
         worker: notModeled("worker"),
     };
 ```
+
+- [ ] **Step 2b: Make `localStorage` a partial domain**
+
+`subscribe` is new in 0.18.0 and the fake does not implement it. Keep the three real method bodies exactly as they are and wrap them:
+
+```ts
+        localStorage: notModeled("localStorage", {
+            read: ({ key }) => okAsync({ value: kv.get(key) }),
+            write: ({ key, value }) => {
+                kv.set(key, value);
+                return okAsync(undefined);
+            },
+            clear: ({ key }) => {
+                kv.delete(key);
+                return okAsync(undefined);
+            },
+        }),
+```
+
+**Do not implement a working subscription.** `subscribe` should throw the standard "is not modeled by the fake" error — a clear message beats a silent wrong one.
+
+Then fix the module doc comment above `createFakeTruApiClient`, which currently calls `localStorage` a "(real in-memory KV)". Note that reads/writes/clears are real but `subscribe` is not modeled. Keep it brief and in the existing voice.
+
+**A TypeScript quirk to expect:** while `localStorage` has its own nested type error, the compiler suppresses the separate diagnostic for the missing `worker` property. Step 1 will therefore show only the `localStorage` error. Both gaps are real and both need fixing; do not conclude from one error message that `worker` is fine.
 
 - [ ] **Step 3: Run the build again**
 
@@ -718,6 +744,8 @@ Create `product-sdk/pending-changesets/truapi-0.18-worker.md`:
 **Pair with a truapi 0.18 host.** `@parity/truapi` moves from `^0.17.0` to `^0.18.0`. `TRUAPI_CODEC_VERSION` moves from 2 to 3 and `TRUAPI_WIRE_SCHEMA_HASH` from `50637d83426acd22` to `462dacb6e0d1f504`. The handshake compares codec versions for equality, so a product on 0.18 cannot talk to a host still on 0.17, in either direction — every host surface has to move in the same window.
 
 **New `worker` domain.** `getTruApi().worker` exposes the product's pending background operations: `beginOperation()` opens one and `endOperation()` closes it, and the host keeps a `Worker` product's runtime alive while at least one is open. `endOperation` is idempotent, so a retry after an ambiguous failure is safe. `createFakeTruApiClient` from `@parity/product-sdk-host/testing` carries a `worker` entry that throws when touched, matching how the other unmodeled domains behave.
+
+**New `localStorage.subscribe`.** `getTruApi().localStorage.subscribe()` emits a key's current value and then one item per later write or clear of that key by any of the product's runtimes; a write that leaves the bytes unchanged emits nothing. The fake client's `localStorage` still serves `read` / `write` / `clear` from its real in-memory KV, but `subscribe` is not modeled and throws — a test that needs it should drive the real transport instead.
 
 **Call errors can now be `Cancelled`.** `CallErrorValue` gains a `Cancelled` unit variant, which the host returns for a call it stopped. Code that exhaustively matches on a call error's `tag` needs a new arm; code that formats by tag — including this package's own `formatHostError` — is unaffected.
 
