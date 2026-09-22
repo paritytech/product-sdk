@@ -14,40 +14,32 @@ test.describe("@parity/product-sdk-signer — permission rejection", () => {
     });
 
     // The original test asserted that signRaw fails after `revokePermission`,
-    // but on test-sdk 0.14 the legacy permission mechanism
-    // (`setPermissionBehavior` / `grantPermission` / `revokePermission` /
-    // `getPermissionLog()`) has no effect on this connect-time auto-request —
-    // see the note below, it moved to a `ResourceAllocation` user-confirmation
-    // request instead — so revoke + sign can't be exercised end-to-end through
-    // the permission API yet. This test asserts the layer above that *is*
-    // exercisable: the host records a denied auto-request during connect, and
-    // the SignerManager tolerates the denial (matching real-host behavior: log
-    // a warning, keep the connection alive, defer the actual failure to
-    // sign-time when the host would refuse).
-    //
-    // test-sdk 0.14 (Task 5b): the connect-time auto-request this test
-    // exercises no longer goes through the legacy permission mechanism at
-    // all — `setPermissionBehavior` / `revokePermission("ChainSubmit")` /
-    // `getPermissionLog()` have no effect on it. It is now a user-confirmation
-    // request tagged `ResourceAllocation`, gated by `setUserConfirmationBehavior`
-    // and recorded in `getUserConfirmationLog()`. Confirmed via the Step 3
-    // probe (see task-5b-report.md): with the legacy permission calls alone,
-    // `getPermissionLog()` stayed empty; only adding
-    // `setUserConfirmationBehavior("reject-all")` produced a denied
-    // `ResourceAllocation` entry in `getUserConfirmationLog()`.
-    test("connect tolerates a denied ResourceAllocation auto-request when host is in reject-all", async ({
+    // but on test-sdk 0.14 `revokePermission()` was a no-op against the core:
+    // it only touched the host's own `getGrantedPermissions()` set, so the
+    // core kept serving the product from its previously stored grant without
+    // asking again or logging anything — `getPermissionLog()` stayed empty
+    // and this couldn't be exercised end-to-end. Fixed in 0.15.0:
+    // `revokePermission()` now reaches the core, so `setPermissionBehavior`
+    // + `revokePermission` + a reconnect produces a denied entry in
+    // `getPermissionLog()` again, as verified against 0.15.0 — the restored
+    // sequence below (`setPermissionBehavior("reject-all")` →
+    // `revokePermission("ChainSubmit")` → `clearPermissionLog()` →
+    // reconnect) produces a `ChainSubmit` entry with `approved: false` /
+    // `decision: "Deny"` after the reconnect, before any signature.
+    test("connect tolerates a denied ChainSubmit auto-request when host is in reject-all", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);
 
-        // Drop the initially-granted confirmation state.
+        // Drop the initially-granted permission state.
         await frame.locator('[data-testid="btn-disconnect"]').click();
         await expect(frame.locator('[data-testid="connection-status"]')).toHaveText(
             "disconnected",
         );
 
-        await testHost.setUserConfirmationBehavior("reject-all");
-        await testHost.clearUserConfirmationLog();
+        await testHost.setPermissionBehavior("reject-all");
+        await testHost.revokePermission("ChainSubmit");
+        await testHost.clearPermissionLog();
 
         // Reconnect — the SignerManager's auto-request now hits a host that
         // denies everything.
@@ -59,12 +51,10 @@ test.describe("@parity/product-sdk-signer — permission rejection", () => {
         await expect(frame.locator('[data-testid="last-error"]')).toBeEmpty();
 
         // Host saw and denied the auto-request.
-        const log = await testHost.getUserConfirmationLog();
-        const resourceAllocation = log.find((e) => e.tag === "ResourceAllocation");
-        expect(
-            resourceAllocation,
-            "expected a ResourceAllocation entry in the user-confirmation log",
-        ).toBeDefined();
-        expect(resourceAllocation?.approved).toBe(false);
+        const log = await testHost.getPermissionLog();
+        const chainSubmit = log.find((e) => e.tag === "ChainSubmit");
+        expect(chainSubmit, "expected a ChainSubmit entry in the permission log").toBeDefined();
+        expect(chainSubmit?.approved).toBe(false);
+        expect(chainSubmit?.decision).toBe("Deny");
     });
 });
