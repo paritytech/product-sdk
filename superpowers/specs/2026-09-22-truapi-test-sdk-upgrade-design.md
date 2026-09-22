@@ -33,9 +33,16 @@ WebAssembly rather than resolving it from `node_modules`, so the core's wire
 schema is fixed at publish time and no pnpm `override` can move it.
 
 Verified directly, since the declared dependency is not sufficient evidence
-for a vendored core:
+for a vendored core. The dependable source is the exported
+`TRUAPI_WIRE_SCHEMA_HASH` constant at the `@parity/truapi` package root —
+also stated at the top of the test SDK's own README — read via
+`node -e "import('@parity/truapi').then(({ TRUAPI_WIRE_SCHEMA_HASH }) => console.log(TRUAPI_WIRE_SCHEMA_HASH))"`
+against the copy the resolved test SDK pins. (Scraping the bundled
+`truapi_server_bg.wasm` for a 16-hex string via `strings` is **not**
+reliable: upstream confirmed the binary's only 16-hex strings are Cargo path
+hashes, so a match there is luck, not evidence.)
 
-| Test SDK | Bundled `truapi_server_bg.wasm` schema hash | Wire |
+| Test SDK | `TRUAPI_WIRE_SCHEMA_HASH` | Wire |
 |---|---|---|
 | 0.13.1 | `50637d83426acd22` | truapi 0.17.0, codec 2 |
 | **0.14.0** | **`462dacb6e0d1f504`** | **truapi 0.18.0, codec 3** |
@@ -326,21 +333,43 @@ not an acceptable resolution," and the plan separately says "a test that
 asserts something trivially true is worse than a skipped one." The delivered
 `signer-demo/e2e/switch-account.spec.ts` sits close to that line: it passes,
 but because the fixture's `productAccounts` pins `"signer-demo.dot"` to a
-fixed account, it would also pass if `switchAccount()` were a complete no-op.
+fixed account, its final address-stability assertion would also pass if
+`switchAccount()` were a complete no-op.
+
+*(Corrected after further work on this branch: the live-switch path was
+restored — see commit `9769f3e`, "restore sign-raw, lifecycle and permission
+assertions on 0.15.0" — so the paragraph below no longer describes why the
+rule was set aside. It is kept accurate rather than deleted, since part of
+the original justification still holds.)*
 
 That rule was **consciously set aside here**, not overlooked, for two
 reasons: the test still guards the regression class where derivation wrongly
 binds to the host's active identity across a reconnect (real, and worth
 keeping green), and it still asserts real address stability across a reload.
-And 0.14 made the *live*-switch path (no reload, product notified in place)
-genuinely untestable through this fixture — `switchAccount()` re-mints the
-host session without notifying the product, so there is no product-visible
-event to react to. Skipping the test outright would have discarded the
-regression coverage it does still provide for no gain. This is recorded here
-so the reduced scope reads as a deliberate exception to the stated rule,
-not as the oversight it would otherwise look like. See
-`examples/signer-demo/e2e/switch-account.spec.ts` and
-`TODO(test-sdk-switch-account)` for the tracked follow-up.
+On `host-api-test-sdk@0.15.0` the *live*-switch path is exercised again —
+`switchAccount()`'s core pushes the switch down
+`account.connectionStatusSubscribe()`, and the test waits on the resulting
+`transition-count` reaction as proof the product observed it in place, no
+reload needed for that part. The `page.reload()` that follows is a separate,
+narrower workaround: empirically (10/10 runs) `SignerManager`'s auto-
+reconnect reliably loses a race against the mock host's own session re-mint
+— it re-queries the product account before the core finishes re-minting the
+SSO session under the new identity, hits a `NotConnected` error, and
+`packages/signer/src/providers/host.ts:751-777` classifies that as
+non-transient and soft-degrades to an empty account list unconditionally,
+with no retry. The reload forces the clean re-handshake needed to read a
+reliable final state; it does not stand in for the live-switch assertion,
+which now passes on its own. And it remains true that, because the fixture's
+`productAccounts` pins `"signer-demo.dot"` to `bob`, the final
+address-stability assertion would still pass even if `switchAccount()` did
+nothing — that part of the original justification is unchanged. Skipping the
+test outright would have discarded the regression coverage it does still
+provide for no gain. This is recorded here so the reduced scope reads as a
+deliberate exception to the stated rule, not as the oversight it would
+otherwise look like. See `examples/signer-demo/e2e/switch-account.spec.ts`
+and `TODO(test-sdk-switch-account)` for the tracked follow-up (filing the
+race against `host-api-test-sdk` or the non-transient classification in
+`packages/signer`).
 
 ### Explicitly out of scope
 

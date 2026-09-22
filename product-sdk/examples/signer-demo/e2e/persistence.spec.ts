@@ -7,16 +7,13 @@ import { waitForAppReady } from "./helpers";
 // test-sdk 0.14.0 the host core is WebAssembly-backed and namespaces product
 // storage per product, so it no longer lands in the host page's raw
 // `localStorage` under a `test-host:` prefix — there is no such prefix any
-// more. The replacement is `getProductStorage()`, which returns every
-// product-storage entry decoded as UTF-8, keyed by the core's internal
-// namespaced key (confirmed by probe: `truapi:product-storage:v1:<n>:<productId>:<key>`,
-// where `<n>` is `productId.length`). We match on the suffix rather than
-// hardcoding that internal prefix scheme, since only the local key
-// (`product-sdk:signer:signer-demo:selectedAccount`) is part of the
-// documented contract. We poll it directly so we can reload only after the
-// postMessage round-trip has actually flushed — avoiding a timing race where
-// reload() races the persist write.
-const STORAGE_KEY_SUFFIX = ":product-sdk:signer:signer-demo:selectedAccount";
+// more. 0.15.0's replacement is `getProductStorageValue(localKey)`, which
+// resolves the product's own key against the core's internal namespacing and
+// returns an exact match, so we only need the documented local key
+// (`product-sdk:signer:signer-demo:selectedAccount`). We poll it directly so
+// we can reload only after the postMessage round-trip has actually flushed —
+// avoiding a timing race where reload() races the persist write.
+const STORAGE_LOCAL_KEY = "product-sdk:signer:signer-demo:selectedAccount";
 
 test.describe("@parity/product-sdk-signer — persistence", () => {
     test("selected account survives a page reload via hostLocalStorage", async ({
@@ -45,13 +42,8 @@ test.describe("@parity/product-sdk-signer — persistence", () => {
         // reload() against the async write — passes alone, fails when run
         // after other specs that warm up the test runner.
         await page.waitForFunction(
-            ({ suffix, addr }) => {
-                const storage = window.__TEST_HOST__.getProductStorage();
-                return Object.entries(storage).some(
-                    ([key, value]) => key.endsWith(suffix) && value === addr,
-                );
-            },
-            { suffix: STORAGE_KEY_SUFFIX, addr: beforeReload },
+            ({ localKey, addr }) => window.__TEST_HOST__.getProductStorageValue(localKey) === addr,
+            { localKey: STORAGE_LOCAL_KEY, addr: beforeReload },
             { timeout: 10_000 },
         );
 

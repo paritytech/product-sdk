@@ -115,15 +115,14 @@ Expected:
 
 - [ ] **Step 6: Verify the bundled host core is on the 0.18.0 wire**
 
-The declared dependency is not sufficient evidence — the test SDK vendors its host core as WebAssembly, so the wire is fixed at publish time.
+The declared dependency is not sufficient evidence — the test SDK vendors its host core as WebAssembly, so the wire is fixed at publish time. Read it from the exported `TRUAPI_WIRE_SCHEMA_HASH` constant at the `@parity/truapi` package root — the same value the test SDK's own README states at the top — rather than scraping the `.wasm` binary's strings table, which carries no such hash reliably (its only 16-hex strings are Cargo path hashes; a match there is luck, not evidence).
 
 ```bash
-cd product-sdk
-find node_modules/.pnpm -name truapi_server_bg.wasm | head -1 | \
-  xargs strings | grep -oE "50637d83426acd22|462dacb6e0d1f504" | sort -u
+cd product-sdk/packages/host
+node -e "import('@parity/truapi').then(({ TRUAPI_WIRE_SCHEMA_HASH }) => console.log(TRUAPI_WIRE_SCHEMA_HASH))"
 ```
 
-Expected: `462dacb6e0d1f504` (the 0.18.0 schema hash) and nothing else. If it prints `50637d83426acd22`, the resolved test SDK is still on the 0.17.0 wire and e2e will fail at handshake — stop and report.
+Expected: `462dacb6e0d1f504` (the 0.18.0 schema hash). If it prints `50637d83426acd22`, the resolved test SDK is still on the 0.17.0 wire and e2e will fail at handshake — stop and report.
 
 - [ ] **Step 7: Commit**
 
@@ -933,11 +932,11 @@ Expected: all pass. Run `pnpm format` only if `check` flags something.
 ```bash
 cd product-sdk
 grep -n "truapi\|host-api-test-sdk" pnpm-workspace.yaml
-find node_modules/.pnpm -name truapi_server_bg.wasm | head -1 | \
-  xargs strings | grep -oE "50637d83426acd22|462dacb6e0d1f504" | sort -u
+cd packages/host
+node -e "import('@parity/truapi').then(({ TRUAPI_WIRE_SCHEMA_HASH }) => console.log(TRUAPI_WIRE_SCHEMA_HASH))"
 ```
 
-Expected: catalog on `^0.18.0` / `^0.14.0`, both excludes updated, and the bundled core reporting `462dacb6e0d1f504` only.
+Expected: catalog on `^0.18.0` / `^0.14.0`, both excludes updated, and `TRUAPI_WIRE_SCHEMA_HASH` reporting `462dacb6e0d1f504`. Read this from the exported constant, not from scraping `truapi_server_bg.wasm`'s strings table — that binary's only 16-hex strings are Cargo path hashes, and a match against the wire hash there is luck, not evidence.
 
 - [ ] **Step 3: Confirm the changeset is parked, not staged for release**
 
