@@ -4,11 +4,10 @@ Working notes for anyone driving this repo through Claude Code. Skim, don't memo
 
 ## Repo layout
 
-This is a meta-repo with three top-level directories:
+This is a meta-repo with two top-level directories:
 
 - `product-sdk/` — the workspace where all packages live. Cd into here before running any `pnpm` command.
 - `docs/` — the documentation site, deployed separately.
-- `superpowers/` — design docs (`specs/`) and implementation plans (`plans/`) for in-flight work. Kept out of `docs/` because that directory is a deployed Next.js package. Not to be confused with `.superpowers/`, which is gitignored scratch.
 
 Inside `product-sdk/`:
 
