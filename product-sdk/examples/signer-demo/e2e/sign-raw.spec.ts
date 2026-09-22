@@ -20,19 +20,30 @@ test.describe("@parity/product-sdk-signer — signRaw", () => {
         await expect(frame.locator('[data-testid="btn-sign-raw"]')).toBeEnabled();
     });
 
-    // TODO(test-sdk-observability): host-api-test-sdk 0.14.0 records no
-    // evidence of this signRaw() call anywhere. Diagnosed via the Step 3
-    // probe (Task 5b, see task-5b-report.md): with getSigningLog(),
-    // getUserConfirmationLog() and getPermissionLog() all cleared right
-    // before the sign, then dumped right after a signRaw() call that
-    // demonstrably succeeds (the product UI renders a valid hex signature,
-    // see the test above), all three come back empty — []. This is not a
+    // TODO(test-sdk-observability): this is a regression, not a missing
+    // accessor — getSigningLog() IS the documented oracle for "did signing
+    // happen" (host-api-test-sdk README: the "does not record" section says
+    // "Use getSigningLog() as the oracle for 'did signing happen'", the flow
+    // diagram shows `signing.signRaw(...) → SSO round trip → signingLog ✅`,
+    // and it's repeated in the statement-store section and the API table).
+    // The shipped host bundle still implements the logging call too — in
+    // dist/host/host-runtime.js the SSO responder logs `f("raw", M.value)`
+    // for the "raw" request kind, and the control-API wrapper accumulates
+    // across responder re-creation. So the plumbing is documented and
+    // present; it just isn't firing for this call.
+    //
+    // Diagnosed via the Step 3 probe (Task 5b, see task-5b-report.md): with
+    // getSigningLog(), getUserConfirmationLog() and getPermissionLog() all
+    // cleared right before the sign, then dumped right after a signRaw()
+    // call that demonstrably succeeds (the product UI renders a valid hex
+    // signature, see the test above), all three come back empty — []. Not a
     // shape mismatch (SigningLogEntry is unchanged) and not the
     // auto-sign-vs-confirm split the original plan hypothesized (that would
-    // show up in getUserConfirmationLog(), and it doesn't either). No
-    // documented accessor currently carries "the host received a raw sign
-    // request." Needs a tracking issue filed against
-    // @parity/host-api-test-sdk; re-enable once an accessor surfaces it.
+    // show up in getUserConfirmationLog(), and it doesn't either).
+    //
+    // File this against @parity/host-api-test-sdk as: signRaw() no longer
+    // traverses the logged SSO responder path, so getSigningLog() stays
+    // empty for a signRaw() that otherwise succeeds. Re-enable once fixed.
     test.skip(
         "the host records the raw sign request in the signing log",
         async ({ testHost }) => {

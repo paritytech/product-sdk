@@ -43,12 +43,22 @@ test.describe("@parity/product-sdk-signer — disconnect + reconnect", () => {
         // assertion here.
         //
         // TODO(test-sdk-observability): this used to also assert
-        // `getSigningLog()` had one 'raw' entry, as extra host-side
-        // corroboration. host-api-test-sdk 0.14.0 no longer records anything
-        // there for a signRaw() call that demonstrably succeeds — see the
-        // Step 3 probe finding in task-5b-report.md and the skipped
-        // "the host records the raw sign request in the signing log" test in
-        // sign-raw.spec.ts, which tracks the same gap.
+        // `getSigningLog()` had one 'raw' entry — `clearSigningLog()` before
+        // the sign, then `expect(log).toHaveLength(1)` / `log[0].type ===
+        // "raw"` after — as extra host-side corroboration. That's a
+        // regression, not a missing accessor: getSigningLog() is the
+        // documented oracle for "did signing happen" (host-api-test-sdk
+        // README, repeated in three places) and the shipped host bundle
+        // still implements the logging call (dist/host/host-runtime.js logs
+        // `f("raw", M.value)` for a "raw" request), but the log comes back
+        // empty for a signRaw() that demonstrably succeeds — see the Step 3
+        // probe finding in task-5b-report.md and the fuller citation in the
+        // skipped "the host records the raw sign request in the signing log"
+        // test in sign-raw.spec.ts, which tracks the same regression. When
+        // that's fixed upstream, restore the dropped assertion here too
+        // (clear the signing log before this signRaw() call, then assert it
+        // has exactly one entry of type "raw" afterward) — re-enabling only
+        // the sign-raw.spec.ts test will not bring this one back.
         await frame.locator('[data-testid="raw-input"]').fill("post-reconnect");
         await frame.locator('[data-testid="btn-sign-raw"]').click();
         await expect(frame.locator('[data-testid="last-signature"]')).toHaveText(
