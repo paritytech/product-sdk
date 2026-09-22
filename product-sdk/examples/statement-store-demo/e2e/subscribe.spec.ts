@@ -7,16 +7,8 @@ import { waitForAppReady } from "./helpers";
  * Receiving statements through the Host API subscription path.
  *
  * Exercises:
- *   - HostTransport.subscribe() → store.subscribe(topics, callback)
- *   - hostSignedStatementToSdk() type conversion (hex → Uint8Array)
- *   - fromHex() hex-to-bytes conversion (statement-store/src/data.ts), used
- *     by hostSignedStatementToSdk() to decode `data`
- *   - Statement deduplication in StatementStoreClient
- *
- * Host API surface tested:
- *   - store.subscribe() — topic-filtered subscription
- *   - Type conversion: hostSignedStatementToSdk() (hex → Uint8Array)
- *   - Type conversion: fromHex() (hex → Uint8Array, underlies the above)
+ *   - HostTransport.subscribe() → store.subscribe(topics, callback), topic-filtered
+ *   - hostSignedStatementToSdk() (hex → Uint8Array)
  */
 /** UTF-8 → `0x`-hex, for `StatementInput.data`. */
 const toHexData = (value: string): `0x${string}` =>

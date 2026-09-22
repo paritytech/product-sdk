@@ -38,9 +38,9 @@ test.describe("@parity/product-sdk-local-storage via Host API — prefix namespa
         );
 
         // getProductStorageValue() matches the product's local key exactly.
-        // A suffix match would be ambiguous here, since the key itself
-        // contains a colon: ":demo:mykey" also ends a bare "mykey" stored
-        // under some other namespacing.
+        // Suffix matching could not do this: the core's namespaced key ends
+        // in ":demo:mykey", so a search for the bare ":mykey" matches the
+        // prefixed entry and the second assertion below would never fail.
         const prefixedValue = await testHost.getProductStorageValue("demo:mykey");
         expect(prefixedValue).toBe("prefixed-val");
         const bareValue = await testHost.getProductStorageValue("mykey");

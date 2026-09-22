@@ -29,7 +29,6 @@ test.describe("@parity/product-sdk-signer — persistence", () => {
         const beforeReload = await selectedLoc.textContent();
         expect(beforeReload).toBeTruthy();
 
-        // Wait for SignerManager.persistAccount to flush through the
         // Wait out the postMessage round-trip; otherwise reload() races the
         // write — passes alone, fails after specs that warm the runner.
         await page.waitForFunction(

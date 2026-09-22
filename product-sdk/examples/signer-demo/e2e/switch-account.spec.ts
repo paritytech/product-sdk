@@ -36,6 +36,8 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
             )
             .toBeGreaterThanOrEqual(transitionCountBefore + 1);
 
+        // Not `.last()`: when the reconnect does win, `connecting → connected`
+        // lands after the row we are looking for.
         const rowsAfterSwitch = (
             await frame.locator('[data-testid="transition-row"]').allTextContents()
         ).slice(transitionCountBefore);

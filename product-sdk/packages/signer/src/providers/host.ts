@@ -2000,8 +2000,10 @@ if (import.meta.vitest) {
             const { configure: configureLogs } = await import("@parity/product-sdk-logger");
             const warnings: string[] = [];
             // No `level` override — `warn` is the default, and `configure()` merges,
-            // so a raised level could not be restored from outside the logger package.
-            // Assumes `PRODUCT_SDK_LOG` is unset.
+            // so any override would be irreversible from outside the logger package.
+            // For the same reason the `finally` installs a noop handler rather than
+            // restoring the previous one: there is no way to clear it, so every later
+            // emission in this file goes to the noop. Assumes `PRODUCT_SDK_LOG` unset.
             configureLogs({
                 handler: (entry) => {
                     if (entry.level === "warn") warnings.push(entry.message);
