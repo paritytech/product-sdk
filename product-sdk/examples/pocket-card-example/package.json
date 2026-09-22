@@ -1,0 +1,24 @@
+{
+    "name": "@parity/product-sdk-pocket-card-example",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "description": "Worker example: draws a live Pocket card and generates its approval-sheet faces from the same module",
+    "scripts": {
+        "build": "pnpm faces && pnpm bundle && node scripts/check-bundle.mjs",
+        "bundle": "esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --target=es2022 --minify",
+        "faces": "esbuild src/write-faces.ts --bundle --outfile=dist/write-faces.mjs --format=esm --platform=node --target=es2022 && node dist/write-faces.mjs",
+        "test": "vitest",
+        "typecheck": "tsc -p tsconfig.json"
+    },
+    "dependencies": {
+        "@parity/product-sdk-host": "workspace:*",
+        "@parity/product-sdk-renderer": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "esbuild": "^0.28.1",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}
