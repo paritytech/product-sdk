@@ -1,9 +1,17 @@
 # Upgrading to the latest TrUAPI libraries
 
 **Date:** 2026-09-22
-**Status:** approved, ready for implementation planning
+**Status:** implemented; corrected in place against what the branch found
 **Scope:** one phase — `@parity/truapi` `0.17.0 → 0.18.0` **and**
-`@parity/host-api-test-sdk` `0.12.1 → 0.14.0`, together.
+`@parity/host-api-test-sdk` `0.12.1 → 0.15.0`, together.
+
+> **Retarget note.** This spec was written against
+> `@parity/host-api-test-sdk@0.14.0` and the branch initially landed on it.
+> It then retargeted to **0.15.0**, which fixes four of the gaps reported
+> upstream during implementation. Version numbers below that still read
+> "0.14.0" describe the state at the time of writing; the delivered catalog
+> is `^0.15.0`. Every claim this branch disproved carries its own
+> "(Corrected after implementation began …)" note.
 
 > **Revision note.** An earlier draft of this spec split the work in two,
 > because the newest test SDK at the time (0.13.1) pinned `@parity/truapi`
@@ -156,7 +164,15 @@ seeded) alongside `getSubmittedStatements()` (narrowed to `fromProduct`).
   account. This repo passes only dev names, so it is unaffected.
 - `accounts[0]` is now the active identity and **the only account that signs**.
 - `switchAccount()` re-mints the host session but does **not** reload the
-  product iframe and does not notify the product.
+  product iframe.
+
+  *(Corrected after implementation began: this originally added "and does
+  not notify the product". That is wrong. The core does push the switch down
+  `account.connectionStatusSubscribe()`, which `SignerManager`'s status
+  listener observes — that push is exactly what
+  `switch-account.spec.ts` now gates on. What `switchAccount()` does not do
+  is send the product a frame, so `getConnectionStatus()` — the host's view
+  of the product link — never moves.)*
 - `NetworkConfig` gains `chain?: ChainIdentifier`; a network omitting it is
   left out of `supportedChains()`. `PASEO_ASSET_HUB` now carries
   `chain: 'AssetHub'`, and the fixtures spread it, so this needs no change.
@@ -164,11 +180,17 @@ seeded) alongside `getSubmittedStatements()` (narrowed to `fromProduct`).
   `FixtureConsentBehavior`, a **superset** of the old values that adds
   `'approve-once'`. Existing call sites are unaffected.
 
-**Added and not adopted here:** `executionKind`, `initialState`, `behaviors`,
+**Added and not adopted here:** `executionKind`, `initialState`,
 device-permission controls, locale controls, feature-support overrides,
 chain-set overrides, product-storage seeding, `getConnectionStatus()` /
 `getChainStatus()`, chat seeding, and the worker operation log
 (`getOperationLog()`, `getOpenOperations()`, `clearOperationLog()`).
+
+*(Corrected after implementation began: `behaviors` was listed above as not
+adopted. It is adopted — `examples/signer-demo/e2e/fixtures.ts` passes
+`behaviors: { resourceAllocation: { AutoSigning: false } }`, which is what
+restores `getSigningLog()` visibility for that demo. See the Task 5b
+correction below.)*
 
 ## Design
 
@@ -304,27 +326,50 @@ caused by the test host's observability surface moving between 0.12.1 and
 - Product storage now leaves page `localStorage` for the WASM core, so
   assertions reading `localStorage` directly no longer see product-storage
   writes. Fixed by reading through `testHost.getProductStorage()` instead.
-- `getSigningLog()` stopped recording `signRaw` calls specifically — not a
-  blanket break. The `createTransaction` path is unaffected:
-  `getSigningLog()` still records it, and ten surviving assertions elsewhere
-  (e.g. `tx-demo/e2e/submit-remark.spec.ts:44-46`,
-  `contracts-demo/e2e/submit.spec.ts:55-57`) call it against 0.14 and pass.
-  This differential — createTransaction logged, raw not — is the strongest
-  evidence for the eventual upstream bug report.
-- The connect-time auto-request in `signer-demo/e2e/permission.spec.ts` no
-  longer goes through the legacy permission mechanism at all (see the
-  corrected out-of-scope note above): it is now a `ResourceAllocation`
-  user-confirmation request. The test was rewritten to assert through
-  `setUserConfirmationBehavior` / `getUserConfirmationLog()` instead of the
-  permission log.
+- `getSigningLog()` returned nothing for `signer-demo`'s signing calls.
+
+  *(Corrected after implementation began: this bullet originally read
+  "`getSigningLog()` stopped recording `signRaw` calls specifically — not a
+  blanket break … This differential — createTransaction logged, raw not — is
+  the strongest evidence for the eventual upstream bug report." **There is no
+  upstream bug.** The cause is `AutoSigning`: when the resource is granted,
+  the core is handed the product's subtree secret and signs inside its own
+  worker with no host round trip, so nothing reaches `getSigningLog()`,
+  `getPermissionLog()` or `getUserConfirmationLog()`. The apparent
+  "differential" was a sampling artifact — `signer-demo` is the only demo
+  that requests `AutoSigning` (`examples/signer-demo/src/main.ts`), which is
+  why `tx-demo`'s and `contracts-demo`'s assertions never broke. Withholding
+  it as a boot option — `behaviors: { resourceAllocation: { AutoSigning:
+  false } }` — routes signing back through the observable SSO path and
+  restores the assertion. No issue was filed, and none should be.)*
+- `signer-demo/e2e/permission.spec.ts`'s connect-time auto-request assertion
+  came back empty.
+
+  *(Corrected after implementation began: this bullet originally claimed the
+  auto-request "no longer goes through the legacy permission mechanism at
+  all … moved onto a `ResourceAllocation` user-confirmation request", and
+  that the test "was rewritten to assert through `setUserConfirmationBehavior`
+  / `getUserConfirmationLog()`". Both are wrong, and the delivered test does
+  the opposite — it asserts through `getPermissionLog()` and never calls
+  `getUserConfirmationLog()`. That mistaken reading came from a probe of mine
+  that cleared the log without revoking the standing grant, so the core
+  answered silently and logged nothing. On 0.15.0, with
+  `revokePermission()` fixed upstream, the original premise is intact:
+  `ChainSubmit` is still a permission, and `getPermissionLog()` records it
+  with a `decision` field the test now also asserts.)*
 
 Of the eight: six were migrated to new accessors (including the
 `permission.spec.ts` rewrite), one redundant assertion was dropped
 (`publish.spec.ts`'s trivially-true `expect(stmt.topics).toBeDefined()`,
 since `topics` is non-optional on `StatementEntry` and the `.length >= 2`
 assertion beside it already carries the test), and one was skipped under
-`TODO(test-sdk-observability)` (the `signRaw` / `getSigningLog()` gap above).
-This is the branch's largest unplanned delta against this spec.
+`TODO(test-sdk-observability)`. This is the branch's largest unplanned delta
+against this spec.
+
+*(Corrected after implementation began: that last skip no longer exists. The
+retarget to 0.15.0 plus the `AutoSigning` fixture change restored the
+assertion, `TODO(test-sdk-observability)` was removed, and the tag appears
+nowhere in the repo. **The branch newly skips nothing.**)*
 
 ### Recorded decision: `switch-account.spec.ts`'s reduced-scope assertion
 
@@ -351,13 +396,24 @@ On `host-api-test-sdk@0.15.0` the *live*-switch path is exercised again —
 `account.connectionStatusSubscribe()`, and the test waits on the resulting
 `transition-count` reaction as proof the product observed it in place, no
 reload needed for that part. The `page.reload()` that follows is a separate,
-narrower workaround: empirically (10/10 runs) `SignerManager`'s auto-
-reconnect reliably loses a race against the mock host's own session re-mint
-— it re-queries the product account before the core finishes re-minting the
-SSO session under the new identity, hits a `NotConnected` error, and
-`packages/signer/src/providers/host.ts:751-777` classifies that as
-non-transient and soft-degrades to an empty account list unconditionally,
-with no retry. The reload forces the clean re-handshake needed to read a
+narrower workaround: `SignerManager`'s auto-reconnect races the mock host's
+own session re-mint and loses often enough that its outcome cannot be
+asserted on. When it loses, it re-queries the product account before the core
+finishes re-minting the SSO session under the new identity, hits a
+`NotConnected` error, and `packages/signer/src/providers/host.ts:751-777`
+soft-degrades to an empty account list unconditionally, with no retry.
+
+*(Corrected after implementation began: this passage originally said that
+branch "classifies that as non-transient", and cited 10/10 runs. Both are
+wrong. Lines 751-777 contain **no transience check at all** —
+`isNonTransientHostError` / `error.nonTransient` is never consulted on the
+`dappName` path, unlike its `productAccount` sibling at 725-750, whose own
+comment falsely claims the two match. And the race is not reliably lost:
+probing the demo's rendered transition rows across repeated full-suite runs
+showed the reconnect completing in some runs and not others, which is why
+`switch-account.spec.ts` gates on the reconnect *starting* rather than on its
+outcome. The asymmetry between the two branches is a real `packages/signer`
+bug, recommended for its own PR rather than this one.)* The reload forces the clean re-handshake needed to read a
 reliable final state; it does not stand in for the live-switch assertion,
 which now passes on its own. And it remains true that, because the fixture's
 `productAccounts` pins `"signer-demo.dot"` to `bob`, the final
@@ -455,3 +511,11 @@ still await upstream issue filings — `TODO(test-sdk-observability)`
 assertion is expressible against 0.14, in `switch-account.spec.ts`). Neither
 has a filed issue yet; both are tracked in-repo by the tag itself pending
 that.)*
+
+*(Corrected again, at the end of the branch: of those two tags, only
+`TODO(test-sdk-switch-account)` survives, and its text changed —
+a live-switch assertion **is** expressible, and `switch-account.spec.ts` now
+makes one; what the tag tracks is the reconnect race and the `dappName`
+soft-degrade behind it. `TODO(test-sdk-observability)` was removed entirely:
+there was no upstream bug to file. No issue has been filed for either, by
+design — nothing on this branch has been pushed.)*

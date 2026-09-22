@@ -41,8 +41,10 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         // `connected → connecting` arriving every time and the following
         // `connecting → connected` arriving only sometimes, so a `+2` gate
         // flakes (observed failing in 2 of 5 full-suite runs, while passing
-        // 3/3 when the spec ran alone). `+1` is also all this gate needs:
-        // a no-op `switchAccount()` would push no status change at all.
+        // 3/3 when the spec ran alone); the `+1` form below then ran 12
+        // consecutive full-suite runs green, none reaching the poll timeout.
+        // `+1` is also all this gate needs: a no-op `switchAccount()` would
+        // push no status change at all.
         await testHost.switchAccount("charlie");
 
         await expect

@@ -10,6 +10,17 @@
 
 **Spec:** `superpowers/specs/2026-09-22-truapi-test-sdk-upgrade-design.md` — read it first, including its revision note. An earlier draft split this into two phases and skipped `statement-store-demo`; both decisions are obsolete.
 
+> **Retarget note — read before running anything from this plan.** This plan
+> was written against `@parity/host-api-test-sdk@0.14.0` and every "0.14.0"
+> below is preserved as written, because the branch really did execute
+> against it. Partway through, `0.15.0` shipped fixes for four gaps reported
+> upstream during execution, and the branch retargeted: **the delivered
+> catalog is `^0.15.0`.** Two consequences for anyone replaying this plan:
+> its final verification gate (Task 8) expects `^0.15.0`, corrected in place
+> below; and Task 6's prescription to skip `switch-account.spec.ts` and file
+> an upstream issue was **not** followed — see the correction note on that
+> task.
+
 ## Global Constraints
 
 - **The two packages move together.** truapi 0.18.0 is codec 3; test SDK 0.14.0 bundles a 0.18.0-wire host core. Bumping one without the other breaks all nine e2e suites at handshake. Exact targets: `@parity/truapi@^0.18.0`, `@parity/host-api-test-sdk@^0.14.0`.
@@ -806,6 +817,17 @@ with:
         await waitForAppReady(testHost);
 ```
 
+> **Correction — this task's premise is wrong and was not followed.**
+> `switchAccount()` *does* notify the product: the core pushes the switch
+> down `account.connectionStatusSubscribe()`, which `SignerManager`'s status
+> listener observes and reacts to by starting a reconnect. The delivered test
+> gates on that reaction (`connected → connecting` in the demo's
+> transition list) and so asserts the live-switch path directly, rather than
+> skipping it. A `page.reload()` does survive in the test, but for a
+> narrower reason — the reconnect's *completion* races the mock host's
+> session re-mint — and no upstream issue was filed, because the issue text
+> this task prescribes is known-false.
+
 - [ ] **Step 3: Re-run**
 
 ```bash
@@ -936,7 +958,7 @@ cd packages/host
 node -e "import('@parity/truapi').then(({ TRUAPI_WIRE_SCHEMA_HASH }) => console.log(TRUAPI_WIRE_SCHEMA_HASH))"
 ```
 
-Expected: catalog on `^0.18.0` / `^0.14.0`, both excludes updated, and `TRUAPI_WIRE_SCHEMA_HASH` reporting `462dacb6e0d1f504`. Read this from the exported constant, not from scraping `truapi_server_bg.wasm`'s strings table — that binary's only 16-hex strings are Cargo path hashes, and a match against the wire hash there is luck, not evidence.
+Expected: catalog on `^0.18.0` / `^0.15.0` (see the retarget note in the header — this gate is the one place where the as-delivered version replaces the as-written one, because it is executable), both excludes updated, and `TRUAPI_WIRE_SCHEMA_HASH` reporting `462dacb6e0d1f504`. Read this from the exported constant, not from scraping `truapi_server_bg.wasm`'s strings table — that binary's only 16-hex strings are Cargo path hashes, and a match against the wire hash there is luck, not evidence.
 
 - [ ] **Step 3: Confirm the changeset is parked, not staged for release**
 
