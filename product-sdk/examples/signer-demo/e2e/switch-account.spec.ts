@@ -17,7 +17,11 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         // not the host's currently-active identity account, so switching the
         // host account must NOT change the account the signer surfaces — it
         // re-derives the same product account and stays connected.
+        // host-api-test-sdk 0.14 re-mints the host session without reloading the
+        // product iframe or notifying the product, so nothing would prompt a
+        // re-handshake on its own — reload to force one.
         await testHost.switchAccount("charlie");
+        await testHost.page.reload();
         await waitForAppReady(testHost);
 
         const afterAddress = await frame
