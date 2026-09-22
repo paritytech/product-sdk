@@ -3,16 +3,8 @@
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-// SignerManager writes the selected account through `hostLocalStorage`. In
-// test-sdk 0.14.0 the host core is WebAssembly-backed and namespaces product
-// storage per product, so it no longer lands in the host page's raw
-// `localStorage` under a `test-host:` prefix — there is no such prefix any
-// more. 0.15.0's replacement is `getProductStorageValue(localKey)`, which
-// resolves the product's own key against the core's internal namespacing and
-// returns an exact match, so we only need the documented local key
-// (`product-sdk:signer:signer-demo:selectedAccount`). We poll it directly so
-// we can reload only after the postMessage round-trip has actually flushed —
-// avoiding a timing race where reload() races the persist write.
+// The host core namespaces product storage internally; getProductStorageValue()
+// resolves this local key against it.
 const STORAGE_LOCAL_KEY = "product-sdk:signer:signer-demo:selectedAccount";
 
 test.describe("@parity/product-sdk-signer — persistence", () => {
@@ -38,9 +30,8 @@ test.describe("@parity/product-sdk-signer — persistence", () => {
         expect(beforeReload).toBeTruthy();
 
         // Wait for SignerManager.persistAccount to flush through the
-        // postMessage round-trip into host storage. Without this we race
-        // reload() against the async write — passes alone, fails when run
-        // after other specs that warm up the test runner.
+        // Wait out the postMessage round-trip; otherwise reload() races the
+        // write — passes alone, fails after specs that warm the runner.
         await page.waitForFunction(
             ({ localKey, addr }) => window.__TEST_HOST__.getProductStorageValue(localKey) === addr,
             { localKey: STORAGE_LOCAL_KEY, addr: beforeReload },

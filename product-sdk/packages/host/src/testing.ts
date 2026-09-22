@@ -199,17 +199,11 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
 
     // Typed against the generated client's public surface: every method below is
     // structurally checked, so a truapi signature change breaks this file's build,
-    // not a consumer's test run. The exception is the domains built with
-    // `notModeled(domain, modeled)` — `system` and `chain` — whose `modeled`
-    // argument is `Partial`, so a rename there degrades to a throwing stub at
-    // test runtime rather than a build error.
+    // not a consumer's test run. `notModeled(domain, modeled)` is the exception:
+    // its `modeled` argument is `Partial`, so renames there surface at runtime.
     const client: PublicTruApiClient = {
-        // A plain literal, not `notModeled`, so all four members stay
-        // structurally checked: `notModeled`'s `modeled` argument is
-        // `Partial<…>`, which would let an upstream rename silently demote
-        // `read`/`write`/`clear` to a throwing stub that only fails at test
-        // runtime. `subscribe` throws explicitly instead, with the same
-        // message shape `notModeled` produces.
+        // A literal rather than `notModeled`, to keep all four members
+        // exhaustively checked (see above).
         localStorage: {
             read: ({ key }) => okAsync({ value: kv.get(key) }),
             write: ({ key, value }) => {

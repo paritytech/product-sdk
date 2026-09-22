@@ -36,9 +36,8 @@ test.describe("@parity/product-sdk-statement-store via Host API — subscribe", 
         expect(topicHex).toBeTruthy();
         expect(topicHex!.startsWith("0x")).toBe(true);
 
-        // Inject a statement from the test side. 0.14's `injectStatement` takes
-        // `0x`-hex topics and data and signs with the active session identity,
-        // so there is nothing left that needs constructing inside the page.
+        // `injectStatement` signs with the active session identity, so nothing
+        // needs constructing inside the page.
         await testHost.injectStatement({
             topics: [topicHex! as `0x${string}`],
             data: toHexData(
@@ -85,8 +84,8 @@ test.describe("@parity/product-sdk-statement-store via Host API — subscribe", 
 
         const topicHex = await frame.locator('[data-testid="app-topic-hex"]').textContent();
 
-        // Inject 3 statements. Each payload differs (`index`), which is what keeps
-        // them distinct now that `StatementInput` has no `channel` field.
+        // Payloads differ by `index`: with no `channel` field, the dedupe key is
+        // a hash of `data`.
         for (let i = 1; i <= 3; i++) {
             await testHost.injectStatement({
                 topics: [topicHex! as `0x${string}`],

@@ -35,18 +35,11 @@ const fixture = createTestHostFixture({
     accounts: ["bob", "charlie"],
     networks: [PASEO_AH],
     productAccounts: { "signer-demo.dot": "bob" },
-    // Withhold AutoSigning as a boot option (not via
-    // setResourceAllocationBehavior(), which runs too late — signer-demo
-    // requests AutoSigning inside onConnect, before a post-boot setter could
-    // land). With AutoSigning granted, the core signs inside its own worker
-    // with no host round-trip, so nothing reaches getSigningLog(). Withholding
-    // it routes signing back through the SSO path, where it's observable
-    // again. The record form grants everything it doesn't mention, so the
-    // other allocatable resources (StatementStoreAllowance, BulletinAllowance,
-    // SmartContractAllowance) are unaffected. Note this record governs
-    // resource allocation only — permission tags such as ChainSubmit sit on a
-    // different axis entirely (setPermissionBehavior / grantPermission) and
-    // are untouched by it.
+    // Granted AutoSigning makes the core sign in its own worker with no host
+    // round-trip, so nothing reaches getSigningLog(). Withholding it restores
+    // the observable SSO path. Must be a boot option:
+    // setResourceAllocationBehavior() lands after onConnect has already asked.
+    // Unlisted resources stay granted; permission tags are a separate axis.
     behaviors: { resourceAllocation: { AutoSigning: false } },
 });
 

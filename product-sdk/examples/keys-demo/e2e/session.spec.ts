@@ -123,12 +123,6 @@ test.describe("@parity/product-sdk-keys via Host API — session key lifecycle",
         const mnemonic = await frame.locator('[data-testid="last-mnemonic"]').textContent();
         expect(mnemonic).toBeTruthy();
 
-        // Verify the mnemonic reached host-side product storage. test-sdk
-        // 0.14.0's host core is WebAssembly-backed and namespaces product
-        // storage per product, so the raw `test-host:` localStorage prefix no
-        // longer exists — read through getProductStorageValue(), which
-        // resolves the product's own key against the core's internal
-        // namespacing and returns an exact match.
         const value = await testHost.getProductStorageValue("default");
         expect(value).toBe(mnemonic!.trim());
 
@@ -139,9 +133,7 @@ test.describe("@parity/product-sdk-keys via Host API — session key lifecycle",
             { timeout: 30_000 },
         );
 
-        // Verify the key is removed from host storage: a cleared key is
-        // absent from getProductStorageValue(), which returns `undefined`
-        // rather than an empty value.
+        // A cleared key is absent, not empty.
         const valueAfterClear = await testHost.getProductStorageValue("default");
         expect(valueAfterClear).toBeUndefined();
     });

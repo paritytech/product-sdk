@@ -115,12 +115,6 @@ test.describe("@parity/product-sdk-host via Host API — localStorage operations
             { timeout: 30_000 },
         );
 
-        // Verify the value reached host-side product storage. test-sdk 0.14.0's
-        // host core is WebAssembly-backed and namespaces product storage per
-        // product, so the raw `test-host:` localStorage prefix no longer
-        // exists — read through getProductStorageValue(), which resolves the
-        // product's own key against the core's internal namespacing and
-        // returns an exact match.
         const value = await testHost.getProductStorageValue("e2e-verify");
         expect(value).toBe("host-check");
     });

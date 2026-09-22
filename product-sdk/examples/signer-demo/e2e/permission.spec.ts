@@ -4,30 +4,16 @@ import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
 test.describe("@parity/product-sdk-signer — permission rejection", () => {
-    // No afterEach reset is needed, despite workers:1: createTestHostFixture
-    // stands up a fresh createTestHostServer() per test on its own port, so
-    // permission behavior, the core's stored decisions and product storage are
-    // all per-test state that cannot reach a later spec.
+    // No afterEach reset despite workers:1 — createTestHostFixture stands up a
+    // fresh host server per test, so none of this state outlives the test.
 
-    // The original test asserted that signRaw fails after `revokePermission`,
-    // but on test-sdk 0.14 `revokePermission()` was a no-op against the core:
-    // it only touched the host's own `getGrantedPermissions()` set, so the
-    // core kept serving the product from its previously stored grant without
-    // asking again or logging anything — `getPermissionLog()` stayed empty
-    // and this couldn't be exercised end-to-end. Fixed in 0.15.0:
-    // `revokePermission()` now reaches the core, so `setPermissionBehavior`
-    // + `revokePermission` + a reconnect produces a denied entry in
-    // `getPermissionLog()` again, as verified against 0.15.0 — the restored
-    // sequence below (`setPermissionBehavior("reject-all")` →
-    // `revokePermission("ChainSubmit")` → `clearPermissionLog()` →
-    // reconnect) produces a `ChainSubmit` entry with `approved: false` /
-    // `decision: "Deny"` after the reconnect, before any signature.
     test("connect tolerates a denied ChainSubmit auto-request when host is in reject-all", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);
 
-        // Drop the initially-granted permission state.
+        // Revoking is what forces a re-ask: a standing grant is answered from
+        // the core's stored decision, silently and without a log entry.
         await frame.locator('[data-testid="btn-disconnect"]').click();
         await expect(frame.locator('[data-testid="connection-status"]')).toHaveText(
             "disconnected",

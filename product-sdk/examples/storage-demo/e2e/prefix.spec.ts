@@ -37,18 +37,10 @@ test.describe("@parity/product-sdk-local-storage via Host API — prefix namespa
             { timeout: 30_000 },
         );
 
-        // Verify host-side: the SDK's prefix:key composition ("demo:mykey") must
-        // still be observable. test-sdk 0.14.0's host core is WebAssembly-backed
-        // and namespaces product storage per product, so the raw `test-host:`
-        // localStorage prefix no longer exists — read through
-        // getProductStorageValue(), which does an exact match on the
-        // product's own key rather than a suffix match. That distinction
-        // matters here: the local key itself contains a colon
-        // ("demo:mykey"), so a suffix match on ":demo:mykey" couldn't tell a
-        // genuinely prefixed key apart from a bare "mykey" stored under some
-        // other namespacing that happened to end the same way. The exact
-        // accessor can, so assert both: the prefixed key holds the written
-        // value, and the bare, unprefixed key was never written at all.
+        // getProductStorageValue() matches the product's local key exactly.
+        // A suffix match would be ambiguous here, since the key itself
+        // contains a colon: ":demo:mykey" also ends a bare "mykey" stored
+        // under some other namespacing.
         const prefixedValue = await testHost.getProductStorageValue("demo:mykey");
         expect(prefixedValue).toBe("prefixed-val");
         const bareValue = await testHost.getProductStorageValue("mykey");
