@@ -123,6 +123,17 @@ export type {
     ChatBotRegistrationResult,
 } from "./chat.js";
 
+// Pocket
+export { getPocketManager } from "./pocket.js";
+export type {
+    CardCleanup,
+    CardDrawHandler,
+    CardDrawRegistration,
+    PocketCard,
+    PocketCardAction,
+    PocketManager,
+} from "./pocket.js";
+
 // Payments (RFC-0006)
 export { getPaymentManager } from "./payments.js";
 export type { PaymentManager } from "./payments.js";
