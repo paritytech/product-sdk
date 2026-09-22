@@ -232,7 +232,7 @@ for d in examples/*/; do
   cat > "$d/tsconfig.e2e.json" <<'JSON'
 {
     "extends": "./tsconfig.json",
-    "compilerOptions": { "noEmit": true, "types": ["node"] },
+    "compilerOptions": { "noEmit": true },
     "include": ["e2e"]
 }
 JSON
@@ -455,8 +455,14 @@ with:
 ```ts
 /** UTF-8 → `0x`-hex, for `StatementInput.data`. */
 const toHexData = (value: string): `0x${string}` =>
-    `0x${Buffer.from(value, "utf8").toString("hex")}`;
+    `0x${Array.from(new TextEncoder().encode(value), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 ```
+
+**Do not use `Buffer` here.** `@types/node` is present in the pnpm store only as
+a transitive dependency and is **not resolvable** from any `examples/*` package,
+so `Buffer` would not typecheck. `TextEncoder` comes from the `DOM` lib that
+every example's `tsconfig.json` already enables, and the spec file this replaces
+was already using it.
 
 - [ ] **Step 3: Rewrite the first injection ("injected statement arrives")**
 
