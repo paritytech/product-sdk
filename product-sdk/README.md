@@ -45,13 +45,13 @@ console.log(app.getAppInfo().name, accounts);
 ```
 
 `createApp()` reads the product ID from the host's `system.getProductContext()`.
-That ID selects the wallet product and local-storage prefix, and is returned by
-`app.getAppInfo().name`. Initialization rejects if the host cannot provide the
-product context. Pass options such as `{ logLevel: "info" }` when needed.
+Wallet accounts use that full ID. The app name and local-storage prefix omit its
+final domain suffix: `my-app.dot` uses `my-app`, preserving existing storage.
+`app.getAppInfo().name` reports the app name. Local IDs such as `localhost:3000`
+stay unchanged.
 
-The `name` option is deprecated. If supplied, it is ignored and emits a warning.
-If your previous `name` differs from the host product ID, existing local-storage
-data remains under the former prefix and may need an explicit migration.
+Pass options such as `{ logLevel: "info" }` when needed. The `name` option is
+deprecated; if supplied, it is ignored and emits a warning.
 
 ## Development
 

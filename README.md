@@ -10,7 +10,7 @@ Full documentation is published at **[paritytech.github.io/product-sdk](https://
 
 Start with `await createApp()`. The SDK uses the host's product identity for
 wallet accounts and local storage. See the [quickstart](./docs/content/getting-started/quickstart.mdx)
-for examples and migration from the deprecated `name` option.
+for examples and configuration.
 
 ## product-sdk
 

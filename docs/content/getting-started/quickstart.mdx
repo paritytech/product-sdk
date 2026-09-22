@@ -19,24 +19,20 @@ const { accounts } = await app.wallet.connect();
 
 console.log("Connected accounts:", accounts);
 
-// Persist a value. Namespaced under the host product ID in host storage.
+// Persist a value. Namespaced under the app name in host storage.
 await app.localStorage.set("lastVisit", new Date().toISOString());
 
 const lastVisit = await app.localStorage.get("lastVisit");
 console.log("Last visit:", lastVisit);
 ```
 
-Configuration is optional: `await createApp()` uses the defaults. The SDK reads
-the authoritative product ID from the host's `system.getProductContext()` and
-uses it for wallet accounts and the local-storage prefix.
-`app.getAppInfo().name` reports that resolved host ID.
-
-`createApp` must run inside a compatible host (Polkadot Desktop, Polkadot Mobile, a web host like [dot.li](https://dot.li), or [`@parity/host-api-test-sdk`](https://github.com/paritytech/host-api-test-sdk) for local development). Initialization rejects if the host is missing or refuses the product-context request.
+Configuration is optional: `await createApp()` uses the defaults. Wallet accounts
+use the full product ID supplied by the host. The app name and local-storage
+prefix omit its final domain suffix: `my-app.dot` uses `my-app`, preserving
+existing storage under that name. `app.getAppInfo().name` reports the app name.
+Local development IDs such as `localhost:3000` stay unchanged.
 
 The `name` option is deprecated, ignored, and emits a warning when supplied.
-Existing data stored under a different configured name stays under that old
-local-storage prefix. Migrate it explicitly if the app needs to retain it under
-the host product ID.
 
 ## What to read next
 

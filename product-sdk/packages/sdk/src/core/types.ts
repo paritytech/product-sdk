@@ -39,7 +39,7 @@ export interface AppConfig {
 
 /** App configuration with the identity resolved from the host. */
 export interface AppInfo extends Omit<AppConfig, "name"> {
-    /** Host product ID used for wallet identity and the local-storage prefix. */
+    /** App name and storage prefix, omitting the host ID's final domain suffix. Local host IDs stay unchanged. */
     name: string;
 }
 

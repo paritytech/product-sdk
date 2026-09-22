@@ -51,7 +51,8 @@ const log = createLogger("app");
 /**
  * Create a new Product SDK app instance
  *
- * The host product ID supplies the wallet identity and local-storage prefix.
+ * The full host product ID selects wallet accounts. The app name and storage
+ * prefix omit its final domain suffix.
  *
  * @param config - Optional application configuration
  * @returns App instance with all APIs
@@ -101,12 +102,15 @@ export async function createApp(config: AppConfig = {}): Promise<App> {
     if (!truApi) {
         throw new HostUnavailableError("createApp requires a host product context");
     }
-    const { productId: name } = await truApi.system.getProductContext().match(
+    const { productId } = await truApi.system.getProductContext().match(
         (context) => context,
         (error) => {
             throw new HostCallFailedError("system.getProductContext", error);
         },
     );
+
+    const isLocalHost = /^(?:localhost|127\.0\.0\.1|[^:]+\.localhost)(?::\d+)?$/i.test(productId);
+    const name = isLocalHost ? productId : productId.replace(/\.[^.]+$/, "");
 
     log.info("Creating Product SDK app", { name });
 
@@ -115,7 +119,7 @@ export async function createApp(config: AppConfig = {}): Promise<App> {
 
     // Initialize signer manager
     const signerManager = new SignerManager({
-        dappName: name,
+        dappName: productId,
     });
 
     // Initialize cloud storage client (configurable, defaults to paseo).

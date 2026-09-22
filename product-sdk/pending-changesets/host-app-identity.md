@@ -3,8 +3,6 @@
 "@parity/product-sdk-host": minor
 ---
 
-Resolve the app name from the host's `system.getProductContext()` for wallet identity, local-storage namespacing and `getAppInfo()`. `createApp()` accepts no options, and `ProductSDKProvider` needs no name prop. The optional `name` setting is deprecated, ignored and logged as a warning when supplied.
+Resolve wallet identity from the host's `system.getProductContext()`. Derive the app name, local-storage prefix and `getAppInfo().name` by removing only the final domain suffix: `my-app.dot` uses `my-app`, preserving existing storage. Local development IDs stay unchanged.
 
-Local-storage keys use the full host product ID as their prefix. Apps that stored data under a different configured name must migrate those keys explicitly. Hosts must provide `system.getProductContext()`; a missing or refused context rejects app creation.
-
-The public fake host reports `fake-app.dot` by default and accepts a `productId` option for tests that create apps under a specific host identity.
+`createApp()` works without configuration, and `ProductSDKProvider` needs no name prop. The optional `name` setting is deprecated, ignored and logged as a warning when supplied. The public fake host supplies a fixed product context for app tests.

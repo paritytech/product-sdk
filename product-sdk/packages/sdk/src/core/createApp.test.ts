@@ -29,8 +29,9 @@ describe("host-derived app identity", () => {
     let getProductContext: MockInstance<TruApi["system"]["getProductContext"]>;
 
     beforeEach(() => {
-        client = createFakeTruApiClient({ productId: "session.paseo" });
+        client = createFakeTruApiClient();
         getProductContext = vi.spyOn(client.system, "getProductContext");
+        getProductContext.mockReturnValue(okAsync({ productId: "session.paseo" }));
         setTruApiClient(client);
         entries = [];
         configure({ level: "warn", namespaces: [], handler: (entry) => entries.push(entry) });
@@ -51,19 +52,27 @@ describe("host-derived app identity", () => {
         expect({
             info: app.getAppInfo(),
             accountCount: accounts.length,
-            stored: (
-                await host.client.localStorage.read({ key: "fake-app.dot:key" })
-            )._unsafeUnwrap(),
+            stored: (await host.client.localStorage.read({ key: "fake-app:key" }))._unsafeUnwrap(),
         }).toEqual({
-            info: { name: "fake-app.dot", cloudStorage: false },
+            info: { name: "fake-app", cloudStorage: false },
             accountCount: 1,
             stored: { value: "0x76616c7565" },
         });
     });
 
-    it.each(["session.paseo", "nested.app.dot", "localhost", "localhost:3000"])(
-        "uses the exact host identity %s for wallet accounts and storage",
-        async (productId) => {
+    it.each([
+        ["my-app.dot", "my-app"],
+        ["session.paseo", "session"],
+        ["nested.app.dot", "nested.app"],
+        ["localhost", "localhost"],
+        ["localhost:3000", "localhost:3000"],
+        ["127.0.0.1", "127.0.0.1"],
+        ["127.0.0.1:3000", "127.0.0.1:3000"],
+        ["app.localhost", "app.localhost"],
+        ["app.localhost:3000", "app.localhost:3000"],
+    ])(
+        "keeps wallet identity %s while using %s for app info and storage",
+        async (productId, appName) => {
             getProductContext.mockReturnValue(okAsync({ productId }));
             const getAccount = vi.spyOn(client.account, "getAccount");
             const write = vi.spyOn(client.localStorage, "write");
@@ -80,7 +89,7 @@ describe("host-derived app identity", () => {
                 storageWrite: write.mock.calls.at(-1),
                 stored: await app.localStorage.get("key"),
             }).toEqual({
-                name: productId,
+                name: appName,
                 accountCount: 1,
                 accountRequests: [
                     [
@@ -92,11 +101,32 @@ describe("host-derived app identity", () => {
                         },
                     ],
                 ],
-                storageWrite: [{ key: `${productId}:key`, value: "0x76616c7565" }],
+                storageWrite: [{ key: `${appName}:key`, value: "0x76616c7565" }],
                 stored: "value",
             });
         },
     );
+
+    it("keeps existing bare-name storage readable and writes to the same prefix", async () => {
+        getProductContext.mockReturnValue(okAsync({ productId: "my-app.dot" }));
+        await client.localStorage.write({ key: "my-app:theme", value: "0x6461726b" });
+        const app = await createApp({ cloudStorage: false });
+        apps.push(app);
+        const previous = await app.localStorage.get("theme");
+        await app.localStorage.set("theme", "light");
+
+        expect({
+            previous,
+            current: (await client.localStorage.read({ key: "my-app:theme" }))._unsafeUnwrap(),
+            fullIdPrefix: (
+                await client.localStorage.read({ key: "my-app.dot:theme" })
+            )._unsafeUnwrap(),
+        }).toEqual({
+            previous: "dark",
+            current: { value: "0x6c69676874" },
+            fullIdPrefix: { value: undefined },
+        });
+    });
 
     it("requests the host identity without configuration or a deprecation warning", async () => {
         expectTypeOf({ children: null }).toMatchTypeOf<ProductSDKProviderProps>();
@@ -122,7 +152,7 @@ describe("host-derived app identity", () => {
                 .filter((entry) => entry.namespace === "app")
                 .map(({ level, message }) => ({ level, message })),
         }).toEqual({
-            info: { name: "session.paseo", cloudStorage: false },
+            info: { name: "session", cloudStorage: false },
             storedWithoutName: "retained",
             warnings: [
                 {

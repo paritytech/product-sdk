@@ -10,8 +10,8 @@
  * makes a default `SignerManager`, `local-storage` auto-detection, and the
  * `statement-store` / `cloud-storage` host paths testable.
  *
- * `system.getProductContext` returns the `productId` option (default
- * `"fake-app.dot"`), so `createApp()` can resolve its host identity.
+ * `system.getProductContext` returns `"fake-app.dot"` so `createApp()` can
+ * resolve its host identity.
  *
  * Of the `chain` domain only `getChainInfo` is modeled, so host chain discovery
  * (and `getChainAPI()` on top of it) resolves in tests; see the `chainInfo`
@@ -150,8 +150,6 @@ export interface FakeChainInfo {
 
 /** Options for {@link createFakeTruApiClient}. */
 export interface CreateFakeTruApiClientOptions {
-    /** `system.getProductContext` product ID. Default `"fake-app.dot"`. */
-    productId?: string;
     /** `account.getUserId` primary username. Default `"alice.dot"`. */
     primaryUsername?: string;
     /** Product-account public key. Default 32 bytes of `0x11`. */
@@ -182,7 +180,6 @@ export interface CreateFakeTruApiClientOptions {
  * member access.
  */
 export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions): TrUApiClient {
-    const productId = options?.productId ?? "fake-app.dot";
     const primaryUsername = options?.primaryUsername ?? "alice.dot";
     const publicKey = toHex(options?.publicKey ?? new Uint8Array(32).fill(0x11));
     const signature = toHex(options?.signature ?? new Uint8Array(64).fill(0x22));
@@ -313,7 +310,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
             handshake: () => okAsync(undefined),
             featureSupported: () => okAsync({ supported: chainSupported }),
             navigateTo: () => okAsync(undefined),
-            getProductContext: () => okAsync({ productId }),
+            getProductContext: () => okAsync({ productId: "fake-app.dot" }),
         }),
         preimage: {
             lookupSubscribe: ({ request: { key } }) =>
@@ -467,16 +464,13 @@ if (import.meta.vitest) {
     afterEach(() => setTruApiClient(null));
 
     describe("createFakeHost / createFakeTruApiClient", () => {
-        test.each([
-            { options: undefined, productId: "fake-app.dot" },
-            { options: { productId: "session.paseo" }, productId: "session.paseo" },
-        ])("provides the app's host product context $productId", async ({ options, productId }) => {
-            const host = createFakeHost(options);
+        test("provides the app's host product context", async () => {
+            const host = createFakeHost();
             const context = await host.client.system.getProductContext().match(
                 (value) => value,
                 () => null,
             );
-            expect(context).toEqual({ productId });
+            expect(context).toEqual({ productId: "fake-app.dot" });
         });
 
         test("host localStorage round-trips through the real adapter", async () => {
