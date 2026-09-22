@@ -4,7 +4,7 @@ packages:
   - "scripts/bench-consumer"
 
 catalog:
-  "@parity/host-api-test-sdk": ^0.14.0
+  "@parity/host-api-test-sdk": ^0.15.0
   "@parity/truapi": ^0.18.0
   "@playwright/test": ^1.60.0
   "@polkadot-api/json-rpc-provider": ^0.2.0
@@ -38,5 +38,5 @@ allowBuilds:
   esbuild: true
 
 minimumReleaseAgeExclude:
-  - '@parity/host-api-test-sdk@0.14.0'
+  - '@parity/host-api-test-sdk@0.15.0'
   - '@parity/truapi@0.18.0'
