@@ -10,7 +10,7 @@
  * Flow inside the host-api-test-sdk test host:
  *   1. SignerManager.connect() establishes the HostProvider session.
  *   2. manager.getProductAccount("tx-demo.dot", 0) asks the host for a
- *      DotNS-derived product account. The fixture maps "tx-demo.dot/0" to
+ *      DotNS-derived product account. The fixture maps "tx-demo.dot" to
  *      Bob's funded keypair via `productAccounts`.
  *   3. getChainAPI("paseo") routes RPC through the host's chainConnection.
  *   4. submitAndWatch uses productAccount.getSigner() — which routes
@@ -269,7 +269,7 @@ async function init() {
     }
 
     // Step 2: request the product account. The fixture maps
-    // "tx-demo.dot/0" → bob via `productAccounts`, so this returns Bob's
+    // "tx-demo.dot" → bob via `productAccounts`, so this returns Bob's
     // funded account but signs through host_create_transaction.
     log("Requesting product account tx-demo.dot/0…");
     const productRes = await manager.getProductAccount("tx-demo.dot", 0);

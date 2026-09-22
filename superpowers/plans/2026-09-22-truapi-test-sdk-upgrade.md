@@ -953,7 +953,7 @@ Expected: no `.changeset/` changes; `truapi-0.18-worker.md` present in `pending-
 git diff main --stat
 ```
 
-Expected, and nothing else: `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `packages/host/src/testing.ts`, nine `e2e/fixtures.ts`, two `statement-store-demo` spec files, `pending-changesets/truapi-0.18-worker.md`, and — only if Task 6 acted — `signer-demo/e2e/switch-account.spec.ts`.
+Expected, and nothing else: `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `.gitignore`, `packages/host/src/testing.ts`, nine `e2e/fixtures.ts`, two `statement-store-demo` spec files, `pending-changesets/truapi-0.18-worker.md`, and — only if Task 6 acted — `signer-demo/e2e/switch-account.spec.ts`. Task 5b's unplanned observability-surface fixes additionally touch four demos: `host-demo/e2e/storage-ops.spec.ts`, `keys-demo/e2e/session.spec.ts`, `signer-demo/e2e/{lifecycle,permission,persistence,sign-raw}.spec.ts`, and `storage-demo/e2e/{kv-ops,prefix}.spec.ts` — see task-5b-report.md.
 
 - [ ] **Step 5: Push and open the PR**
 

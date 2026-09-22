@@ -41,9 +41,18 @@ test.describe("@parity/product-sdk-signer — signRaw", () => {
     // auto-sign-vs-confirm split the original plan hypothesized (that would
     // show up in getUserConfirmationLog(), and it doesn't either).
     //
+    // This is specific to "raw", not a blanket break of getSigningLog(): the
+    // "createTransaction" path is unaffected. Ten surviving assertions
+    // elsewhere call getSigningLog() against this same test-sdk version and
+    // pass — e.g. examples/tx-demo/e2e/submit-remark.spec.ts:44-46 and
+    // examples/contracts-demo/e2e/submit.spec.ts:55-57, both asserting
+    // toHaveLength(1) and type === "createTransaction". So the SSO responder
+    // path is still logged for createTransaction; only "raw" isn't.
+    //
     // File this against @parity/host-api-test-sdk as: signRaw() no longer
     // traverses the logged SSO responder path, so getSigningLog() stays
-    // empty for a signRaw() that otherwise succeeds. Re-enable once fixed.
+    // empty for a signRaw() that otherwise succeeds, while createTransaction
+    // still traverses it and is logged. Re-enable once fixed.
     test.skip(
         "the host records the raw sign request in the signing log",
         async ({ testHost }) => {

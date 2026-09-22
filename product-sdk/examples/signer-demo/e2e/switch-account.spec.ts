@@ -13,7 +13,7 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         expect(beforeAddress).toBeTruthy();
 
         // Flip the host's active account to Charlie. The host connect path
-        // derives a *dapp-scoped* product account ("signer-demo.dot/0"),
+        // derives a *dapp-scoped* product account ("signer-demo.dot"),
         // not the host's currently-active identity account, so switching the
         // host account must NOT change the account the signer surfaces — it
         // re-derives the same product account and stays connected.

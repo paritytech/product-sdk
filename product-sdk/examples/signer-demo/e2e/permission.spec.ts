@@ -14,13 +14,16 @@ test.describe("@parity/product-sdk-signer — permission rejection", () => {
     });
 
     // The original test asserted that signRaw fails after `revokePermission`,
-    // but test SDK 0.7.5 exposes `setEnforcePermissions` without wiring it —
-    // signing handlers ignore the granted-permissions state, so revoke + sign
-    // can't be exercised end-to-end yet. This test asserts the layer above
-    // that *is* exercisable: the host records a denied auto-request during
-    // connect, and the SignerManager tolerates the denial (matching real-host
-    // behavior: log a warning, keep the connection alive, defer the actual
-    // failure to sign-time when the host would refuse).
+    // but on test-sdk 0.14 the legacy permission mechanism
+    // (`setPermissionBehavior` / `grantPermission` / `revokePermission` /
+    // `getPermissionLog()`) has no effect on this connect-time auto-request —
+    // see the note below, it moved to a `ResourceAllocation` user-confirmation
+    // request instead — so revoke + sign can't be exercised end-to-end through
+    // the permission API yet. This test asserts the layer above that *is*
+    // exercisable: the host records a denied auto-request during connect, and
+    // the SignerManager tolerates the denial (matching real-host behavior: log
+    // a warning, keep the connection alive, defer the actual failure to
+    // sign-time when the host would refuse).
     //
     // test-sdk 0.14 (Task 5b): the connect-time auto-request this test
     // exercises no longer goes through the legacy permission mechanism at

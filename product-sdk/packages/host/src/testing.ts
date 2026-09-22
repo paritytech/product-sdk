@@ -16,9 +16,9 @@
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
  * selection — the `system` domain's `info` / `getProductContext`, and the
  * `chat` / `coinPayment` / `entropy` / `locale` / `notifications` / `payment` /
- * `permissions` / `resourceAllocation` / `theme` domains. Touching
- * an unmodeled domain throws a descriptive error rather than failing with
- * `undefined is not a function`.
+ * `permissions` / `pocket` / `renderer` / `resourceAllocation` / `theme` /
+ * `worker` domains. Touching an unmodeled domain throws a descriptive error
+ * rather than failing with `undefined is not a function`.
  *
  * @packageDocumentation
  */

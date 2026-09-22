@@ -54,8 +54,14 @@ test.describe("@parity/product-sdk-signer — disconnect + reconnect", () => {
         // empty for a signRaw() that demonstrably succeeds — see the Step 3
         // probe finding in task-5b-report.md and the fuller citation in the
         // skipped "the host records the raw sign request in the signing log"
-        // test in sign-raw.spec.ts, which tracks the same regression. When
-        // that's fixed upstream, restore the dropped assertion here too
+        // test in sign-raw.spec.ts, which tracks the same regression. This is
+        // specific to "raw": getSigningLog() still works for
+        // "createTransaction" elsewhere — e.g.
+        // examples/tx-demo/e2e/submit-remark.spec.ts:44-46 and
+        // examples/contracts-demo/e2e/submit.spec.ts:55-57 both assert
+        // toHaveLength(1) and type === "createTransaction" and pass against
+        // this same test-sdk version. When that's fixed upstream, restore the
+        // dropped assertion here too
         // (clear the signing log before this signRaw() call, then assert it
         // has exactly one entry of type "raw" afterward) — re-enabling only
         // the sign-raw.spec.ts test will not bring this one back.
