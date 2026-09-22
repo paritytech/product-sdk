@@ -27,7 +27,9 @@ Worked example: `examples/pocket-card-example/`.
 
 ```json
 {
+    "$v": 1,
     "kind": "worker",
+    "appVersion": [0, 1, 0],
     "entrypoint": "worker.js",
     "includes": { "pocket": true },
     "pocket": {
@@ -50,17 +52,19 @@ import {
     background, button, column, fillWidth, padding, rounded, row, text,
 } from "@parity/product-sdk-renderer";
 
-const face = column(
-    [
-        row([text("Loyalty", { style: "TitleMediumRegular", color: "FgPrimary" })], {
-            modifiers: [fillWidth()],
-            horizontalArrangement: "SpaceBetween",
-        }),
-        text("6 of 10 stamps", { style: "BodySmallRegular", color: "FgSecondary" }),
-        button("Stamp", { clickAction: "stamp", variant: "Primary" }),
-    ],
-    { modifiers: [fillWidth(), padding(20), background("BgSurfaceContainer", rounded(20))] },
-);
+// A face is built from state rather than stored, because a card redraws.
+const loyaltyFace = (stamps: number) =>
+    column(
+        [
+            row([text("Loyalty", { style: "TitleMediumRegular", color: "FgPrimary" })], {
+                modifiers: [fillWidth()],
+                horizontalArrangement: "SpaceBetween",
+            }),
+            text(`${stamps} of 10 stamps`, { style: "BodySmallRegular", color: "FgSecondary" }),
+            button("Stamp", { clickAction: "stamp", variant: "Primary" }),
+        ],
+        { modifiers: [fillWidth(), padding(20), background("BgSurfaceContainer", rounded(20))] },
+    );
 ```
 
 The vocabulary is small and closed: 11 node types, 12 modifiers, **9 semantic colour tokens**, 5
@@ -72,13 +76,19 @@ CID or a path inside your archive, never a URL.
 ```ts
 import { validateFace, assertFaceValid, androidLimits } from "@parity/product-sdk-renderer";
 
+const face = loyaltyFace(6);
+
 const verdict = validateFace(face);
 verdict.errors;    // the protocol forbids these, no host can draw them
 verdict.warnings;  // legal, and probably not what you meant
 ```
 
 Each issue carries a `path` such as `.value.children[2].value.props.style`, so it names the place and not
-just the problem. `assertFaceValid(face)` throws instead, which is what a build step wants.
+just the problem.
+
+`assertFaceValid(face, { host: androidLimits })` throws instead, which is what a build step wants. Name
+the host. Without it a breach of that host's depth, size or byte bounds is only a warning, so a build step
+calling `assertFaceValid(face)` alone will happily ship a face the device then refuses.
 
 ## The traps
 
@@ -117,14 +127,24 @@ import { getPocketManager } from "@parity/product-sdk-host";
 
 const pocket = await getPocketManager();   // null outside a host container
 
+let stamps = 0;
+
+// Keep the sink the render was opened with. It is the only way to draw again,
+// and an action handler has no other way to change the card.
+let repaint: (() => void) | null = null;
+
 pocket?.drawCard("loyalty", (send) => {
-    send(face());
-    const timer = setInterval(() => send(face()), 1000);
-    return () => clearInterval(timer);      // the host calls this when the card leaves
+    repaint = () => send(loyaltyFace(stamps));
+    repaint();
+    return () => {
+        repaint = null;                     // the host calls this when the card leaves
+    };
 });
 
 pocket?.subscribeCardAction("loyalty", (action) => {
-    if (action.actionId === "stamp") { /* redraw */ }
+    if (action.actionId !== "stamp") return;
+    stamps += 1;
+    repaint?.();                            // nothing changes on screen without this
 });
 
 pocket?.subscribeCards((cards) => console.log(cards.map((card) => card.cardId)));
@@ -146,7 +166,7 @@ One registration serves every card, so calling `drawCard` twice is safe and the 
 Generate the preview from the same module the worker renders from, and check it as you write it:
 
 ```ts
-const json = `${JSON.stringify(loyaltyFace(state), null, 2)}\n`;
+const json = `${JSON.stringify(loyaltyFace(6), null, 2)}\n`;
 assertFaceValid(json, { host: androidLimits });   // the text is what the host measures
 writeFileSync(path, json);
 ```

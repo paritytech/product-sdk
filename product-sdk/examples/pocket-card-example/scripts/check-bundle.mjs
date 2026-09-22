@@ -20,8 +20,13 @@ const source = readFileSync(bundle, "utf8");
 
 const nonAscii = [...source].findIndex((character) => (character.codePointAt(0) ?? 0) > 0x7f);
 if (nonAscii !== -1) {
-    const line = source.slice(0, nonAscii).split("\n").length;
-    console.error(`dist/worker.js has a non-ASCII character on line ${line}.`);
+    // A line number is useless here: the bundle is minified, so everything is on
+    // line 1. What a reader needs is the character and enough around it to find.
+    const character = source[nonAscii];
+    const point = character.codePointAt(0).toString(16).padStart(4, "0");
+    const context = source.slice(Math.max(0, nonAscii - 40), nonAscii + 40);
+    console.error(`dist/worker.js has a non-ASCII character: '${character}' (U+${point.toUpperCase()})`);
+    console.error(`  ...${context}...`);
     console.error("The host reads worker JS as Latin-1, so this bundle would arrive corrupted.");
     process.exit(1);
 }

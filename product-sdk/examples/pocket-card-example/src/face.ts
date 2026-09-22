@@ -10,8 +10,10 @@
  * twice, because a sheet that disagrees with the card it is offering is worse
  * than no sheet.
  *
- * Every string here is ASCII. The host reads worker JS as Latin-1, and this ends
- * up inside that bundle.
+ * The Latin-1 rule the host reads worker JS under is handled by the build, not
+ * by hand: esbuild's ascii charset escapes non-ASCII string literals, and
+ * `scripts/check-bundle.mjs` checks the result. Labels here can be written the
+ * way they should read.
  */
 import {
     background,

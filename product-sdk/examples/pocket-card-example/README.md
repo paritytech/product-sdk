@@ -22,9 +22,9 @@ It bundles the worker to a single `dist/worker.js`. Then it asserts that bundle 
 |---|---|
 | `src/face.ts` | the face, built with `@parity/product-sdk-renderer` |
 | `src/worker.ts` | the worker entry, drawing through `getPocketManager()` |
-| `src/write-faces.ts` | writes and checks the approval sheet faces |
+| `src/write-faces.ts` | writes and checks the approval sheet faces, and checks the manifest agrees |
 | `src/face.test.ts` | every state of the card draws with no errors and no warnings |
-| `scripts/check-bundle.mjs` | the bundle is one file and ASCII only |
+| `scripts/check-bundle.mjs` | the bundle is ASCII only |
 | `manifest/worker.json` | what the product publishes so the host knows the card exists |
 
 ## Three things that cost time to find out
