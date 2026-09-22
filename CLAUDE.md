@@ -69,6 +69,8 @@ Every PR that changes a published artifact needs a changeset. See [`product-sdk/
 | PAPI chain bindings | `product-sdk/packages/descriptors/chains/<chain>/.papi/polkadot-api.json` |
 | Contracts wrapper / dry-runs | `product-sdk/packages/contracts/src/wrap.ts` |
 | Cloud storage chain client | `product-sdk/packages/cloud-storage/src/` |
+| Build or check a Pocket card face | `product-sdk/packages/renderer/src/nodes.ts`, `product-sdk/packages/renderer/src/validate.ts` |
+| Draw a Pocket card from a worker | `product-sdk/packages/host/src/pocket.ts`, `product-sdk/examples/pocket-card-example/` |
 | Release pipeline | `.github/workflows/product-sdk-release.yml`, `product-sdk/RELEASES.md` |
 | Descriptor drift detection | `.github/workflows/product-sdk-descriptors-drift.yml`, `product-sdk/packages/descriptors/README.md` |
 
