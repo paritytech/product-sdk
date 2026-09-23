@@ -185,15 +185,16 @@ conclusion was a bad card-id filter. The stream was already dead. Only a raw
 `renderer.actionSubscribe()` with its `error` callback logged shows this, because the manager filters
 internally. That one diagnostic turned a guessing game into a two minute fix.
 
-**A card is not interactive until it is expanded.** In the collapsed Pocket stack the button does nothing
-and **nothing is logged at all**. Tap the card to open it on its own screen first. Before believing a
-press is dropped, confirm the tap lands:
+**Confirm your tap lands before you blame the protocol.** I lost time believing the card's button was
+inert in the collapsed Pocket stack. It is not. Dumping the view hierarchy showed it clickable at known
+bounds, and a tap at its centre logged the press at once. The earlier taps had been computed from a
+screenshot taken before the stack shifted.
 
 ```bash
 adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml
 ```
 
-The node with the button's text is `clickable=false`, and its clickable parent is the button.
+The node with the button's text is `clickable=false`, and its clickable parent carries the bounds.
 
 **The worker is kept warm and the bundle is cached.** Rebuilding is not enough. Serve with `no-store` and
 `adb shell am force-stop <package>` between runs, or you are reading results from the code you replaced.
