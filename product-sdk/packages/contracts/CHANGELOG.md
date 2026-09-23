@@ -1,5 +1,16 @@
 # @parity/product-sdk-contracts
 
+## 0.10.10
+
+### Patch Changes
+
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+  - @parity/product-sdk-keys@0.4.0
+  - @parity/product-sdk-signer@0.15.0
+  - @parity/product-sdk-tx@0.4.10
+
 ## 0.10.9
 
 ### Patch Changes

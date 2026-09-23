@@ -1,5 +1,72 @@
 # @parity/product-sdk-host
 
+## 0.22.0
+
+### Minor Changes
+
+- a0fcb48: Resolve wallet identity from the host's `system.getProductContext()`. Derive the app name, local-storage prefix and `getAppInfo().name` by removing only the final domain suffix: `my-app.dot` uses `my-app`, preserving existing storage. Local development IDs stay unchanged.
+
+  `createApp()` works without configuration, and `ProductSDKProvider` needs no name prop. The optional `name` setting is deprecated, ignored and logged as a warning when supplied. The public fake host supplies a fixed product context for app tests.
+
+- a0fcb48: `createFakeTruApiClient` models `localStorage.subscribe`, so a product test can
+  exercise a key watcher without a real host. The fake's in-memory KV is the
+  source of truth for the stream: a subscription delivers the key's current value
+  on a microtask, then one item per later `write` or `clear` that changes the
+  stored bytes. A write of the bytes already stored, and a clear of an absent key,
+  emit nothing — the same silence the host keeps. `unsubscribe()` stops delivery.
+
+  ```ts
+  using host = createFakeHost({ localStorage: { theme: new TextEncoder().encode("dark") } });
+  host.client.localStorage
+      .subscribe({ request: { key: "theme" } })
+      .subscribe({ next: ({ value }) => render(value) });
+  ```
+
+- a0fcb48: Expose the host's temporary unwatermarked raw-signing calls on `AccountsProvider`:
+
+  ```ts
+  signRawUnwatermarkedDeprecated(account: ProductAccount, data: Uint8Array): Promise<Uint8Array>
+  signRawUnwatermarkedDeprecatedWithLegacyAccount(account: { publicKey: Uint8Array }, data: Uint8Array): Promise<Uint8Array>
+  ```
+
+  Both sign `data` with no `<Bytes>` watermark and return the raw signature bytes,
+  mirroring the `signBytes` of the two `PolkadotSigner` factories. They exist for
+  runtimes that verify a bare-byte ownership proof — People chain's
+  `Resources.register_person` `lite_identity_proof` is the one that forced them —
+  and they are deprecated on the host side too
+  ([host-rust-core#612](https://github.com/paritytech/host-rust-core/issues/612),
+  implemented in [#731](https://github.com/paritytech/host-rust-core/pull/731),
+  shipped in `@parity/truapi` 0.16.0). Hosts log a deprecation warning and show a
+  stronger confirmation prompt, since an unwatermarked signature can authorize a
+  transaction. Use `signBytes` everywhere a runtime does not force otherwise; both
+  calls disappear once the runtime accepts watermarked proofs.
+
+  **Breaking for implementors.** Both are required members of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test
+  doubles must add them. Callers are unaffected. `createFakeTruApiClient` already
+  models both.
+
+- a0fcb48: Add `getPocketManager()`, for drawing the product's Pocket cards, reading its card list, hearing about
+  presses, and giving a card up.
+
+  A client has one `onRender` slot, and the renderer serves three kinds of body. So the slot is owned by a
+  small shared module that dispatches by context, and each surface claims only what it draws. Pocket claims
+  `PocketCard`, which leaves the chat and input contexts free. `getRendererManager()` claims one of those
+  for a product that draws it.
+
+  A handler that throws or rejects costs one render rather than every card the product has. A cleanup that
+  resolves after the card has left runs at once.
+
+- a0fcb48: **Pair with a truapi 0.18 host.** `@parity/truapi` moves from `^0.17.0` to `^0.18.0`. `TRUAPI_CODEC_VERSION` moves from 2 to 3 and `TRUAPI_WIRE_SCHEMA_HASH` from `50637d83426acd22` to `462dacb6e0d1f504`. The handshake compares codec versions for equality, so a product on 0.18 cannot talk to a host still on 0.17, in either direction — every host surface has to move in the same window.
+
+  **New `worker` domain.** `getTruApi().worker` exposes the product's pending background operations: `beginOperation()` opens one and `endOperation()` closes it, and the host keeps a `Worker` product's runtime alive while at least one is open. `endOperation` is idempotent, so a retry after an ambiguous failure is safe. `createFakeTruApiClient` from `@parity/product-sdk-host/testing` carries a `worker` entry that throws when touched, matching how the other unmodeled domains behave.
+
+  **New `localStorage.subscribe`.** `getTruApi().localStorage.subscribe({ request })` emits a key's current value and then one item per later write or clear of that key by any of the product's runtimes; a write that leaves the bytes unchanged emits nothing. The fake client's `localStorage` still serves `read` / `write` / `clear` from its real in-memory KV, but `subscribe` is not modeled and throws — a test that needs it should drive the real transport instead.
+
+  **Call errors can now be `Cancelled`.** `CallErrorValue` gains a `Cancelled` unit variant, which the host returns for a call it stopped. Code that exhaustively matches on a call error's `tag` needs a new arm; code that formats by tag — including this package's own `formatHostError` — is unaffected.
+
+  **Every call takes an optional `CallOptions`.** Generated request methods accept a trailing `{ signal }` argument for withdrawing a call. A host predating the cancel leg drops the frame, and the call settles on its deadline instead; there is no way to detect that in advance. This package does not yet surface the option through its own facades.
+
 ## 0.21.0
 
 ### Minor Changes

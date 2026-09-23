@@ -1,5 +1,133 @@
 # @parity/product-sdk
 
+## 0.30.0
+
+### Minor Changes
+
+- a0fcb48: Resolve wallet identity from the host's `system.getProductContext()`. Derive the app name, local-storage prefix and `getAppInfo().name` by removing only the final domain suffix: `my-app.dot` uses `my-app`, preserving existing storage. Local development IDs stay unchanged.
+
+  `createApp()` works without configuration, and `ProductSDKProvider` needs no name prop. The optional `name` setting is deprecated, ignored and logged as a warning when supplied. The public fake host supplies a fixed product context for app tests.
+
+- a0fcb48: `createFakeTruApiClient` models `localStorage.subscribe`, so a product test can
+  exercise a key watcher without a real host. The fake's in-memory KV is the
+  source of truth for the stream: a subscription delivers the key's current value
+  on a microtask, then one item per later `write` or `clear` that changes the
+  stored bytes. A write of the bytes already stored, and a clear of an absent key,
+  emit nothing — the same silence the host keeps. `unsubscribe()` stops delivery.
+
+  ```ts
+  using host = createFakeHost({ localStorage: { theme: new TextEncoder().encode("dark") } });
+  host.client.localStorage
+      .subscribe({ request: { key: "theme" } })
+      .subscribe({ next: ({ value }) => render(value) });
+  ```
+
+- a0fcb48: Expose the host's temporary unwatermarked raw-signing calls on `AccountsProvider`:
+
+  ```ts
+  signRawUnwatermarkedDeprecated(account: ProductAccount, data: Uint8Array): Promise<Uint8Array>
+  signRawUnwatermarkedDeprecatedWithLegacyAccount(account: { publicKey: Uint8Array }, data: Uint8Array): Promise<Uint8Array>
+  ```
+
+  Both sign `data` with no `<Bytes>` watermark and return the raw signature bytes,
+  mirroring the `signBytes` of the two `PolkadotSigner` factories. They exist for
+  runtimes that verify a bare-byte ownership proof — People chain's
+  `Resources.register_person` `lite_identity_proof` is the one that forced them —
+  and they are deprecated on the host side too
+  ([host-rust-core#612](https://github.com/paritytech/host-rust-core/issues/612),
+  implemented in [#731](https://github.com/paritytech/host-rust-core/pull/731),
+  shipped in `@parity/truapi` 0.16.0). Hosts log a deprecation warning and show a
+  stronger confirmation prompt, since an unwatermarked signature can authorize a
+  transaction. Use `signBytes` everywhere a runtime does not force otherwise; both
+  calls disappear once the runtime accepts watermarked proofs.
+
+  **Breaking for implementors.** Both are required members of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test
+  doubles must add them. Callers are unaffected. `createFakeTruApiClient` already
+  models both.
+
+- a0fcb48: Add `getPocketManager()`, for drawing the product's Pocket cards, reading its card list, hearing about
+  presses, and giving a card up.
+
+  A client has one `onRender` slot, and the renderer serves three kinds of body. So the slot is owned by a
+  small shared module that dispatches by context, and each surface claims only what it draws. Pocket claims
+  `PocketCard`, which leaves the chat and input contexts free. `getRendererManager()` claims one of those
+  for a product that draws it.
+
+  A handler that throws or rejects costs one render rather than every card the product has. A cleanup that
+  resolves after the card has left runs at once.
+
+- a0fcb48: Add `@parity/product-sdk-renderer`: a typed builder for renderer trees and `validateFace`, which checks a
+  face against the renderer protocol without a device.
+
+  The builders make the encoding traps unreachable — `padding(20, 24)` cannot omit an edge, and enum names
+  and node shapes are checked by the compiler. `validateFace` separates what the protocol forbids from what
+  it allows and you probably did not mean, and treats one host's depth, size and byte bounds as advice
+  unless you name that host.
+
+  Reachable from the umbrella as `@parity/product-sdk/renderer`.
+
+- a0fcb48: **Product accounts derive the RFC-0022 way.** The previous derivation predated RFC-0022 and matched no shipping host, so every product-account address the SDK produced was wrong. It failed closed: the wallet resolves an account selector rather than a key, so it signed as the correct account, but the wrong key drove the nonce lookup and everything else PAPI computes around the signature, and it is the address `packages/auth` displayed.
+
+  A product account sits at `//product//{productId}/{derivationIndex}`. The two `//product//{productId}` junctions are **hard**. Hard junctions cannot be reproduced from a public key, so the old approach — three soft junctions from `session.rootAccountId` — could not have been right for any host. The subtree public key must come from the Account Holder.
+
+  Canonical implementation is `host_logic/product_account.rs` in host-rust-core, mirrored by Android `DerivationPaths.kt` and iOS `DerivationIndex32.swift`. `packages/keys/src/product-account.test.ts` now pins the derivation against the host's own cross-host vector from `truapi-server/tests/wasm_crypto_vectors.rs`, rather than against fixtures generated from our own implementation.
+
+  **Every product-account address changes.** Anything keyed to an address this SDK derived before — funds, allowances, statement-store entries, on-chain registrations — belongs to an account no host will sign for and is stranded. Check before upgrading.
+
+  **Breaking API changes:**
+
+  - `deriveProductAccountPublicKey(productSubtreePublicKey, derivationIndex)` replaces `(parentPublicKey, productId, derivationIndex)`. The index is now a tagged `DerivationIndex` (`{ tag: "Index", value }` or `{ tag: "Raw", value }`), matching the host's own selector.
+  - `createChainCode` is **removed**. It encoded junctions that are now hard, and the SDK never derives a hard junction from a public key.
+  - `createSessionSigner`, `createSessionSignerForAccount` and `deriveProductPublicKey` return promises. Add `await`.
+  - All three, plus the new `getProductSubtreePublicKey`, take an optional trailing `ProductSubtreeOptions` (`{ appId?, storageDir? }`) to relocate the cache.
+
+  **The first derivation per product costs one round trip to the paired wallet.** `session.getProductSubtree(productId)` is consent-free, so it raises no dialog, but it does need the phone reachable. The result is cached in memory and on disk (`{appId}_ProductSubtrees.json`, mode 0600, keyed by session and product), so only a cold cache reaches the wallet. Pass `ProductAccountRef.publicKey` to skip the fetch entirely, or call `getProductSubtreePublicKey` up front to warm the cache before going offline.
+
+  There is deliberately no fallback to the old derivation, or to the wallet's selected account, when the fetch fails: both produce a valid signature over the wrong address, which is the defect being fixed.
+
+  **New in `@parity/product-sdk-utils`:** `derivationIndexBytes(index)` and the `DerivationIndex` type — the RFC-0022 32-byte selector expansion, now shared instead of written once per package. `@parity/product-sdk-individuality`'s `contextSuffixBytes` delegates to it, and is unchanged for callers: same `ContextSuffix` type, same `ProductIndividualityError`, same message text.
+
+  Requires `@novasamatech/host-papp` 0.10.0 or later for `getProductSubtree`.
+
+- a0fcb48: **`connect()` no longer reports success with no accounts after a recoverable failure.** The two branches that fetch a product account now classify failures the same way. The `productAccount` branch already degraded to an empty account list only for a non-transient rejection and returned anything else for the retry loop; the `dappName` branch — the one a default `SignerManager` takes — degraded on _any_ failure, so a timeout was indistinguishable from an unregistered identifier and `connect()` resolved `ok([])` with nothing to prompt another attempt. Both now share one classifier.
+
+  **`NotConnected` is retried before it degrades.** The host returns that tag both for a signed-out user and for a session that is being re-established — after a host account switch, the core re-mints it, and a product account queried in that window is refused. The two are indistinguishable, so the tag is now retried and degrades to read-only only once the attempts are spent. A signed-out user reaches the same empty-accounts state as before, a retry cycle later; an in-flight re-mint recovers instead of leaving the product connected with no accounts.
+
+  Consumers passing `dappName` who relied on `connect()` always resolving should note it can now return an error for an unclassified host failure, after `maxRetries` attempts.
+
+- a0fcb48: **Pair with a truapi 0.18 host.** `@parity/truapi` moves from `^0.17.0` to `^0.18.0`. `TRUAPI_CODEC_VERSION` moves from 2 to 3 and `TRUAPI_WIRE_SCHEMA_HASH` from `50637d83426acd22` to `462dacb6e0d1f504`. The handshake compares codec versions for equality, so a product on 0.18 cannot talk to a host still on 0.17, in either direction — every host surface has to move in the same window.
+
+  **New `worker` domain.** `getTruApi().worker` exposes the product's pending background operations: `beginOperation()` opens one and `endOperation()` closes it, and the host keeps a `Worker` product's runtime alive while at least one is open. `endOperation` is idempotent, so a retry after an ambiguous failure is safe. `createFakeTruApiClient` from `@parity/product-sdk-host/testing` carries a `worker` entry that throws when touched, matching how the other unmodeled domains behave.
+
+  **New `localStorage.subscribe`.** `getTruApi().localStorage.subscribe({ request })` emits a key's current value and then one item per later write or clear of that key by any of the product's runtimes; a write that leaves the bytes unchanged emits nothing. The fake client's `localStorage` still serves `read` / `write` / `clear` from its real in-memory KV, but `subscribe` is not modeled and throws — a test that needs it should drive the real transport instead.
+
+  **Call errors can now be `Cancelled`.** `CallErrorValue` gains a `Cancelled` unit variant, which the host returns for a call it stopped. Code that exhaustively matches on a call error's `tag` needs a new arm; code that formats by tag — including this package's own `formatHostError` — is unaffected.
+
+  **Every call takes an optional `CallOptions`.** Generated request methods accept a trailing `{ signal }` argument for withdrawing a call. A host predating the cancel leg drops the frame, and the call settles on its deadline instead; there is no way to detect that in advance. This package does not yet surface the option through its own facades.
+
+### Patch Changes
+
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+  - @parity/product-sdk-host@0.22.0
+  - @parity/product-sdk-renderer@0.2.0
+  - @parity/product-sdk-keys@0.4.0
+  - @parity/product-sdk-individuality@0.6.0
+  - @parity/product-sdk-signer@0.15.0
+  - @parity/product-sdk-chain-client@0.12.6
+  - @parity/product-sdk-cloud-storage@0.12.2
+  - @parity/product-sdk-local-storage@0.3.12
+  - @parity/product-sdk-contracts@0.10.10
+  - @parity/product-sdk-tx@0.4.10
+
 ## 0.29.0
 
 ### Minor Changes
