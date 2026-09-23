@@ -182,5 +182,9 @@ esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --target=es
 
 ## Trying it on a device
 
-`docs/pocket-card-dev-loop.md` in `paritytech/polkadot-android-community` has two loops for working against
-a debug build without deploying anything. Both need `adb`.
+`references/integration-testing.md` beside this file is the full loop: how to link an unpublished SDK
+build into a product, get a card onto a running host, and assert the render and action streams separately.
+It also lists what is proven, what is not, and the traps that cost the most time.
+
+`docs/pocket-card-dev-loop.md` in `paritytech/polkadot-android-community` has the Android-specific loops.
+Both need `adb`.
