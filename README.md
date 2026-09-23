@@ -25,6 +25,7 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-keys` | Hierarchical key derivation, session keys, and sr25519 product-account derivation |
 | `@parity/product-sdk-local-storage` | Key-value local storage with automatic host/browser backend detection |
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
+| `@parity/product-sdk-renderer` | Build and validate renderer trees for Pocket card faces and rendered chat bodies |
 | `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
 | `@parity/product-sdk-crypto` | Cryptographic primitives — encryption, key derivation, NaCl |
 | `@parity/product-sdk-descriptors` | PAPI-generated chain descriptors for Polkadot ecosystem |
@@ -35,7 +36,7 @@ See [product-sdk/README.md](./product-sdk/README.md) for installation, developme
 
 ## Claude Code Plugin
 
-This repo doubles as a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin marketplace. The plugin ships skills that teach Claude Code how to use the `@parity/product-sdk` packages — chain connections, transactions, contracts, cloud storage, statement store, utilities, and end-to-end app scaffolding.
+This repo doubles as a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin marketplace. The plugin ships skills that teach Claude Code how to use the `@parity/product-sdk` packages — chain connections, transactions, contracts, cloud storage, statement store, Pocket cards, utilities, and end-to-end app scaffolding.
 
 ### Install
 

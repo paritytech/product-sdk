@@ -35,9 +35,10 @@ const PASEO_AH: NetworkConfig = {
  */
 const bobFixture = createTestHostFixture({
     productUrl: PRODUCT_URL,
+    productId: "storage-demo.dot",
     accounts: ["bob"],
     networks: [PASEO_AH],
-    productAccounts: { "storage-demo.dot/0": "bob" },
+    productAccounts: { "storage-demo.dot": "bob" },
 });
 
 export const test = base.extend<{ testHost: TestHost }>(bobFixture);

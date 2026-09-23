@@ -1,5 +1,29 @@
 # @parity/product-sdk-host
 
+## 0.21.0
+
+### Minor Changes
+
+- 8675e6c: **Pair with a truapi 0.17 host.** `@parity/truapi` moves from `^0.16.0` to `^0.17.0`. The codec version stays at 2, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `e883e2c0b9857933` to `50637d83426acd22`, so the schema a product speaks no longer matches a host still on 0.16. Every host surface has to move in the same window, exactly as it did for the codec-1 to codec-2 jump.
+
+  **New `pocket` domain.** `getTruApi().pocket` exposes the product's own pocket cards: `listSubscribe()` emits the whole set on subscribe and again after every change, and `removeCard()` removes one. The host owns the collection, so a product can observe and remove its cards but cannot add one. Removing a card that is not present succeeds; a privileged card is refused with `Privileged`. `createFakeTruApiClient` from `@parity/product-sdk-host/testing` carries a `pocket` entry that throws when touched, matching how the other unmodeled domains behave.
+
+  **Subscription errors are no longer `GenericError`.** Nine subscriptions now carry a per-call versioned error union instead: account connection status, chain head follow, chat list, chat action, locale, preimage lookup, renderer render, renderer action, and theme. Code that narrowed on `GenericError` in a subscription error handler needs to narrow on the specific union instead.
+
+  **Minor rather than patch**, which on 0.x signals a breaking change. This package's own API is unchanged; the break is in the error types that flow through it and in what it can talk to.
+
+## 0.20.0
+
+### Minor Changes
+
+- a85b489: **Pair with a codec-2 host.** `@parity/truapi` moves from `^0.13.1` to `^0.16.0`, which changes the wire envelope from codec 1 to codec 2.
+
+  The two codecs cannot negotiate. The handshake itself rides the changed envelope, so there is no version exchange to fall back on: a host still on codec 1 drops a codec-2 frame as an unroutable message type and answers nothing, and the call times out rather than failing fast. The same holds in reverse, so a product on this SDK talks only to a host that moved with it.
+
+  **Every host surface moves in the same window.** The desktop host takes `@parity/truapi-host` 0.16.0; the iOS app resolves the `@parity/ios-host` 0.16.0 SwiftPM tag; the Android app pins the same commit and builds the core from source. A product rebuilt on this SDK will not work against a host that has not been updated, and a host that has been updated will not serve a product that has not.
+
+  **Minor rather than patch**, which on 0.x signals a breaking change. Nothing in this package's own API changes: the break is in what it can talk to.
+
 ## 0.19.1
 
 ### Patch Changes

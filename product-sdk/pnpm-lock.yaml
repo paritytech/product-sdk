@@ -7,11 +7,11 @@ settings:
 catalogs:
   default:
     '@parity/host-api-test-sdk':
-      specifier: ^0.12.1
-      version: 0.12.1
+      specifier: ^0.15.0
+      version: 0.15.0
     '@parity/truapi':
-      specifier: ^0.13.1
-      version: 0.13.1
+      specifier: ^0.18.0
+      version: 0.18.0
     '@playwright/test':
       specifier: ^1.60.0
       version: 1.60.0
@@ -88,7 +88,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -119,7 +119,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -150,7 +150,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -172,7 +172,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -200,7 +200,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -210,6 +210,28 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 6.4.3(@types/node@25.9.1)
+
+  examples/pocket-card-example:
+    dependencies:
+      '@parity/product-sdk-host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@parity/product-sdk-renderer':
+        specifier: workspace:*
+        version: link:../../packages/renderer
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.6(@types/node@22.19.17)
 
   examples/pvm-contracts-example:
     dependencies:
@@ -238,7 +260,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -260,7 +282,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -285,7 +307,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -319,7 +341,7 @@ importers:
     devDependencies:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
-        version: 0.12.1(@playwright/test@1.60.0)
+        version: 0.15.0(@playwright/test@1.60.0)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -536,7 +558,7 @@ importers:
         version: link:../result
       '@parity/truapi':
         specifier: 'catalog:'
-        version: 0.13.1
+        version: 0.18.0
       '@polkadot-api/json-rpc-provider':
         specifier: ^0.2.0
         version: 0.2.0
@@ -656,6 +678,19 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@22.19.17)
 
+  packages/renderer:
+    dependencies:
+      '@parity/truapi':
+        specifier: 'catalog:'
+        version: 0.18.0
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)
+
   packages/result:
     devDependencies:
       typescript:
@@ -700,6 +735,9 @@ importers:
       '@parity/product-sdk-logger':
         specifier: workspace:*
         version: link:../logger
+      '@parity/product-sdk-renderer':
+        specifier: workspace:*
+        version: link:../renderer
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
@@ -719,6 +757,9 @@ importers:
       '@types/react':
         specifier: ^18.0.0
         version: 18.3.28
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
       react:
         specifier: ^18.0.0
         version: 18.3.1
@@ -1653,17 +1694,11 @@ packages:
   '@novasamatech/host-api@0.10.0':
     resolution: {integrity: sha512-rDxroRcmXrGWE5sgwCcIak6SynwWDPHsjZzV00/kwMS/iFymqMB0mUqQPcU4p1yiatWqePHX4XoP3zh/qj608w==}
 
-  '@novasamatech/host-api@0.9.4':
-    resolution: {integrity: sha512-9yVjbyjUVfgDnNx3sJYlRW3kcpvBQv4F1LXqQZfJco/2Egcq8WM6Yplpnubfxhvj+IXl2gEEMQbX3thZms6LUQ==}
-
   '@novasamatech/host-papp@0.10.0':
     resolution: {integrity: sha512-uhcYMTCBgU37oIlUfDnXbs8VoSnrVff2N3xYq5fT9b+FDa9oP83ALb75xmxTo4rtR9C/UrXjzG2NvPtJNfjBIA==}
 
   '@novasamatech/scale@0.10.0':
     resolution: {integrity: sha512-UJ1Jq0bUQ4p20BIuc079eZS7XouumNeheK1wojbiKNmoNQxFqsfRkJBYNQhIKWILKrI53FdP0D/uvby1Pl99Ew==}
-
-  '@novasamatech/scale@0.9.4':
-    resolution: {integrity: sha512-gUdY/KgWZAv5WUUeGmflo4bhTpfpbFMImtxN2VYfRarOQbbWOzKm7uelqgv8GAQUM85982wVhULPFRDA4b2qXA==}
 
   '@novasamatech/sdk-statement@0.6.0':
     resolution: {integrity: sha512-NTqM+yS45iHgy87lVSWIpFozrTfCUWb7r4ZpsDtN1eFnfixXpDKpPXDWQsvPs+nh18r/jmoMgtlTjUltrS6mYQ==}
@@ -1684,16 +1719,16 @@ packages:
       multiformats: ^13.4.1
       polkadot-api: ^2.1.6
 
-  '@parity/host-api-test-sdk@0.12.1':
-    resolution: {integrity: sha512-VprtVqoLhZfs8W5CcD8hu6xoJ9gPxDzSzEmsH5cTecceH7NCvcuJTKHpTq9J2mLvdy+TBmK6mMkeTyMCqZVzYw==}
+  '@parity/host-api-test-sdk@0.15.0':
+    resolution: {integrity: sha512-RJgbKoFdQq6XAqAOxdW9AmWpG0WN+BSAz0UYxx+09XYRZ4g7UTotAfTox1SffysGIxBx31TapQNIeXha23dJJw==}
     peerDependencies:
       '@playwright/test': '>=1.0.0'
     peerDependenciesMeta:
       '@playwright/test':
         optional: true
 
-  '@parity/truapi@0.13.1':
-    resolution: {integrity: sha512-6gkfHskN8I7H5DwB7j96wRusVx7xuGzu1YGWLBLPCD1RtBSnkPaQq/8Ac3MwudNz8kYqKZ5kZao3EkJ4PN4nCg==}
+  '@parity/truapi@0.18.0':
+    resolution: {integrity: sha512-q0Hgr9kX+ctHwd4JEuIs+q+l6YB1sJ/PwYOPuxzinZ2P1qudVNNvWj7Hxav8tJb0OO20CrGOrTolg6F5exZf1A==}
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -3839,14 +3874,6 @@ snapshots:
       neverthrow: 8.2.0
       scale-ts: 1.6.1
 
-  '@novasamatech/host-api@0.9.4':
-    dependencies:
-      '@novasamatech/scale': 0.9.4
-      nanoevents: 10.0.0
-      nanoid: 6.0.0
-      neverthrow: 8.2.0
-      scale-ts: 1.6.1
-
   '@novasamatech/host-papp@0.10.0(esbuild@0.28.1)':
     dependencies:
       '@noble/ciphers': 2.2.0
@@ -3871,11 +3898,6 @@ snapshots:
       - utf-8-validate
 
   '@novasamatech/scale@0.10.0':
-    dependencies:
-      '@polkadot-api/utils': 0.4.0
-      scale-ts: 1.6.1
-
-  '@novasamatech/scale@0.9.4':
     dependencies:
       '@polkadot-api/utils': 0.4.0
       scale-ts: 1.6.1
@@ -3932,13 +3954,13 @@ snapshots:
       multiformats: 13.4.2
       polkadot-api: 2.1.6(esbuild@0.28.1)(rxjs@7.8.2)
 
-  '@parity/host-api-test-sdk@0.12.1(@playwright/test@1.60.0)':
+  '@parity/host-api-test-sdk@0.15.0(@playwright/test@1.60.0)':
     dependencies:
-      '@novasamatech/host-api': 0.9.4
+      '@parity/truapi': 0.18.0
     optionalDependencies:
       '@playwright/test': 1.60.0
 
-  '@parity/truapi@0.13.1':
+  '@parity/truapi@0.18.0':
     dependencies:
       '@noble/hashes': 2.2.0
       neverthrow: 8.2.0

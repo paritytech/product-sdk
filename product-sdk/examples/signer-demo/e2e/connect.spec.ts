@@ -18,7 +18,7 @@ test.describe("@parity/product-sdk-signer — connect + subscribe", () => {
 
         // Exactly one account: the host connect path no longer enumerates
         // legacy accounts — it derives a single product account from the
-        // configured `dappName` ("signer-demo" → "signer-demo.dot/0", mapped
+        // configured `dappName` ("signer-demo" → "signer-demo.dot", mapped
         // to Bob by the fixture).
         const rows = frame.locator('[data-testid="accounts-list"] .account-row');
         await expect(rows).toHaveCount(1);

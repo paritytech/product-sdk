@@ -116,10 +116,7 @@ test.describe("@parity/product-sdk-local-storage via Host API — LocalKvStore o
             { timeout: 30_000 },
         );
 
-        // Verify the value landed in the host page's localStorage with "test-host:" prefix
-        const hostValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:e2e-host-check"),
-        );
-        expect(hostValue).toBe("routed");
+        const value = await testHost.getProductStorageValue("e2e-host-check");
+        expect(value).toBe("routed");
     });
 });

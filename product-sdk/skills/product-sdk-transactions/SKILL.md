@@ -249,6 +249,7 @@ signer.
 
 ```ts
 import { createAuthClient, resolveSigner } from "@parity/product-sdk-auth";
+import { StatementStoreNetworks } from "@parity/product-sdk-terminal";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
 // 1. Bind an auth client to your product's config (inject per-product values).
@@ -256,7 +257,7 @@ const authClient = createAuthClient({
   dappId: "playground",              // scopes ~/.polkadot-apps/${dappId}_* + SSO pairing
   productId: "playground.dot",       // derives the product account
   derivationIndex: 0,                // 0 = default product account
-  peopleEndpoints: ["wss://<people-rpc>"],
+  peopleEndpoints: StatementStoreNetworks.paseo, // or .previewnet
 });
 
 // 2. Get a PolkadotSigner — dev SURI if provided, else the persisted QR session.
@@ -392,6 +393,8 @@ The subtree key comes from the wallet because `//product//{productId}` is hard; 
 7. **Signing on a fresh session without allocations** (auth) - per the package's own note, RFC-0010 allowances are needed before a fresh session can sign (statement store / Bulletin / smart-contract). Run `authClient.requestAllocation(session)` once after first login and let the user approve it on the phone.
 
 8. **Submitting a person-origin call with a plain signer** (individuality) - a call that must dispatch as a *person* rather than an account needs the `AsPerson` transaction extension, which no plain signer sets. Wrap the signer with `withAsPerson` from `@parity/product-sdk-individuality` and pass it to `submitAndWatch` as usual; see the `product-sdk-individuality` skill. Doing it by hand fails `Invalid.Call` before dispatch for a reason that is not in the error.
+
+9. **Feeding a runtime ownership proof through `signBytes`** (host) - every raw-signing path a `PolkadotSigner` exposes `<Bytes>`-wraps the payload, so a runtime that verifies the bare bytes (People chain's `Resources.register_person` `lite_identity_proof`) rejects the signature with no useful error. `getAccountsProvider()` exposes `signRawUnwatermarkedDeprecated(account, data)` and `signRawUnwatermarkedDeprecatedWithLegacyAccount({ publicKey }, data)`, which sign `data` untouched and return the raw signature bytes. Both are deprecated on the host side too ([host-rust-core#612](https://github.com/paritytech/host-rust-core/issues/612)), need a host on `@parity/truapi` 0.16.0+, and prompt the user harder because an unwatermarked signature can authorize a transaction — reach for them only when a runtime check leaves no alternative, and stay on `signBytes` everywhere else.
 
 ## Reference Files
 

@@ -14,13 +14,10 @@ test.describe("@parity/product-sdk-signer — onConnect lifecycle hook", () => {
         // selectAccount / state mutations.
         await expect(status).toContainText("fired (1×)", { timeout: 30_000 });
 
-        // Permission result resolves to an `outcomes:` line once the test host
-        // (≥ 0.7.4) replies to `host_request_resource_allocation`. The
-        // `error:` branch is the fallback for older hosts that don't
-        // implement the handler — keeping it future-proofs against host
-        // regressions or environments running an older test SDK.
+        // The fixture withholds AutoSigning, so the request must come back
+        // answered-and-denied rather than errored.
         const result = frame.locator('[data-testid="onconnect-result"]');
-        await expect(result).toHaveText(/^(outcomes:|error:)/, { timeout: 10_000 });
+        await expect(result).toHaveText("outcomes: Rejected", { timeout: 10_000 });
 
         // Reconnect: disconnect + connect should fire onConnect a second time.
         await frame.locator('[data-testid="btn-reconnect"]').click();
