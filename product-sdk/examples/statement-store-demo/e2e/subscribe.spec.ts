@@ -7,16 +7,13 @@ import { waitForAppReady } from "./helpers";
  * Receiving statements through the Host API subscription path.
  *
  * Exercises:
- *   - HostTransport.subscribe() → store.subscribe(topics, callback)
- *   - hostSignedStatementToSdk() type conversion (Uint8Array → hex strings)
- *   - extractTopicBytes() topic conversion
- *   - Statement deduplication in StatementStoreClient
- *
- * Host API surface tested:
- *   - store.subscribe() — topic-filtered subscription
- *   - Type conversion: hostSignedStatementToSdk() (Uint8Array → hex)
- *   - Type conversion: extractTopicBytes() (hex → Uint8Array for host subscription)
+ *   - HostTransport.subscribe() → store.subscribe(topics, callback), topic-filtered
+ *   - hostSignedStatementToSdk() (hex → Uint8Array)
  */
+/** UTF-8 → `0x`-hex, for `StatementInput.data`. */
+const toHexData = (value: string): `0x${string}` =>
+    `0x${Array.from(new TextEncoder().encode(value), (b) => b.toString(16).padStart(2, "0")).join("")}`;
+
 test.describe("@parity/product-sdk-statement-store via Host API — subscribe", () => {
     test("injected statement arrives via subscription", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
@@ -31,32 +28,14 @@ test.describe("@parity/product-sdk-statement-store via Host API — subscribe", 
         expect(topicHex).toBeTruthy();
         expect(topicHex!.startsWith("0x")).toBe(true);
 
-        // Inject a statement from the test side.
-        // Must construct Uint8Arrays inside page.evaluate (Playwright can't
-        // serialize Uint8Array / BigInt across the wire).
-        await testHost.page.evaluate((topic: string) => {
-            const fromHex = (h: string) => {
-                const c = h.startsWith("0x") ? h.slice(2) : h;
-                const b = new Uint8Array(c.length / 2);
-                for (let i = 0; i < b.length; i++)
-                    b[i] = parseInt(c.substring(i * 2, i * 2 + 2), 16);
-                return b;
-            };
-            window.__TEST_HOST__.injectStatement({
-                topics: [fromHex(topic)],
-                data: new TextEncoder().encode(
-                    JSON.stringify({ type: "injected", text: "from test", timestamp: Date.now() }),
-                ),
-                expiry: BigInt(Math.floor(Date.now() / 1000) + 60) << 32n,
-                proof: {
-                    tag: "Sr25519",
-                    value: {
-                        signature: new Uint8Array(64).fill(0xaa),
-                        signer: new Uint8Array(32).fill(0xbb),
-                    },
-                },
-            });
-        }, topicHex!);
+        // `injectStatement` signs with the active session identity, so nothing
+        // needs constructing inside the page.
+        await testHost.injectStatement({
+            topics: [topicHex! as `0x${string}`],
+            data: toHexData(
+                JSON.stringify({ type: "injected", text: "from test", timestamp: Date.now() }),
+            ),
+        });
 
         // Wait for the app to receive the injected statement
         await expect(frame.locator('[data-testid="received-count"]')).not.toHaveText("0", {
@@ -75,21 +54,9 @@ test.describe("@parity/product-sdk-statement-store via Host API — subscribe", 
         await expect(frame.locator('[data-testid="received-count"]')).toHaveText("0");
 
         // Inject a statement with a DIFFERENT topic (all zeros — won't match app topic)
-        await testHost.page.evaluate(() => {
-            window.__TEST_HOST__.injectStatement({
-                topics: [new Uint8Array(32).fill(0x00)],
-                data: new TextEncoder().encode(
-                    JSON.stringify({ type: "wrong-topic", timestamp: Date.now() }),
-                ),
-                expiry: BigInt(Math.floor(Date.now() / 1000) + 60) << 32n,
-                proof: {
-                    tag: "Sr25519",
-                    value: {
-                        signature: new Uint8Array(64).fill(0xaa),
-                        signer: new Uint8Array(32).fill(0xbb),
-                    },
-                },
-            });
+        await testHost.injectStatement({
+            topics: [`0x${"00".repeat(32)}`],
+            data: toHexData(JSON.stringify({ type: "wrong-topic", timestamp: Date.now() })),
         });
 
         // Negative test: we're verifying something does NOT happen, so there's no
@@ -109,42 +76,15 @@ test.describe("@parity/product-sdk-statement-store via Host API — subscribe", 
 
         const topicHex = await frame.locator('[data-testid="app-topic-hex"]').textContent();
 
-        // Inject 3 statements with different channels (to avoid deduplication)
+        // Payloads differ by `index`: with no `channel` field, the dedupe key is
+        // a hash of `data`.
         for (let i = 1; i <= 3; i++) {
-            await testHost.page.evaluate(
-                ([topic, idx]: [string, number]) => {
-                    const fromHex = (h: string) => {
-                        const c = h.startsWith("0x") ? h.slice(2) : h;
-                        const b = new Uint8Array(c.length / 2);
-                        for (let j = 0; j < b.length; j++)
-                            b[j] = parseInt(c.substring(j * 2, j * 2 + 2), 16);
-                        return b;
-                    };
-                    // Use a unique channel per statement to bypass deduplication
-                    const channel = new Uint8Array(32);
-                    channel[0] = idx;
-                    window.__TEST_HOST__.injectStatement({
-                        topics: [fromHex(topic)],
-                        channel,
-                        data: new TextEncoder().encode(
-                            JSON.stringify({
-                                type: "multi",
-                                index: idx,
-                                timestamp: Date.now(),
-                            }),
-                        ),
-                        expiry: BigInt(Math.floor(Date.now() / 1000) + 60 + idx) << 32n,
-                        proof: {
-                            tag: "Sr25519",
-                            value: {
-                                signature: new Uint8Array(64).fill(0xaa),
-                                signer: new Uint8Array(32).fill(0xbb),
-                            },
-                        },
-                    });
-                },
-                [topicHex!, i] as [string, number],
-            );
+            await testHost.injectStatement({
+                topics: [topicHex! as `0x${string}`],
+                data: toHexData(
+                    JSON.stringify({ type: "multi", index: i, timestamp: Date.now() }),
+                ),
+            });
         }
 
         // Wait for all 3 to arrive

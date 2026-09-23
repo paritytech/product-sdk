@@ -4,7 +4,7 @@ import { test as base } from "@playwright/test";
 import {
     createTestHostFixture,
     PASEO_ASSET_HUB,
-    type ChainConfig,
+    type NetworkConfig,
     type TestHost,
 } from "@parity/host-api-test-sdk/playwright";
 
@@ -19,7 +19,7 @@ const PRODUCT_URL = "http://localhost:5210";
  * serve the same chain as `PASEO_ASSET_HUB.genesisHash`; a mirror on any other
  * genesis fails the chain handshake (seen as `Tracking stopped` / `BadProof`).
  */
-const PASEO_AH: ChainConfig = {
+const PASEO_AH: NetworkConfig = {
     ...PASEO_ASSET_HUB,
     rpcUrl: process.env.PASEO_AH_RPC ?? "wss://paseo-asset-hub-next-rpc.polkadot.io",
 };
@@ -31,9 +31,16 @@ const PASEO_AH: ChainConfig = {
  */
 const fixture = createTestHostFixture({
     productUrl: PRODUCT_URL,
+    productId: "signer-demo.dot",
     accounts: ["bob", "charlie"],
-    chain: PASEO_AH,
-    productAccounts: { "signer-demo.dot/0": "bob" },
+    networks: [PASEO_AH],
+    productAccounts: { "signer-demo.dot": "bob" },
+    // Granted AutoSigning makes the core sign in its own worker with no host
+    // round-trip, so nothing reaches getSigningLog(). Withholding it restores
+    // the observable SSO path. Must be a boot option:
+    // setResourceAllocationBehavior() lands after onConnect has already asked.
+    // Unlisted resources stay granted; permission tags are a separate axis.
+    behaviors: { resourceAllocation: { AutoSigning: false } },
 });
 
 export const test = base.extend<{ testHost: TestHost }>(fixture);

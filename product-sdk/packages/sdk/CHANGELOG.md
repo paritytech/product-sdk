@@ -1,5 +1,524 @@
 # @parity/product-sdk
 
+## 0.30.0
+
+### Minor Changes
+
+- a0fcb48: Resolve wallet identity from the host's `system.getProductContext()`. Derive the app name, local-storage prefix and `getAppInfo().name` by removing only the final domain suffix: `my-app.dot` uses `my-app`, preserving existing storage. Local development IDs stay unchanged.
+
+  `createApp()` works without configuration, and `ProductSDKProvider` needs no name prop. The optional `name` setting is deprecated, ignored and logged as a warning when supplied. The public fake host supplies a fixed product context for app tests.
+
+- a0fcb48: `createFakeTruApiClient` models `localStorage.subscribe`, so a product test can
+  exercise a key watcher without a real host. The fake's in-memory KV is the
+  source of truth for the stream: a subscription delivers the key's current value
+  on a microtask, then one item per later `write` or `clear` that changes the
+  stored bytes. A write of the bytes already stored, and a clear of an absent key,
+  emit nothing — the same silence the host keeps. `unsubscribe()` stops delivery.
+
+  ```ts
+  using host = createFakeHost({ localStorage: { theme: new TextEncoder().encode("dark") } });
+  host.client.localStorage
+      .subscribe({ request: { key: "theme" } })
+      .subscribe({ next: ({ value }) => render(value) });
+  ```
+
+- a0fcb48: Expose the host's temporary unwatermarked raw-signing calls on `AccountsProvider`:
+
+  ```ts
+  signRawUnwatermarkedDeprecated(account: ProductAccount, data: Uint8Array): Promise<Uint8Array>
+  signRawUnwatermarkedDeprecatedWithLegacyAccount(account: { publicKey: Uint8Array }, data: Uint8Array): Promise<Uint8Array>
+  ```
+
+  Both sign `data` with no `<Bytes>` watermark and return the raw signature bytes,
+  mirroring the `signBytes` of the two `PolkadotSigner` factories. They exist for
+  runtimes that verify a bare-byte ownership proof — People chain's
+  `Resources.register_person` `lite_identity_proof` is the one that forced them —
+  and they are deprecated on the host side too
+  ([host-rust-core#612](https://github.com/paritytech/host-rust-core/issues/612),
+  implemented in [#731](https://github.com/paritytech/host-rust-core/pull/731),
+  shipped in `@parity/truapi` 0.16.0). Hosts log a deprecation warning and show a
+  stronger confirmation prompt, since an unwatermarked signature can authorize a
+  transaction. Use `signBytes` everywhere a runtime does not force otherwise; both
+  calls disappear once the runtime accepts watermarked proofs.
+
+  **Breaking for implementors.** Both are required members of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test
+  doubles must add them. Callers are unaffected. `createFakeTruApiClient` already
+  models both.
+
+- a0fcb48: Add `getPocketManager()`, for drawing the product's Pocket cards, reading its card list, hearing about
+  presses, and giving a card up.
+
+  A client has one `onRender` slot, and the renderer serves three kinds of body. So the slot is owned by a
+  small shared module that dispatches by context, and each surface claims only what it draws. Pocket claims
+  `PocketCard`, which leaves the chat and input contexts free. `getRendererManager()` claims one of those
+  for a product that draws it.
+
+  A handler that throws or rejects costs one render rather than every card the product has. A cleanup that
+  resolves after the card has left runs at once.
+
+- a0fcb48: Add `@parity/product-sdk-renderer`: a typed builder for renderer trees and `validateFace`, which checks a
+  face against the renderer protocol without a device.
+
+  The builders make the encoding traps unreachable — `padding(20, 24)` cannot omit an edge, and enum names
+  and node shapes are checked by the compiler. `validateFace` separates what the protocol forbids from what
+  it allows and you probably did not mean, and treats one host's depth, size and byte bounds as advice
+  unless you name that host.
+
+  Reachable from the umbrella as `@parity/product-sdk/renderer`.
+
+- a0fcb48: **Product accounts derive the RFC-0022 way.** The previous derivation predated RFC-0022 and matched no shipping host, so every product-account address the SDK produced was wrong. It failed closed: the wallet resolves an account selector rather than a key, so it signed as the correct account, but the wrong key drove the nonce lookup and everything else PAPI computes around the signature, and it is the address `packages/auth` displayed.
+
+  A product account sits at `//product//{productId}/{derivationIndex}`. The two `//product//{productId}` junctions are **hard**. Hard junctions cannot be reproduced from a public key, so the old approach — three soft junctions from `session.rootAccountId` — could not have been right for any host. The subtree public key must come from the Account Holder.
+
+  Canonical implementation is `host_logic/product_account.rs` in host-rust-core, mirrored by Android `DerivationPaths.kt` and iOS `DerivationIndex32.swift`. `packages/keys/src/product-account.test.ts` now pins the derivation against the host's own cross-host vector from `truapi-server/tests/wasm_crypto_vectors.rs`, rather than against fixtures generated from our own implementation.
+
+  **Every product-account address changes.** Anything keyed to an address this SDK derived before — funds, allowances, statement-store entries, on-chain registrations — belongs to an account no host will sign for and is stranded. Check before upgrading.
+
+  **Breaking API changes:**
+
+  - `deriveProductAccountPublicKey(productSubtreePublicKey, derivationIndex)` replaces `(parentPublicKey, productId, derivationIndex)`. The index is now a tagged `DerivationIndex` (`{ tag: "Index", value }` or `{ tag: "Raw", value }`), matching the host's own selector.
+  - `createChainCode` is **removed**. It encoded junctions that are now hard, and the SDK never derives a hard junction from a public key.
+  - `createSessionSigner`, `createSessionSignerForAccount` and `deriveProductPublicKey` return promises. Add `await`.
+  - All three, plus the new `getProductSubtreePublicKey`, take an optional trailing `ProductSubtreeOptions` (`{ appId?, storageDir? }`) to relocate the cache.
+
+  **The first derivation per product costs one round trip to the paired wallet.** `session.getProductSubtree(productId)` is consent-free, so it raises no dialog, but it does need the phone reachable. The result is cached in memory and on disk (`{appId}_ProductSubtrees.json`, mode 0600, keyed by session and product), so only a cold cache reaches the wallet. Pass `ProductAccountRef.publicKey` to skip the fetch entirely, or call `getProductSubtreePublicKey` up front to warm the cache before going offline.
+
+  There is deliberately no fallback to the old derivation, or to the wallet's selected account, when the fetch fails: both produce a valid signature over the wrong address, which is the defect being fixed.
+
+  **New in `@parity/product-sdk-utils`:** `derivationIndexBytes(index)` and the `DerivationIndex` type — the RFC-0022 32-byte selector expansion, now shared instead of written once per package. `@parity/product-sdk-individuality`'s `contextSuffixBytes` delegates to it, and is unchanged for callers: same `ContextSuffix` type, same `ProductIndividualityError`, same message text.
+
+  Requires `@novasamatech/host-papp` 0.10.0 or later for `getProductSubtree`.
+
+- a0fcb48: **`connect()` no longer reports success with no accounts after a recoverable failure.** The two branches that fetch a product account now classify failures the same way. The `productAccount` branch already degraded to an empty account list only for a non-transient rejection and returned anything else for the retry loop; the `dappName` branch — the one a default `SignerManager` takes — degraded on _any_ failure, so a timeout was indistinguishable from an unregistered identifier and `connect()` resolved `ok([])` with nothing to prompt another attempt. Both now share one classifier.
+
+  **`NotConnected` is retried before it degrades.** The host returns that tag both for a signed-out user and for a session that is being re-established — after a host account switch, the core re-mints it, and a product account queried in that window is refused. The two are indistinguishable, so the tag is now retried and degrades to read-only only once the attempts are spent. A signed-out user reaches the same empty-accounts state as before, a retry cycle later; an in-flight re-mint recovers instead of leaving the product connected with no accounts.
+
+  Consumers passing `dappName` who relied on `connect()` always resolving should note it can now return an error for an unclassified host failure, after `maxRetries` attempts.
+
+- a0fcb48: **Pair with a truapi 0.18 host.** `@parity/truapi` moves from `^0.17.0` to `^0.18.0`. `TRUAPI_CODEC_VERSION` moves from 2 to 3 and `TRUAPI_WIRE_SCHEMA_HASH` from `50637d83426acd22` to `462dacb6e0d1f504`. The handshake compares codec versions for equality, so a product on 0.18 cannot talk to a host still on 0.17, in either direction — every host surface has to move in the same window.
+
+  **New `worker` domain.** `getTruApi().worker` exposes the product's pending background operations: `beginOperation()` opens one and `endOperation()` closes it, and the host keeps a `Worker` product's runtime alive while at least one is open. `endOperation` is idempotent, so a retry after an ambiguous failure is safe. `createFakeTruApiClient` from `@parity/product-sdk-host/testing` carries a `worker` entry that throws when touched, matching how the other unmodeled domains behave.
+
+  **New `localStorage.subscribe`.** `getTruApi().localStorage.subscribe({ request })` emits a key's current value and then one item per later write or clear of that key by any of the product's runtimes; a write that leaves the bytes unchanged emits nothing. The fake client's `localStorage` still serves `read` / `write` / `clear` from its real in-memory KV, but `subscribe` is not modeled and throws — a test that needs it should drive the real transport instead.
+
+  **Call errors can now be `Cancelled`.** `CallErrorValue` gains a `Cancelled` unit variant, which the host returns for a call it stopped. Code that exhaustively matches on a call error's `tag` needs a new arm; code that formats by tag — including this package's own `formatHostError` — is unaffected.
+
+  **Every call takes an optional `CallOptions`.** Generated request methods accept a trailing `{ signal }` argument for withdrawing a call. A host predating the cancel leg drops the frame, and the call settles on its deadline instead; there is no way to detect that in advance. This package does not yet surface the option through its own facades.
+
+### Patch Changes
+
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+  - @parity/product-sdk-host@0.22.0
+  - @parity/product-sdk-renderer@0.2.0
+  - @parity/product-sdk-keys@0.4.0
+  - @parity/product-sdk-individuality@0.6.0
+  - @parity/product-sdk-signer@0.15.0
+  - @parity/product-sdk-chain-client@0.12.6
+  - @parity/product-sdk-cloud-storage@0.12.2
+  - @parity/product-sdk-local-storage@0.3.12
+  - @parity/product-sdk-contracts@0.10.10
+  - @parity/product-sdk-tx@0.4.10
+
+## 0.29.0
+
+### Minor Changes
+
+- 8675e6c: **Pair with a truapi 0.17 host.** `@parity/truapi` moves from `^0.16.0` to `^0.17.0`. The codec version stays at 2, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `e883e2c0b9857933` to `50637d83426acd22`, so the schema a product speaks no longer matches a host still on 0.16. Every host surface has to move in the same window, exactly as it did for the codec-1 to codec-2 jump.
+
+  **New `pocket` domain.** `getTruApi().pocket` exposes the product's own pocket cards: `listSubscribe()` emits the whole set on subscribe and again after every change, and `removeCard()` removes one. The host owns the collection, so a product can observe and remove its cards but cannot add one. Removing a card that is not present succeeds; a privileged card is refused with `Privileged`. `createFakeTruApiClient` from `@parity/product-sdk-host/testing` carries a `pocket` entry that throws when touched, matching how the other unmodeled domains behave.
+
+  **Subscription errors are no longer `GenericError`.** Nine subscriptions now carry a per-call versioned error union instead: account connection status, chain head follow, chat list, chat action, locale, preimage lookup, renderer render, renderer action, and theme. Code that narrowed on `GenericError` in a subscription error handler needs to narrow on the specific union instead.
+
+  **Minor rather than patch**, which on 0.x signals a breaking change. This package's own API is unchanged; the break is in the error types that flow through it and in what it can talk to.
+
+### Patch Changes
+
+- Updated dependencies [8675e6c]
+  - @parity/product-sdk-host@0.21.0
+  - @parity/product-sdk-chain-client@0.12.5
+  - @parity/product-sdk-cloud-storage@0.12.1
+  - @parity/product-sdk-local-storage@0.3.11
+  - @parity/product-sdk-signer@0.14.6
+  - @parity/product-sdk-keys@0.3.26
+  - @parity/product-sdk-contracts@0.10.9
+  - @parity/product-sdk-tx@0.4.9
+
+## 0.28.0
+
+### Minor Changes
+
+- a85b489: **Re-pin every drifting chain (#242), including five that were re-genesised.**
+
+  The bundled descriptors addressed chains that no longer exist. Access is gated on the genesis
+  hash, so a stale genesis fails at connection with `GenesisMismatchError` before any storage read.
+  A stale `codeHash` only means decoding against an old metadata snapshot; a stale genesis means
+  addressing a chain that is not there.
+
+  | Chain                      | Old genesis        | New genesis        |
+  | -------------------------- | ------------------ | ------------------ |
+  | `paseo-individuality`      | `0x89a63b11…5440f` | `0x4a2b5b73…5ad48` |
+  | `previewnet-individuality` | `0x34999c29…5d220` | `0xf720c28f…35218` |
+  | `paseo-asset-hub`          | `0x23e730eb…a2ca6` | `0x4349b00e…`      |
+  | `previewnet-asset-hub`     | `0x627f5441…29659` | `0xc27c8bf3…`      |
+  | `previewnet-bulletin`      | `0x1144acd2…04e89` | `0xea9158d7…`      |
+
+  `devnet-asset-hub`, `devnet-individuality`, `kusama-asset-hub`, `paseo-bulletin` and
+  `polkadot-asset-hub` kept their genesis and took a fresh `codeHash` only. All eleven chains
+  matched their live runtimes when this was cut; codeHash pins drift on their own schedule, tracked
+  in #242.
+
+  **Minor rather than patch, because surface is removed**, which on 0.x signals a breaking change.
+  Check this before upgrading; a green `pnpm typecheck` here does not clear consumers.
+
+  | Chain                      | Removed                                                 | Added                                                                                    |
+  | -------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+  | `paseo-individuality`      | pallet `StorageInitialization`, `Score.Suffix` constant | pallets `NetworkSuffix`, `Parameters`, `AssetConversion`, `PoolAssets`, `PeopleAirdrops` |
+  | `previewnet-individuality` | `Score.Suffix` constant                                 | pallet `NetworkSuffix`                                                                   |
+  | `paseo-asset-hub`          | `AsRingAlias` transaction extension                     | pallet `NetworkSuffix`                                                                   |
+  | `previewnet-asset-hub`     | none                                                    | pallet `NetworkSuffix`                                                                   |
+  | `polkadot-asset-hub`       | none                                                    | pallet `Psm`                                                                             |
+
+  Two consequences worth reading if you use the individuality surface.
+
+  **The network suffix moved from a constant to storage on both individuality chains.** Neither
+  publishes `Score.Suffix` any more, so `readScoreContext` and `readLiteSignUpRequirement` now take
+  the `NetworkSuffixChain` overload and read it at a pinned block. A caller-supplied `tld` still wins
+  where you pass one. Previewnet's own suffix changed with it, from `test` to `testnet`, so its
+  `Score.score_context` moved from `0xa02ef8d9…` to `0x643d4ff6…`. Paseo's is unchanged at
+  `0x99f1920e…`. If you derived a context from a hardcoded `test`, it no longer matches previewnet.
+
+  **`paseo-individuality` gained `PeopleAirdrops`.** The airdrop read surface now has a chain that
+  carries the pallet, where before only previewnet did.
+
+  `@parity/product-sdk-cloud-storage` takes a minor because it now addresses a different chain:
+  `CloudStorageNetworks.previewnet.genesisHash` restated the hash by hand and was pointing at a
+  previewnet Bulletin that no longer exists. All three entries now read `.genesis` off the descriptor
+  they already sit beside, so their declared type widens from the literal hash to `` `0x${string}` ``.
+  Assignment is unaffected; only an annotation naming the literal breaks. Do the same with any hash
+  you pinned yourself, since these chains are re-genesised periodically.
+
+  `@parity/product-sdk-chain-client` needs no entry. It reads `.genesis` off the imported descriptor,
+  so only its in-source tests restated the hashes, and its published output is unchanged.
+
+- a85b489: **`buildLiteAliasBindTx` encodes the lite sign-up's bind leg entirely client-side.**
+
+  `PeopleLite.set_alias_account(account, valid_at_block)` under
+  `PeopleLiteAuth::AsLiteAliasWithProof` is an unsigned V5 _general_ extrinsic —
+  origin `None`, no signature — so it cannot ride a `PolkadotSigner`, and until
+  now the only way to assemble it was the host's `createTransaction`. With the
+  extension pipeline read from the chain's own metadata the SDK now builds the
+  whole extrinsic itself: every extra takes the value a general transaction needs
+  (`RestrictOrigins` enabled, `VerifyMultiSignature` disabled, immortal era,
+  zero nonce and tip, every origin `Option` slot `None`), the ring-VRF proof is
+  requested over the implication after `PeopleLiteAuth` — never chosen by the
+  caller — and the result is finished bytes for any raw submit, plus the proof's
+  ring coordinates for logging. `valid_at_block` is the chain's best block at
+  build time; `account` is a plain call parameter, which is what lets the
+  personhood product vouch for another product's account.
+
+  ```ts
+  const { transaction } = await buildLiteAliasBindTx(chain, {
+    account,
+    createProof: (message) =>
+      accounts.createRingVRFProof(
+        liteKeyHandle,
+        scoreContext,
+        litePeopleRing(genesis),
+        message
+      ),
+  });
+  await client.submit(`0x${bytesToHex(transaction)}`);
+  ```
+
+  The byte layout (`compact(len) ++ 0x45 ++ extensionVersion ++ extras ++ call`)
+  reproduces the encoding verified live on previewnet (spec 1000036) as the first
+  of the two lite sign-up transactions, and the tests pin it byte for byte
+  against the previewnet and paseo metadata. Chains whose `PeopleLiteAuth`
+  predates the deployed field list (devnet) are a loud error, not a plausible
+  wrong encoding. Nothing here chooses a chain, a product id or a context: run
+  `readScoreContext` first and stop on `NotProductDerived`, and skip the leg when
+  `PeopleLite.AccountToAlias` already holds the binding.
+
+  Two paths now reach this leg: `withLiteAlias({ tag: "AliasWithProof" })` has the
+  host assemble the envelope, and this builder assembles it client-side. Prefer
+  the builder unless you want the host to own the envelope, because it removes the
+  dependency on per-host `createTransaction` behaviour. Both remain supported.
+
+- a85b489: **The free lite sign-up: `readLiteSignUpRequirement` decides, `signUpWithLiteInviteTx` builds.**
+
+  `Game.sign_up_with_account_lite_invite(account, identifier_key, airdrops)` is the
+  `Pays::No`, deposit-free game sign-up a lite person's bound account submits —
+  signed by that account under `withLiteAlias({ tag: "AliasWithAccount" })`.
+  `signUpWithLiteInviteTx(chain, { account, identifierKey, airdrops, airdropsScheduled })`
+  builds it unsigned with the same width and count guards as the account sign-up.
+
+  `readLiteSignUpRequirement(chain, { account, liteMemberKey?, tld? })` is
+  `readGameSignUpRequirement` plus the lite gates, all at one pinned block. Its
+  blockers are the new `LiteSignUpBlocker` — a union of the existing
+  `SignUpBlocker` (which is unchanged, so exhaustive consumers of the account read
+  keep compiling) and nine lite arms: `AliasNotBound` (the proof-authorized
+  `PeopleLite.set_alias_account` bind leg has not run), `AliasBoundElsewhere` (the
+  binding exists outside `Score.score_context`), `StaleAlias` (the binding was
+  proven at a ring revision older than `Members.Root`, which the signed leg
+  rejects as `Custom(172)`), `AnotherAccountInvited` (the forever
+  `Game.LiteInvites` pin names a different account — carried in the blocker so a
+  UI can say which), `AlreadyPlaying` (a `Game.Players` entry exists, which
+  `sign_up_inner` rejects for an invited sign-up whatever its `registered` flag
+  says, so a returning player uses `signUpWithAccountTx`),
+  `AccountIsALitePerson` (the account is itself a lite person),
+  `AccountIsAStatementAccount` (the account is some alias's statement account,
+  which `sign_up_inner` rejects before it reaches either of the gates above),
+  `NotLiteMember` (the supplied member key is not an `Included` lite ring
+  member), and `ContextNotProductDerived` (the chain's score context is not
+  product-derived, so no stock host can mint the proof). Every lite arm blocks the
+  sign-up itself; the draw-only split carries over from the account read
+  unchanged.
+
+  ```ts
+  const req = await readLiteSignUpRequirement(chain, {
+    account,
+    liteMemberKey,
+  });
+  if (req.ok && req.value.canSignUp) {
+    const tx = signUpWithLiteInviteTx(chain, {
+      account,
+      identifierKey,
+      airdrops,
+    });
+    await submitAndWatch(
+      tx,
+      withLiteAlias(signer, { tag: "AliasWithAccount" })
+    );
+  }
+  ```
+
+  The new `LiteSignUpChain` contract (`PeopleLite.AccountToAlias`,
+  `PeopleLite.LitePeople`, `Game.LiteInvites`, `Game.StmtAccountToAlias`, `Members.Members`,
+  `Members.Root`, the sign-up call) is satisfied by paseo and previewnet; devnet predates it.
+
+  The read also resolves the score context, so it carries the same suffix
+  overloads as `readScoreContext`: previewnet resolves it from `Score.Suffix`,
+  and paseo publishes no suffix at all, so it needs `tld`. Passing a client that
+  cannot resolve one, with no `tld`, does not compile. TLDs, product ids and the
+  65-byte communication key stay caller-supplied throughout.
+
+### Patch Changes
+
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+  - @parity/product-sdk-cloud-storage@0.12.0
+  - @parity/product-sdk-individuality@0.5.0
+  - @parity/product-sdk-host@0.20.0
+  - @parity/product-sdk-chain-client@0.12.4
+  - @parity/product-sdk-local-storage@0.3.10
+  - @parity/product-sdk-signer@0.14.5
+  - @parity/product-sdk-keys@0.3.25
+  - @parity/product-sdk-contracts@0.10.8
+  - @parity/product-sdk-tx@0.4.8
+
+## 0.27.0
+
+### Minor Changes
+
+- 5613196: **Product-scoped proof contexts and personhood ring locations, as pure helpers.**
+
+  Every context a host will sign under, and every context a product-derived runtime
+  accepts, is `blake2b-256("product/" ++ productId ++ "/" ++ suffix)` with the
+  RFC-0024 `Index`/`Raw` suffix expansion. `productContext(productId, suffix)`
+  computes it offline, `contextSuffixBytes` exposes the expansion, and
+  `personhoodContext(tld, name)` enumerates the five contexts the personhood
+  product owns (`PERSONHOOD_CONTEXT_INDEX`) — needed because two of them never
+  reach metadata. Product ids are always full DotNS ids (`"peopl.test"`,
+  `"dim2.dot"`): the TLD belongs to the network and is never defaulted.
+
+  `peopleRing(genesis)` and `litePeopleRing(genesis)` build the two personhood
+  `RingLocation`s (the space-padded `CollectionId`s from `ringCollectionId`),
+  structurally compatible with `@parity/product-sdk-host` without depending on it.
+
+  `readScoreContext(chain)` reads `Score.score_context` and checks it equals
+  `personhoodContext(<network suffix>, "score")`. A runtime publishing a literal
+  context (which no stock host can mint) answers `NotProductDerived` on the ok
+  channel, so proof-building flows stop before the chain rejects the transaction
+  with nothing local to read.
+
+  Where the network suffix comes from is part of the chain's type, not a runtime
+  fallback: `NetworkSuffixChain` for the Root-settable `NetworkSuffix.NetworkSuffix`
+  storage that individuality-community#20 introduced (read at a pinned block, since
+  Root can move it), `LegacySuffixChain` for the `Score.Suffix` constant it
+  replaced, and a `tld` option for a runtime with neither — which is every
+  production runtime, since that pallet is testnet-only. A chain that can offer no
+  suffix and no `tld` is a compile error rather than a runtime disappointment.
+  `runScoreContextRead` is the throwing variant, so a composing read can run it
+  against a block it already pinned instead of pinning a second one.
+
+  First piece of the lite-personhood sign-up flow (product-sdk#286): consolidates
+  the derivations dim2 and humanity each hand-roll today, pinned by the same
+  vectors (previewnet's published constants, both collection ids).
+
+- 5613196: **Full-personhood registration: `Score.register` builders, the readiness read, and `withScoreParticipant`.**
+
+  The step after the score is in. `registerMessage(account)` pins the byte-exact proof-of-ownership contract — `"pop register using" ++ account`, a raw 50-byte concatenation, never SCALE — and `registerPersonhoodTx(chain, { memberKey, proofOfOwnership })` builds `Score.register(Some((member_key, sig)))` from it, width-checked (32-byte Bandersnatch member key, 64-byte plain signature). The pair is caller-supplied and opaque: only the personhood product's own host session can mint it (`registerRingVrfKey(Index(0), peopleRing)` + `ringVrfSign`), so the builder never tries, which lets the same code serve a cross-product handoff and a future single-product path unchanged. `readRegistrationEligibility` folds `Score.Participants` and `Score.PersonhoodThreshold` — a storage item on a session schedule, not a constant — at one pinned block into `readyToRegister`, also exported as the pure predicate.
+
+  `withScoreParticipant(signer)` is the third signer on the origin-extension machinery `withAsPerson` and `withLiteAlias` share: it sets `RestrictOrigins`, reads the nonce back out of the `CheckNonce` slot PAPI filled, and writes `ScoreAsParticipant(Some(nonce))` — fee-free dispatch from a 0-balance participant account. No caller-supplied nonce, same as the siblings: the chain checks the extension's nonce against `CheckNonce`, and reading it back is what makes disagreement impossible. Encoding round-trips through the chain's own metadata, which is load-bearing here too: the extension is a newtype over `Option` of a newtype, and the plausible `{ nonce }` shape silently encodes `Some(0)` — measured, and rejected as a thrown `AsPersonError`.
+
+  ```ts
+  const eligibility = await readRegistrationEligibility(chain, { registrant });
+  if (eligibility.ok && eligibility.value.readyToRegister) {
+    const tx = registerPersonhoodTx(chain, { memberKey, proofOfOwnership });
+    await submitAndWatch(
+      tx,
+      withScoreParticipant(accounts.getProductAccountSigner(account))
+    );
+  }
+  ```
+
+  Verified against the flow that ran live on previewnet (spec 1000036, individuality v0.12.1) on 2026-08-28.
+
+- 5613196: **`withLiteAlias` runs a call under a lite-person origin, the way `withAsPerson` runs one under a person origin.**
+
+  Wrap a signer and the `PeopleLiteAuth` transaction extension is filled inside `signTx`, where the nonce and the extension pipeline exist and are still patchable. Three variants: `AliasWithAccount` for calls signed by an account already bound to the lite alias (the free game sign-up leg, `Game.sign_up_with_account_lite_invite`), `AliasWithProof` for the unsigned, ring-VRF-authorized `PeopleLite.set_alias_account` bind leg, and `AliasWithAccountRevised` to refresh a stale binding. Proof messages are computed from the chain's own metadata — blake2-256 of the implication after `PeopleLiteAuth`, or the pallet's `(implication, "revise", account, nonce)` tuple — and never chosen by the caller.
+
+  ```ts
+  const signer = withLiteAlias(accounts.getProductAccountSigner(account), {
+    tag: "AliasWithAccount",
+  });
+  await submitAndWatch(
+    api.tx.Game.sign_up_with_account_lite_invite({
+      account,
+      identifier_key,
+      airdrops,
+    }),
+    signer
+  );
+  ```
+
+  The machinery under `withAsPerson` was already generic over the extension identifier; the slot patching, nonce read-back, proof-request guards and pipeline cache it kept file-private now live in an internal shared module, along with the ordered `signTx` body itself, so both signers run the same steps rather than two copies of them. Encoding is still round-tripped through the metadata of the blob being signed against, which is load-bearing here too: the devnet runtime declares the proof variants without the `RevisionIndex` field the deployed runtimes carry, and that mismatch is a thrown `AsPersonError` rather than a structurally plausible wrong encoding. No behaviour change for `withAsPerson`.
+
+### Patch Changes
+
+- Updated dependencies [5613196]
+- Updated dependencies [5613196]
+- Updated dependencies [5613196]
+- Updated dependencies [5613196]
+  - @parity/product-sdk-individuality@0.4.0
+  - @parity/product-sdk-host@0.19.1
+  - @parity/product-sdk-chain-client@0.12.3
+  - @parity/product-sdk-cloud-storage@0.11.3
+  - @parity/product-sdk-local-storage@0.3.9
+  - @parity/product-sdk-signer@0.14.4
+  - @parity/product-sdk-keys@0.3.24
+  - @parity/product-sdk-contracts@0.10.7
+  - @parity/product-sdk-tx@0.4.7
+
+## 0.26.0
+
+### Minor Changes
+
+- d0260a1: **Decode a `PeopleAirdrops` draw event id back to its draw index.**
+
+  `parsePeopleAirdropsEventId(eventId)` is the inverse of `peopleAirdropsEventId`. It returns the `u64` draw index, or `null` for anything that is not a `PeopleAirdrops` id — a `Game` id, a foreign base, a malformed string. `null` rather than a throw because `Airdrop.Events` holds both schedulers, so a caller sweeping it with `getEntries()` meets foreign ids as a matter of course.
+
+  The package could previously only derive ids forward, from indices the caller already held. That holds for the `Game` path, which has a per-game count to enumerate from, but not for `PeopleAirdrops`, whose ids only arrive from that shared map.
+
+- d0260a1: **Add `getLocaleProvider` for the host's selected language.**
+
+  A product can now render in the language the user picked inside the host, rather than
+  inferring one from `navigator.language` — which reports the operating system's preference
+  and is wrong whenever the two differ.
+
+  ```ts
+  import { getLocaleProvider } from "@parity/product-sdk-host";
+
+  const provider = await getLocaleProvider();
+  const sub = provider?.subscribeLocale((locale) => {
+    i18n.activate(
+      SUPPORTED.has(locale.languageTag) ? locale.languageTag : "en"
+    );
+  });
+  ```
+
+  `subscribeLocale` fires with the current locale and again on every change; the returned
+  `HostSubscription` carries `unsubscribe` and `onInterrupt`. `getLocaleProvider` resolves to
+  `null` outside a host container.
+
+  `languageTag` is a BCP 47 tag such as `"en"`, `"pt-BR"` or `"zh-Hans"`. The set is open — a
+  host adds languages without an SDK release — so a product that ships no catalog entry for
+  the tag it receives picks its own fallback.
+
+  The `locale` domain arrived in `@parity/truapi` 0.12.0, already on the catalog.
+
+- d0260a1: **Expose candidate progress as part of personhood state.**
+
+  `derivePersonhoodState` now reports the consecutive attended games remaining on `Candidate`, accounting for streak-weighted score accrual and absence resets.
+
+  **Breaking for candidate-state producers.** `gamesRemaining` is a required member of the exported `Candidate` variant, so hand-built states and exact fixtures must add it. Callers that only consume the derived state are unaffected.
+
+- d0260a1: **`readCurrentGame` answers "is this player in?", and takes a PAPI client directly.**
+
+  Pass `players` and the running game carries a `registration` read at the same pinned
+  block. One person is keyed twice in `Game.Players` — by account and, once recognized,
+  by alias — so every key the caller holds goes in and any hit is `Registered`. A key
+  read that fails is `Unknown`, never `NotRegistered`, and does not fail the game read;
+  leave `players` out and it is `Unchecked`. That path needs the new `GamePlayersChain`
+  on top of `GameChain`; the existing call without `players` is unchanged.
+
+  ```ts
+  const game = await readCurrentGame(chain, {
+    players: [
+      { tag: "Account", accountAddress },
+      { tag: "Alias", alias },
+    ],
+  });
+  if (game.ok && game.value.tag === "Running") {
+    game.value.registration.tag; // Registered | NotRegistered | Unknown | Unchecked
+  }
+  ```
+
+  `fromPapi(client, api)` builds the chain shape every read here takes from a
+  `PolkadotClient` and typed API the caller already holds, for products that resolve
+  their own connection instead of using `@parity/product-sdk-chain-client`.
+
+- d0260a1: **Remove `localStorage.clear()` — it was a silent no-op in a host container.**
+
+  `createApp().localStorage.clear()` resolved successfully but did nothing in production (only logging at debug), while the `createFakeApp` test fake actually emptied — so a test asserting `clear()` wipes storage passed against code that no-ops for real users (#344).
+
+  It can't be implemented: the host localStorage protocol exposes no key enumeration — only per-key `read` / `write` / `clear(key)` (a single-key remove) through `@parity/truapi` → `HostLocalStorage` → `LocalKvStore` — so there is nothing to iterate for a clear-all. Rather than keep a method that lies (or one that always throws), `clear()` is removed from `LocalStorageApi` and from the fake; the two now build through one shared `createLocalStorageApi` adapter, so they can no longer drift.
+
+  **Migration.** Use `remove(key)` — supported at every layer — to delete keys individually. There is no clear-all; if you need one, track the keys your app writes and remove them.
+
+  **Breaking for callers.** `app.localStorage.clear()` no longer exists: an untyped call throws `TypeError: app.localStorage.clear is not a function` where it used to resolve.
+
+  **Breaking for implementors.** `clear` is gone from the exported `LocalStorageApi` interface, so anyone writing one inline — for example the `localStorage` override passed to `createFakeApp` — must delete their `clear` to keep compiling.
+
+### Patch Changes
+
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+  - @parity/product-sdk-individuality@0.3.0
+  - @parity/product-sdk-host@0.19.0
+  - @parity/product-sdk-chain-client@0.12.2
+  - @parity/product-sdk-cloud-storage@0.11.2
+  - @parity/product-sdk-local-storage@0.3.8
+  - @parity/product-sdk-signer@0.14.3
+  - @parity/product-sdk-keys@0.3.23
+  - @parity/product-sdk-contracts@0.10.6
+  - @parity/product-sdk-tx@0.4.6
+
 ## 0.25.0
 
 ### Minor Changes

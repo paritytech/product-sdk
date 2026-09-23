@@ -25,7 +25,7 @@ describe("summarizeOutcomes", () => {
     const resources: AllocatableResource[] = [
         { tag: "BulletInAllowance", value: undefined },
         { tag: "StatementStoreAllowance", value: undefined },
-        { tag: "SmartContractAllowance", value: 0 },
+        { tag: "SmartContractAllowance", value: { tag: "Index", value: 0 } },
     ];
 
     // A minimal valid `Allocated` payload. `summarizeOutcomes` only reads the

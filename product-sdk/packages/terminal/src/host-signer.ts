@@ -154,7 +154,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: hex },
                     },
@@ -175,7 +175,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: hex },
                     },
@@ -213,7 +213,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: {
                             tag: "BulletInAllowance",
@@ -252,7 +252,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         StatementStoreAllowance: {
                             tag: "StatementStoreAllowance",
@@ -274,9 +274,12 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
-                        "SmartContractAllowance::5": { tag: "SmartContractAllowance", dest: 5 },
+                        "SmartContractAllowance::Index::5": {
+                            tag: "SmartContractAllowance",
+                            dest: "Index::5",
+                        },
                     },
                 },
                 storageDir,
@@ -285,7 +288,7 @@ if (import.meta.vitest) {
             await expect(
                 createSlotAccountSigner(fakeAdapter("p"), {
                     tag: "SmartContractAllowance",
-                    value: 5,
+                    value: { tag: "Index", value: 5 },
                 }),
             ).rejects.toThrow(/SmartContractAllowance does not carry a slot account key/);
         });
@@ -294,11 +297,11 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         AutoSigning: {
                             tag: "AutoSigning",
-                            productDerivationSecret: "secret",
+                            ringVrfDomainEntropy: "0xcd",
                             productRootPrivateKey: "0xabcd",
                         },
                     },
@@ -320,7 +323,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "my-product.dot",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: hex },
                     },
@@ -358,7 +361,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "app-a",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: a.hex },
                     },
@@ -368,7 +371,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "app-b",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: {
                             tag: "BulletInAllowance",
@@ -398,7 +401,7 @@ if (import.meta.vitest) {
             await saveCache(
                 "p",
                 {
-                    version: 1,
+                    version: 2,
                     entries: {
                         BulletInAllowance: {
                             tag: "BulletInAllowance",

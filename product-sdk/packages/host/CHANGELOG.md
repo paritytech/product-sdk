@@ -1,5 +1,160 @@
 # @parity/product-sdk-host
 
+## 0.22.0
+
+### Minor Changes
+
+- a0fcb48: Resolve wallet identity from the host's `system.getProductContext()`. Derive the app name, local-storage prefix and `getAppInfo().name` by removing only the final domain suffix: `my-app.dot` uses `my-app`, preserving existing storage. Local development IDs stay unchanged.
+
+  `createApp()` works without configuration, and `ProductSDKProvider` needs no name prop. The optional `name` setting is deprecated, ignored and logged as a warning when supplied. The public fake host supplies a fixed product context for app tests.
+
+- a0fcb48: `createFakeTruApiClient` models `localStorage.subscribe`, so a product test can
+  exercise a key watcher without a real host. The fake's in-memory KV is the
+  source of truth for the stream: a subscription delivers the key's current value
+  on a microtask, then one item per later `write` or `clear` that changes the
+  stored bytes. A write of the bytes already stored, and a clear of an absent key,
+  emit nothing — the same silence the host keeps. `unsubscribe()` stops delivery.
+
+  ```ts
+  using host = createFakeHost({ localStorage: { theme: new TextEncoder().encode("dark") } });
+  host.client.localStorage
+      .subscribe({ request: { key: "theme" } })
+      .subscribe({ next: ({ value }) => render(value) });
+  ```
+
+- a0fcb48: Expose the host's temporary unwatermarked raw-signing calls on `AccountsProvider`:
+
+  ```ts
+  signRawUnwatermarkedDeprecated(account: ProductAccount, data: Uint8Array): Promise<Uint8Array>
+  signRawUnwatermarkedDeprecatedWithLegacyAccount(account: { publicKey: Uint8Array }, data: Uint8Array): Promise<Uint8Array>
+  ```
+
+  Both sign `data` with no `<Bytes>` watermark and return the raw signature bytes,
+  mirroring the `signBytes` of the two `PolkadotSigner` factories. They exist for
+  runtimes that verify a bare-byte ownership proof — People chain's
+  `Resources.register_person` `lite_identity_proof` is the one that forced them —
+  and they are deprecated on the host side too
+  ([host-rust-core#612](https://github.com/paritytech/host-rust-core/issues/612),
+  implemented in [#731](https://github.com/paritytech/host-rust-core/pull/731),
+  shipped in `@parity/truapi` 0.16.0). Hosts log a deprecation warning and show a
+  stronger confirmation prompt, since an unwatermarked signature can authorize a
+  transaction. Use `signBytes` everywhere a runtime does not force otherwise; both
+  calls disappear once the runtime accepts watermarked proofs.
+
+  **Breaking for implementors.** Both are required members of the exported
+  `AccountsProvider` interface, so alternative implementations and hand-rolled test
+  doubles must add them. Callers are unaffected. `createFakeTruApiClient` already
+  models both.
+
+- a0fcb48: Add `getPocketManager()`, for drawing the product's Pocket cards, reading its card list, hearing about
+  presses, and giving a card up.
+
+  A client has one `onRender` slot, and the renderer serves three kinds of body. So the slot is owned by a
+  small shared module that dispatches by context, and each surface claims only what it draws. Pocket claims
+  `PocketCard`, which leaves the chat and input contexts free. `getRendererManager()` claims one of those
+  for a product that draws it.
+
+  A handler that throws or rejects costs one render rather than every card the product has. A cleanup that
+  resolves after the card has left runs at once.
+
+- a0fcb48: **Pair with a truapi 0.18 host.** `@parity/truapi` moves from `^0.17.0` to `^0.18.0`. `TRUAPI_CODEC_VERSION` moves from 2 to 3 and `TRUAPI_WIRE_SCHEMA_HASH` from `50637d83426acd22` to `462dacb6e0d1f504`. The handshake compares codec versions for equality, so a product on 0.18 cannot talk to a host still on 0.17, in either direction — every host surface has to move in the same window.
+
+  **New `worker` domain.** `getTruApi().worker` exposes the product's pending background operations: `beginOperation()` opens one and `endOperation()` closes it, and the host keeps a `Worker` product's runtime alive while at least one is open. `endOperation` is idempotent, so a retry after an ambiguous failure is safe. `createFakeTruApiClient` from `@parity/product-sdk-host/testing` carries a `worker` entry that throws when touched, matching how the other unmodeled domains behave.
+
+  **New `localStorage.subscribe`.** `getTruApi().localStorage.subscribe({ request })` emits a key's current value and then one item per later write or clear of that key by any of the product's runtimes; a write that leaves the bytes unchanged emits nothing. The fake client's `localStorage` still serves `read` / `write` / `clear` from its real in-memory KV, but `subscribe` is not modeled and throws — a test that needs it should drive the real transport instead.
+
+  **Call errors can now be `Cancelled`.** `CallErrorValue` gains a `Cancelled` unit variant, which the host returns for a call it stopped. Code that exhaustively matches on a call error's `tag` needs a new arm; code that formats by tag — including this package's own `formatHostError` — is unaffected.
+
+  **Every call takes an optional `CallOptions`.** Generated request methods accept a trailing `{ signal }` argument for withdrawing a call. A host predating the cancel leg drops the frame, and the call settles on its deadline instead; there is no way to detect that in advance. This package does not yet surface the option through its own facades.
+
+## 0.21.0
+
+### Minor Changes
+
+- 8675e6c: **Pair with a truapi 0.17 host.** `@parity/truapi` moves from `^0.16.0` to `^0.17.0`. The codec version stays at 2, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `e883e2c0b9857933` to `50637d83426acd22`, so the schema a product speaks no longer matches a host still on 0.16. Every host surface has to move in the same window, exactly as it did for the codec-1 to codec-2 jump.
+
+  **New `pocket` domain.** `getTruApi().pocket` exposes the product's own pocket cards: `listSubscribe()` emits the whole set on subscribe and again after every change, and `removeCard()` removes one. The host owns the collection, so a product can observe and remove its cards but cannot add one. Removing a card that is not present succeeds; a privileged card is refused with `Privileged`. `createFakeTruApiClient` from `@parity/product-sdk-host/testing` carries a `pocket` entry that throws when touched, matching how the other unmodeled domains behave.
+
+  **Subscription errors are no longer `GenericError`.** Nine subscriptions now carry a per-call versioned error union instead: account connection status, chain head follow, chat list, chat action, locale, preimage lookup, renderer render, renderer action, and theme. Code that narrowed on `GenericError` in a subscription error handler needs to narrow on the specific union instead.
+
+  **Minor rather than patch**, which on 0.x signals a breaking change. This package's own API is unchanged; the break is in the error types that flow through it and in what it can talk to.
+
+## 0.20.0
+
+### Minor Changes
+
+- a85b489: **Pair with a codec-2 host.** `@parity/truapi` moves from `^0.13.1` to `^0.16.0`, which changes the wire envelope from codec 1 to codec 2.
+
+  The two codecs cannot negotiate. The handshake itself rides the changed envelope, so there is no version exchange to fall back on: a host still on codec 1 drops a codec-2 frame as an unroutable message type and answers nothing, and the call times out rather than failing fast. The same holds in reverse, so a product on this SDK talks only to a host that moved with it.
+
+  **Every host surface moves in the same window.** The desktop host takes `@parity/truapi-host` 0.16.0; the iOS app resolves the `@parity/ios-host` 0.16.0 SwiftPM tag; the Android app pins the same commit and builds the core from source. A product rebuilt on this SDK will not work against a host that has not been updated, and a host that has been updated will not serve a product that has not.
+
+  **Minor rather than patch**, which on 0.x signals a breaking change. Nothing in this package's own API changes: the break is in what it can talk to.
+
+## 0.19.1
+
+### Patch Changes
+
+- 5613196: Update `@parity/truapi` to 0.13.1. No SDK API changes: the client's domain
+  surface (`client.d.ts`) is identical to 0.12.0, so nothing in
+  `@parity/product-sdk-*` changes and the host testing fake needs no new modeling.
+  The only differing type files are truapi's own explorer / playground codegen and
+  `well-known-chains`, none of which the SDK imports. Bumping keeps the catalog
+  current with the latest published client (closes the release-bot bump issue).
+
+## 0.19.0
+
+### Minor Changes
+
+- d0260a1: **Add `getLocaleProvider` for the host's selected language.**
+
+  A product can now render in the language the user picked inside the host, rather than
+  inferring one from `navigator.language` — which reports the operating system's preference
+  and is wrong whenever the two differ.
+
+  ```ts
+  import { getLocaleProvider } from "@parity/product-sdk-host";
+
+  const provider = await getLocaleProvider();
+  const sub = provider?.subscribeLocale((locale) => {
+    i18n.activate(
+      SUPPORTED.has(locale.languageTag) ? locale.languageTag : "en"
+    );
+  });
+  ```
+
+  `subscribeLocale` fires with the current locale and again on every change; the returned
+  `HostSubscription` carries `unsubscribe` and `onInterrupt`. `getLocaleProvider` resolves to
+  `null` outside a host container.
+
+  `languageTag` is a BCP 47 tag such as `"en"`, `"pt-BR"` or `"zh-Hans"`. The set is open — a
+  host adds languages without an SDK release — so a product that ships no catalog entry for
+  the tag it receives picks its own fallback.
+
+  The `locale` domain arrived in `@parity/truapi` 0.12.0, already on the catalog.
+
+### Patch Changes
+
+- d0260a1: Update `@parity/truapi` to 0.12.0. No SDK API changes: the bump is additive on
+  truapi's side and nothing in `@parity/product-sdk-host` consumes the new surface
+  yet. 0.12.0 adds the `locale` domain (`locale.subscribe`, the host's selected
+  language as a BCP 47 tag), `system.info` / `system.getProductContext`, and
+  `development_createAccountProof` for raw proof contexts. The testing fake tracks
+  the new surface: the `locale` domain is not modeled, and the `system` domain
+  still models `handshake` / `featureSupported` / `navigateTo` while the new
+  `info` and `getProductContext` throw the descriptive not-modeled error instead
+  of an `undefined is not a function`. Bumping keeps the catalog current with the
+  latest published client and unblocks the upcoming locale provider.
+- d0260a1: **Derive `txExtVersion` from the extrinsic format list, so a V5-only runtime can be signed again.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion`. Since host `0.18.0` and terminal `0.8.0` the V5 value was gated on the runtime's transaction-extension version map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`) containing `5`. No runtime declares extension version `5`, every deployed runtime declares only `0`, so that branch was unreachable and signing threw on any runtime offering extrinsic format 5 without format 4.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `metadata.extrinsic.version` alone: format 4 gives `0`, otherwise format 5 gives `5`, otherwise a throw naming the formats the runtime offers. That restores the behaviour published in host `0.17.0` and terminal `0.7.4`, and keeps the explicit rejection `0.18.0` added for a runtime offering neither format, where earlier versions sent the highest format number to a host that cannot use it. Both packages now also decode the tracked chain metadata under test, which is the check that would have caught this.
+
+  `0` and `5` are the values host-rust-core's `build_local_transaction` accepts, and that is the host iOS and dot.li run. What the field means is still open in product-sdk#339: the truapi protocol documents it as a transaction-extension version and the Android host reads it that way, so `5` is not universally correct. This release does not settle that.
+
+  No behaviour change on any chain the SDK ships against. They all offer extrinsic format 4, so `txExtVersion` was and remains `0`.
+
 ## 0.18.0
 
 ### Minor Changes

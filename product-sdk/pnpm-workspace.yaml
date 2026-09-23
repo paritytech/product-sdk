@@ -4,8 +4,8 @@ packages:
   - "scripts/bench-consumer"
 
 catalog:
-  "@parity/host-api-test-sdk": ^0.12.1
-  "@parity/truapi": ^0.10.0
+  "@parity/host-api-test-sdk": ^0.15.0
+  "@parity/truapi": ^0.18.0
   "@playwright/test": ^1.60.0
   "@polkadot-api/json-rpc-provider": ^0.2.0
   "@polkadot-api/metadata-builders": ^0.14.3
@@ -20,6 +20,9 @@ catalog:
   vitest: ^3.1.4
 
 overrides:
+  # host-papp asks for `polkadot-api: ">=2"`, which resolves to 3.x on its own.
+  # Terminal pins host-papp exact for the same reason: 0.10.1+ needs PAPI 3.
+  "polkadot-api": "^2.1.6"
   "@polkadot-api/json-rpc-provider": "^0.2.0"
   # Force the patched `ws` (GHSA: memory-exhaustion DoS from tiny fragments;
   # affects >=8.0.0 <8.21.0). Pulled transitively by smoldot (`^8.8.1`, satisfied)
@@ -35,5 +38,5 @@ allowBuilds:
   esbuild: true
 
 minimumReleaseAgeExclude:
-  - '@parity/host-api-test-sdk@0.12.1'
-  - '@parity/truapi@0.10.0'
+  - '@parity/host-api-test-sdk@0.15.0'
+  - '@parity/truapi@0.18.0'

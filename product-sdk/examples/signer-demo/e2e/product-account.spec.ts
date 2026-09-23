@@ -11,7 +11,7 @@ test.describe("@parity/product-sdk-signer — getProductAccount", () => {
             .locator('[data-testid="selected-address"]')
             .textContent();
 
-        // The fixture maps "signer-demo.dot/0" → Bob, so getProductAccount
+        // The fixture maps "signer-demo.dot" → Bob, so getProductAccount
         // with that DotNS identifier should round-trip through handleAccountGet
         // and resolve to Bob's public key encoded with SS58 prefix 0. That
         // matches the first non-product account the app already selected,

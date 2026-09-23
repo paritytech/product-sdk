@@ -1,5 +1,46 @@
 # @parity/product-sdk-local-storage
 
+## 0.3.12
+
+### Patch Changes
+
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+  - @parity/product-sdk-host@0.22.0
+
+## 0.3.11
+
+### Patch Changes
+
+- Updated dependencies [8675e6c]
+  - @parity/product-sdk-host@0.21.0
+
+## 0.3.10
+
+### Patch Changes
+
+- Updated dependencies [a85b489]
+  - @parity/product-sdk-host@0.20.0
+
+## 0.3.9
+
+### Patch Changes
+
+- Updated dependencies [5613196]
+  - @parity/product-sdk-host@0.19.1
+
+## 0.3.8
+
+### Patch Changes
+
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+- Updated dependencies [d0260a1]
+  - @parity/product-sdk-host@0.19.0
+
 ## 0.3.7
 
 ### Patch Changes

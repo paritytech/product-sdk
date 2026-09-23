@@ -69,6 +69,8 @@ Every PR that changes a published artifact needs a changeset. See [`product-sdk/
 | PAPI chain bindings | `product-sdk/packages/descriptors/chains/<chain>/.papi/polkadot-api.json` |
 | Contracts wrapper / dry-runs | `product-sdk/packages/contracts/src/wrap.ts` |
 | Cloud storage chain client | `product-sdk/packages/cloud-storage/src/` |
+| Build or check a Pocket card face | `product-sdk/packages/renderer/src/nodes.ts`, `product-sdk/packages/renderer/src/validate.ts` |
+| Draw a Pocket card from a worker | `product-sdk/packages/host/src/pocket.ts`, `product-sdk/examples/pocket-card-example/` |
 | Release pipeline | `.github/workflows/product-sdk-release.yml`, `product-sdk/RELEASES.md` |
 | Descriptor drift detection | `.github/workflows/product-sdk-descriptors-drift.yml`, `product-sdk/packages/descriptors/README.md` |
 
@@ -90,6 +92,7 @@ When the user's question matches a skill, invoke it via the `Skill` tool rather 
 - `product-sdk-cloud-storage` — cloud-storage chain client.
 - `product-sdk-statement-store` — statement store.
 - `product-sdk-nfts` — Scarcity collection and item-catalogue reads, the descriptor entries they need, and the open metadata schema.
-- `product-sdk-individuality` — personhood / membership state reads, the account to username read, the game and its prize draws, game sign-up, and the AsPerson extension.
+- `product-sdk-individuality` — personhood / membership state reads, the account to username read, the game and its prize draws, the account and lite sign-up paths, the two-transaction lite bind flow, full-personhood registration, ring-VRF proof contexts and ring locations, and the person, lite-alias and score-participant origin extensions.
+- `product-sdk-pocket-cards` — Pocket cards: building a face, checking it, and drawing it from a worker.
 - `product-sdk-utilities` — address, crypto, logger, local-storage, utils.
 - `migrating-to-product-sdk` — porting from legacy stacks.

@@ -60,8 +60,8 @@ export type PapiSignedExtensions = Parameters<PolkadotSigner["signTx"]>[1];
  * @param callData - the SCALE-encoded call, as PAPI passes it to `signTx`.
  * @param extensions - the signed-extensions map, with every slot already holding
  *   its final value. Patch first, then build: see consequence 2 above.
- * @param identifier - which extension's implication to build. Defaults to
- *   `AsPerson`.
+ * @param identifier - which extension's implication to build. Required: a
+ *   default silently hashes the wrong slice for any other extension.
  * @throws {AsPersonError} when the chain does not declare `identifier`, or when
  *   an extension inside the slice is missing from `extensions`.
  */
@@ -69,7 +69,7 @@ export function buildImplication(
     pipeline: ExtensionPipeline,
     callData: Uint8Array,
     extensions: PapiSignedExtensions,
-    identifier: string = AS_PERSON,
+    identifier: string,
 ): Uint8Array {
     // `indexOf` throws when the chain does not declare it, which is the check
     // that keeps a wrong slice from being computed off index -1.
@@ -107,7 +107,7 @@ export function implicationMessage(
     pipeline: ExtensionPipeline,
     callData: Uint8Array,
     extensions: PapiSignedExtensions,
-    identifier: string = AS_PERSON,
+    identifier: string,
 ): Uint8Array {
     return blake2b256(buildImplication(pipeline, callData, extensions, identifier));
 }
@@ -218,15 +218,20 @@ if (import.meta.vitest) {
                 "030405060708090a0b0c0d0e0f101112131415" + // values 3..21
                 "6768696a6b6c6d6e6f70717273747576777879"; // implicits 103..121
 
-            expect(hex(buildImplication(PASEO, CALL_DATA, positionalExtensions(PASEO)))).toBe(
-                expected,
-            );
+            expect(
+                hex(buildImplication(PASEO, CALL_DATA, positionalExtensions(PASEO), AS_PERSON)),
+            ).toBe(expected);
         });
 
         test("excludes AsPerson's own value and everything before it", () => {
             // The single most important property in this file. Bytes 0x00 to 0x02
             // are the slots at indices 0, 1 and 2, and none may appear.
-            const implication = buildImplication(PASEO, CALL_DATA, positionalExtensions(PASEO));
+            const implication = buildImplication(
+                PASEO,
+                CALL_DATA,
+                positionalExtensions(PASEO),
+                AS_PERSON,
+            );
             const body = implication.slice(1 + CALL_DATA.length);
 
             expect(Array.from(body)).not.toContain(0x00); // UnitTransactionExtension
@@ -236,7 +241,12 @@ if (import.meta.vitest) {
         });
 
         test("opens with the pipeline version byte", () => {
-            const implication = buildImplication(PASEO, CALL_DATA, positionalExtensions(PASEO));
+            const implication = buildImplication(
+                PASEO,
+                CALL_DATA,
+                positionalExtensions(PASEO),
+                AS_PERSON,
+            );
             expect(implication[0]).toBe(PASEO.version);
             expect(implication[0]).toBe(0);
         });
@@ -244,7 +254,12 @@ if (import.meta.vitest) {
         test("values come before implicits, not interleaved", () => {
             // Interleaving is the other plausible layout and it hashes to
             // something the node never recomputes.
-            const implication = buildImplication(PASEO, CALL_DATA, positionalExtensions(PASEO));
+            const implication = buildImplication(
+                PASEO,
+                CALL_DATA,
+                positionalExtensions(PASEO),
+                AS_PERSON,
+            );
             const body = Array.from(implication.slice(1 + CALL_DATA.length));
             expect(body.slice(0, 19).every((byte) => byte < 100)).toBe(true);
             expect(body.slice(19).every((byte) => byte >= 100)).toBe(true);
@@ -253,8 +268,18 @@ if (import.meta.vitest) {
         test("follows the chain's own pipeline length rather than a constant", () => {
             // The devnet declares one extension more than paseo, so the same call
             // and the same rule must produce a longer implication there.
-            const onPaseo = buildImplication(PASEO, CALL_DATA, positionalExtensions(PASEO));
-            const onDevnet = buildImplication(DEVNET, CALL_DATA, positionalExtensions(DEVNET));
+            const onPaseo = buildImplication(
+                PASEO,
+                CALL_DATA,
+                positionalExtensions(PASEO),
+                AS_PERSON,
+            );
+            const onDevnet = buildImplication(
+                DEVNET,
+                CALL_DATA,
+                positionalExtensions(DEVNET),
+                AS_PERSON,
+            );
 
             expect(PASEO.extensions).toHaveLength(22);
             expect(DEVNET.extensions).toHaveLength(23);
@@ -288,8 +313,12 @@ if (import.meta.vitest) {
             // reproduce, because the node reads every declared slot.
             const extensions = withoutSlot(positionalExtensions(PASEO), "CheckNonce");
 
-            expect(() => buildImplication(PASEO, CALL_DATA, extensions)).toThrow(AsPersonError);
-            expect(() => buildImplication(PASEO, CALL_DATA, extensions)).toThrow(/CheckNonce/);
+            expect(() => buildImplication(PASEO, CALL_DATA, extensions, AS_PERSON)).toThrow(
+                AsPersonError,
+            );
+            expect(() => buildImplication(PASEO, CALL_DATA, extensions, AS_PERSON)).toThrow(
+                /CheckNonce/,
+            );
         });
 
         test("ignores a slot missing from before the slice", () => {
@@ -298,47 +327,52 @@ if (import.meta.vitest) {
             const extensions = positionalExtensions(PASEO);
 
             expect(
-                buildImplication(PASEO, CALL_DATA, withoutSlot(extensions, "VerifyMultiSignature")),
-            ).toEqual(buildImplication(PASEO, CALL_DATA, extensions));
+                buildImplication(
+                    PASEO,
+                    CALL_DATA,
+                    withoutSlot(extensions, "VerifyMultiSignature"),
+                    AS_PERSON,
+                ),
+            ).toEqual(buildImplication(PASEO, CALL_DATA, extensions, AS_PERSON));
         });
     });
 
     describe("implicationMessage", () => {
         test("is the blake2-256 of the implication", () => {
             const extensions = positionalExtensions(PASEO);
-            expect(implicationMessage(PASEO, CALL_DATA, extensions)).toEqual(
-                blake2b256(buildImplication(PASEO, CALL_DATA, extensions)),
+            expect(implicationMessage(PASEO, CALL_DATA, extensions, AS_PERSON)).toEqual(
+                blake2b256(buildImplication(PASEO, CALL_DATA, extensions, AS_PERSON)),
             );
         });
 
         test("is 32 bytes, which is what the proof call expects", () => {
-            expect(implicationMessage(PASEO, CALL_DATA, positionalExtensions(PASEO))).toHaveLength(
-                32,
-            );
+            expect(
+                implicationMessage(PASEO, CALL_DATA, positionalExtensions(PASEO), AS_PERSON),
+            ).toHaveLength(32);
         });
 
         test("changes when any byte inside the slice changes", () => {
             // The whole point of the hash: a different tip, nonce or era must
             // produce a different message.
             const extensions = positionalExtensions(PASEO);
-            const before = implicationMessage(PASEO, CALL_DATA, extensions);
+            const before = implicationMessage(PASEO, CALL_DATA, extensions, AS_PERSON);
             extensions.CheckNonce = {
                 ...extensions.CheckNonce,
                 value: Uint8Array.from([0xff]),
             };
-            expect(implicationMessage(PASEO, CALL_DATA, extensions)).not.toEqual(before);
+            expect(implicationMessage(PASEO, CALL_DATA, extensions, AS_PERSON)).not.toEqual(before);
         });
 
         test("does not change when a slot before the slice changes", () => {
             // AsPerson's own value is outside its own hash. This is what lets the
             // proof be written back in after the message is computed.
             const extensions = positionalExtensions(PASEO);
-            const before = implicationMessage(PASEO, CALL_DATA, extensions);
+            const before = implicationMessage(PASEO, CALL_DATA, extensions, AS_PERSON);
             extensions.AsPerson = {
                 ...extensions.AsPerson,
                 value: Uint8Array.from([0x01, 0x00, 0x07, 0x00, 0x00, 0x00]),
             };
-            expect(implicationMessage(PASEO, CALL_DATA, extensions)).toEqual(before);
+            expect(implicationMessage(PASEO, CALL_DATA, extensions, AS_PERSON)).toEqual(before);
         });
     });
 

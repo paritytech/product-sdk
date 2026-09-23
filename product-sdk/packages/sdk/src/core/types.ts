@@ -25,8 +25,8 @@ export interface CloudStorageConfig {
 
 /** Configuration for createApp */
 export interface AppConfig {
-    /** Application name - used to derive product accounts and namespace storage */
-    name: string;
+    /** @deprecated Ignored with a warning. The host product ID supplies the app name. */
+    name?: string;
     /** Log level for SDK operations (default: 'info') */
     logLevel?: LogLevel;
     /**
@@ -35,6 +35,12 @@ export interface AppConfig {
      * - Pass `false` to disable cloud storage initialization
      */
     cloudStorage?: CloudStorageConfig | false;
+}
+
+/** App configuration with the identity resolved from the host. */
+export interface AppInfo extends Omit<AppConfig, "name"> {
+    /** App name and storage prefix, omitting the host ID's final domain suffix. Local host IDs stay unchanged. */
+    name: string;
 }
 
 /** Wallet API exposed by the SDK */
@@ -72,7 +78,14 @@ export interface WalletApi {
     createProof(message: Uint8Array): Promise<Uint8Array>;
 }
 
-/** Storage API exposed by the SDK */
+/**
+ * Storage API exposed by the SDK: per-key get / set / remove, string and JSON.
+ *
+ * There is no `clear()`. Host localStorage exposes no key enumeration (only
+ * per-key read / write / remove), so a clear-all cannot be implemented — it was
+ * a silent no-op in a host container. Remove keys individually with `remove`,
+ * or track the keys your app writes and remove them.
+ */
 export interface LocalStorageApi {
     /** Get a value by key */
     get(key: string): Promise<string | null>;
@@ -84,8 +97,6 @@ export interface LocalStorageApi {
     setJSON<T = unknown>(key: string, value: T): Promise<void>;
     /** Remove a value by key */
     remove(key: string): Promise<void>;
-    /** Clear all values */
-    clear(): Promise<void>;
 }
 
 /** Chain API exposed by the SDK */
@@ -171,8 +182,8 @@ export interface App {
     chain: ChainApi;
     /** Cloud Storage operations (null if disabled via config) */
     cloudStorage: CloudStorageApi | null;
-    /** Get app configuration */
-    getAppInfo(): AppConfig;
+    /** Get app configuration with the host-derived name. */
+    getAppInfo(): AppInfo;
 }
 
 /** Account information */

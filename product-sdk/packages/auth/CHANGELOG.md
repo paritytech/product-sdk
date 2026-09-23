@@ -1,5 +1,97 @@
 # @parity/product-sdk-auth
 
+## 0.4.0
+
+### Minor Changes
+
+- a0fcb48: **Product accounts derive the RFC-0022 way.** The previous derivation predated RFC-0022 and matched no shipping host, so every product-account address the SDK produced was wrong. It failed closed: the wallet resolves an account selector rather than a key, so it signed as the correct account, but the wrong key drove the nonce lookup and everything else PAPI computes around the signature, and it is the address `packages/auth` displayed.
+
+  A product account sits at `//product//{productId}/{derivationIndex}`. The two `//product//{productId}` junctions are **hard**. Hard junctions cannot be reproduced from a public key, so the old approach — three soft junctions from `session.rootAccountId` — could not have been right for any host. The subtree public key must come from the Account Holder.
+
+  Canonical implementation is `host_logic/product_account.rs` in host-rust-core, mirrored by Android `DerivationPaths.kt` and iOS `DerivationIndex32.swift`. `packages/keys/src/product-account.test.ts` now pins the derivation against the host's own cross-host vector from `truapi-server/tests/wasm_crypto_vectors.rs`, rather than against fixtures generated from our own implementation.
+
+  **Every product-account address changes.** Anything keyed to an address this SDK derived before — funds, allowances, statement-store entries, on-chain registrations — belongs to an account no host will sign for and is stranded. Check before upgrading.
+
+  **Breaking API changes:**
+
+  - `deriveProductAccountPublicKey(productSubtreePublicKey, derivationIndex)` replaces `(parentPublicKey, productId, derivationIndex)`. The index is now a tagged `DerivationIndex` (`{ tag: "Index", value }` or `{ tag: "Raw", value }`), matching the host's own selector.
+  - `createChainCode` is **removed**. It encoded junctions that are now hard, and the SDK never derives a hard junction from a public key.
+  - `createSessionSigner`, `createSessionSignerForAccount` and `deriveProductPublicKey` return promises. Add `await`.
+  - All three, plus the new `getProductSubtreePublicKey`, take an optional trailing `ProductSubtreeOptions` (`{ appId?, storageDir? }`) to relocate the cache.
+
+  **The first derivation per product costs one round trip to the paired wallet.** `session.getProductSubtree(productId)` is consent-free, so it raises no dialog, but it does need the phone reachable. The result is cached in memory and on disk (`{appId}_ProductSubtrees.json`, mode 0600, keyed by session and product), so only a cold cache reaches the wallet. Pass `ProductAccountRef.publicKey` to skip the fetch entirely, or call `getProductSubtreePublicKey` up front to warm the cache before going offline.
+
+  There is deliberately no fallback to the old derivation, or to the wallet's selected account, when the fetch fails: both produce a valid signature over the wrong address, which is the defect being fixed.
+
+  **New in `@parity/product-sdk-utils`:** `derivationIndexBytes(index)` and the `DerivationIndex` type — the RFC-0022 32-byte selector expansion, now shared instead of written once per package. `@parity/product-sdk-individuality`'s `contextSuffixBytes` delegates to it, and is unchanged for callers: same `ContextSuffix` type, same `ProductIndividualityError`, same message text.
+
+  Requires `@novasamatech/host-papp` 0.10.0 or later for `getProductSubtree`.
+
+### Patch Changes
+
+- Updated dependencies [a0fcb48]
+  - @parity/product-sdk-keys@0.4.0
+  - @parity/product-sdk-terminal@0.10.0
+  - @parity/product-sdk-tx@0.4.10
+
+## 0.3.1
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.26
+- @parity/product-sdk-terminal@0.9.1
+- @parity/product-sdk-tx@0.4.9
+
+## 0.3.0
+
+### Minor Changes
+
+- a85b489: **Pair with a 0.9.0+ host.** `@novasamatech/host-papp` and its three lockstep siblings move from `^0.8.9` to `0.10.0`.
+
+  The old caret admitted only `>=0.8.9 <0.9.0`. host-papp 0.9.0 changed the pairing envelope from P-256 / AES-GCM to X25519 / ChaCha20-Poly1305 and shrank the encryption keys from 65 bytes to 32, and the handshake codec is fixed-width SCALE, so an SDK on the old pin could not complete a handshake. Both shipping mobile hosts moved to the new envelope in mid-August 2026, so this has been broken in the field since then.
+
+  **Existing paired sessions are invalidated. Users re-pair once.** The persisted session storage key moved `SsoSessionsV3` → `SsoSessionsV4`, so sessions written by an earlier CLI run are not read. `UserSecretsV2_<sessionId>.json` files are left behind but cause no errors, and the `DeviceIdentity` blob is unaffected. Same shape of break as the 0.8.7-1 bump.
+
+  **The on-disk allowance cache is versioned 1 → 2 and stale files are dropped.** Its entries belong to sessions that can no longer exist, and two fields changed shape, so a v1 file is discarded rather than half-read. The first allocation after upgrading is one extra round trip.
+
+  **Breaking, for anyone importing these types directly:**
+
+  - `AllocatableResource` — `SmartContractAllowance`'s payload is now a tagged `{ tag: "Index"; value: number } | { tag: "Raw"; value: Uint8Array }` instead of a bare `number`.
+  - `ApAllocationOutcome` — `AutoSigning` drops `productDerivationSecret` and gains `ringVrfDomainEntropy`.
+  - `CachedAllocation` — `SmartContractAllowance.dest` is a string (`"Index::7"`, `"Raw::0x…"`), and the `AutoSigning` entry carries `ringVrfDomainEntropy`.
+
+  `ProductAccountRef` is unchanged: the SDK still takes a plain `derivationIndex` and emits the `Index` variant for you.
+
+  **Not taking 0.10.1 or newer.** They raise their `polkadot-api` floor to `>=3` and this workspace is on PAPI 2. 0.10.0 is wire-identical to 0.10.2 for pairing, handshake, signing and resource allocation, so nothing is lost by holding here. A `polkadot-api` override keeps host-papp's open `>=2` range from pulling a second PAPI copy into the graph.
+
+  **This restores pairing, not phone-paired signing.** Product-account derivation in `@parity/product-sdk-keys` predates RFC-0022 and does not match any current host, so a signature still carries the wrong address. That is a separate, pre-existing defect, tracked on its own.
+
+### Patch Changes
+
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+- Updated dependencies [a85b489]
+  - @parity/product-sdk-terminal@0.9.0
+  - @parity/product-sdk-keys@0.3.25
+  - @parity/product-sdk-tx@0.4.8
+
+## 0.2.10
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.3.24
+- @parity/product-sdk-terminal@0.8.2
+- @parity/product-sdk-tx@0.4.7
+
+## 0.2.9
+
+### Patch Changes
+
+- Updated dependencies [d0260a1]
+  - @parity/product-sdk-terminal@0.8.1
+  - @parity/product-sdk-keys@0.3.23
+  - @parity/product-sdk-tx@0.4.6
+
 ## 0.2.8
 
 ### Patch Changes

@@ -105,6 +105,10 @@ export type { DevicePermissionKind, RemotePermissionItem } from "./permissions.j
 export { getThemeProvider } from "./theme.js";
 export type { ThemeMode, ThemeName, ThemeProvider, ThemeVariant } from "./theme.js";
 
+// Locale provider
+export { getLocaleProvider } from "./locale.js";
+export type { LocaleInfo, LocaleProvider } from "./locale.js";
+
 // Entropy derivation (RFC-0007)
 export { deriveEntropy } from "./entropy.js";
 
@@ -118,6 +122,28 @@ export type {
     ChatRoomRegistrationResult,
     ChatBotRegistrationResult,
 } from "./chat.js";
+
+// Renderer (the shared `onRender` slot)
+export { getRendererManager, registerRenderContext, renderFailure } from "./renderer.js";
+export type {
+    RenderCleanup,
+    RenderContextTag,
+    RendererManager,
+    RenderFailure,
+    RenderHandler,
+    RenderRegistration,
+} from "./renderer.js";
+
+// Pocket
+export { getPocketManager } from "./pocket.js";
+export type {
+    CardCleanup,
+    CardDrawHandler,
+    CardDrawRegistration,
+    PocketCard,
+    PocketCardAction,
+    PocketManager,
+} from "./pocket.js";
 
 // Payments (RFC-0006)
 export { getPaymentManager } from "./payments.js";

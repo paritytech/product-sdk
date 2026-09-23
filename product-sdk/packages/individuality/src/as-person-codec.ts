@@ -73,6 +73,8 @@ export interface ExtensionPipeline {
     version: number;
     /** Every declared extension, in the order the chain encodes them. */
     extensions: ExtensionSlot[];
+    /** Extrinsic versions the chain accepts, for a caller that picks a preamble. */
+    supportedVersions: number[];
     /** Build a codec for a declared type id. */
     codec(typeId: number): TypeCodec;
     /** Position of `identifier` in {@link extensions}. Throws when absent. */
@@ -127,6 +129,7 @@ export function readExtensionPipeline(metadata: Uint8Array): ExtensionPipeline {
     return {
         version: SUPPORTED_PIPELINE_VERSION,
         extensions,
+        supportedVersions: [...unified.extrinsic.version],
         codec: (typeId) => builder.buildDefinition(typeId) as TypeCodec,
         indexOf,
         slot: (identifier) => extensions[indexOf(identifier)],
@@ -200,7 +203,7 @@ const CONTEXT_BYTES = 32;
 const PROOF_BYTES_MAX = 8 * 1024;
 
 /** Reject a context the chain cannot read, before it becomes wrong bytes. */
-function checkContext(context: Uint8Array): Uint8Array {
+export function checkContext(context: Uint8Array): Uint8Array {
     if (context.length !== CONTEXT_BYTES) {
         // The length, never the value: a contextual alias is pseudonymous
         // identity and must not reach a log line.
@@ -210,7 +213,7 @@ function checkContext(context: Uint8Array): Uint8Array {
 }
 
 /** Reject a proof the chain will not accept, for the reasons on the constant. */
-function checkProof(proof: Uint8Array): Uint8Array {
+export function checkProof(proof: Uint8Array): Uint8Array {
     if (proof.length === 0) {
         throw new AsPersonError("ring VRF proof is empty");
     }
@@ -428,8 +431,8 @@ if (import.meta.vitest) {
             // Proves the negative case above is about AsPerson specifically, not
             // a blob this reader simply cannot parse.
             const pipeline = readExtensionPipeline(ASSET_HUB);
-            expect(pipeline.extensions).toHaveLength(18);
-            expect(pipeline.indexOf("CheckNonce")).toBe(12);
+            expect(pipeline.extensions).toHaveLength(17);
+            expect(pipeline.indexOf("CheckNonce")).toBe(11);
         });
     });
 

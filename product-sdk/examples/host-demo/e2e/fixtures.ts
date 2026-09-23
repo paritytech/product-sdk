@@ -4,7 +4,7 @@ import { test as base } from "@playwright/test";
 import {
     createTestHostFixture,
     PASEO_ASSET_HUB,
-    type ChainConfig,
+    type NetworkConfig,
     type TestHost,
 } from "@parity/host-api-test-sdk/playwright";
 
@@ -19,7 +19,7 @@ const PRODUCT_URL = "http://localhost:5240";
  * serve the same chain as `PASEO_ASSET_HUB.genesisHash`; a mirror on any other
  * genesis fails the chain handshake (seen as `Tracking stopped` / `BadProof`).
  */
-const PASEO_AH: ChainConfig = {
+const PASEO_AH: NetworkConfig = {
     ...PASEO_ASSET_HUB,
     rpcUrl: process.env.PASEO_AH_RPC ?? "wss://paseo-asset-hub-next-rpc.polkadot.io",
 };
@@ -32,9 +32,10 @@ const PASEO_AH: ChainConfig = {
  */
 const bobFixture = createTestHostFixture({
     productUrl: PRODUCT_URL,
+    productId: "host-demo.dot",
     accounts: ["bob"],
-    chain: PASEO_AH,
-    productAccounts: { "host-demo.dot/0": "bob" },
+    networks: [PASEO_AH],
+    productAccounts: { "host-demo.dot": "bob" },
 });
 
 export const test = base.extend<{ testHost: TestHost }>(bobFixture);

@@ -88,12 +88,8 @@ test.describe("@parity/product-sdk-statement-store via Host API — publish", ()
         const submitted = await testHost.getSubmittedStatements();
         expect(submitted.length).toBeGreaterThanOrEqual(1);
 
-        // The submitted statement should have topics — verify it was actually sent
-        const stmt = submitted[submitted.length - 1].statement as {
-            topics?: unknown[];
-        };
-        // In host format, topics are Uint8Array[]. Should have at least 2 (appTopic + topic2)
-        expect(stmt.topics).toBeDefined();
-        expect(stmt.topics!.length).toBeGreaterThanOrEqual(2);
+        // Topics are `0x`-hex strings on the entry itself.
+        const stmt = submitted[submitted.length - 1];
+        expect(stmt.topics.length).toBeGreaterThanOrEqual(2);
     });
 });

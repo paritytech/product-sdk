@@ -17,6 +17,7 @@ export default defineConfig({
         "nfts/index": "src/nfts/index.ts",
         "react/index": "src/react/index.ts",
         "local-storage/index": "src/local-storage/index.ts",
+        "renderer/index": "src/renderer/index.ts",
         "wallet/index": "src/wallet/index.ts",
         "testing/index": "src/testing.ts",
     },

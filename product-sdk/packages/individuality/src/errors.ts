@@ -54,7 +54,8 @@ export class IndividualityDecodeError extends ProductIndividualityError {
 }
 
 /**
- * Building the `AsPerson` transaction extension failed.
+ * Building an origin-modifying transaction extension — `AsPerson` or its
+ * lite-personhood peer `PeopleLiteAuth` — failed.
  *
  * Raised when the chain does not declare the extension, declares a pipeline
  * version this package cannot encode, or when a value does not survive a round

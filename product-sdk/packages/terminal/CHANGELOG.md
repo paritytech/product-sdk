@@ -1,5 +1,142 @@
 # @parity/product-sdk-terminal
 
+## 0.10.0
+
+### Minor Changes
+
+- a0fcb48: **Product accounts derive the RFC-0022 way.** The previous derivation predated RFC-0022 and matched no shipping host, so every product-account address the SDK produced was wrong. It failed closed: the wallet resolves an account selector rather than a key, so it signed as the correct account, but the wrong key drove the nonce lookup and everything else PAPI computes around the signature, and it is the address `packages/auth` displayed.
+
+  A product account sits at `//product//{productId}/{derivationIndex}`. The two `//product//{productId}` junctions are **hard**. Hard junctions cannot be reproduced from a public key, so the old approach — three soft junctions from `session.rootAccountId` — could not have been right for any host. The subtree public key must come from the Account Holder.
+
+  Canonical implementation is `host_logic/product_account.rs` in host-rust-core, mirrored by Android `DerivationPaths.kt` and iOS `DerivationIndex32.swift`. `packages/keys/src/product-account.test.ts` now pins the derivation against the host's own cross-host vector from `truapi-server/tests/wasm_crypto_vectors.rs`, rather than against fixtures generated from our own implementation.
+
+  **Every product-account address changes.** Anything keyed to an address this SDK derived before — funds, allowances, statement-store entries, on-chain registrations — belongs to an account no host will sign for and is stranded. Check before upgrading.
+
+  **Breaking API changes:**
+
+  - `deriveProductAccountPublicKey(productSubtreePublicKey, derivationIndex)` replaces `(parentPublicKey, productId, derivationIndex)`. The index is now a tagged `DerivationIndex` (`{ tag: "Index", value }` or `{ tag: "Raw", value }`), matching the host's own selector.
+  - `createChainCode` is **removed**. It encoded junctions that are now hard, and the SDK never derives a hard junction from a public key.
+  - `createSessionSigner`, `createSessionSignerForAccount` and `deriveProductPublicKey` return promises. Add `await`.
+  - All three, plus the new `getProductSubtreePublicKey`, take an optional trailing `ProductSubtreeOptions` (`{ appId?, storageDir? }`) to relocate the cache.
+
+  **The first derivation per product costs one round trip to the paired wallet.** `session.getProductSubtree(productId)` is consent-free, so it raises no dialog, but it does need the phone reachable. The result is cached in memory and on disk (`{appId}_ProductSubtrees.json`, mode 0600, keyed by session and product), so only a cold cache reaches the wallet. Pass `ProductAccountRef.publicKey` to skip the fetch entirely, or call `getProductSubtreePublicKey` up front to warm the cache before going offline.
+
+  There is deliberately no fallback to the old derivation, or to the wallet's selected account, when the fetch fails: both produce a valid signature over the wrong address, which is the defect being fixed.
+
+  **New in `@parity/product-sdk-utils`:** `derivationIndexBytes(index)` and the `DerivationIndex` type — the RFC-0022 32-byte selector expansion, now shared instead of written once per package. `@parity/product-sdk-individuality`'s `contextSuffixBytes` delegates to it, and is unchanged for callers: same `ContextSuffix` type, same `ProductIndividualityError`, same message text.
+
+  Requires `@novasamatech/host-papp` 0.10.0 or later for `getProductSubtree`.
+
+### Patch Changes
+
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+  - @parity/product-sdk-keys@0.4.0
+  - @parity/product-sdk-signer@0.15.0
+
+## 0.9.1
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.14.6
+- @parity/product-sdk-keys@0.3.26
+
+## 0.9.0
+
+### Minor Changes
+
+- a85b489: **Pair with a 0.9.0+ host.** `@novasamatech/host-papp` and its three lockstep siblings move from `^0.8.9` to `0.10.0`.
+
+  The old caret admitted only `>=0.8.9 <0.9.0`. host-papp 0.9.0 changed the pairing envelope from P-256 / AES-GCM to X25519 / ChaCha20-Poly1305 and shrank the encryption keys from 65 bytes to 32, and the handshake codec is fixed-width SCALE, so an SDK on the old pin could not complete a handshake. Both shipping mobile hosts moved to the new envelope in mid-August 2026, so this has been broken in the field since then.
+
+  **Existing paired sessions are invalidated. Users re-pair once.** The persisted session storage key moved `SsoSessionsV3` → `SsoSessionsV4`, so sessions written by an earlier CLI run are not read. `UserSecretsV2_<sessionId>.json` files are left behind but cause no errors, and the `DeviceIdentity` blob is unaffected. Same shape of break as the 0.8.7-1 bump.
+
+  **The on-disk allowance cache is versioned 1 → 2 and stale files are dropped.** Its entries belong to sessions that can no longer exist, and two fields changed shape, so a v1 file is discarded rather than half-read. The first allocation after upgrading is one extra round trip.
+
+  **Breaking, for anyone importing these types directly:**
+
+  - `AllocatableResource` — `SmartContractAllowance`'s payload is now a tagged `{ tag: "Index"; value: number } | { tag: "Raw"; value: Uint8Array }` instead of a bare `number`.
+  - `ApAllocationOutcome` — `AutoSigning` drops `productDerivationSecret` and gains `ringVrfDomainEntropy`.
+  - `CachedAllocation` — `SmartContractAllowance.dest` is a string (`"Index::7"`, `"Raw::0x…"`), and the `AutoSigning` entry carries `ringVrfDomainEntropy`.
+
+  `ProductAccountRef` is unchanged: the SDK still takes a plain `derivationIndex` and emits the `Index` variant for you.
+
+  **Not taking 0.10.1 or newer.** They raise their `polkadot-api` floor to `>=3` and this workspace is on PAPI 2. 0.10.0 is wire-identical to 0.10.2 for pairing, handshake, signing and resource allocation, so nothing is lost by holding here. A `polkadot-api` override keeps host-papp's open `>=2` range from pulling a second PAPI copy into the graph.
+
+  **This restores pairing, not phone-paired signing.** Product-account derivation in `@parity/product-sdk-keys` predates RFC-0022 and does not match any current host, so a signature still carries the wrong address. That is a separate, pre-existing defect, tracked on its own.
+
+- a85b489: **Default to a statement store endpoint that resolves (#365).**
+
+  `createTerminalAdapter({ appId })` with no `endpoints` could not reach a statement store at all. Its
+  default was `SS_PASEO_STABLE_STAGE_ENDPOINTS`, whose hostname no longer exists. The Paseo people
+  chain it names is not down: it moved to the system slot and its RPC gained a `-system-` segment.
+  host-papp has not followed, and that constant is unchanged from 0.6.17 through 0.10.0.
+
+  The new default is `wss://paseo-people-next-system-rpc.polkadot.io`, which is the chain the Polkadot
+  app's nightly build connects to, and the one this repo's own `paseo-individuality` descriptor has
+  addressed all along.
+
+  **New: `StatementStoreNetworks`**, replacing the flat endpoint constants.
+
+  Keys match `BULLETIN_RPCS` in `@parity/product-sdk-host`, so one network has one name across the SDK.
+
+  | Key          | Endpoint                                         |
+  | ------------ | ------------------------------------------------ |
+  | `paseo`      | `wss://paseo-people-next-system-rpc.polkadot.io` |
+  | `previewnet` | `wss://previewnet.substrate.dev/people`          |
+
+  `previewnet` was live before this change and was not re-exported, so reaching it meant importing
+  from `@novasamatech/host-papp` directly. `StatementStoreEnvironment` is exported as its key type.
+
+  **Removed: `SS_PASEO_STABLE_STAGE_ENDPOINTS`.** Minor rather than patch, because surface is removed,
+  which on 0.x signals a breaking change. Nothing was reachable through it, so any caller passing it
+  as `endpoints` was already unable to connect; replace it with `StatementStoreNetworks.paseo`.
+
+  `SS_STABLE_STAGE_ENDPOINTS` is still exported. It resolves but refuses connections from outside the
+  Parity network, which fits an internal-only host rather than a retired one, so it is kept until it
+  has been retested on VPN.
+
+  **Smaller published bundle.** `treeshake` is now on, dropping the in-source test blocks that shipped
+  as dead code. `dist/index.js` goes from 50,146 to 13,335 bytes, with every export unchanged.
+
+  **Pairing needs both sides on the same chain**, and the pairing handshake does not carry one. The
+  phone picks its people chain per build flavour, so a preview-flavour phone still needs
+  `endpoints: StatementStoreNetworks.previewnet` passed explicitly.
+
+### Patch Changes
+
+- a85b489: **Name the host-papp version the module actually pins.** The `host.ts` module doc still said `0.7.7` three bumps after the fact; the package pins `0.10.0` exactly.
+
+  No behaviour change. The public shapes of `AllocatableResource` and `OnExistingAllowancePolicy` are now pinned by a type assertion in the module's test block, so a future host-papp bump that reshapes either fails typecheck naming the type instead of depending on whether this repo happens to construct the changed variant.
+
+  - @parity/product-sdk-signer@0.14.5
+  - @parity/product-sdk-keys@0.3.25
+
+## 0.8.2
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.14.4
+- @parity/product-sdk-keys@0.3.24
+
+## 0.8.1
+
+### Patch Changes
+
+- d0260a1: **Derive `txExtVersion` from the extrinsic format list, so a V5-only runtime can be signed again.**
+
+  The signer factories fill the truapi `create_transaction` field `txExtVersion`. Since host `0.18.0` and terminal `0.8.0` the V5 value was gated on the runtime's transaction-extension version map (surfaced by PAPI as the keys of `metadata.extrinsic.signedExtensions`) containing `5`. No runtime declares extension version `5`, every deployed runtime declares only `0`, so that branch was unreachable and signing threw on any runtime offering extrinsic format 5 without format 4.
+
+  Both `@parity/product-sdk-host`'s `getAccountsProvider` signers and `@parity/product-sdk-terminal`'s session signers now read `metadata.extrinsic.version` alone: format 4 gives `0`, otherwise format 5 gives `5`, otherwise a throw naming the formats the runtime offers. That restores the behaviour published in host `0.17.0` and terminal `0.7.4`, and keeps the explicit rejection `0.18.0` added for a runtime offering neither format, where earlier versions sent the highest format number to a host that cannot use it. Both packages now also decode the tracked chain metadata under test, which is the check that would have caught this.
+
+  `0` and `5` are the values host-rust-core's `build_local_transaction` accepts, and that is the host iOS and dot.li run. What the field means is still open in product-sdk#339: the truapi protocol documents it as a transaction-extension version and the Android host reads it that way, so `5` is not universally correct. This release does not settle that.
+
+  No behaviour change on any chain the SDK ships against. They all offer extrinsic format 4, so `txExtVersion` was and remains `0`.
+
+  - @parity/product-sdk-signer@0.14.3
+  - @parity/product-sdk-keys@0.3.23
+
 ## 0.8.0
 
 ### Minor Changes
