@@ -1,5 +1,24 @@
 # @parity/product-sdk
 
+## 0.31.0
+
+### Minor Changes
+
+- 206f791: **Pair with a truapi 0.20.0 host.** `@parity/truapi` moves from `^0.18.0` to `^0.20.0`. The codec version (3) and `TRUAPI_WIRE_SCHEMA_HASH` (`462dacb6e0d1f504`) are unchanged, so products and hosts on either version still talk to each other.
+
+### Patch Changes
+
+- Updated dependencies [206f791]
+  - @parity/product-sdk-host@0.23.0
+  - @parity/product-sdk-renderer@0.3.0
+  - @parity/product-sdk-chain-client@0.12.7
+  - @parity/product-sdk-cloud-storage@0.12.3
+  - @parity/product-sdk-local-storage@0.3.13
+  - @parity/product-sdk-signer@0.15.1
+  - @parity/product-sdk-keys@0.4.1
+  - @parity/product-sdk-contracts@0.10.11
+  - @parity/product-sdk-tx@0.4.11
+
 ## 0.30.0
 
 ### Minor Changes
