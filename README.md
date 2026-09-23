@@ -1,16 +1,15 @@
 # Product SDK
 
-> The following is a prototype, reference implementation, and proof-of-concept. This open source code is provided for research, experimentation, and developer education only. This code has not been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete features. Use at your own risk.
+TypeScript SDK for building applications on Polkadot, with typed APIs for chain interaction, transactions, signing, contracts, storage, identity, and host environments.
 
-Monorepo for the `@parity/product-sdk` family of packages and tooling.
+> The following is a prototype, reference implementation, and proof-of-concept. This open source code is provided for research, experimentation, and developer education only. This code has not been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete features. Use at your own risk.
 
 ## Documentation
 
-Full documentation is published at **[paritytech.github.io/product-sdk](https://paritytech.github.io/product-sdk/)**.
+- [Start building with Product SDK](https://docs.polkadot.com/apps/product-sdk/)
+- [API reference](https://paritytech.github.io/product-sdk/)
 
-## product-sdk
-
-TypeScript SDK for building products in the Polkadot ecosystem. Provides typed APIs for chain interactions, transaction signing, key management, and storage across Polkadot Desktop, Mobile, and browser environments.
+This repository contains the `@parity/product-sdk` family of packages and tooling.
 
 | Package | Description |
 |---------|-------------|
