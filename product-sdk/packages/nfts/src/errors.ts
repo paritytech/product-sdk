@@ -56,6 +56,31 @@ export class NftsDecodeError extends ProductNftsError {
 }
 
 /**
+ * An id or index a read was given cannot address chain state.
+ *
+ * Collection ids and item indices are `u32` on chain, and PAPI's codec truncates
+ * rather than rejecting, so an unchecked `NaN` or `1.5` would read a real
+ * collection and report it under the id the caller asked for. Refusing is the
+ * only answer that cannot be mistaken for a catalogue.
+ *
+ * The message carries the value because it is caller input, not chain content —
+ * the rule on {@link NftsDecodeError} is about author-supplied metadata.
+ */
+export class NftsIdError extends ProductNftsError {
+    /** The value that could not address anything. */
+    readonly id: number;
+
+    constructor(id: number, options?: ErrorOptions) {
+        super(
+            `Collection id ${id} is not a u32. Ids and item indices are whole numbers from 0 to 2^32 - 1.`,
+            options,
+        );
+        this.name = "NftsIdError";
+        this.id = id;
+    }
+}
+
+/**
  * A storage entry a read needs cannot be read on the client it was given.
  *
  * Either the descriptors do not carry the entry or the runtime does not, and the

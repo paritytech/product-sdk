@@ -19,6 +19,23 @@
  * entries only ever appear past the end.
  */
 
+/** The exclusive end of the `u32` space every id and index here is allocated in. */
+export const ID_CEILING = 2 ** 32;
+
+/**
+ * Is this a usable collection id or item index?
+ *
+ * Worth a check rather than trusting the encoder: PAPI's `u32` codec truncates
+ * what it is given instead of rejecting it, so `NaN` addresses collection 0 and
+ * `1.5` addresses collection 1. Both would come back on the `ok` channel as a
+ * real catalogue labelled with the id the caller asked for, which is a wrong
+ * answer rather than a failure. `Number(param)` is `NaN` for a malformed query
+ * parameter, so this is reachable from ordinary caller code.
+ */
+export function isValidId(id: number): boolean {
+    return Number.isInteger(id) && id >= 0 && id < ID_CEILING;
+}
+
 /** What one filled window yields. */
 export interface FilledWindow<T> {
     /** The entries the window found, ascending, at most `limit` of them. */
@@ -90,7 +107,10 @@ export function pageBounds(options: { limit?: number; fromId?: number }): {
     const from = usable(options.fromId) ?? 0;
     return {
         limit: Math.min(Math.max(0, Math.trunc(asked)), MAX_PAGE_LIMIT),
-        fromId: Math.max(0, Math.trunc(from)),
+        // Clamped to the id space rather than rejected, unlike an explicit id: a
+        // cursor past the end has nothing there, so the page comes back empty
+        // with `nextId: null`, which is the truthful answer for that request.
+        fromId: Math.min(Math.max(0, Math.trunc(from)), ID_CEILING),
     };
 }
 

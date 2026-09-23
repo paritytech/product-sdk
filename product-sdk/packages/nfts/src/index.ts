@@ -144,7 +144,12 @@ export type { Entry, NftsChain } from "./chain.js";
 
 // `NftsChainEntryError` is the one worth narrowing on: it means the client
 // cannot read an entry this package needs, which no retry will fix.
-export { ProductNftsError, NftsChainEntryError, NftsDecodeError } from "./errors.js";
+export {
+    ProductNftsError,
+    NftsChainEntryError,
+    NftsDecodeError,
+    NftsIdError,
+} from "./errors.js";
 
 // The metadata convention is deliberately *not* exported. Callers get decoded
 // fields off the reads above — `name`, `rarity`, `imageRef`, `attributes` — not

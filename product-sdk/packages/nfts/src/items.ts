@@ -12,8 +12,13 @@
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { pinBlock, readAt, type Entry, type NftsChain } from "./chain.js";
-import { fillByIdWindow, pageBounds } from "./paging.js";
-import { matchChainEntryError, NftsChainEntryError, ProductNftsError } from "./errors.js";
+import { fillByIdWindow, isValidId, pageBounds } from "./paging.js";
+import {
+    matchChainEntryError,
+    NftsChainEntryError,
+    NftsIdError,
+    ProductNftsError,
+} from "./errors.js";
 import {
     decodeMetadataKey,
     decodeMetadataValue,
@@ -143,6 +148,11 @@ export interface GetCollectionItemsOptions {
  * answered. An existing collection with no items resolves to `Found` with an
  * empty `items`.
  *
+ * An `id` that is not a `u32` **is** an error, {@link NftsIdError}, raised before
+ * anything is read. PAPI's codec truncates rather than rejecting, so `NaN` would
+ * otherwise return collection 0's catalogue labelled `id: NaN`, on the `ok`
+ * channel, which no caller could tell from a real answer.
+ *
  * **`transferability` is not returned.** The field in the original spec traces to
  * `pallet_nfts`' `CollectionSetting::TransferableItems` and has no source in
  * `Scarcity`: not in `ItemDefs`, and not in any metadata key the live chain
@@ -175,6 +185,10 @@ export async function getCollectionItems(
     options: GetCollectionItemsOptions = {},
 ): Promise<Result<CollectionItemsResult, ProductNftsError>> {
     try {
+        // Before the block is pinned: an id that cannot address anything is the
+        // caller's mistake, and answering it costs no round trip.
+        if (!isValidId(id)) return err(new NftsIdError(id));
+
         const { signal } = options;
         const snapshot = await pinBlock(chain, signal, options.at);
         const at = readAt(snapshot, signal);
@@ -302,6 +316,7 @@ async function readAllKeys(
 
 if (import.meta.vitest) {
     const { describe, expect, test } = import.meta.vitest;
+    const { NftsIdError } = await import("./errors.js");
 
     const utf8 = (text: string) => new TextEncoder().encode(text);
     const BLOCK = { hash: `0x${"88".repeat(32)}`, number: 99 };
@@ -964,6 +979,38 @@ if (import.meta.vitest) {
                 signal: controller.signal,
             });
             expect(result.ok).toBe(false);
+        });
+    });
+
+    describe("getCollectionItems, id validation", () => {
+        // PAPI's u32 codec truncates, so an unchecked NaN would read collection
+        // 0 and report it as collection NaN.
+        const refused = [Number.NaN, 1.5, -1, 2 ** 32, Number.POSITIVE_INFINITY];
+
+        for (const id of refused) {
+            test(`${id} is refused without touching the chain`, async () => {
+                const { chain, blocks } = fakeChain({
+                    record: { owner: "alice", item_count: 1 },
+                    defs: [[0, { supply: 1, live_supply: 1 }]],
+                });
+                const result = await getCollectionItems(chain, id);
+                expect(result.ok).toBe(false);
+                if (!result.ok) {
+                    expect(result.error).toBeInstanceOf(NftsIdError);
+                    expect(result.error.name).toBe("NftsIdError");
+                }
+                // No block pinned: the refusal costs no round trip.
+                expect(blocks()).toBe(0);
+            });
+        }
+
+        test("0 and the largest u32 are accepted", async () => {
+            for (const id of [0, 2 ** 32 - 1]) {
+                const { chain } = fakeChain({});
+                const result = await getCollectionItems(chain, id);
+                expect(result.ok).toBe(true);
+                if (result.ok) expect(result.value.tag).toBe("NotFound");
+            }
         });
     });
 }
