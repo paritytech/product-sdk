@@ -151,7 +151,7 @@ try {
 
     // ── Build the signer ──────────────────────────────────────────────────
     log("\n[2] Build signer");
-    const signer = createSessionSigner(session, adapter);
+    const signer = await createSessionSigner(session, adapter);
     if (signer.publicKey?.length !== 32) throw new Error(`signer.publicKey wrong length: ${signer.publicKey?.length}`);
     ok(`signer.publicKey: 0x${Buffer.from(signer.publicKey).toString("hex")}`);
 
