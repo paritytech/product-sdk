@@ -50,7 +50,7 @@ const sessions = await waitForSessions(adapter, 2000);
 // 5. Sign messages via the paired wallet
 if (sessions.length > 0) {
     const session = sessions[0];
-    const signer = createSessionSigner(session, adapter);
+    const signer = await createSessionSigner(session, adapter);
     // use signer with polkadot-api transactions
 }
 ```
@@ -97,32 +97,50 @@ answer from outside it.
 
 Whether `error` is the benign teardown noise above (`Client destroyed`, matched on the message so it never swallows another package's `DestroyedError`). `destroy()` already drops it during its own teardown; export it so a consumer with its own `console.error` guard can drop the same line without reinventing the match.
 
-### `createSessionSigner(session, adapter): PolkadotSigner`
+### `createSessionSigner(session, adapter): Promise<PolkadotSigner>`
 
 Creates a `PolkadotSigner` backed by a QR-paired mobile wallet session, using the session's **default account** (`derivationIndex: 0`) under the adapter's `appId`. This is the right entry point for ~all CLI flows.
 
+Async because the signer needs the product's subtree public key (RFC-0022), which only the paired wallet holds. That is one consent-free round trip the first time a product is seen; afterwards it is served from a cache on disk.
+
 ```ts
 const [session] = adapter.sessions.sessions.read();
-const signer = createSessionSigner(session, adapter);
+const signer = await createSessionSigner(session, adapter);
 await contract.publish.tx(domain, cid, { signer, origin });
 ```
 
-### `createSessionSignerForAccount(session, ref): PolkadotSigner`
+### `createSessionSignerForAccount(session, ref): Promise<PolkadotSigner>`
 
 Escape hatch for signing as a non-default sub-account of a paired session, or as a `productId` that differs from the adapter's `appId`. Most callers don't need this.
 
 `ref` is `{ productId: string; derivationIndex: number }`:
 - `productId` -- dotNS-style identifier of the requesting product. In normal usage this equals the adapter's `appId`; pass a different value only if you have an explicit reason.
-- `derivationIndex` -- BIP32-style child-key index. `0` is the default account; non-zero indices reach additional sub-accounts derived from the same root.
+- `derivationIndex` -- child-key index within the product's subtree. `0` is the default account; non-zero indices reach additional sub-accounts of the same product.
 
 ```ts
-const subSigner = createSessionSignerForAccount(session, {
+const subSigner = await createSessionSignerForAccount(session, {
     productId: "my-product",
     derivationIndex: 3,
 });
 ```
 
 > **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
+
+### `getProductSubtreePublicKey(session, productId, options?): Promise<Uint8Array>`
+
+Fetches the sr25519 public key of `//product//{productId}` from the paired wallet (RFC-0022). Both signer factories call it for you; reach for it directly to warm the cache before going offline, or to derive a product address without building a signer.
+
+The request is consent-free, so it raises no prompt on the phone, but it does need the phone reachable. The result is cached in memory and on disk, so only a cold cache reaches the wallet.
+
+```ts
+await getProductSubtreePublicKey(session, adapter.appId, { appId: adapter.appId });
+```
+
+`options` is `ProductSubtreeOptions`:
+- `appId` -- names the cache file (`~/.polkadot-apps/${appId}_ProductSubtrees.json`). Defaults to `productId`. **Pass your app id.** Anything that sweeps `~/.polkadot-apps/` by app-id prefix, such as a sign-out that clears local state, only finds the file if it is named after the app.
+- `storageDir` -- overrides `~/.polkadot-apps/`, matching `createTerminalAdapter({ storageDir })`.
+
+The cache file is written with mode `0600` and keyed by session and product, so re-pairing or switching wallet account does not reuse a stale key.
 
 ### `renderQrCode(data, options?): Promise<string>`
 
@@ -262,8 +280,8 @@ For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing se
 | Package name | `@polkadot-apps/terminal` | `@parity/product-sdk-terminal` |
 | WASM loader hook | `--import @polkadot-apps/terminal/register` (required) | **removed** — no `--import` needed (host-papp ≥0.7.9 dropped `verifiablejs`) |
 | `createTerminalAdapter` | `async` — returned `Promise<TerminalAdapter>` | **sync** — returns `TerminalAdapter` directly. Drop the `await`. |
-| Default account signer | `createSessionSigner(session)` | `createSessionSigner(session, adapter)` — pass the adapter as second arg |
-| Non-default sub-account signer | not exposed | `createSessionSignerForAccount(session, { productId, derivationIndex })` |
+| Default account signer | `createSessionSigner(session)` | `await createSessionSigner(session, adapter)` — pass the adapter as second arg, and await it |
+| Non-default sub-account signer | not exposed | `await createSessionSignerForAccount(session, { productId, derivationIndex })` |
 | Override session storage dir | not supported (hard-coded `~/.polkadot-apps/`) | `createTerminalAdapter({ ..., storageDir })` option |
 | E2E test helper for sessions | none | `createTestSession` from `@parity/product-sdk-terminal/testing` |
 | Node version | any (bundled `ws`) | **≥21** (uses global `WebSocket`) |
@@ -276,6 +294,8 @@ For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing se
 - `createSessionSigner(session, adapter)` for the default account (uses `[adapter.appId, { tag: "Index", value: 0 }]`)
 - `createSessionSignerForAccount(session, { productId, derivationIndex })` for everything else
 
+Both return a promise since RFC-0022: a product account hangs off `//product//{productId}`, whose two hard junctions no public key can cross, so the subtree key has to be fetched from the paired wallet once per product.
+
 The single-argument `createSessionSigner(session)` from `@polkadot-apps/terminal` no longer works against host-papp 0.7 regardless of which package you use.
 
 ### Migration steps
@@ -283,7 +303,7 @@ The single-argument `createSessionSigner(session)` from `@polkadot-apps/terminal
 1. **Replace the dep**: `pnpm remove @polkadot-apps/terminal && pnpm add @parity/product-sdk-terminal`
 2. **Remove the `--import @.../register` flag** from your `node` / `tsx` invocations or `package.json` scripts — the WASM loader hook no longer exists (and is no longer needed).
 3. **Drop `await`** in front of `createTerminalAdapter(...)` calls.
-4. **Update each `createSessionSigner` call site**: change `createSessionSigner(session)` → `createSessionSigner(session, adapter)`.
+4. **Update each `createSessionSigner` call site**: change `createSessionSigner(session)` → `await createSessionSigner(session, adapter)`.
 5. **Verify Node version** is ≥21 (`node --version`).
 
 If your existing sessions don't appear after migrating, double-check that the `appId` is identical to what you used in `@polkadot-apps/terminal` — the on-disk file names depend on it.
