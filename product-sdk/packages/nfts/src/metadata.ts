@@ -81,21 +81,39 @@ export function toHex(bytes: Uint8Array): string {
 }
 
 /**
- * Is this decoded string safe to hand a UI as text?
+ * Is this decoded string text rather than bytes that happen to decode?
  *
  * `TextDecoder` with `fatal` already rejects invalid UTF-8, but valid UTF-8 is
  * not the same as readable: a digest can decode cleanly and still be control
- * characters. Anything below U+0020 that is not tab/newline/carriage-return
- * disqualifies it, as does a lone U+FFFD.
+ * characters. Rejected here: C0 and C1 controls other than tab, newline and
+ * carriage return, U+007F, a lone U+FFFD, and the bidi controls that make a
+ * string display in a different order from the one it is stored in.
+ *
+ * This is a text-or-bytes test, not a confusables defence. Zero-width joiners
+ * pass because emoji sequences need them, and nothing here catches homoglyphs.
+ * Metadata is author-supplied, so a UI rendering a name it did not write still
+ * has to treat it as untrusted text.
  */
 function isText(decoded: string): boolean {
     for (const char of decoded) {
         const code = char.codePointAt(0) as number;
         if (code === 0xfffd) return false;
         if (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) return false;
-        if (code === 0x7f) return false;
+        if (code >= 0x7f && code <= 0x9f) return false;
+        if (isBidiControl(code)) return false;
     }
     return true;
+}
+
+/** U+061C, U+200E, U+200F, U+202A to U+202E and U+2066 to U+2069. */
+function isBidiControl(code: number): boolean {
+    return (
+        code === 0x061c ||
+        code === 0x200e ||
+        code === 0x200f ||
+        (code >= 0x202a && code <= 0x202e) ||
+        (code >= 0x2066 && code <= 0x2069)
+    );
 }
 
 /**
@@ -220,6 +238,20 @@ if (import.meta.vitest) {
 
         test("valid UTF-8 that is control characters is not text", () => {
             expect(asText(bytes(0x00, 0x01, 0x02))).toBeNull();
+        });
+
+        test("C1 controls are not text", () => {
+            expect(asText(utf8("Red\u0085Panda"))).toBeNull();
+        });
+
+        test("a bidi override is not text", () => {
+            // U+202E flips display order, so "abc" would render as a different name.
+            expect(asText(utf8("Red \u202ePanda"))).toBeNull();
+            expect(asText(utf8("\u2067Panda\u2069"))).toBeNull();
+        });
+
+        test("a zero-width joiner stays text, emoji need it", () => {
+            expect(asText(utf8("\u{1F468}\u200D\u{1F4BB}"))).not.toBeNull();
         });
     });
 
