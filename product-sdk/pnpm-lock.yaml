@@ -10,8 +10,8 @@ catalogs:
       specifier: ^0.15.0
       version: 0.15.0
     '@parity/truapi':
-      specifier: ^0.20.0
-      version: 0.20.0
+      specifier: ^0.21.0
+      version: 0.21.0
     '@playwright/test':
       specifier: ^1.60.0
       version: 1.60.0
@@ -558,7 +558,7 @@ importers:
         version: link:../result
       '@parity/truapi':
         specifier: 'catalog:'
-        version: 0.20.0
+        version: 0.21.0
       '@polkadot-api/json-rpc-provider':
         specifier: ^0.2.0
         version: 0.2.0
@@ -682,7 +682,7 @@ importers:
     dependencies:
       '@parity/truapi':
         specifier: 'catalog:'
-        version: 0.20.0
+        version: 0.21.0
     devDependencies:
       typescript:
         specifier: ^5.7.0
@@ -1730,8 +1730,8 @@ packages:
   '@parity/truapi@0.18.0':
     resolution: {integrity: sha512-q0Hgr9kX+ctHwd4JEuIs+q+l6YB1sJ/PwYOPuxzinZ2P1qudVNNvWj7Hxav8tJb0OO20CrGOrTolg6F5exZf1A==}
 
-  '@parity/truapi@0.20.0':
-    resolution: {integrity: sha512-nnkXlrL7QxCNjpSOyyhqnOMcsCe5YFnvqkgj3PXMYn83qgnU/ixzCTuM2balJKfLDYw6iFSIy+DMjoKtcPVzQA==}
+  '@parity/truapi@0.21.0':
+    resolution: {integrity: sha512-Wgelbl+PFGm7GglWHGEgmeSHshORzR65jlTIaNMFCFgB3uq+M1y2KJKTY8/mSO2yfJEVoalYuh1VuDB3j2/cFQ==}
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -3969,7 +3969,7 @@ snapshots:
       neverthrow: 8.2.0
       scale-ts: 1.6.1
 
-  '@parity/truapi@0.20.0':
+  '@parity/truapi@0.21.0':
     dependencies:
       '@noble/hashes': 2.2.0
       neverthrow: 8.2.0
