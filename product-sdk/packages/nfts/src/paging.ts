@@ -143,7 +143,12 @@ export async function fillByIdWindow<T>(
     const ids = (from: number, to: number) =>
         Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
 
-    const firstIds = ids(fromId, fromId + limit);
+    // Bounded by the u32 space, not just by `limit`. The chain ceiling is a
+    // promise this read deliberately does not wait for, so it cannot gate the
+    // first window — but the type ceiling is a constant, and an id past it would
+    // reach PAPI's encoder, which truncates rather than refusing. A window
+    // starting at or past the ceiling is empty, which is the whole answer.
+    const firstIds = ids(fromId, Math.min(fromId + limit, ID_CEILING));
     const [idCeiling, firstProbe] = await Promise.all([ceiling, probe(firstIds)]);
 
     const scanCeiling = Math.min(idCeiling, fromId + limit * SCAN_BUDGET_FACTOR);
@@ -218,6 +223,23 @@ if (import.meta.vitest) {
                 },
             };
         };
+
+        test("a window past the u32 ceiling probes nothing", async () => {
+            // `fromId` is clamped rather than refused, so the guard has to be
+            // here: an id past the space would truncate at the encoder and come
+            // back as a real row under an impossible id.
+            const { probe, windows } = probeFor(() => true);
+            const filled = await fillByIdWindow(ID_CEILING, 5, Promise.resolve(2), probe);
+            expect(filled.kept).toEqual([]);
+            expect(filled.nextId).toBeNull();
+            expect(windows).toEqual([[]]);
+        });
+
+        test("a window straddling the ceiling stops at it", async () => {
+            const { probe, windows } = probeFor(() => true);
+            await fillByIdWindow(ID_CEILING - 2, 5, Promise.resolve(ID_CEILING), probe);
+            expect(windows[0]).toEqual([ID_CEILING - 2, ID_CEILING - 1]);
+        });
 
         test("a dense space fills in one probe", async () => {
             const { probe, windows } = probeFor(() => true);

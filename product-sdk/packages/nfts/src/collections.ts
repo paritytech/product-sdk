@@ -1162,6 +1162,29 @@ if (import.meta.vitest) {
         });
     });
 
+    describe("getCollections, past the u32 ceiling", () => {
+        // The fake cannot truncate the way PAPI's u32 encoder does, so what is
+        // pinned here is the thing that matters: no id past the space is ever
+        // handed to it.
+        test("a cursor past the space reads nothing and ends the walk", async () => {
+            const { chain, calls } = fakeChain({
+                records: {
+                    0: { owner: "alice", item_count: 1 },
+                    1: { owner: "bob", item_count: 2 },
+                },
+            });
+            const result = await getCollections(chain, { fromId: 2 ** 32 });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.collections).toEqual([]);
+            expect(result.value.nextId).toBeNull();
+            const probed = calls
+                .filter((call) => call.startsWith("records:") || call.startsWith("minters:"))
+                .flatMap((call) => call.split(":")[1].split(",").filter(Boolean).map(Number));
+            expect(probed.every((id) => id < 2 ** 32)).toBe(true);
+        });
+    });
+
     describe("getCollections, paged by id window", () => {
         // A chain big enough that dumping it is the thing to avoid.
         const manyCollections = (count: number, deleted: number[] = []) => {
