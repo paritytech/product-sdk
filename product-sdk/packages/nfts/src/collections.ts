@@ -259,11 +259,6 @@ export async function getClaimableCollections(
 
         const { limit, fromId } = pageBounds(options);
 
-        if (limit === 0) {
-            const ceiling = await query.Scarcity.NextCollectionId.getValue(at);
-            return ok({ at: snapshot, collections: [], idCeiling: ceiling, nextId: null });
-        }
-
         // Which ids are registered, and where a next page resumes. Walking the id
         // space rather than dumping the registry is what keeps this bounded; the
         // gaps it steps over are unregistered collections.
@@ -279,6 +274,10 @@ export async function getClaimableCollections(
         );
         const registry = filled.kept.map(({ id, value }) => ({ id, minter: value }));
         const { ceiling: idCeiling, nextId } = filled;
+
+        if (registry.length === 0) {
+            return ok({ at: snapshot, collections: [], idCeiling, nextId });
+        }
 
         // Resolved before anything else is fetched: an unknown selection variant
         // should cost no further round trips.
@@ -367,14 +366,6 @@ async function readPage(
     options: GetCollectionsOptions,
 ): Promise<CollectionsResult> {
     const { limit, fromId } = pageBounds(options);
-
-    // Asking for nothing still reports the ceiling, so a caller can size a pager
-    // without reading a page. `nextId` is `null` rather than `fromId` so a caller
-    // looping on it terminates instead of spinning.
-    if (limit === 0) {
-        const idCeiling = await query.Scarcity.NextCollectionId.getValue(at);
-        return { at: snapshot, collections: [], idCeiling, nextId: null };
-    }
 
     // Records first: they are what says whether an id is live, and there is no
     // reason to fetch a name or a registry entry for an id this page will not
@@ -939,7 +930,8 @@ if (import.meta.vitest) {
             expect(result.value.collections).toEqual([]);
             expect(result.value.idCeiling).toBe(30);
             expect(result.value.nextId).toBeNull();
-            expect(calls).toEqual(["ceiling"]);
+            // The window probe still runs, with no keys, which is no network work.
+            expect(calls).toEqual(["ceiling", "minters:"]);
         });
 
         test("an unknown selection variant in a page fails the read", async () => {
@@ -1471,7 +1463,7 @@ if (import.meta.vitest) {
             expect(result.ok).toBe(true);
             if (!result.ok) return;
             expect(result.value.collections).toEqual([]);
-            expect(calls).toEqual(["ceiling"]);
+            expect(calls).toEqual(["ceiling", "records:"]);
         });
 
         test("a failing read lands on the err channel", async () => {

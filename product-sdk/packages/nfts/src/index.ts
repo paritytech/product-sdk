@@ -134,9 +134,10 @@ export type {
 export { getCollectionItems } from "./items.js";
 export type { GetCollectionItemsOptions } from "./items.js";
 
-// The paging vocabulary every read shares: `limit` defaults to one and caps at
-// the other, so no read here is unbounded by accident.
-export { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "./paging.js";
+// The paging vocabulary every read shares: `limit` defaults to one constant and
+// caps at the other, and the scan budget is how far past `limit` a sparse page
+// may read before it comes back short.
+export { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, SCAN_BUDGET_FACTOR } from "./paging.js";
 
 // The chain contract both reads take: the storage entries and the raw client
 // they pin with, structural so no genesis hash is pinned to read a catalogue.
@@ -172,5 +173,9 @@ export type {
     ClaimableCollection,
     Collection,
     RawBytes,
+    RawCollection,
+    RawItemDef,
+    RawMetadataEntry,
+    RawMinter,
     ReadAt,
 } from "./types.js";
