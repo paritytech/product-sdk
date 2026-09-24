@@ -78,14 +78,18 @@ export const SCAN_BUDGET_FACTOR = 16;
 export const DEFAULT_PAGE_LIMIT = 100;
 
 /**
- * The largest page a read will return, whatever was asked for.
+ * The largest page a read will return, and the widest window one probe may ask
+ * for.
  *
  * A page reads its window by exact key, and PAPI spends one storage operation
  * per key rather than batching them into one request (see the cost note in
- * `chain.ts`), so `limit` decides how many concurrent operations a single call
- * opens — a limit of a million would open a million. Asking for more than this
- * clamps rather than fails: the cursor still reports where the page stopped, so
- * following it is correct either way.
+ * `chain.ts`), so this is what bounds the concurrent operations a read opens.
+ * Both places it applies matter: the page a caller receives, and the window the
+ * scan widens to over a sparse range, which is not the same number once gaps
+ * make the walk read more ids than it keeps.
+ *
+ * Asking for more than this clamps rather than fails: the cursor still reports
+ * where the page stopped, so following it is correct either way.
  */
 export const MAX_PAGE_LIMIT = 1000;
 
@@ -176,9 +180,18 @@ export async function fillByIdWindow<T>(
         const want = limit - kept.length;
         const scanned = cursor - fromId;
         // Widen by the density seen so far, so a sparse range converges in a
-        // couple of reads rather than one read per gap.
+        // couple of reads rather than one read per gap. Capped at
+        // MAX_PAGE_LIMIT because widening decides how many keys one probe asks
+        // for, and `getValues` opens an operation per key: without the cap a
+        // sparse space at `limit: 1000` would open 16,000 at once. The scan
+        // budget still bounds the total, so this only splits the same work into
+        // more probes.
         const density = Math.max(kept.length / Math.max(scanned, 1), 1 / SCAN_BUDGET_FACTOR);
-        const width = Math.min(Math.ceil(want / density), want * SCAN_BUDGET_FACTOR);
+        const width = Math.min(
+            Math.ceil(want / density),
+            want * SCAN_BUDGET_FACTOR,
+            MAX_PAGE_LIMIT,
+        );
         const end = Math.min(cursor + width, scanCeiling);
         const window = ids(cursor, end);
         cursor = consume(window, await probe(window), end);
@@ -223,6 +236,14 @@ if (import.meta.vitest) {
                 },
             };
         };
+
+        test("no probe asks for more keys than MAX_PAGE_LIMIT", async () => {
+            // A sparse space is where the widening runs: without the cap the
+            // first widened window would be `limit * SCAN_BUDGET_FACTOR` keys.
+            const { probe, windows } = probeFor((id) => id % 1000 === 0);
+            await fillByIdWindow(0, MAX_PAGE_LIMIT, Promise.resolve(10 ** 7), probe);
+            expect(Math.max(...windows.map((w) => w.length))).toBeLessThanOrEqual(MAX_PAGE_LIMIT);
+        });
 
         test("a window past the u32 ceiling probes nothing", async () => {
             // `fromId` is clamped rather than refused, so the guard has to be
