@@ -14,7 +14,7 @@ import { numberIn, waitForAppReady } from "./helpers";
  *
  * **One boot covers the whole first read.** Every field below comes from the
  * same `init()`, so splitting them across tests would reconnect the host and
- * the RPC once per assertion — which is both slow and how a public endpoint
+ * the RPC once per assertion, which is both slow and how a public endpoint
  * starts refusing connections mid-run.
  *
  * SDK surface tested:
@@ -28,7 +28,7 @@ import { numberIn, waitForAppReady } from "./helpers";
  *   - getCollectionItems      -> Scarcity.ItemDefs/ItemMetadata prefix scans, merged metadata
  *   - the structural chain contract, satisfied by a real ChainClient
  */
-test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () => {
+test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
     test("the registry, a catalogue and a clean miss all read at one pinned block", async ({
         testHost,
     }) => {
@@ -45,7 +45,7 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
         expect(count).toBeGreaterThan(0);
 
         // The id-window walk visits the space in order, so ids arrive ascending
-        // by construction — this pins that as a contract.
+        // by construction. This pins that as a contract.
         const idsText = await frame.locator('[data-testid="registry-ids"]').textContent();
         const ids = idsText!
             .trim()
@@ -69,7 +69,7 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
 
         // The relationship that holds whatever this chain currently carries:
         // an id this read flags claimable came from `CollectionMinters`, so the
-        // registry above must also name it. Asserted in this direction only —
+        // registry above must also name it. Asserted in this direction only,
         // the reverse can fail legitimately, when a minter entry outlives its
         // `Scarcity.Collections` record and so cannot appear here at all.
         const claimableHere = await numberIn(frame, "all-claimable-count");
@@ -106,7 +106,7 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
         expect(pagedIds).toEqual(allIds);
 
         // A walk in pages of two sees exactly what one page big enough for the
-        // whole chain sees — same ids, same name for each — so `fromId` / `nextId`
+        // whole chain sees, same ids, same name for each, so `fromId` / `nextId`
         // are stepping the id space rather than skipping or repeating.
         await expect(frame.locator('[data-testid="paged-agrees"]')).toHaveText("yes");
 
@@ -120,7 +120,7 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
         const items = await numberIn(frame, "catalogue-item-count");
         expect(items).toBeGreaterThanOrEqual(0);
 
-        // Random or Contract — anything else is a decode error, never a passthrough.
+        // Random or Contract. Anything else is a decode error, never a passthrough.
         const selection = await frame.locator('[data-testid="collection-selection"]').textContent();
         expect(["Random", "Contract"]).toContain(selection!.trim());
 
@@ -131,8 +131,8 @@ test.describe("@parity/product-sdk-nfts via Host API — catalogue reads", () =>
             expect(Number.isFinite(live) && Number.isFinite(total)).toBe(true);
             expect(live).toBeLessThanOrEqual(total);
 
-            // An item's `image` is optional, but when set the hex reading is
-            // always there — that is the half of `ImageRef` a caller can rely on.
+            // The `image` of an item is optional, but when set the hex reading is
+            // always there. That is the half of `ImageRef` a caller can rely on.
             const hex = (await frame
                 .locator('[data-testid="item-image-hex"]')
                 .textContent())!.trim();

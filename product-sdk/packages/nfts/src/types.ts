@@ -19,7 +19,7 @@ export interface PinnedReadOptions {
      * Address a block a previous read already pinned, instead of pinning a new
      * one.
      *
-     * Pass a `FinalizedSnapshot` straight from another result's `at`. Without it
+     * Pass a `FinalizedSnapshot` straight from the `at` of another result. Without it
      * every call pins its own finalized block, which is right for unrelated
      * questions and wrong for one question asked in pages: a walk over its own
      * snapshots is not a walk of any single chain state. It is also how two reads
@@ -64,9 +64,9 @@ export interface ClaimableCollection {
     /** The Scarcity collection id. */
     id: number;
     /**
-     * The collection's `name` metadata, or `null` when it sets none.
+     * The `name` metadata of the collection, or `null` when it sets none.
      *
-     * Read from `Scarcity.CollectionMetadata`, not from a runtime API — see the
+     * Read from `Scarcity.CollectionMetadata`, not from a runtime API. See the
      * note on {@link CollectionItem.attributes}.
      */
     name: string | null;
@@ -75,13 +75,13 @@ export interface ClaimableCollection {
      *
      * `null` when the collection has a minter entry but no `Scarcity.Collections`
      * record. The runtime clears registrations through
-     * `pallet_scarcity::OnCollectionDeleted`, so this should not happen — it is
+     * `pallet_scarcity::OnCollectionDeleted`, so this should not happen. It is
      * reported rather than papered over so a caller can tell "empty" from
      * "inconsistent".
      */
     itemCount: number | null;
     /**
-     * The collection's Scarcity owner, from `Scarcity.Collections`, or `null`
+     * The Scarcity owner of the collection, from `Scarcity.Collections`, or `null`
      * when the record is missing.
      *
      * `CollectionMinters` carries a registering owner of its own; they are the
@@ -93,7 +93,7 @@ export interface ClaimableCollection {
 }
 
 /**
- * A collection on chain, claimable or not.
+ * A collection, claimable or not.
  *
  * The superset {@link ClaimableCollection} is drawn from: every
  * `Scarcity.Collections` record, with `selection` filled in for the ones
@@ -102,24 +102,24 @@ export interface ClaimableCollection {
  *
  * `itemCount` and `owner` are non-null here, unlike on
  * {@link ClaimableCollection}: this read enumerates the records themselves, so
- * every entry it returns has one. The trade is the mirror image — a minter entry
+ * every entry it returns has one. The trade is the mirror image: a minter entry
  * whose collection record is missing appears in
  * {@link ClaimableCollection}-shaped reads and **cannot** appear here.
  */
 export interface Collection {
     /** The Scarcity collection id. */
     id: number;
-    /** The collection's `name` metadata, or `null` when it sets none. */
+    /** The `name` metadata of the collection, or `null` when it sets none. */
     name: string | null;
     /** Live item definitions, from `Collections.item_count`. */
     itemCount: number;
-    /** The collection's Scarcity owner. */
+    /** The Scarcity owner of the collection. */
     owner: string;
     /**
      * How a claim into this collection picks its item, or `null` when the
      * collection accepts no claims.
      *
-     * `null` *is* the "not claimable" signal — there is no separate boolean to
+     * `null` *is* the "not claimable" signal. There is no separate boolean to
      * drift out of sync with it. A collection with no `CollectionMinters` entry
      * cannot be claimed into no matter how many items it holds.
      */
@@ -127,10 +127,10 @@ export interface Collection {
 }
 
 /**
- * An item's `image` metadata, read both ways.
+ * The `image` metadata of an item, read both ways.
  *
  * One deployment stores a 32-byte content digest here, another an ASCII IPFS
- * CID. Nothing on chain declares which, so both readings are reported.
+ * CID. Nothing declares which, so both readings are reported.
  */
 export interface ImageRef {
     /** The raw bytes as `0x`-prefixed hex. Always present. */
@@ -145,20 +145,20 @@ export interface CollectionItem {
     index: number;
     /** Instances the definition may ever mint. */
     supply: number;
-    /** Instances currently alive — `supply` less those burned. */
+    /** Instances currently alive, which is `supply` less those burned. */
     liveSupply: number;
-    /** The item's `name` metadata, or `null` when neither it nor its collection sets one. */
+    /** The `name` metadata of the item, or `null` when neither it nor its collection sets one. */
     name: string | null;
     /**
-     * The item's `image` metadata, or `null` when neither it nor its collection
+     * The `image` metadata of the item, or `null` when neither it nor its collection
      * sets one.
      *
      * Read as hex and as text both, since deployments disagree about which one
-     * they store. Which field to display follows the deployment's convention,
+     * they store. Which field to display follows the deployment convention,
      * which is not something this package can read off the chain.
      */
     imageRef: ImageRef | null;
-    /** The item's `rarity` metadata, or `null` when unset. */
+    /** The `rarity` metadata of the item, or `null` when unset. */
     rarity: string | null;
     /**
      * Every metadata key on the item, collection defaults merged underneath, or
@@ -167,46 +167,46 @@ export interface CollectionItem {
      * **`null` is "not fetched", not "no metadata".** An empty object would claim
      * the item carries no metadata, which is a different statement. Pass
      * `attributes: true` to `getCollectionItems` to fill this in; it costs a
-     * prefix scan of the whole collection's item metadata, because these keys are
+     * prefix scan of the item metadata of the whole collection, because these keys are
      * open and cannot be asked for by name the way `name`, `image` and `rarity`
      * can.
      *
      * **The schema is open.** `Scarcity` stores metadata as untyped
-     * `Vec<u8>` → `Vec<u8>` in three layers (`CollectionMetadata`,
+     * `Vec<u8>` keys to `Vec<u8>` values in three layers (`CollectionMetadata`,
      * `ItemMetadata`, `InstanceMetadata`), each overriding the last for the same
-     * key. Nothing on chain declares which keys exist or how their values are
+     * key. Nothing declares which keys exist or how their values are
      * typed. `name`, `image` and `rarity` are lifted into typed fields because
      * every deployment read so far carries them; the keys around them do not
-     * agree — one item carries `palette`, `energy` and `style`, another
-     * `description` — which is why the whole bag is exposed rather than a closed
+     * agree. One item carries `palette`, `energy` and `style`, another
+     * `description`, which is why the whole bag is exposed rather than a closed
      * shape.
      *
      * Values are decoded as UTF-8 when the bytes are valid printable UTF-8, and
      * as `0x`-hex otherwise. Numbers are **not** parsed, and nothing is lost by
-     * that: the live chain's `energy` holds the two ASCII characters `2` and
+     * that: on the live chain `energy` holds the two ASCII characters `2` and
      * `1`, so the chain stored the text "21" there rather than a binary number.
      * A caller wanting a number parses the string and decides what a malformed
      * one means.
      *
      * `transferability` is absent on purpose. The field appears in earlier
      * `pallet_nfts`-based designs (`CollectionSetting::TransferableItems`) and
-     * has no source in `Scarcity` — neither `ItemDefs` nor any metadata key on
+     * has no source in `Scarcity`. Neither `ItemDefs` nor any metadata key on
      * the live chain carries it.
      */
     attributes: Record<string, string> | null;
 }
 
-/** One page of a collection's item catalogue. */
+/** One page of the item catalogue of a collection. */
 export interface CollectionDetail {
     id: number;
-    /** The collection's `name` metadata, or `null` when it sets none. */
+    /** The `name` metadata of the collection, or `null` when it sets none. */
     name: string | null;
     /**
      * Live item definitions in the whole collection, from
      * `Collections.item_count`.
      *
-     * The size of the catalogue, not of this page — compare `items.length`. It
-     * can also disagree with the definitions on chain while one is being removed,
+     * The size of the catalogue, not of this page. Compare `items.length`. It
+     * can also disagree with the stored definitions while one is being removed,
      * since the count and the entries are separate writes; reported as the chain
      * has it rather than recomputed.
      */
@@ -226,7 +226,7 @@ export type CollectionItemsResult =
           tag: "Found";
           at: FinalizedSnapshot;
           /**
-           * The exclusive upper bound of this collection's item index space, from
+           * The exclusive upper bound of the item index space of this collection, from
            * `Collections.next_item_index`.
            *
            * Counts every item ever defined here, since `delete_item` never reuses
@@ -239,7 +239,7 @@ export type CollectionItemsResult =
            * The `fromId` a next page should use, or `null` at the end of the index
            * space.
            *
-           * The only end signal — a page can be short of `limit` without being
+           * The only end signal. A page can be short of `limit` without being
            * the last one.
            */
           nextId: number | null;
@@ -252,7 +252,7 @@ export interface RawCollection {
     owner: string;
     item_count: number;
     /**
-     * The exclusive end of this collection's item index space.
+     * The exclusive end of the item index space of this collection.
      *
      * Distinct from `item_count`: indices are allocated sequentially and never
      * reused, so this counts every item ever defined while `item_count` counts
@@ -275,12 +275,12 @@ export interface RawMinter {
 }
 
 /**
- * A metadata entry's value: the raw bytes, or PAPI's `Binary` wrapper around
- * them.
+ * The value of a metadata entry: the raw bytes, or the PAPI `Binary` wrapper
+ * around them.
  *
  * Both are accepted because PAPI ≥2.0 dropped the `Binary` class for some
- * codecs and kept it for others — the same reason
- * `@parity/product-sdk-cloud-storage`'s `verify.ts` accepts both.
+ * codecs and kept it for others. It is the same reason `verify.ts` in
+ * `@parity/product-sdk-cloud-storage` accepts both.
  */
 export type RawBytes = Uint8Array | { asBytes(): Uint8Array };
 

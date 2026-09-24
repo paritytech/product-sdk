@@ -1,9 +1,9 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Scarcity metadata: untyped bytes on chain, a string bag here.
+ * Scarcity metadata: untyped bytes in storage, a string bag here.
  *
- * `Scarcity` stores metadata as `Vec<u8>` → `Vec<u8>` across three layers, each
+ * `Scarcity` stores metadata as `Vec<u8>` keys to `Vec<u8>` values across three layers, each
  * overriding the last for the same key:
  *
  * ```
@@ -14,10 +14,10 @@
  *
  * A catalogue read merges the first two. The third keys on an instance id rather
  * than an item, so it belongs to a read of what someone owns, not to a
- * catalogue — {@link mergeMetadata} takes layers in order and does not care how
+ * catalogue. {@link mergeMetadata} takes layers in order and does not care how
  * many there are.
  *
- * Nothing on chain declares the key vocabulary or the value types, so decoding
+ * Nothing in the runtime declares the key vocabulary or the value types, so decoding
  * is a convention rather than a codec. That convention is
  * {@link decodeMetadataValue}, and it is deliberately lossless-ish: text when
  * the bytes are text, hex when they are not, and never a guess at a number.
@@ -48,7 +48,7 @@ export const NAME_KEY: Uint8Array = new TextEncoder().encode("name");
  * This is the whole of what a page can resolve without a prefix scan: the open
  * bag on {@link CollectionItem.attributes} has no fixed key list to ask for, so
  * these are the fields a page carries. They are a convention rather than a
- * schema — see the module doc — which is exactly why the bag exists as well.
+ * schema, see the module doc, which is exactly why the bag exists as well.
  */
 export const TYPED_KEYS = {
     name: NAME_KEY,
@@ -141,8 +141,8 @@ export function asText(bytes: Uint8Array): string | null {
  * digest, without the pallet having to declare which is which.
  *
  * Numbers are never parsed, and nothing is lost by that. The live chain's
- * `energy` holds the two ASCII characters `2` and `1` — the chain stored text
- * there, not a binary number — so a value that looks numeric really is text.
+ * `energy` holds the two ASCII characters `2` and `1`. The chain stored text
+ * there, not a binary number, so a value that looks numeric really is text.
  */
 export function decodeMetadataValue(raw: RawBytes): string {
     const bytes = toBytes(raw);
@@ -158,17 +158,17 @@ export function decodeMetadataKey(raw: RawBytes): string {
  * Merge metadata layers, later layers overriding earlier ones per key.
  *
  * Given `[collectionDefaults, itemOverrides]` the item wins, which is what
- * `ItemMetadata`'s "override collection defaults for the same key" means.
+ * "override collection defaults for the same key" means for `ItemMetadata`.
  *
  * Internal, and variadic anyway: the catalogue read only ever passes two
  * layers, but the pallet has three, so a future read of `InstanceMetadata`
  * composes here rather than growing a second merge with its own precedence.
- * Not exported — one `Object.assign` is not worth a semver commitment, and
+ * Not exported. One `Object.assign` is not worth a semver commitment, and
  * unexporting later would be a breaking change where exporting later is not.
  */
 export function mergeMetadata(...layers: Array<Record<string, string>>): Record<string, string> {
     // Prototype-free for the same reason the layers are: `Object.assign` assigns,
-    // so a `__proto__` key would reach the target's setter rather than land as a
+    // so a `__proto__` key would reach the target setter rather than land as a
     // key of the merged bag.
     return Object.assign(Object.create(null), ...layers);
 }
@@ -257,7 +257,7 @@ if (import.meta.vitest) {
 
     describe("decodeMetadataValue", () => {
         // The six keys the one live item on Paseo Next actually carries.
-        test("decodes the live item's text values as text", () => {
+        test("decodes the text values of the live item as text", () => {
             expect(decodeMetadataValue(utf8("Hollow Beacon #0"))).toBe("Hollow Beacon #0");
             expect(decodeMetadataValue(utf8("moss"))).toBe("moss");
             expect(decodeMetadataValue(utf8("comets"))).toBe("comets");
@@ -270,7 +270,7 @@ if (import.meta.vitest) {
             expect(decodeMetadataValue(utf8("21"))).toBe("21");
         });
 
-        test("the live item's 32-byte image digest falls back to hex", () => {
+        test("the 32-byte image digest of the live item falls back to hex", () => {
             const digest = new Uint8Array(32);
             digest.set([0x36, 0xa5, 0xe4, 0xac, 0xc8, 0x18, 0x4d, 0x76]);
             expect(decodeMetadataValue(digest)).toBe(toHex(digest));

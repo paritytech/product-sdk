@@ -5,7 +5,7 @@
  *
  * All three reads are pure catalogue, so there is no signer here: they need a
  * chain client and nothing else. The client comes from the host over the
- * container's chain API, the same path the other demos take.
+ * container chain API, the same path the other demos take.
  *
  * Flow inside the host-api-test-sdk test host:
  *   1. createChainClient({ chains: { assetHub } }) connects via the host
@@ -13,13 +13,13 @@
  *   3. getCollections(chain) -> every collection, claimable or not. Shown
  *      next to step 2 because the gap between them is the whole point: the ids
  *      with `selection: null` exist, hold items, and no claim can reach them
- *   4. getCollectionItems(chain, id) -> that collection's catalogue
+ *   4. getCollectionItems(chain, id) -> the catalogue of that collection
  *   5. getCollectionItems(chain, MISSING_COLLECTION) -> `NotFound` on the ok
  *      channel, which is the part of the contract worth seeing in a UI
  *
  * Live chain state decides what steps 2 to 4 report, so the Playwright suite
- * asserts shapes — a sorted registry, every claimable id present in the full
- * list, a `Found` catalogue, an `ImageRef` carrying hex — rather than counts a
+ * asserts shapes, a sorted registry, every claimable id present in the full
+ * list, a `Found` catalogue, an `ImageRef` carrying hex, rather than counts a
  * chain write would break.
  */
 
@@ -75,8 +75,8 @@ let chain: ChainClient<{ assetHub: typeof paseo_asset_hub }> | null = null;
 
 /**
  * `NftsChainEntryError` is the one failure worth reporting by class: it means
- * the client cannot read an entry the package needs — a descriptor whitelist
- * missing an entry, or a chain without the pallets — and no retry will fix it.
+ * the client cannot read an entry the package needs, either a descriptor whitelist
+ * missing an entry or a chain without the pallets, and no retry will fix it.
  */
 function describeError(error: unknown): string {
     if (error instanceof NftsChainEntryError) {
@@ -88,7 +88,7 @@ function describeError(error: unknown): string {
 /**
  * The superset, alongside the registry.
  *
- * Pins its own block, so `all-block` need not equal `registry-block` — two
+ * Pins its own block, so `all-block` need not equal `registry-block`. Two
  * reads are two snapshots, which is exactly what the package documents.
  */
 async function readAllCollections(): Promise<void> {
@@ -165,7 +165,7 @@ async function readPaged(
     $pagedPages.textContent = String(pages);
     $pagedIds.textContent = ids.join(",") || "-";
 
-    // Same ids, and the same name for each — so a walk in small pages sees what
+    // Same ids, and the same name for each, so a walk in small pages sees what
     // one page big enough for the whole chain sees.
     const sameIds = ids.length === onePage.size && ids.every((id) => onePage.has(id));
     const sameNames = ids.every((id) => names.get(id) === onePage.get(id));
@@ -190,7 +190,7 @@ async function readCatalogue(id: number): Promise<void> {
 
     $catalogueTag.textContent = catalogue.value.tag;
     if (catalogue.value.tag === "NotFound") {
-        log(`getCollectionItems(${id}): NotFound — a clean miss, not an error`, "ok");
+        log(`getCollectionItems(${id}): NotFound, a clean miss, not an error`, "ok");
         return;
     }
 
@@ -230,7 +230,7 @@ async function read(): Promise<void> {
 
         const first = collections[0];
         if (first === undefined) {
-            log("No collection accepts claims on this chain — nothing to catalogue", "info");
+            log("No collection accepts claims on this chain, nothing to catalogue", "info");
             return;
         }
         $collectionId.textContent = String(first.id);
@@ -270,7 +270,7 @@ async function init(): Promise<void> {
     log("Ready", "ok");
 }
 
-// Exposed so the suite can drive the reads directly — the cancellation spec
+// Exposed so the suite can drive the reads directly. The cancellation spec
 // needs an AbortSignal, which no button can carry.
 declare global {
     interface Window {

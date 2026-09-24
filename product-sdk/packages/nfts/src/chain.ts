@@ -6,8 +6,8 @@
  * Deliberately structural rather than a pinned descriptor, the same approach as
  * `IndividualityChain` in `@parity/product-sdk-individuality` and for the same
  * reason: the SDK should not pin a genesis hash to read a catalogue. Anything
- * exposing these six storage entries **and** the raw client's
- * `getFinalizedBlock` satisfies it — a real
+ * exposing these six storage entries **and** the raw client
+ * `getFinalizedBlock` satisfies it: a real
  * `ChainClient<{ assetHub: paseo_asset_hub }>`, a future deployment, or a
  * hand-rolled test double.
  *
@@ -16,7 +16,7 @@
  * client still satisfies this type, so a descriptor regeneration that changes an
  * entry fails `pnpm typecheck`. The guard cannot live here: inside this package
  * the same assertion is vacuous, because the descriptor types do not fully
- * resolve through this package's dependency graph.
+ * resolve through the dependency graph of this package.
  *
  * Written with method shorthand on purpose: the parameter bivariance that gives
  * is what lets the real PAPI signatures satisfy the loosened key types.
@@ -41,7 +41,7 @@
  *
  * `ItemDefs` is the one worth recording. `dot inspect` renders its key as
  * `[u32; 2]`, which reads like a single array-typed key that could not be
- * prefix-scanned — that rendering is wrong. The raw storage key for `[0, 0]` is
+ * prefix-scanned. That rendering is wrong. The raw storage key for `[0, 0]` is
  * two Twox64Concat segments (`…b4def25cfda6ef3a00000000` twice), so it is a
  * genuine two-key map and `getEntries(collection)` scans one collection rather
  * than dumping the whole map. Verified against live state via
@@ -53,15 +53,15 @@
  * implements it as `Promise.all(keys.map(getValue))` (`polkadot-api@2.1.6`,
  * `dist/src/storage.js`), and each `getValue` opens its own
  * `chainHead_v1_storage` operation. So a page of `limit` entries issues on the
- * order of `limit` concurrent operations — not one request carrying `limit`
+ * order of `limit` concurrent operations, not one request carrying `limit`
  * keys. They are pipelined over a single connection, repeated keys collapse in
- * the client's stream cache, and a node that will not accept more concurrent
+ * the client stream cache, and a node that will not accept more concurrent
  * operations answers `limitReached`, which PAPI re-queues rather than failing
- * (`observable-client`'s `operationLimitRecovery`). A large page therefore costs
+ * through `operationLimitRecovery` in `observable-client`. A large page therefore costs
  * latency, not a broken read.
  *
  * Two things follow, and the docs below are written to them. Every "one read"
- * claim about an exact-key lookup is a claim about **bytes** — that is the axis
+ * claim about an exact-key lookup is a claim about **bytes**. That is the axis
  * where naming keys beats scanning a prefix, and it is the axis that scales with
  * the chain. And {@link MAX_PAGE_LIMIT} bounds operations as much as bytes:
  * `limit` is how many the call opens. `getEntries` is the genuinely
@@ -93,8 +93,8 @@ export interface NftsChain {
                 /**
                  * The exclusive upper bound of the collection id space.
                  *
-                 * `create_collection` takes no id — the runtime allocates from
-                 * this counter — and `delete_collection` documents that "deleted
+                 * `create_collection` takes no id, the runtime allocates from
+                 * this counter, and `delete_collection` documents that "deleted
                  * collection identifiers are never reused". So ids run
                  * sequentially from 0, the space is `[0, NextCollectionId)`, and
                  * one unkeyed read bounds it. That is what makes an id window a
@@ -115,7 +115,7 @@ export interface NftsChain {
                      * What the claimable read joins its registry against: the
                      * ids come from `CollectionMinters`, so the whole window is
                      * asked for at once rather than an id at a time. "At once"
-                     * is concurrency, not batching — see the module doc.
+                     * is concurrency, not batching, see the module doc.
                      */
                     getValues(
                         keys: Array<[number]>,
@@ -144,7 +144,7 @@ export interface NftsChain {
                 /**
                  * Read two ways, because the two callers want different slices.
                  *
-                 * A catalogue read wants one collection's defaults, so it scans by
+                 * A catalogue read wants the defaults of one collection, so it scans by
                  * prefix. A listing page wants the `name` of specific collections,
                  * which it asks for by exact key. Both are the same descriptor
                  * whitelist entry.
@@ -163,7 +163,7 @@ export interface NftsChain {
                      * the operations scale with the page either way, per the
                      * module doc.
                      *
-                     * The key is a plain `Uint8Array`, not a PAPI `Binary` —
+                     * The key is a plain `Uint8Array`, not a PAPI `Binary`.
                      * PAPI 2.x generates `[number, Uint8Array]` for this
                      * `Vec<u8>` key, the same split {@link RawBytes} exists for.
                      * So this needs no `polkadot-api` dependency.
@@ -176,7 +176,7 @@ export interface NftsChain {
                 /**
                  * Read both ways. A page asks for the keys it can name by exact
                  * key; `attributes: true` scans one collection instead, because the
-                 * open bag's keys cannot be named in advance.
+                 * keys of the open bag cannot be named in advance.
                  */
                 ItemMetadata: {
                     getEntries(
@@ -188,12 +188,12 @@ export interface NftsChain {
                      *
                      * This is what makes a catalogue page affordable. The entry is
                      * a three-key map, so the typed keys of a whole window can be
-                     * named and fetched together — where the open `attributes`
+                     * named and fetched together, where the open `attributes`
                      * bag, whose keys are not known in advance, would need a
                      * prefix scan per item. That asymmetry is why a page carries
                      * typed fields and not the bag. What it buys is bytes
                      * proportional to the page; the operations still scale with
-                     * it, three per item — see the module doc.
+                     * it, three per item, see the module doc.
                      */
                     getValues(
                         keys: Array<[number, number, Uint8Array]>,
@@ -232,11 +232,11 @@ export interface NftsChain {
  *
  * Every value in one result comes from the same block: a catalogue read pulls
  * item definitions and two metadata layers separately, and reading them a
- * block apart could return a catalogue the chain was never in — an item whose
+ * block apart could return a catalogue the chain was never in: an item whose
  * definition is gone but whose metadata is not, or the reverse.
  *
  * The abort check lives here because `getFinalizedBlock` takes no options and so
- * cannot carry a signal itself — without it an already-cancelled read would
+ * cannot carry a signal itself. Without it an already-cancelled read would
  * still cost a round trip.
  *
  * Pass `given` to address a block a caller already has. Two reads pin their own
@@ -251,7 +251,7 @@ export async function pinBlock(
 ): Promise<FinalizedSnapshot> {
     signal?.throwIfAborted();
     // A caller that already has a snapshot is joining it rather than opening a
-    // new one — several reads, or several pages of one read, addressing a single
+    // new one: several reads, or several pages of one read, addressing a single
     // block. It costs no round trip, and the abort check above still applies.
     if (given !== undefined) return given;
     const block = await chain.raw.assetHub.getFinalizedBlock();
@@ -322,7 +322,7 @@ if (import.meta.vitest) {
     });
 
     describe("readAt", () => {
-        test("addresses the snapshot's hash and carries the signal", () => {
+        test("addresses the snapshot hash and carries the signal", () => {
             const signal = new AbortController().signal;
             const snapshot = { blockHash: BLOCK.hash, blockNumber: BLOCK.number };
             expect(readAt(snapshot, signal)).toEqual({ at: BLOCK.hash, signal });

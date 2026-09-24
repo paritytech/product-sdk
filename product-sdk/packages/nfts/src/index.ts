@@ -1,32 +1,32 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * @parity/product-sdk-nfts — Read Scarcity NFT collections and item catalogues on Asset Hub.
+ * @parity/product-sdk-nfts reads Scarcity NFT collections and item catalogues on Asset Hub.
  *
  * Three reads today, all of them pure catalogue and all of them paged: which
- * collections a claim can mint into, every collection on chain whether it accepts
+ * collections a claim can mint into, every collection whether it accepts
  * claims or not, and what is in one of them. None needs an identity, a purse, or a second chain,
  * which is why they came first.
  *
  * `getClaimableCollections` and `getCollections` are the subset and the
- * superset of the same thing — there is one kind of collection, and a
+ * superset of the same thing. There is one kind of collection, and a
  * `NftClaims.CollectionMinters` entry is what makes one claimable. Both are four
- * reads a page, so pick by which set you want — but prefer the registry read when
+ * reads a page, so pick by which set you want. Prefer the registry read when
  * only claimable collections belong in the answer.
  *
  * **Every read is paged, and none of them is unbounded.** `limit` defaults to
  * {@link DEFAULT_PAGE_LIMIT} and caps at {@link MAX_PAGE_LIMIT}; there is no
- * "give me everything", because nothing on chain bounds how many collections
- * exist or how many items a collection holds — the pallet's only ceilings are
- * index-space exhaustion, and the indices are `u32`. Follow `nextId` to walk the
+ * "give me everything", because nothing bounds how many collections exist or how
+ * many items a collection holds. The only ceilings the pallet has are index-space
+ * exhaustion, and the indices are `u32`. Follow `nextId` to walk the
  * whole of anything, in bounded pieces.
  *
  * One vocabulary across all three reads: `limit` and `fromId` in, `idCeiling` and
  * `nextId` out, so a single pager works against any of them.
  *
- * A page is four storage reads whatever the counts — but four reads is not four
- * round trips. PAPI's `getValues` opens one storage operation per key, so a
- * page's operations scale with `limit` while its bytes stay flat. That is the
+ * A page is four storage reads whatever the counts, but four reads is not four
+ * round trips. The PAPI `getValues` opens one storage operation per key, so the
+ * operations of a page scale with `limit` while its bytes stay flat. That is the
  * other half of why {@link MAX_PAGE_LIMIT} exists.
  *
  * ```ts
@@ -44,7 +44,7 @@
  *     console.log(registry.value.nextId); // null when the id space is exhausted
  * }
  *
- * // A page of one collection's catalogue. `attributes` is `null` unless asked for.
+ * // A page of the catalogue of one collection. `attributes` is `null` unless asked for.
  * const catalogue = await getCollectionItems(chain, 0, { limit: 20 });
  * if (catalogue.ok && catalogue.value.tag === "Found") {
  *     console.log(catalogue.value.collection.items, catalogue.value.nextId);
@@ -61,8 +61,8 @@
  * was never in.
  *
  * Separate calls pin separate blocks, which is right for unrelated questions and
- * wrong for one question asked in pieces — a paged walk over its own snapshots
- * is not a walk of any single chain state. Pass another result's `at` back in as
+ * wrong for one question asked in pieces. A paged walk over its own snapshots
+ * is not a walk of any single chain state. Pass the `at` of another result back in as
  * the `at` option to join its block instead: every read here accepts it, so a
  * whole walk, or a registry read and a catalogue read, can address one block.
  *
@@ -78,7 +78,7 @@
  *
  * An app that prunes its own descriptors with a PAPI whitelist has to list all
  * six, including the ones its own code never reads. A missing entry surfaces as
- * PAPI's `Incompatible runtime entry Storage(...)`, which reads like descriptor
+ * the PAPI `Incompatible runtime entry Storage(...)`, which reads like descriptor
  * drift; these reads report it as {@link NftsChainEntryError} instead, which
  * names the entry in its message and carries it on `entry`.
  * Regenerating the descriptors is not the whole fix when they are installed as a
@@ -92,18 +92,18 @@
  *   carried by the pinned descriptor. `previewClaim` has no storage equivalent,
  *   so it waits on `NftClaimsApi.preview_mints` being reachable here.
  * - **No `transferability`.** It traces to `pallet_nfts`, not `Scarcity`, and has
- *   no source on chain — see {@link CollectionItem}.
+ *   no source in the pallet. See {@link CollectionItem}.
  * - **`attributes` costs a prefix scan of the whole collection.** The typed
  *   fields are keys this package can name, so a page fetches them for its window
- *   in one exact-key read. The open bag's keys are not knowable in advance, so
- *   filling it means scanning one collection's item metadata whole — one read,
- *   but bytes proportional to the catalogue rather than the page. Left off, the
+ *   in one exact-key read. The keys of the open bag are not knowable in advance, so
+ *   filling it means scanning the item metadata of one collection whole. That is one
+ *   read, but bytes proportional to the catalogue rather than the page. Left off, the
  *   field is `null`, which says "not fetched" rather than "no metadata".
- * - **Nothing bounds a collection's size on chain.** The pallet's only item
- *   ceiling is index-space exhaustion — `TooManyItems` reads "the per-collection
- *   item index space is exhausted", and the index is a `u32` — so there is no
+ * - **Nothing bounds the size of a collection.** The only item ceiling the pallet
+ *   has is index-space exhaustion. `TooManyItems` reads "the per-collection
+ *   item index space is exhausted", and the index is a `u32`, so there is no
  *   configured limit to lean on and a ten-thousand-item collection is an
- *   afternoon's work. That is why `getCollectionItems` pages like the listing
+ *   afternoon of work. That is why `getCollectionItems` pages like the listing
  *   reads do, rather than assuming a small catalogue. `itemCount` from either
  *   listing read gives the size before you commit to walking a collection
  *   whole.
@@ -112,7 +112,7 @@
  *   wallet does not expose yet. App-scoped product-account derivation is not a
  *   substitute: it is keyed by `productId`, so nothing derived under it can be
  *   shared between two SPAs.
- * - **Metadata keys are a convention, not a contract.** Nothing on chain
+ * - **Metadata keys are a convention, not a contract.** Nothing in the runtime
  *   declares them. `name`, `image` and `rarity` are lifted into typed fields
  *   because every deployment read so far carries them; the rest of the bag is
  *   passed through untouched. `image` is reported as hex and as text both, since
@@ -123,7 +123,7 @@
  */
 // The three reads, each pinning its own finalized block. Two list collections
 // and differ only in whether the claim registry filters them; the third reads
-// one collection's catalogue and filters by nothing.
+// the catalogue of one collection and filters by nothing.
 export { getClaimableCollections, getCollections } from "./collections.js";
 export type {
     CollectionsResult,
@@ -153,13 +153,13 @@ export {
 } from "./errors.js";
 
 // The metadata convention is deliberately *not* exported. Callers get decoded
-// fields off the reads above — `name`, `rarity`, `imageRef`, `attributes` — not
+// fields off the reads above, `name`, `rarity`, `imageRef` and `attributes`, not
 // the primitives to assemble them from. `decodeMetadataValue` collapses bytes to
 // one reading, `imageRefFrom` needs raw layers in precedence order, and
 // `mergeMetadata` is one `Object.assign`; handing those out asks the caller to
 // re-derive the layering and the text/bytes question we already answered. When
-// a read of `InstanceMetadata` lands — the entry is already in the descriptors,
-// it just describes minted NFTs rather than a catalogue — it should arrive as a
+// a read of `InstanceMetadata` lands, and the entry is already in the descriptors,
+// it just describes minted NFTs rather than a catalogue, it should arrive as a
 // read returning finished shapes, not as three exported helpers.
 
 // The shapes the reads return, and the raw storage shapes behind them.

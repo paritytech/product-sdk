@@ -3,15 +3,15 @@
 /**
  * The two collection-listing reads, and the one distinction between them.
  *
- * There is one kind of collection on chain. `Scarcity.Collections` says a
- * collection exists; `NftClaims.CollectionMinters` is a *second pallet's* map
+ * There is one kind of collection. `Scarcity.Collections` says a collection
+ * exists. `NftClaims.CollectionMinters` is the map of a *second pallet*,
  * whose entry means the owner opted in via `set_collection_minter`, and which
  * records how a claim picks an item. Its keys are a subset of the first map's.
  *
- * - `getClaimableCollections` — the subset. Driven by the registry, so every
+ * - `getClaimableCollections` is the subset. Driven by the registry, so every
  *   entry has a `selection`. What a picker wants. Four reads a page, and bytes
  *   proportional to the page.
- * - `getCollections` — the superset. Driven by the records, with `selection`
+ * - `getCollections` is the superset. Driven by the records, with `selection`
  *   `null` where no registration exists. What a browser or an audit wants. Four
  *   reads a page.
  *
@@ -23,7 +23,7 @@
  * They page over the same id space and differ only in what makes an id
  * interesting. For `getClaimableCollections` the gaps are unregistered
  * collections rather than deleted ones, so its pages come back short on a chain
- * that registers little of what it carries — follow `nextId` rather than reading
+ * that registers little of what it carries. Follow `nextId` rather than reading
  * a short page as the end. Prefer this read whenever only claimable collections
  * belong in the answer.
  *
@@ -32,7 +32,7 @@
  * neither read can be assumed to stand in for the other.
  *
  * Both are named for what they return rather than for the pallet they read. A
- * single collection, registered or not, comes from `getCollectionItems` — that
+ * single collection, registered or not, comes from `getCollectionItems`. That
  * read applies no registry filter either.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
@@ -67,7 +67,7 @@ export interface ClaimableCollectionsResult {
      * end of the id space.
      *
      * Every read here is paged, so `null` means the end of the space and nothing
-     * else — a non-null cursor is never "there happened to be more".
+     * else. A non-null cursor is never "there happened to be more".
      */
     nextId: number | null;
 }
@@ -77,9 +77,9 @@ export interface GetClaimableCollectionsOptions extends PinnedReadOptions {
      * How many claimable collections this page returns, defaulting to
      * {@link DEFAULT_PAGE_LIMIT} and capped at {@link MAX_PAGE_LIMIT}.
      *
-     * Pages the same way {@link GetCollectionsOptions.limit} does — by walking
+     * Pages the same way {@link GetCollectionsOptions.limit} does, by walking
      * the collection id space, since `NftClaims.CollectionMinters` is keyed by
-     * collection id too — with one difference worth knowing. The gaps a page
+     * collection id too. One difference is worth knowing. The gaps a page
      * steps over here are *unregistered* collections, not deleted ones, and how
      * many there are is a property of the deployment: one carries six
      * collections and registers one, another registers most of what it carries.
@@ -87,14 +87,14 @@ export interface GetClaimableCollectionsOptions extends PinnedReadOptions {
      * comes back short below that.
      *
      * A short page is not the end of the registry. `nextId === null` is the only
-     * end signal, so follow it rather than counting what came back — on a sparse
+     * end signal, so follow it rather than counting what came back. On a sparse
      * registry that is how the rest of it arrives.
      */
     limit?: number;
     /**
      * Where the walk starts, defaulting to 0.
      *
-     * Take it from the previous page's `nextId`. Ids are only ever appended, so
+     * Take it from the `nextId` of the previous page. Ids are only ever appended, so
      * resuming there cannot skip or repeat a collection.
      */
     fromId?: number;
@@ -119,7 +119,7 @@ export interface CollectionsResult {
      * end of the id space.
      *
      * Every read here is paged, so `null` means the end of the space and nothing
-     * else — a non-null cursor is never "there happened to be more".
+     * else. A non-null cursor is never "there happened to be more".
      */
     nextId: number | null;
 }
@@ -129,15 +129,15 @@ export interface GetCollectionsOptions extends PinnedReadOptions {
      * How many collections this page returns, defaulting to
      * {@link DEFAULT_PAGE_LIMIT} and capped at {@link MAX_PAGE_LIMIT}.
      *
-     * **There is no "give me everything" here, on purpose.** Nothing on chain
-     * bounds how many collections exist, so a read that returned all of them
-     * would be priced at the size of the chain. A page costs a constant four
-     * storage reads — the id ceiling plus three keyed reads over the window —
-     * whatever the chain holds; walk `nextId` to the end for the rest.
+     * **There is no "give me everything" here, on purpose.** Nothing bounds how
+     * many collections exist, so a read that returned all of them would be
+     * priced at the size of the chain. A page costs a constant four storage
+     * reads, the id ceiling plus three keyed reads over the window, whatever the
+     * chain holds. Walk `nextId` to the end for the rest.
      *
      * A page returns exactly `limit` collections, walking past ids whose
      * collections were deleted rather than coming up short. It returns fewer only
-     * when the id space runs out, or — pathologically — when a mostly-deleted
+     * when the id space runs out, or, pathologically, when a mostly-deleted
      * range exhausts the scan budget. Either way `nextId === null` is the only
      * end signal, so follow it rather than counting.
      */
@@ -145,7 +145,7 @@ export interface GetCollectionsOptions extends PinnedReadOptions {
     /**
      * Where the window starts, defaulting to 0.
      *
-     * Take it from the previous page's `nextId`, which is the id after the last
+     * Take it from the `nextId` of the previous page, which is the id after the last
      * one that page returned. Because ids are only
      * ever appended and never reused, resuming there is stable: paging forward
      * cannot skip or repeat a collection while the chain is written to, which
@@ -180,15 +180,15 @@ export function toItemSelection(raw: RawMinter["selection"]): ItemSelection {
  * Four storage reads a page, over two hops: the id ceiling and the registry
  * entries for the window together, then the records and names of the collections
  * that window found, each in one keyed read. Nothing is read one collection at a
- * time, and nothing pulls a byte for a collection the registry does not name — so
+ * time, and nothing pulls a byte for a collection the registry does not name, so
  * the cost is proportional to the page rather than to the chain.
  *
- * The walk is over the collection id space, not the registry — see
+ * The walk is over the collection id space, not the registry. See
  * {@link GetClaimableCollectionsOptions.limit}, including why a sparse registry
  * gives short pages and why a short page is not the end.
  *
  * The registry is **not** small by construction, whatever its size on any
- * deployment read so far: nothing stops most of a chain's collections from
+ * deployment read so far: nothing stops most of the collections on a chain from
  * registering. So the cost here is stated in terms of how many do, not in terms
  * of a number that happens to hold today.
  *
@@ -253,7 +253,7 @@ export async function getClaimableCollections(
         }));
         const ids = registered.map(({ id }) => id);
 
-        // Both concurrently, for exactly the ids being returned — `chain.ts` has
+        // Both concurrently, for exactly the ids being returned. `chain.ts` has
         // what a multi-key read costs.
         const [records, names] = await Promise.all([
             query.Scarcity.Collections.getValues(
@@ -283,7 +283,7 @@ export async function getClaimableCollections(
 /**
  * The `name` of each of `ids`, by exact key.
  *
- * Exactly the rows wanted, whatever the chain holds — the alternative for a
+ * Exactly the rows wanted, whatever the chain holds. The alternative for a
  * subset of collections is a prefix scan each, or a whole-map dump that carries
  * every key of every collection to answer for a few. What that saves is bytes,
  * not operations: PAPI spends one per key either way (see `chain.ts`). Ids with
@@ -312,13 +312,13 @@ async function readNames(
  * One page of `limit` collections, read by exact key from the id space.
  *
  * Two phases. First records, walking forward from `fromId` until `limit` live
- * ones are in hand — that is the read which says whether an id is live, and
+ * ones are in hand. That is the read which says whether an id is live, and
  * skipping it for holes is why a page comes back full. Then the registry entries
  * and `name` rows, for exactly the ids the page will return.
  *
  * On a chain with no holes that is four storage reads over **two** sequential
- * hops — the ceiling and the first records read go out together, then the two
- * keyed reads — with the block pin on top unless the caller supplied one. Holes
+ * hops. The ceiling and the first records read go out together, then the two
+ * keyed reads, with the block pin on top unless the caller supplied one. Holes
  * cost extra record reads and nothing else: a deleted id is never given a name
  * or registry lookup.
  *
@@ -372,18 +372,18 @@ async function readPage(
         };
     });
 
-    // Already ascending — the id space was walked in order — so no sort here.
+    // Already ascending, the id space was walked in order, so no sort here.
     return { at: snapshot, collections, idCeiling, nextId };
 }
 
 /**
- * Read every collection on chain, claimable or not, from one pinned finalized
+ * Read every collection, claimable or not, from one pinned finalized
  * block.
  *
  * The superset {@link getClaimableCollections} filters. One page is the id
- * ceiling plus three keyed reads for the page's ids — `Scarcity.Collections` for
- * the records, `NftClaims.CollectionMinters` to fill in `selection`, and
- * `Scarcity.CollectionMetadata` for the names — plus one more record read for
+ * ceiling plus three keyed reads for the ids of the page: `Scarcity.Collections`
+ * for the records, `NftClaims.CollectionMinters` to fill in `selection`, and
+ * `Scarcity.CollectionMetadata` for the names. Add one more record read for
  * each stretch of deleted ids it steps over. `selection` is `null` for a
  * collection that accepts no claims.
  *
@@ -397,23 +397,23 @@ async function readPage(
  * a `CollectionMetadata` dump carries every metadata key of every collection
  * when only `name` is wanted, so most of what arrived would be discarded. At ten
  * thousand collections that is on the order of fifteen megabytes to produce ten
- * thousand summaries — too much for a browser tab, and enough that a public
+ * thousand summaries. That is too much for a browser tab, and enough that a public
  * endpoint may refuse the operation.
  *
  * So the read walks the id space in windows instead, at a flat four storage
- * reads per page — the id ceiling plus three keyed reads over the window —
+ * reads per page, the id ceiling plus three keyed reads over the window,
  * whatever the chain holds. Four *reads*, which is not four round trips: PAPI
- * opens one operation per key, so a page's operations scale with `limit` and it
- * is the bytes that stay flat (see `chain.ts`). That works because the
+ * opens one operation per key, so the operations of a page scale with `limit`
+ * and it is the bytes that stay flat, see `chain.ts`. That works because the
  * id space is knowable and dense: `create_collection` takes no id, so the
  * runtime allocates sequentially from `Scarcity.NextCollectionId`, and
  * `delete_collection` documents that identifiers are never reused. So every
- * collection in `[fromId, fromId + limit)` can be fetched by exact key —
- * records, registry entries and `name` rows — with nothing proportional to the
+ * collection in `[fromId, fromId + limit)` can be fetched by exact key, the
+ * records, registry entries and `name` rows alike, with nothing proportional to the
  * chain anywhere in the read.
  *
- * **A page comes back full.** Ids of deleted collections are holes — no record,
- * and the runtime requires the metadata gone before deletion — so the read walks
+ * **A page comes back full.** Ids of deleted collections are holes, with no record
+ * and no metadata since the runtime requires it gone before deletion, so the read walks
  * past them until it has `limit` collections rather than handing back a short
  * page. That costs an extra record read where holes appear and nothing else: a
  * hole never gets a name or registry lookup. A page is short only at the end of
@@ -428,7 +428,7 @@ async function readPage(
  *
  * @example
  * ```ts
- * // One page, then the rest — `at` pins the whole walk to one block.
+ * // One page, then the rest. `at` pins the whole walk to one block.
  * const first = await getCollections(chain, { limit: 100 });
  * if (!first.ok) return;
  *
@@ -479,7 +479,7 @@ if (import.meta.vitest) {
         const calls: string[] = [];
         let blocks = 0;
         // Ids are sequential and never reused, so the ceiling is one past the
-        // highest id ever created — which for a fake is the highest it holds.
+        // highest id ever created, which for a fake is the highest it holds.
         const ceiling =
             overrides.idCeiling ??
             Math.max(0, ...Object.keys(overrides.records ?? {}).map((id) => Number(id) + 1));
@@ -692,7 +692,7 @@ if (import.meta.vitest) {
         test("records and names are each one keyed read, whatever the registry size", async () => {
             // No threshold, no dump: an exact-key name read asks for exactly the
             // rows wanted, so registry size changes the key count and nothing
-            // else. (Key count, not request count — see `chain.ts`.)
+            // else. Key count, not request count, see `chain.ts`.
             for (const size of [2, 30]) {
                 const ids = Array.from({ length: size }, (_, id) => id);
                 const { chain, calls } = fakeChain({
@@ -802,7 +802,7 @@ if (import.meta.vitest) {
             expect(b.value.collections).toHaveLength(10);
             expect(b.value.nextId).toBe(10);
             expect(huge.calls.length).toBe(small.calls.length);
-            // Never the registry dump — that is what paging replaces here.
+            // Never the registry dump. That is what paging replaces here.
             expect(huge.calls).not.toContain("minters");
         });
 
@@ -868,11 +868,11 @@ if (import.meta.vitest) {
 
             expect(result.value.collections.length).toBeLessThan(10);
             expect(result.value.collections.map((c) => c.id)).toEqual([0, 50, 100, 150]);
-            // Not the end — paging continues, it just takes more pages.
+            // Not the end. Paging continues, it just takes more pages.
             expect(result.value.nextId).toBe(160);
 
             // And a sparse registry is small, so following `nextId` through the
-            // short pages still reads all of it — which is why this trade is the
+            // short pages still reads all of it, which is why this trade is the
             // right way round.
             const all = await getClaimableCollections(chain);
             expect(all.ok).toBe(true);
@@ -969,7 +969,7 @@ if (import.meta.vitest) {
         });
 
         test("a minter entry with no record cannot appear", async () => {
-            // The mirror of the claimable read's null-fields case: that read
+            // The mirror of the null-fields case of the claimable read: that read
             // reports id 4, this one cannot see it at all.
             const { chain } = fakeChain({
                 minters: [{ keyArgs: [4], value: { owner: "o", selection: { type: "Random" } } }],
@@ -1045,7 +1045,7 @@ if (import.meta.vitest) {
 
         test("each name is attributed to its own collection", async () => {
             // The exact-key name rows come back positionally, so a mismapping
-            // here would hand one collection its neighbour's name — or a name
+            // here would hand one collection the name of its neighbour, or a name
             // to a collection that sets none.
             const { chain } = fakeChain({
                 records: {
@@ -1074,7 +1074,7 @@ if (import.meta.vitest) {
         });
 
         test("an unknown selection variant fails the whole read", async () => {
-            // Not just that collection's `selection`: a caller cannot tell what a
+            // Not just the `selection` of that collection: a caller cannot tell what a
             // claim would mint, and silently reporting `null` would read as "not
             // claimable", which is the opposite of the truth.
             const { chain } = fakeChain({
@@ -1123,7 +1123,7 @@ if (import.meta.vitest) {
     });
 
     describe("getCollections, past the u32 ceiling", () => {
-        // The fake cannot truncate the way PAPI's u32 encoder does, so what is
+        // The fake cannot truncate the way the PAPI u32 encoder does, so what is
         // pinned here is the thing that matters: no id past the space is ever
         // handed to it.
         test("a cursor past the space reads nothing and ends the walk", async () => {
@@ -1303,7 +1303,7 @@ if (import.meta.vitest) {
             // Not `null`: the id space is not exhausted, so paging continues.
             expect(result.value.nextId).toBe(80);
 
-            // Following `nextId` still gets there, in bounded steps — which is
+            // Following `nextId` still gets there, in bounded steps, which is
             // the trade: a pathological range costs more pages, not more reads
             // per page.
             const found: number[] = [];
@@ -1331,7 +1331,7 @@ if (import.meta.vitest) {
             // The records read goes out alongside the ceiling rather than after
             // it, so this case spends one read it turns out not to need. That is
             // the trade for saving a sequential hop on every page that is in
-            // range — and a caller following `nextId` never asks for this page.
+            // range, and a caller following `nextId` never asks for this page.
             expect(calls.filter((c) => c.startsWith("names:"))).toEqual([]);
             expect(calls.filter((c) => c.startsWith("minters:"))).toEqual([]);
         });
@@ -1435,7 +1435,7 @@ if (import.meta.vitest) {
         });
 
         test("a failing read lands on the err channel", async () => {
-            // The throw sits on an entry the read actually calls — the ceiling
+            // The throw sits on an entry the read actually calls. The ceiling
             // is the first storage touch of every page.
             const chain = {
                 assetHub: {

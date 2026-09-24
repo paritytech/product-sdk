@@ -1,11 +1,11 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * `getCollectionItems` — one page of a collection's item catalogue.
+ * `getCollectionItems`, one page of the item catalogue of a collection.
  *
  * Four reads a page, whatever the item count: the collection record, the item
- * definitions in the window, the window's metadata, and the collection's own
- * metadata defaults. Only the last is a prefix scan by default — the window
+ * definitions in the window, the metadata of that window, and the defaults the
+ * collection itself carries. Only the last is a prefix scan by default. The window
  * reads name their keys, so the bytes scale with the page rather than with the
  * catalogue. That is bytes, not round trips: PAPI spends one storage operation
  * per key (see `chain.ts`), so `limit` bounds the operations too.
@@ -84,11 +84,11 @@ export interface GetCollectionItemsOptions extends PinnedReadOptions {
      * How many items this page returns, defaulting to
      * {@link DEFAULT_PAGE_LIMIT} and capped at {@link MAX_PAGE_LIMIT}.
      *
-     * **There is no "give me everything" here, on purpose.** Nothing on chain
-     * bounds a collection: the pallet's only item ceiling is index-space
-     * exhaustion — `TooManyItems` reads "the per-collection item index space is
-     * exhausted", and the index is a `u32` — so a collection large enough to
-     * break this read is an afternoon's work for its owner. Follow `nextId` to
+     * **There is no "give me everything" here, on purpose.** Nothing bounds a
+     * collection. The only item ceiling the pallet has is index-space exhaustion,
+     * `TooManyItems` reads "the per-collection item index space is exhausted",
+     * and the index is a `u32`. So a collection large enough to break this read
+     * is an afternoon of work for its owner. Follow `nextId` to
      * walk the whole catalogue in bounded pieces.
      *
      * A page walks past indices whose definitions were deleted rather than coming
@@ -99,13 +99,13 @@ export interface GetCollectionItemsOptions extends PinnedReadOptions {
     /**
      * Where the window starts, defaulting to 0.
      *
-     * Take it from the previous page's `nextId`. `delete_item` documents that
+     * Take it from the `nextId` of the previous page. `delete_item` documents that
      * item indices are never reused, so resuming there cannot skip or repeat an
      * item even while the collection is being written to.
      */
     fromId?: number;
     /**
-     * Fill in {@link CollectionItem.attributes} — the open metadata bag —
+     * Fill in {@link CollectionItem.attributes}, the open metadata bag,
      * defaulting to `false`.
      *
      * The typed fields (`name`, `image`, `rarity`) are keys this package can name,
@@ -116,34 +116,34 @@ export interface GetCollectionItemsOptions extends PinnedReadOptions {
      * which is exactly what paging is for.
      *
      * So: pass it for a collection you know is small, or when a caller genuinely
-     * needs app-specific keys. Leave it off and `attributes` is `null` — "not
-     * fetched", distinct from an empty bag meaning "no metadata".
+     * needs app-specific keys. Leave it off and `attributes` is `null`, meaning
+     * "not fetched", distinct from an empty bag meaning "no metadata".
      */
     attributes?: boolean;
 }
 
 /**
- * Read one page of a collection's item catalogue.
+ * Read one page of the item catalogue of a collection.
  *
  * Four reads per page whatever the collection holds: the collection record, its
  * metadata defaults, the item definitions in the window, and the metadata for
  * those items. Nothing here is proportional to the catalogue unless
  * `attributes: true` asks for the open bag, which no exact-key read can supply.
  *
- * Metadata resolves in two layers — the collection's defaults underneath, the
- * item's overrides on top — which is what `ItemMetadata`'s "override collection
- * defaults for the same key" means on chain. `InstanceMetadata` is the third layer
+ * Metadata resolves in two layers, the collection defaults underneath and the
+ * item overrides on top, which is what "override collection defaults for the
+ * same key" means for `ItemMetadata`. `InstanceMetadata` is the third layer
  * and is deliberately not consulted: it keys on an instance id, so it describes a
  * minted NFT rather than a catalogue entry.
  *
- * Returns a `Result`. A collection nobody created is **not** an error — it
+ * Returns a `Result`. A collection nobody created is **not** an error. It
  * resolves to `ok({ tag: "NotFound", … })`, because the chain was asked and
  * answered. An existing collection with no items resolves to `Found` with an
  * empty `items`.
  *
  * An `id` that is not a `u32` **is** an error, {@link NftsIdError}, raised before
- * anything is read. PAPI's codec truncates rather than rejecting, so `NaN` would
- * otherwise return collection 0's catalogue labelled `id: NaN`, on the `ok`
+ * anything is read. The PAPI codec truncates rather than rejecting, so `NaN` would
+ * otherwise return the catalogue of collection 0 labelled `id: NaN`, on the `ok`
  * channel, which no caller could tell from a real answer.
  *
  * **`transferability` is not returned.** The field in the original spec traces to
@@ -155,7 +155,7 @@ export interface GetCollectionItemsOptions extends PinnedReadOptions {
  * ```ts
  * const chain = await getChainAPI("paseo");
  *
- * // One page, then the rest — `at` pins the whole walk to one block.
+ * // One page, then the rest. `at` pins the whole walk to one block.
  * const first = await getCollectionItems(chain, 0, { limit: 100 });
  * if (!first.ok || first.value.tag !== "Found") return;
  *
@@ -182,8 +182,8 @@ export async function getCollectionItems(
     options: GetCollectionItemsOptions = {},
 ): Promise<Result<CollectionItemsResult, ProductNftsError>> {
     try {
-        // Before the block is pinned: an id that cannot address anything is the
-        // caller's mistake, and answering it costs no round trip.
+        // Before the block is pinned: an id that cannot address anything is a
+        // caller mistake, and answering it costs no round trip.
         if (!isValidId(id)) return err(new NftsIdError(id));
 
         const { signal } = options;
@@ -199,8 +199,8 @@ export async function getCollectionItems(
 
         // Every read is in flight before anything is awaited, and all of them are
         // awaited in one place. Awaiting the window first instead would leave a
-        // rejection from `defaults` unhandled across the window's round trips,
-        // which ends the process under Node's default rejection mode even though
+        // rejection from `defaults` unhandled across the round trips of the window,
+        // which ends the process under the Node default rejection mode even though
         // this call goes on to return an error.
         const [filled, found, defaultRows] = await Promise.all([
             fillByIdWindow(
@@ -269,7 +269,7 @@ export async function getCollectionItems(
  * The named metadata keys of a whole window, named rather than scanned.
  *
  * Three exact keys per item, flattened into a single `getValues` call, then split
- * back per item by position. One call, `3 x limit` storage operations — see
+ * back per item by position. One call, `3 x limit` storage operations, see
  * `chain.ts`. Raw bytes are kept rather than decoded strings, because
  * {@link imageRefFrom} reports `image` both ways and cannot recover bytes from a
  * decoded string.
@@ -304,8 +304,8 @@ async function readTypedKeys(
  * Every metadata key of every item in the collection, grouped by item.
  *
  * The `attributes: true` path. One prefix scan, and so genuinely one storage
- * operation — the only read here that is — but it carries the whole catalogue's
- * metadata, which is the cost of a bag whose keys cannot be named in advance.
+ * operation, the only read here that is, but it carries the metadata of the
+ * whole catalogue, which is the cost of a bag whose keys cannot be named in advance.
  */
 async function readAllKeys(
     query: NftsChain["assetHub"]["query"],
@@ -573,8 +573,8 @@ if (import.meta.vitest) {
                 ],
             });
             await getCollectionItems(chain, 3, { limit: 100 });
-            // A window of item indices, then their named keys — no prefix scan of
-            // the collection's item metadata unless `attributes` asks for one.
+            // A window of item indices, then their named keys. No prefix scan of
+            // the collection item metadata unless `attributes` asks for one.
             expect(scans).toContain("itemKeys:6");
             expect(scans.some((s) => s.startsWith("itemMeta:"))).toBe(false);
         });
@@ -653,8 +653,8 @@ if (import.meta.vitest) {
             // The ordering the fakes above cannot express. `CollectionMetadata`
             // rejects while the item-definition window is still in flight, so a
             // read that awaited the window before touching `defaults` would leave
-            // that rejection unhandled across a macrotask boundary — which ends
-            // the process under Node's default rejection mode, even though this
+            // that rejection unhandled across a macrotask boundary, which ends
+            // the process under the Node default rejection mode, even though this
             // call goes on to return `err`. Vitest fails a test file on an
             // unhandled rejection, so this test is the assertion.
             const settleIn = <T>(ms: number, produce: () => T) =>
@@ -757,13 +757,13 @@ if (import.meta.vitest) {
             expect(b.value.collection.items).toHaveLength(10);
             expect(huge.scans.length).toBe(small.scans.length);
             // Three exact keys per item in the window, named rather than
-            // scanned — not a prefix scan per item, and never the
+            // scanned. Not a prefix scan per item, and never the
             // whole-collection one.
             expect(huge.scans).toContain("itemKeys:30");
             expect(huge.scans).not.toContain("itemMeta:0");
         });
 
-        test("returns the typed fields, with the collection's defaults inherited", async () => {
+        test("returns the typed fields, with the collection defaults inherited", async () => {
             const { chain } = fakeChain({
                 record: { owner: "o", item_count: 2, next_item_index: 2 },
                 defs: [
@@ -825,8 +825,8 @@ if (import.meta.vitest) {
                 rarity: "common",
                 image: `0x${"ab".repeat(32)}`,
             });
-            // One scan of the whole collection's item metadata — the cost of a
-            // bag whose keys cannot be named in advance — and no exact-key read.
+            // One scan of the item metadata of the whole collection, the cost of a
+            // bag whose keys cannot be named in advance, and no exact-key read.
             expect(scans.filter((s) => s.startsWith("itemMeta:"))).toEqual(["itemMeta:0"]);
             expect(scans.some((s) => s.startsWith("itemKeys:"))).toBe(false);
         });
@@ -1006,7 +1006,7 @@ if (import.meta.vitest) {
     });
 
     describe("getCollectionItems, id validation", () => {
-        // PAPI's u32 codec truncates, so an unchecked NaN would read collection
+        // The PAPI u32 codec truncates, so an unchecked NaN would read collection
         // 0 and report it as collection NaN.
         const refused = [Number.NaN, 1.5, -1, 2 ** 32, Number.POSITIVE_INFINITY];
 

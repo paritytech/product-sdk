@@ -27,7 +27,7 @@ const PASEO_AH: ChainConfig = {
 };
 
 /**
- * All three reads are catalogue reads, so the account is incidental — the
+ * All three reads are catalogue reads, so the account is incidental. The
  * fixture still needs one to boot the host, and Bob is what the sibling demos
  * use.
  */

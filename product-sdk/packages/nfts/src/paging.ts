@@ -25,7 +25,7 @@ export const ID_CEILING = 2 ** 32;
 /**
  * Is this a usable collection id or item index?
  *
- * Worth a check rather than trusting the encoder: PAPI's `u32` codec truncates
+ * Worth a check rather than trusting the encoder: the PAPI `u32` codec truncates
  * what it is given instead of rejecting it, so `NaN` addresses collection 0 and
  * `1.5` addresses collection 1. Both would come back on the `ok` channel as a
  * real catalogue labelled with the id the caller asked for, which is a wrong
@@ -55,8 +55,8 @@ export interface FilledWindow<T> {
  * and reports where to resume, rather than reading on.
  *
  * What "few" means differs by read. For {@link getCollections} it is deleted
- * collections, which are rare — `delete_collection` requires the collection to be
- * emptied first — so the budget is a safety net. For
+ * collections, which are rare because `delete_collection` requires the collection
+ * to be emptied first, so the budget is a safety net. For
  * {@link getClaimableCollections} it is unregistered collections, which are
  * structural: a page fills only while roughly one collection in
  * `SCAN_BUDGET_FACTOR` is registered, and below that the page comes back short.
@@ -68,9 +68,9 @@ export const SCAN_BUDGET_FACTOR = 16;
 /**
  * How many entries a read returns when the caller does not say.
  *
- * Every read here is bounded. Nothing on chain caps how many collections exist
- * or how many items a collection holds — the pallet's only ceilings are
- * index-space exhaustion, and the indices are `u32` — so a read whose default is
+ * Every read here is bounded. Nothing caps how many collections exist or how many
+ * items a collection holds. The only ceilings the pallet has are index-space
+ * exhaustion, and the indices are `u32`. So a read whose default is
  * "everything" is a read that works until a deployment grows and then breaks a
  * browser tab. A default page is the safe end of that trade: a caller who wants
  * everything follows the cursor and gets it, in bounded pieces.
@@ -100,7 +100,7 @@ export const MAX_PAGE_LIMIT = 1000;
  * both clamps: the page would come back empty with `nextId: null`, which a caller
  * cannot tell apart from a chain that holds nothing. `Number(param)` is `NaN` for
  * a missing or malformed query parameter, so this is reachable from ordinary
- * caller code. `Infinity` is left to clamp — asking for more than
+ * caller code. `Infinity` is left to clamp, since asking for more than
  * {@link MAX_PAGE_LIMIT} is documented to clamp rather than fail.
  */
 export function pageBounds(options: { limit?: number; fromId?: number }): {
@@ -149,8 +149,8 @@ export async function fillByIdWindow<T>(
 
     // Bounded by the u32 space, not just by `limit`. The chain ceiling is a
     // promise this read deliberately does not wait for, so it cannot gate the
-    // first window — but the type ceiling is a constant, and an id past it would
-    // reach PAPI's encoder, which truncates rather than refusing. A window
+    // first window. The type ceiling is a constant though, and an id past it would
+    // reach the PAPI encoder, which truncates rather than refusing. A window
     // starting at or past the ceiling is empty, which is the whole answer.
     const firstIds = ids(fromId, Math.min(fromId + limit, ID_CEILING));
     const [idCeiling, firstProbe] = await Promise.all([ceiling, probe(firstIds)]);

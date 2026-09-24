@@ -4,13 +4,13 @@ import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
 /**
- * The `signal` option, which no button can carry — so this one drives the reads
+ * The `signal` option, which no button can carry, so this one drives the reads
  * directly through `window.__NFTS__` inside the product iframe.
  *
  * An aborted caller must land on the `err` channel rather than throw, and it
  * must do so before the pin costs a round trip.
  */
-test.describe("@parity/product-sdk-nfts via Host API — cancellation", () => {
+test.describe("@parity/product-sdk-nfts via Host API, cancellation", () => {
     test("an aborted signal lands on the err channel", async ({ testHost }) => {
         const frame = await waitForAppReady(testHost);
 

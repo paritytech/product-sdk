@@ -5,7 +5,7 @@
  *
  * Every read returns a `Result`, so these arrive on the `err` channel rather
  * than as throws: an unreachable node, an aborted signal, or the pinned block
- * leaving the follower's window mid-read, each normalized into
+ * leaving the follower window mid-read, each normalized into
  * {@link ProductNftsError} with the original cause attached.
  *
  * A collection that does not exist is **not** an error. `getCollectionItems`
@@ -39,7 +39,7 @@ export class ProductNftsError extends Error implements SdkError {
 }
 
 /**
- * A raw storage value did not match the shape the descriptor promised — an
+ * A raw storage value did not match the shape the descriptor promised: an
  * `ItemSelection` variant this package does not know, or a metadata entry whose
  * value is neither raw bytes nor a `Binary` wrapper.
  *
@@ -58,13 +58,13 @@ export class NftsDecodeError extends ProductNftsError {
 /**
  * An id or index a read was given cannot address chain state.
  *
- * Collection ids and item indices are `u32` on chain, and PAPI's codec truncates
+ * Collection ids and item indices are `u32`, and the PAPI codec truncates
  * rather than rejecting, so an unchecked `NaN` or `1.5` would read a real
  * collection and report it under the id the caller asked for. Refusing is the
  * only answer that cannot be mistaken for a catalogue.
  *
- * The message carries the value because it is caller input, not chain content —
- * the rule on {@link NftsDecodeError} is about author-supplied metadata.
+ * The message carries the value because it is caller input, not chain content.
+ * The rule on {@link NftsDecodeError} is about author-supplied metadata.
  */
 export class NftsIdError extends ProductNftsError {
     /** The value that could not address anything. */
@@ -103,7 +103,7 @@ export class NftsChainEntryError extends ProductNftsError {
     }
 }
 
-/** `Storage(Scarcity.ItemDefs)` — the one part of PAPI's message worth keeping. */
+/** `Storage(Scarcity.ItemDefs)`, the one part of the PAPI message worth keeping. */
 function entryFrom(message: string): string | null {
     return /Storage\(([^)]+)\)/.exec(message)?.[1] ?? null;
 }
@@ -123,11 +123,11 @@ function runtimeMissing(entry: string | null): string {
 }
 
 /**
- * PAPI's two "entry not usable here" errors onto {@link NftsChainEntryError}.
+ * The two PAPI "entry not usable here" errors onto {@link NftsChainEntryError}.
  *
  * Matched on message text, because PAPI raises a bare `Error` for both and
- * neither carries a code — the same best-effort shape as `isSigningRejection` in
- * `@parity/product-sdk-tx`. An unrecognised message returns `null` so the caller
+ * neither carries a code. It is the same best-effort shape as `isSigningRejection`
+ * in `@parity/product-sdk-tx`. An unrecognised message returns `null` so the caller
  * falls back to the generic normalization, which is also what happens if PAPI
  * ever rewords these.
  */
@@ -148,8 +148,8 @@ if (import.meta.vitest) {
     const { describe, test, expect } = import.meta.vitest;
 
     // Asserted structurally rather than through `isSdkError` from
-    // `@parity/product-sdk-errors`: importing it would make this package's fast
-    // test loop depend on that package being built first.
+    // `@parity/product-sdk-errors`: importing it would make the fast test loop of
+    // this package depend on that package being built first.
     describe("error hierarchy", () => {
         test("ProductNftsError carries the SdkError marker", () => {
             const error = new ProductNftsError("boom");
