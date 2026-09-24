@@ -10,6 +10,34 @@ export interface FinalizedSnapshot {
     blockNumber: number;
 }
 
+/**
+ * What every paged read here accepts besides its own window: the block to read
+ * at, and the signal that stops it.
+ */
+export interface PinnedReadOptions {
+    /**
+     * Address a block a previous read already pinned, instead of pinning a new
+     * one.
+     *
+     * Pass a `FinalizedSnapshot` straight from another result's `at`. Without it
+     * every call pins its own finalized block, which is right for unrelated
+     * questions and wrong for one question asked in pages: a walk over its own
+     * snapshots is not a walk of any single chain state. It is also how two reads
+     * are made to agree, the registry and the full list at one block.
+     *
+     * The node must still have the block pinned, and a walk can outlive that. A
+     * page that fails on the `err` channel mid-walk is not the end of the walk:
+     * drop `at`, read again from the last `nextId`, and continue on the new
+     * snapshot. The examples on each read show the shape.
+     */
+    at?: FinalizedSnapshot;
+    /**
+     * Forwarded into every underlying pull, so an aborted caller stops the whole
+     * batch. No deadline is applied here, that belongs to the caller.
+     */
+    signal?: AbortSignal;
+}
+
 /** Options every pinned storage read is given, so all of them agree on a block. */
 export interface ReadAt {
     at: string;

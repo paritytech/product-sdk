@@ -45,6 +45,7 @@ import type {
     Collection,
     FinalizedSnapshot,
     ItemSelection,
+    PinnedReadOptions,
     RawMinter,
     ReadAt,
 } from "./types.js";
@@ -71,7 +72,7 @@ export interface ClaimableCollectionsResult {
     nextId: number | null;
 }
 
-export interface GetClaimableCollectionsOptions {
+export interface GetClaimableCollectionsOptions extends PinnedReadOptions {
     /**
      * How many claimable collections this page returns, defaulting to
      * {@link DEFAULT_PAGE_LIMIT} and capped at {@link MAX_PAGE_LIMIT}.
@@ -97,25 +98,6 @@ export interface GetClaimableCollectionsOptions {
      * resuming there cannot skip or repeat a collection.
      */
     fromId?: number;
-    /**
-     * Address a block a previous read already pinned, instead of pinning a new
-     * one.
-     *
-     * Pass a `FinalizedSnapshot` straight from another result's `at`. Without it
-     * every call pins its own finalized block, which is right for unrelated
-     * questions and wrong for one question asked in pages: a walk over its own
-     * snapshots is not a walk of any single chain state. It is also how two reads
-     * are made to agree — the registry and the full list at one block.
-     *
-     * The node must still have the block pinned. Reuse a recent snapshot; an old
-     * one leaves the follower's window and the read fails on the `err` channel.
-     */
-    at?: FinalizedSnapshot;
-    /**
-     * Forwarded into every underlying pull, so an aborted caller stops the whole
-     * batch. No deadline is applied here — that belongs to the caller.
-     */
-    signal?: AbortSignal;
 }
 
 /** What one `getCollections` call returns. */
@@ -142,7 +124,7 @@ export interface CollectionsResult {
     nextId: number | null;
 }
 
-export interface GetCollectionsOptions {
+export interface GetCollectionsOptions extends PinnedReadOptions {
     /**
      * How many collections this page returns, defaulting to
      * {@link DEFAULT_PAGE_LIMIT} and capped at {@link MAX_PAGE_LIMIT}.
@@ -170,22 +152,6 @@ export interface GetCollectionsOptions {
      * offset-based paging over a mutable set cannot promise.
      */
     fromId?: number;
-    /**
-     * Address a block a previous read already pinned, instead of pinning a new
-     * one.
-     *
-     * Pass a `FinalizedSnapshot` straight from another result's `at`. Without it
-     * every call pins its own finalized block, which is right for unrelated
-     * questions and wrong for one question asked in pages: a walk over its own
-     * snapshots is not a walk of any single chain state. It is also how two reads
-     * are made to agree — the registry and the full list at one block.
-     *
-     * The node must still have the block pinned. Reuse a recent snapshot; an old
-     * one leaves the follower's window and the read fails on the `err` channel.
-     */
-    at?: FinalizedSnapshot;
-    /** Forwarded into every underlying pull, as with the claimable read. */
-    signal?: AbortSignal;
 }
 
 /**
@@ -474,7 +440,9 @@ async function readPage(
  *     }
  *     if (page.nextId === null) break;
  *     const next = await getCollections(chain, { limit: 100, fromId: page.nextId, at });
- *     if (!next.ok) break;
+ *     // A failed page is not the end of the walk. Report it, or re-pin by
+ *     // dropping `at` and reading again from `page.nextId`.
+ *     if (!next.ok) throw next.error;
  *     page = next.value;
  * }
  * ```

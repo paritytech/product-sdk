@@ -61,7 +61,7 @@ for (;;) {
     render(page.collections);         // 100, ascending by id
     if (page.nextId === null) break;  // the only end signal
     const next = await getCollections(chain, { limit: 100, fromId: page.nextId, at });
-    if (!next.ok) break;
+    if (!next.ok) throw next.error;   // a failed page is not the end of the walk
     page = next.value;
 }
 ```

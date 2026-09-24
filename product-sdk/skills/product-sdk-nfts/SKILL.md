@@ -95,7 +95,7 @@ render(first.value.collections);
 let fromId = first.value.nextId;
 while (fromId !== null) {
     const page = await getCollections(chain, { fromId, limit: 100, at: first.value.at });
-    if (!page.ok) break;
+    if (!page.ok) throw page.error;          // a failed page is not the end of the walk
     render(page.value.collections);          // 100, ascending by id
     fromId = page.value.nextId;              // null when the id space is exhausted
 }
@@ -151,7 +151,8 @@ for (;;) {
     render(page.collection.items);
     if (page.nextId === null) break;              // the only end signal
     const result = await getCollectionItems(chain, id, { limit: 100, fromId: page.nextId, at });
-    if (!result.ok || result.value.tag !== "Found") break;
+    if (!result.ok) throw result.error;           // a failed page is not the end of the walk
+    if (result.value.tag !== "Found") break;      // deleted mid-walk: a real answer
     page = result.value;
 }
 ```
@@ -306,7 +307,7 @@ Narrow errors with `isErrorOf(e, NftsChainEntryError)` from `@parity/result`, or
 error with `isSdkError(e)` from `@parity/product-sdk-errors`.
 
 Every value in one result is read at a single pinned finalized block, reported as `at`
-(`{ blockHash, blockNumber }`). Two reads in sequence pin two blocks.
+(`{ blockHash, blockNumber }`). Two reads in sequence pin two blocks. A walk can outlive its pinned block. When a page fails on the `err` channel mid-walk, drop `at`, read again from the last `nextId`, and continue on the new snapshot.
 
 ## Not Built Yet
 

@@ -30,6 +30,7 @@ import type {
     CollectionItem,
     CollectionItemsResult,
     FinalizedSnapshot,
+    PinnedReadOptions,
     RawBytes,
     RawMetadataEntry,
     ReadAt,
@@ -78,7 +79,7 @@ function decodeBag(raw: Record<string, RawBytes>): Record<string, string> {
     return decoded;
 }
 
-export interface GetCollectionItemsOptions {
+export interface GetCollectionItemsOptions extends PinnedReadOptions {
     /**
      * How many items this page returns, defaulting to
      * {@link DEFAULT_PAGE_LIMIT} and capped at {@link MAX_PAGE_LIMIT}.
@@ -119,17 +120,6 @@ export interface GetCollectionItemsOptions {
      * fetched", distinct from an empty bag meaning "no metadata".
      */
     attributes?: boolean;
-    /**
-     * Address a block a previous read already pinned, instead of pinning a new
-     * one.
-     *
-     * Pass this when walking a catalogue: without it every page pins its own
-     * finalized block, and a walk over separate snapshots is not a walk of any one
-     * catalogue.
-     */
-    at?: FinalizedSnapshot;
-    /** Forwarded into every underlying pull, so an aborted caller stops the batch. */
-    signal?: AbortSignal;
 }
 
 /**
@@ -177,7 +167,11 @@ export interface GetCollectionItemsOptions {
  *     }
  *     if (page.nextId === null) break;
  *     const next = await getCollectionItems(chain, 0, { limit: 100, fromId: page.nextId, at });
- *     if (!next.ok || next.value.tag !== "Found") break;
+ *     // A failed page is not the end of the walk. Report it, or re-pin by
+ *     // dropping `at` and reading again from `page.nextId`.
+ *     if (!next.ok) throw next.error;
+ *     // Deleted mid-walk: a real answer, and the walk is over.
+ *     if (next.value.tag !== "Found") break;
  *     page = next.value;
  * }
  * ```

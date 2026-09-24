@@ -170,6 +170,7 @@ export type {
     FinalizedSnapshot,
     ImageRef,
     ItemSelection,
+    PinnedReadOptions,
     ClaimableCollection,
     Collection,
     RawBytes,
