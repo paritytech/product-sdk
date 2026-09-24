@@ -67,6 +67,9 @@ function collectionBag(
     return bag;
 }
 
+/** The overrides of a page that has no items, shared rather than reallocated. */
+const NO_OVERRIDES: ReadonlyMap<number, Record<string, RawBytes>> = new Map();
+
 function decodeBag(raw: Record<string, RawBytes>): Record<string, string> {
     const decoded: Record<string, string> = Object.create(null);
     for (const [key, value] of Object.entries(raw)) {
@@ -227,11 +230,15 @@ export async function getCollectionItems(
         const decodedDefaults = decodeBag(defaultBag);
         const indices = filled.kept.map(({ id: index }) => index);
 
-        // The one branch: named keys for the page, or the whole collection's item
-        // metadata when the open bag was asked for.
-        const overrides = options.attributes
-            ? await readAllKeys(query, id, at)
-            : await readTypedKeys(query, id, indices, at);
+        // An empty page has nothing to describe, and the open bag costs a prefix
+        // scan of the whole collection to say so. `readTypedKeys` guards this
+        // itself; the scan cannot.
+        const emptyPage = indices.length === 0;
+        const wantsOpenBag = options.attributes === true;
+        const readOverrides = () =>
+            wantsOpenBag ? readAllKeys(query, id, at) : readTypedKeys(query, id, indices, at);
+
+        const overrides = emptyPage ? NO_OVERRIDES : await readOverrides();
 
         const items = filled.kept.map(({ id: index, value: def }): CollectionItem => {
             const raw = overrides.get(index) ?? {};
@@ -243,7 +250,7 @@ export async function getCollectionItems(
                 name: decoded.name ?? decodedDefaults.name ?? null,
                 imageRef: imageRefFrom([defaultBag, raw]),
                 rarity: decoded.rarity ?? decodedDefaults.rarity ?? null,
-                attributes: options.attributes ? mergeMetadata(decodedDefaults, decoded) : null,
+                attributes: wantsOpenBag ? mergeMetadata(decodedDefaults, decoded) : null,
             };
         });
 
@@ -979,6 +986,28 @@ if (import.meta.vitest) {
                 signal: controller.signal,
             });
             expect(result.ok).toBe(false);
+        });
+    });
+
+    describe("getCollectionItems, an empty page", () => {
+        test("attributes: true does not scan a collection to describe nothing", async () => {
+            const { chain, scans } = fakeChain({
+                record: { owner: "alice", item_count: 3, next_item_index: 3 },
+                defs: [
+                    [0, { supply: 1, live_supply: 1 }],
+                    [1, { supply: 1, live_supply: 1 }],
+                    [2, { supply: 1, live_supply: 1 }],
+                ],
+                itemMetadata: [[0, [["palette", utf8("moss")]]]],
+            });
+            // Past the last item: the window is empty, so there is nothing the
+            // open bag could describe.
+            const result = await getCollectionItems(chain, 0, { fromId: 3, attributes: true });
+            expect(result.ok).toBe(true);
+            if (result.ok && result.value.tag === "Found") {
+                expect(result.value.collection.items).toEqual([]);
+            }
+            expect(scans).not.toContain("itemMeta:0");
         });
     });
 
