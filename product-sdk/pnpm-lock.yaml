@@ -587,9 +587,6 @@ importers:
       '@noble/curves':
         specifier: ^2.2.0
         version: 2.2.0
-      '@noble/hashes':
-        specifier: ^2.2.0
-        version: 2.2.0
       '@parity/product-sdk-errors':
         specifier: workspace:*
         version: link:../errors

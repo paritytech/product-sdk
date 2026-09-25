@@ -28,7 +28,6 @@
     },
     "dependencies": {
         "@noble/curves": "^2.2.0",
-        "@noble/hashes": "^2.2.0",
         "@parity/product-sdk-errors": "workspace:*",
         "@parity/product-sdk-utils": "workspace:*",
         "@parity/result": "workspace:*",

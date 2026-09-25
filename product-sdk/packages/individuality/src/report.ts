@@ -18,6 +18,7 @@
  *
  * A returning player signs up again under the same origin, see `signUpWithAccountTx`.
  */
+import { Enum } from "polkadot-api";
 import { ProductIndividualityError } from "./errors.js";
 
 /** The judgement of one co-player, who either attended as a person or did not. */
@@ -89,7 +90,7 @@ function toRawVote(vote: ReportVote): RawReportVote {
     if (vote !== "Person" && vote !== "NotPerson") {
         throw new ProductIndividualityError("a report vote must be Person or NotPerson");
     }
-    return { type: vote, value: undefined };
+    return Enum(vote);
 }
 
 if (import.meta.vitest) {

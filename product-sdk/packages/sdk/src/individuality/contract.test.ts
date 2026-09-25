@@ -359,8 +359,8 @@ type ReportVotesArePersonAndNotPerson = Assert<
         : false
 >;
 
-// The roster reads, and the candidates read that adds `Game.Game` to them. The
-// batched `IndexToPlayer.getValues` takes `[round, index]` tuples as its single key.
+// The roster reads, and the candidates read that adds `Game.Game` to them.
+// `IndexToPlayer.getValues` takes each `[round, index]` tuple as a single key.
 type PaseoSatisfiesRosterContract = Assert<PaseoClient extends RosterChain ? true : false>;
 type PreviewnetSatisfiesRosterContract = Assert<
     PreviewnetClient extends RosterChain ? true : false

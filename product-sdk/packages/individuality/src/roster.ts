@@ -19,6 +19,7 @@ import { IndividualityDecodeError, ProductIndividualityError } from "./errors.js
 import { toCurrentGame, type RawGameInfo } from "./game-decode.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
 import type { PlayerKey } from "./player-key.js";
+import { IDENTIFIER_KEY_BYTES } from "./signup.js";
 import type { FinalizedSnapshot } from "./types.js";
 
 /**
@@ -163,35 +164,50 @@ export async function readGroupMembers(
 ): Promise<Result<GroupMembersResult, ProductIndividualityError>> {
     try {
         const { round, ownIndex, playerCount, maxGroupSize, signal } = options;
-        if (ownIndex >= playerCount) {
-            throw new ProductIndividualityError(
-                "a group member index must be below the player count",
-            );
-        }
+        const indices = occupiedSeats(ownIndex, playerCount, maxGroupSize);
         const snapshot = await pinBlock(chain, signal);
-        const seats = groupSeats(ownIndex, playerCount, maxGroupSize).filter(
-            (seat) => seat.occupied,
-        );
-        const players = await chain.individuality.query.Game.IndexToPlayer.getValues(
-            seats.map((seat) => [[round, seat.index]]),
+        const players = await playersAt(
+            chain,
+            indices.map((index) => ({ round, index })),
             readAt(snapshot, signal),
         );
         return ok({
             at: snapshot,
-            members: seats.map((seat, i) => ({ index: seat.index, player: seated(players[i]) })),
+            members: indices.map((index, i) => ({ index, player: players[i] })),
         });
     } catch (cause) {
         return err(normalizeError(cause, ProductIndividualityError));
     }
 }
 
-function seated(player: PlayerKey | undefined): PlayerKey {
-    if (player === undefined) {
-        throw new ProductIndividualityError(
-            "the roster holds no player at a seat the player count says is taken",
-        );
+/** The occupied seats of the group of `ownIndex`, which has to hold a seat itself. */
+function occupiedSeats(ownIndex: number, playerCount: number, maxGroupSize: number): number[] {
+    if (ownIndex >= playerCount) {
+        throw new ProductIndividualityError("a player index lies outside the roster");
     }
-    return player;
+    return groupSeats(ownIndex, playerCount, maxGroupSize)
+        .filter((seat) => seat.occupied)
+        .map((seat) => seat.index);
+}
+
+/** The player behind each seat, from one `getValues` call. */
+async function playersAt(
+    chain: RosterChain,
+    seats: Array<{ round: number; index: number }>,
+    at: ReadAt,
+): Promise<PlayerKey[]> {
+    const players = await chain.individuality.query.Game.IndexToPlayer.getValues(
+        seats.map(({ round, index }) => [[round, index]]),
+        at,
+    );
+    return players.map((player) => {
+        if (player === undefined) {
+            throw new ProductIndividualityError(
+                "the roster holds no player at a seat the player count says is taken",
+            );
+        }
+        return player;
+    });
 }
 
 /** Options for {@link readCommunicationIdentifier}. */
@@ -210,7 +226,7 @@ export interface CommunicationIdentifierResult {
     identifier: Uint8Array | null;
 }
 
-const IDENTIFIER_HEX = /^0x[0-9a-fA-F]{130}$/;
+const IDENTIFIER_HEX = new RegExp(`^0x[0-9a-fA-F]{${IDENTIFIER_KEY_BYTES * 2}}$`);
 
 /** The key an account is reached on during the game, at one pinned finalized block. */
 export async function readCommunicationIdentifier(
@@ -278,36 +294,31 @@ export async function readCreditCandidates(
         const snapshot = await pinBlock(chain, signal);
         const at = readAt(snapshot, signal);
 
-        const [game, indices] = await Promise.all([
+        const [raw, indices] = await Promise.all([
             query.Game.getValue(at),
             query.PlayerToIndex.getValue(attestee, at),
         ]);
-        const playerCount = game === undefined ? null : toCurrentGame(game).playerCount;
-        if (game === undefined || playerCount === null) {
+        const game = raw === undefined ? null : toCurrentGame(raw);
+        const playerCount = game?.playerCount ?? null;
+        if (game === null || playerCount === null) {
             return ok({ at: snapshot, gameIndex: null, candidates: [] });
         }
         if (indices === undefined) {
             return ok({ at: snapshot, gameIndex: game.index, candidates: [] });
         }
 
-        const seats = indices.slice(0, game.rounds).flatMap((ownIndex, round) => {
-            if (ownIndex >= playerCount) {
-                throw new ProductIndividualityError("a player index lies outside the roster");
-            }
-            return groupSeats(ownIndex, playerCount, game.max_group_size)
-                .filter((seat) => seat.occupied && seat.index !== ownIndex)
-                .map((seat) => ({ round, index: seat.index }));
-        });
-        const attesters = await query.IndexToPlayer.getValues(
-            seats.map((seat) => [[seat.round, seat.index]]),
-            at,
+        const seats = indices.slice(0, game.rounds).flatMap((ownIndex, round) =>
+            occupiedSeats(ownIndex, playerCount, game.maxGroupSize)
+                .filter((index) => index !== ownIndex)
+                .map((index) => ({ round, index })),
         );
+        const attesters = await playersAt(chain, seats, at);
 
         return ok({
             at: snapshot,
             gameIndex: game.index,
             candidates: seats.map((seat, i) => {
-                const attester = seated(attesters[i]);
+                const attester = attesters[i];
                 return {
                     round: seat.round,
                     attesterIndex: seat.index,
@@ -595,7 +606,7 @@ if (import.meta.vitest) {
             });
         });
 
-        test("reads the game and the roster at the same pinned block, in one batch of seats", async () => {
+        test("reads the game and the roster at the same pinned block, with one getValues call", async () => {
             const { chain, calls } = fakeChain({ game: reportingGame() });
             await readCreditCandidates(chain, { attestee });
             expect(calls.map((call) => call.entry)).toEqual([

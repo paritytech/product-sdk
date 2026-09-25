@@ -60,7 +60,7 @@ import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
 import { playerKey, type PlayerKey } from "./player-key.js";
-import { VERIFY_SIGNATURE, VERIFY_SIGNATURE_DISABLED } from "./origin-extension.js";
+import { FEE_ESTIMATE_EXTENSIONS } from "./origin-extension.js";
 import { airdropVrfTranscript, type VrfTranscriptItem } from "./signup-vrf.js";
 import type {
     AccountVrfSignature,
@@ -367,7 +367,8 @@ export interface SignUpWithAccountOptions {
     airdropsScheduled?: number;
 }
 
-const IDENTIFIER_KEY_BYTES = 65;
+/** `CommunicationIdentifier`. Exported for `roster.ts`, which reads it back. */
+export const IDENTIFIER_KEY_BYTES = 65;
 const VRF_PRE_OUTPUT_BYTES = 32;
 const VRF_PROOF_BYTES = 64;
 
@@ -455,16 +456,9 @@ function sizedSignaturePart(bytes: Uint8Array, length: number, what: string): Ui
 export interface FeeEstimable {
     getEstimatedFees(
         from: string,
-        options: { at: string; customSignedExtensions: Record<string, { value: unknown }> },
+        options: { nonce: number; customSignedExtensions: Record<string, { value: unknown }> },
     ): Promise<bigint>;
 }
-
-/**
- * PAPI cannot fill `VerifyMultiSignature`, which the host fills with the account
- * signature when it signs, so the estimate signs the extrinsic the classic way with
- * the extension `Disabled`. The length differs by a few bytes at most.
- */
-const FEE_ESTIMATE_EXTENSIONS = { [VERIFY_SIGNATURE]: { value: VERIFY_SIGNATURE_DISABLED } };
 
 /**
  * What {@link readSignUpFunds} reads. Matched by hand against the paseo descriptors
@@ -475,7 +469,7 @@ const FEE_ESTIMATE_EXTENSIONS = { [VERIFY_SIGNATURE]: { value: VERIFY_SIGNATURE_
  * System.Account:         StorageDescriptor<[Key: SS58String], AccountInfo, false, never>
  * ```
  */
-export interface SignUpFundsChain extends PinnedChain {
+export type SignUpFundsChain = PinnedChain & {
     individuality: {
         query: {
             Game: { PlayDepositAmount: { getValue(options: ReadAt): Promise<bigint> } };
@@ -488,12 +482,11 @@ export interface SignUpFundsChain extends PinnedChain {
     };
     raw: {
         individuality: {
-            getFinalizedBlock(): Promise<{ hash: string; number: number }>;
             /** Where the chain publishes its token decimals and symbol. */
             getChainSpecData(): Promise<{ properties?: unknown }>;
         };
     };
-}
+};
 
 /** Options for {@link readSignUpFunds}. */
 export interface ReadSignUpFundsOptions {
@@ -501,7 +494,8 @@ export interface ReadSignUpFundsOptions {
     account: string;
     /**
      * The sign-up transaction as built, for example by {@link signUpWithAccountTx}.
-     * Omit it and `estimatedFee` is `null`.
+     * Omit it and `estimatedFee` is `null`. Placeholder VRFs of the right width cost
+     * the same as real ones, so the funds can be checked before any is minted.
      */
     tx?: FeeEstimable;
     signal?: AbortSignal;
@@ -521,7 +515,8 @@ export interface SignUpFunds {
     deposit: bigint;
     /**
      * Charged up front and refunded on success, so the account needs it to start
-     * with. Nothing under `withScoreParticipant`.
+     * with. Nothing under `withScoreParticipant`. PAPI estimates it at the latest
+     * finalized block, which can be newer than `at`.
      */
     estimatedFee: bigint | null;
     free: bigint;
@@ -530,7 +525,12 @@ export interface SignUpFunds {
     symbol: string | null;
 }
 
-/** The deposit, the fee and the free balance of a sign-up, at one pinned finalized block. */
+/**
+ * The deposit, the free balance and the fee of a sign-up.
+ *
+ * The deposit and the balance come from one pinned finalized block, the fee from
+ * wherever PAPI estimates it, see {@link SignUpFunds.estimatedFee}.
+ */
 export async function readSignUpFunds(
     chain: SignUpFundsChain,
     options: ReadSignUpFundsOptions,
@@ -544,10 +544,12 @@ export async function readSignUpFunds(
         const [deposit, info, estimatedFee, spec] = await Promise.all([
             query.Game.PlayDepositAmount.getValue(at),
             query.System.Account.getValue(account, at),
+            // A fixed nonce saves the nonce lookup PAPI runs before estimating, and
+            // moves the length by a few bytes at most.
             tx === undefined
                 ? null
                 : tx.getEstimatedFees(account, {
-                      at: snapshot.blockHash,
+                      nonce: 0,
                       customSignedExtensions: FEE_ESTIMATE_EXTENSIONS,
                   }),
             chain.raw.individuality.getChainSpecData(),
@@ -1076,7 +1078,7 @@ if (import.meta.vitest) {
             });
         });
 
-        test("reads every entry and estimates the fee at the pinned block, for the account", async () => {
+        test("reads every entry at the pinned block, and estimates the fee for the account", async () => {
             const { chain, calls } = fundsChain();
             const { tx, estimates } = feeTx(1n);
             await readSignUpFunds(chain, { account: ACCOUNT, tx });
@@ -1088,7 +1090,7 @@ if (import.meta.vitest) {
                 {
                     from: ACCOUNT,
                     options: {
-                        at: BLOCK.hash,
+                        nonce: 0,
                         // Without it PAPI refuses with "Missing VerifyMultiSignature
                         // signed extension", measured against paseo on 2026-09-25.
                         customSignedExtensions: {

@@ -9,4 +9,4 @@
 
 It is for development only and never ships from the main entry. A hosted product keeps signing through the host. `@parity/product-sdk/testing` re-exports it.
 
-The package now depends on `@noble/curves`, `@noble/hashes` and `@scure/sr25519`, which only the `testing` entry imports.
+The package now depends on `@noble/curves` and `@scure/sr25519`, which only the `testing` entry imports.

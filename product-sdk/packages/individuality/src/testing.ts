@@ -23,8 +23,13 @@
  */
 import { mod } from "@noble/curves/abstract/modular.js";
 import { ed25519, ristretto255, ristretto255_hasher } from "@noble/curves/ed25519.js";
-import { bytesToNumberLE, numberToBytesLE } from "@noble/curves/utils.js";
-import { randomBytes } from "@noble/hashes/utils.js";
+import {
+    bytesToNumberLE,
+    concatBytes,
+    equalBytes,
+    numberToBytesLE,
+    randomBytes,
+} from "@noble/curves/utils.js";
 import { __tests, getPublicKey } from "@scure/sr25519";
 import { ProductIndividualityError } from "./errors.js";
 import type { AirdropVrfSigner } from "./signup.js";
@@ -32,10 +37,12 @@ import type { VrfTranscript } from "./signup-vrf.js";
 
 const { SigningContext } = __tests;
 const RistrettoPoint = ristretto255.Point;
+type Point = InstanceType<typeof RistrettoPoint>;
+type Transcript = InstanceType<typeof SigningContext>;
 const CURVE_ORDER = ed25519.Point.Fn.ORDER;
 const SECRET_KEY_BYTES = 64;
-const SIGNATURE_BYTES = 96;
 const PRE_OUTPUT_BYTES = 32;
+const SIGNER_LABEL = new TextEncoder().encode("signer");
 
 /**
  * An {@link AirdropVrfSigner} over an sr25519 secret key held in memory.
@@ -52,15 +59,16 @@ export function localAirdropVrfSigner(secretKey: Uint8Array): AirdropVrfSigner {
     }
     const key = Uint8Array.from(secretKey);
     const publicKey = getPublicKey(key);
+    const publicPoint = RistrettoPoint.fromBytes(publicKey);
     return {
         async signVrf(label, items) {
-            const signer = items.find((item) => utf8(item.label) === "signer");
-            if (signer !== undefined && !sameBytes(signer.value, publicKey)) {
+            const signer = items.find((item) => equalBytes(item.label, SIGNER_LABEL));
+            if (signer !== undefined && !equalBytes(signer.value, publicKey)) {
                 throw new ProductIndividualityError(
                     "the VRF transcript names a signer other than this key",
                 );
             }
-            const signature = sr25519VrfSign(key, { label, items });
+            const signature = sr25519VrfSign(key, publicPoint, { label, items });
             return {
                 preOutput: signature.slice(0, PRE_OUTPUT_BYTES),
                 proof: signature.slice(PRE_OUTPUT_BYTES),
@@ -69,42 +77,50 @@ export function localAirdropVrfSigner(secretKey: Uint8Array): AirdropVrfSigner {
     };
 }
 
-const utf8 = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
-
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-    return a.length === b.length && a.every((byte, i) => byte === b[i]);
-}
-
 /** schnorrkel stores the scalar times the cofactor, so it is divided back out. */
 const decodeScalar = (bytes: Uint8Array) => bytesToNumberLE(bytes) >> 3n;
 
 /**
- * The transcript is built by hand because `vrf.sign` from `@scure/sr25519`
- * hardcodes the `SigningContext` label and the `sign-bytes` item, and the airdrop
- * pallet verifies against its own label and items.
+ * schnorrkel `vrf_create_hash`. The transcript is built by hand because `vrf.sign`
+ * from `@scure/sr25519` hardcodes the `SigningContext` label and the `sign-bytes`
+ * item, and the airdrop pallet verifies against its own label and items.
  */
-function transcriptOf(spec: VrfTranscript) {
+function vrfInput(spec: VrfTranscript, publicPoint: Point): Point {
     // Merlin takes the label as bytes, whatever the constructor typing says.
     const transcript = new SigningContext(spec.label as unknown as string);
     for (const item of spec.items) {
         transcript.appendMessage(item.label, item.value);
     }
-    return transcript;
-}
-
-/** schnorrkel `vrf_create_hash`, then the fresh transcript the DLEQ proof runs on. */
-function vrfInput(spec: VrfTranscript, publicKey: Uint8Array) {
-    const transcript = transcriptOf(spec);
-    const publicPoint = RistrettoPoint.fromBytes(publicKey);
     transcript.commitPoint("vrf-nm-pk", publicPoint);
     const hash = transcript.challengeBytes("VRFHash", 64);
+    transcript.clean();
     const deriveToCurve = ristretto255_hasher.deriveToCurve;
     if (deriveToCurve === undefined) {
         throw new ProductIndividualityError("ristretto255 hash-to-curve is unavailable");
     }
-    const input = deriveToCurve(hash);
-    transcript.clean();
-    return { input, publicPoint, dleq: new SigningContext("VRF") };
+    return deriveToCurve(hash);
+}
+
+/** The fresh transcript the DLEQ proof runs on, up to the witness. */
+function dleqTranscript(input: Point): Transcript {
+    const dleq = new SigningContext("VRF");
+    dleq.protoName("DLEQProof");
+    dleq.commitPoint("vrf:h", input);
+    return dleq;
+}
+
+/** The DLEQ challenge, over the same commitments whether proving or verifying. */
+function dleqChallenge(
+    dleq: Transcript,
+    commitments: { r: Point; hr: Point; publicPoint: Point; output: Point },
+): bigint {
+    dleq.commitPoint("vrf:R=g^r", commitments.r);
+    dleq.commitPoint("vrf:h^r", commitments.hr);
+    dleq.commitPoint("vrf:pk", commitments.publicPoint);
+    dleq.commitPoint("vrf:h^sk", commitments.output);
+    const c = dleq.challengeScalar("prove");
+    dleq.clean();
+    return c;
 }
 
 /**
@@ -114,63 +130,24 @@ function vrfInput(spec: VrfTranscript, publicKey: Uint8Array) {
  */
 function sr25519VrfSign(
     secretKey: Uint8Array,
+    publicPoint: Point,
     spec: VrfTranscript,
     random: Uint8Array = randomBytes(32),
 ): Uint8Array {
     const keyScalar = decodeScalar(secretKey.subarray(0, 32));
-    const nonce = secretKey.subarray(32, 64);
-    const { input, publicPoint, dleq } = vrfInput(spec, getPublicKey(secretKey));
+    const input = vrfInput(spec, publicPoint);
     const output = input.multiply(keyScalar);
-
-    dleq.protoName("DLEQProof");
-    dleq.commitPoint("vrf:h", input);
+    const dleq = dleqTranscript(input);
     // schnorrkel labels the witness b"proving\00", a NUL byte then an ASCII zero.
-    const r = dleq.witnessScalar("proving\u{0}0", random, [nonce]);
-    dleq.commitPoint("vrf:R=g^r", RistrettoPoint.BASE.multiply(r));
-    dleq.commitPoint("vrf:h^r", input.multiply(r));
-    dleq.commitPoint("vrf:pk", publicPoint);
-    dleq.commitPoint("vrf:h^sk", output);
-    const c = dleq.challengeScalar("prove");
+    const r = dleq.witnessScalar("proving\u{0}0", random, [secretKey.subarray(32, 64)]);
+    const c = dleqChallenge(dleq, {
+        r: RistrettoPoint.BASE.multiply(r),
+        hr: input.multiply(r),
+        publicPoint,
+        output,
+    });
     const s = mod(r - c * keyScalar, CURVE_ORDER);
-    dleq.clean();
-
-    const signature = new Uint8Array(SIGNATURE_BYTES);
-    signature.set(output.toBytes(), 0);
-    signature.set(numberToBytesLE(c, 32), 32);
-    signature.set(numberToBytesLE(s, 32), 64);
-    return signature;
-}
-
-/** The check the runtime runs. */
-function sr25519VrfVerify(
-    publicKey: Uint8Array,
-    spec: VrfTranscript,
-    signature: Uint8Array,
-): boolean {
-    if (signature.length !== SIGNATURE_BYTES) return false;
-    let publicPoint: InstanceType<typeof RistrettoPoint>;
-    let output: InstanceType<typeof RistrettoPoint>;
-    try {
-        publicPoint = RistrettoPoint.fromBytes(publicKey);
-        output = RistrettoPoint.fromBytes(signature.subarray(0, 32));
-    } catch {
-        return false;
-    }
-    if (publicPoint.equals(RistrettoPoint.ZERO)) return false;
-    const c = bytesToNumberLE(signature.subarray(32, 64));
-    const s = bytesToNumberLE(signature.subarray(64, 96));
-    if (c >= CURVE_ORDER || s >= CURVE_ORDER) return false;
-
-    const { input, dleq } = vrfInput(spec, publicKey);
-    dleq.protoName("DLEQProof");
-    dleq.commitPoint("vrf:h", input);
-    dleq.commitPoint("vrf:R=g^r", publicPoint.multiply(c).add(RistrettoPoint.BASE.multiply(s)));
-    dleq.commitPoint("vrf:h^r", output.multiply(c).add(input.multiply(s)));
-    dleq.commitPoint("vrf:pk", publicPoint);
-    dleq.commitPoint("vrf:h^sk", output);
-    const expected = dleq.challengeScalar("prove");
-    dleq.clean();
-    return expected === c;
+    return concatBytes(output.toBytes(), numberToBytesLE(c, 32), numberToBytesLE(s, 32));
 }
 
 if (import.meta.vitest) {
@@ -179,6 +156,38 @@ if (import.meta.vitest) {
     const { unwrapOk } = await import("@parity/result");
     const { mintAccountAirdropVrfs } = await import("./signup.js");
     const { airdropVrfTranscript } = await import("./signup-vrf.js");
+
+    const sr25519VrfSignWith = (secretKey: Uint8Array, spec: VrfTranscript, random?: Uint8Array) =>
+        sr25519VrfSign(secretKey, RistrettoPoint.fromBytes(getPublicKey(secretKey)), spec, random);
+
+    /** The check the runtime runs, over the same transcript helpers. */
+    function sr25519VrfVerify(
+        publicKey: Uint8Array,
+        spec: VrfTranscript,
+        signature: Uint8Array,
+    ): boolean {
+        if (signature.length !== 96) return false;
+        let publicPoint: Point;
+        let output: Point;
+        try {
+            publicPoint = RistrettoPoint.fromBytes(publicKey);
+            output = RistrettoPoint.fromBytes(signature.subarray(0, 32));
+        } catch {
+            return false;
+        }
+        if (publicPoint.equals(RistrettoPoint.ZERO)) return false;
+        const c = bytesToNumberLE(signature.subarray(32, 64));
+        const s = bytesToNumberLE(signature.subarray(64, 96));
+        if (c >= CURVE_ORDER || s >= CURVE_ORDER) return false;
+        const input = vrfInput(spec, publicPoint);
+        const expected = dleqChallenge(dleqTranscript(input), {
+            r: publicPoint.multiply(c).add(RistrettoPoint.BASE.multiply(s)),
+            hr: output.multiply(c).add(input.multiply(s)),
+            publicPoint,
+            output,
+        });
+        return expected === c;
+    }
 
     const bytes = (text: string) => new TextEncoder().encode(text);
     const seed = (byte: number) => new Uint8Array(32).fill(byte);
@@ -199,20 +208,20 @@ if (import.meta.vitest) {
 
     describe("sr25519VrfSign", () => {
         test("produces a 96-byte pre_output, c and s that verifies", () => {
-            const signature = sr25519VrfSign(secret, airdropLike, random);
+            const signature = sr25519VrfSignWith(secret, airdropLike, random);
             expect(signature).toHaveLength(96);
             expect(sr25519VrfVerify(getPublicKey(secret), airdropLike, signature)).toBe(true);
         });
 
         test("is deterministic in the output, not in the proof", () => {
-            const a = sr25519VrfSign(secret, airdropLike, new Uint8Array(32).fill(1));
-            const b = sr25519VrfSign(secret, airdropLike, new Uint8Array(32).fill(2));
+            const a = sr25519VrfSignWith(secret, airdropLike, new Uint8Array(32).fill(1));
+            const b = sr25519VrfSignWith(secret, airdropLike, new Uint8Array(32).fill(2));
             expect(a.subarray(0, 32)).toEqual(b.subarray(0, 32));
             expect(a.subarray(32)).not.toEqual(b.subarray(32));
         });
 
         test("binds the transcript label, the item names, their order and their values", () => {
-            const base = sr25519VrfSign(secret, airdropLike, random).subarray(0, 32);
+            const base = sr25519VrfSignWith(secret, airdropLike, random).subarray(0, 32);
             const variants = [
                 spec("pop:airdrop:other", [
                     ["domain", new Uint8Array([1, 2, 3])],
@@ -232,12 +241,14 @@ if (import.meta.vitest) {
                 ]),
             ];
             for (const variant of variants) {
-                expect(sr25519VrfSign(secret, variant, random).subarray(0, 32)).not.toEqual(base);
+                expect(sr25519VrfSignWith(secret, variant, random).subarray(0, 32)).not.toEqual(
+                    base,
+                );
             }
         });
 
         test("rejects a signature from another key, a tampered one and a short one", () => {
-            const signature = sr25519VrfSign(secret, airdropLike, random);
+            const signature = sr25519VrfSignWith(secret, airdropLike, random);
             expect(sr25519VrfVerify(getPublicKey(other), airdropLike, signature)).toBe(false);
             const tampered = Uint8Array.from(signature);
             tampered[70] = (tampered[70] ?? 0) ^ 0x01;
@@ -261,7 +272,7 @@ if (import.meta.vitest) {
         ]);
 
         test("a signature from here verifies upstream", () => {
-            const ours = sr25519VrfSign(secret, upstreamShape, random);
+            const ours = sr25519VrfSignWith(secret, upstreamShape, random);
             expect(vrf.verify(msg, ours, getPublicKey(secret), ctx)).toBe(true);
         });
 
@@ -271,7 +282,7 @@ if (import.meta.vitest) {
         });
 
         test("both derive the same output for the same transcript", () => {
-            const ours = sr25519VrfSign(secret, upstreamShape, random);
+            const ours = sr25519VrfSignWith(secret, upstreamShape, random);
             const theirs = vrf.sign(msg, secret, ctx, EMPTY);
             expect(ours.subarray(0, 32)).toEqual(theirs.subarray(0, 32));
         });
@@ -298,7 +309,7 @@ if (import.meta.vitest) {
                 expect(signature.preOutput).toHaveLength(32);
                 expect(signature.proof).toHaveLength(64);
                 const transcript = airdropVrfTranscript({ eventId: EVENT_IDS[i] ?? "", publicKey });
-                const joined = new Uint8Array([...signature.preOutput, ...signature.proof]);
+                const joined = concatBytes(signature.preOutput, signature.proof);
                 expect(sr25519VrfVerify(publicKey, transcript, joined)).toBe(true);
             });
             expect(vrfs[0]?.preOutput).not.toEqual(vrfs[1]?.preOutput);

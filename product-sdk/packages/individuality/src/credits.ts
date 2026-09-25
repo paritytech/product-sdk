@@ -17,9 +17,11 @@
  * to the alias the same person later plays under live under separate keys, with no
  * link between them, so a full history takes one read per key.
  */
-import { AccountId } from "polkadot-api";
+import type { ResultPayload } from "polkadot-api";
+import { AccountId, Hex, Variant, u8, u32 } from "@polkadot-api/substrate-bindings";
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { blake2b256, bytesToHex, hexToBytes, utf8ToBytes } from "@parity/product-sdk-utils";
+import { blake2b256, bytesToHex, concatBytes, utf8ToBytes } from "@parity/product-sdk-utils";
+import { U8_MAX, U32_MAX, checkIndex } from "./airdrop-ids.js";
 import { ProductIndividualityError } from "./errors.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
 import type { PlayerKey } from "./player-key.js";
@@ -40,10 +42,8 @@ export interface RawCreditProof {
     proof: string[];
 }
 
-/** The proofs API answer, a PAPI `ResultPayload` over `NftClaimCreditProofError`. */
-export type RawCreditProofs =
-    | { success: true; value: RawCreditProof[] }
-    | { success: false; value: { type: string } };
+/** The proofs API answer, whose error is an `NftClaimCreditProofError` variant. */
+export type RawCreditProofs = ResultPayload<RawCreditProof[], { type: string }>;
 
 /**
  * Structural, so a test double satisfies it. Matched by hand against the paseo
@@ -137,19 +137,20 @@ export async function readCreditRoots(
             options.claimant,
             readAt(snapshot, options.signal),
         );
-        return ok({
-            at: snapshot,
-            roots: roots.map(([awardBlock, root]) => ({
-                awardBlock,
-                gameIndex: root.game_index,
-                awardedAt: root.timestamp,
-                leafCount: root.leaf_count,
-                root: root.root,
-            })),
-        });
+        return ok({ at: snapshot, roots: roots.map(toCreditRoot) });
     } catch (cause) {
         return err(normalizeError(cause, ProductIndividualityError));
     }
+}
+
+function toCreditRoot([awardBlock, root]: [number, RawCreditRoot]): CreditRoot {
+    return {
+        awardBlock,
+        gameIndex: root.game_index,
+        awardedAt: root.timestamp,
+        leafCount: root.leaf_count,
+        root: root.root,
+    };
 }
 
 /**
@@ -172,16 +173,15 @@ export async function readCredits(
 
         const roots = await api.nft_claim_credit_roots(claimant, at);
         const blocks = await Promise.all(
-            roots.map(async ([awardBlock, root]) => ({
-                awardBlock,
-                root,
-                proofs: await api.nft_claim_credit_proofs(awardBlock, claimant, at),
+            roots.map(async (entry) => ({
+                root: toCreditRoot(entry),
+                proofs: await api.nft_claim_credit_proofs(entry[0], claimant, at),
             })),
         );
 
         const credits: AwardedCredit[] = [];
         const prunedBlocks: number[] = [];
-        for (const { awardBlock, root, proofs } of blocks) {
+        for (const { root, proofs } of blocks) {
             if (!proofs.success) {
                 if (proofs.value.type !== "AwardsPruned") {
                     throw new ProductIndividualityError(
@@ -189,15 +189,15 @@ export async function readCredits(
                         { cause: proofs.value },
                     );
                 }
-                prunedBlocks.push(awardBlock);
+                prunedBlocks.push(root.awardBlock);
                 continue;
             }
             for (const leaf of proofs.value) {
                 credits.push({
                     hash: leaf.credit.toLowerCase(),
-                    gameIndex: root.game_index,
-                    awardedAt: root.timestamp,
-                    awardBlock,
+                    gameIndex: root.gameIndex,
+                    awardedAt: root.awardedAt,
+                    awardBlock: root.awardBlock,
                     leafIndex: leaf.leaf_index,
                     proof: leaf.proof,
                 });
@@ -211,40 +211,19 @@ export async function readCredits(
 
 /** A Rust byte-string literal, so the raw bytes with no length prefix. */
 const CREDIT_PREFIX = utf8ToBytes("polkadot-pop-game");
-const U8_MAX = 0xff;
-const U32_MAX = 0xff_ff_ff_ff;
-const PLAYER_ID_BYTES = 32;
+const PLAYER_KEY = Variant({ Account: AccountId(), Person: Hex(32) });
+/** `Hex(32)` encodes a short value short instead of rejecting it, so an alias is checked first. */
 const ALIAS_HEX = /^0x[0-9a-fA-F]{64}$/;
 
-/** SCALE `AccountOrPerson`: the variant index, then the 32 raw bytes. */
 function encodePlayerKey(player: PlayerKey, role: "attester" | "attestee"): Uint8Array {
-    const out = new Uint8Array(1 + PLAYER_ID_BYTES);
-    if (player.type === "Account") {
-        let account: Uint8Array;
-        try {
-            account = AccountId().enc(player.value);
-        } catch (cause) {
-            throw new ProductIndividualityError(`credit ${role} is not a valid address`, {
-                cause,
-            });
-        }
-        if (account.length !== PLAYER_ID_BYTES) {
-            throw new ProductIndividualityError(
-                `credit ${role} account must be ${PLAYER_ID_BYTES} bytes`,
-            );
-        }
-        out[0] = 0;
-        out.set(account, 1);
-        return out;
+    if (player.type === "Person" && !ALIAS_HEX.test(player.value)) {
+        throw new ProductIndividualityError(`credit ${role} alias must be 32 bytes of hex`);
     }
-    if (!ALIAS_HEX.test(player.value)) {
-        throw new ProductIndividualityError(
-            `credit ${role} alias must be ${PLAYER_ID_BYTES} bytes of hex`,
-        );
+    try {
+        return PLAYER_KEY.enc(player);
+    } catch (cause) {
+        throw new ProductIndividualityError(`credit ${role} is not a valid address`, { cause });
     }
-    out[0] = 1;
-    out.set(hexToBytes(player.value.slice(2)), 1);
-    return out;
 }
 
 /**
@@ -264,30 +243,13 @@ export function creditHash(options: {
     attester: PlayerKey;
     attestee: PlayerKey;
 }): string {
-    const { gameIndex, round } = options;
-    if (!Number.isInteger(gameIndex) || gameIndex < 0 || gameIndex > U32_MAX) {
-        throw new ProductIndividualityError("credit game index must be a u32");
-    }
-    if (!Number.isInteger(round) || round < 0 || round > U8_MAX) {
-        throw new ProductIndividualityError("credit round must be a u8");
-    }
-    const attester = encodePlayerKey(options.attester, "attester");
-    const attestee = encodePlayerKey(options.attestee, "attestee");
-
-    const preimage = new Uint8Array(
-        CREDIT_PREFIX.length + 4 + 1 + attester.length + attestee.length,
+    const preimage = concatBytes(
+        CREDIT_PREFIX,
+        u32.enc(checkIndex(options.gameIndex, U32_MAX, "credit game index")),
+        u8.enc(checkIndex(options.round, U8_MAX, "credit round")),
+        encodePlayerKey(options.attester, "attester"),
+        encodePlayerKey(options.attestee, "attestee"),
     );
-    const view = new DataView(preimage.buffer);
-    let offset = 0;
-    preimage.set(CREDIT_PREFIX, offset);
-    offset += CREDIT_PREFIX.length;
-    view.setUint32(offset, gameIndex, true);
-    offset += 4;
-    view.setUint8(offset, round);
-    offset += 1;
-    preimage.set(attester, offset);
-    offset += attester.length;
-    preimage.set(attestee, offset);
     return `0x${bytesToHex(blake2b256(preimage))}`;
 }
 

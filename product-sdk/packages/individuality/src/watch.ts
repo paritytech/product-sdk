@@ -9,7 +9,8 @@
  * `onError` and ends. Nothing arrives after the stop function is called.
  *
  * PAPI emits once per best block whether or not the value changed, measured against
- * paseo on 2026-09-25, so a watch only delivers a value that differs from the last.
+ * paseo on 2026-09-25, so a watch only delivers a decoded value that differs from the
+ * last one it delivered.
  *
  * ```ts
  * const stop = watchCurrentGame(
@@ -22,6 +23,7 @@
  * The best block can still be reorganized away, and PAPI handles that by emitting
  * again. Read anything that must not be undone with the pinned reads instead.
  */
+import { jsonSerialize } from "polkadot-api/utils";
 import { normalizeError } from "@parity/result";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
@@ -147,6 +149,9 @@ export function watchParticipant(
     );
 }
 
+/** Distinct from every storage value, `undefined` included, so the first emission is decoded. */
+const UNSEEN = Symbol("unseen");
+
 function watch<Raw, Value>(
     source: WatchedValue<Raw>,
     decode: (raw: Raw) => Value,
@@ -154,13 +159,13 @@ function watch<Raw, Value>(
     onError: WatchErrorHandler,
 ): () => void {
     let stopped = false;
-    let last: string | undefined;
+    let lastRaw: Raw | typeof UNSEEN = UNSEEN;
+    let lastDelivered: string | undefined;
     const subscription = source.subscribe({
         next: ({ block, value }) => {
-            if (stopped) return;
-            const key = fingerprint(value);
-            if (key === last) return;
-            last = key;
+            // PAPI hands back the same object while the stored bytes are unchanged.
+            if (stopped || value === lastRaw) return;
+            lastRaw = value;
             let decoded: Value;
             try {
                 decoded = decode(value);
@@ -168,6 +173,11 @@ function watch<Raw, Value>(
                 onError(normalizeError(cause, ProductIndividualityError));
                 return;
             }
+            // New bytes can decode to the same value when only a field the decoder
+            // drops has moved, such as an offchain-worker cursor.
+            const delivered = JSON.stringify(decoded, jsonSerialize);
+            if (delivered === lastDelivered) return;
+            lastDelivered = delivered;
             onValue(decoded, { blockHash: block.hash, blockNumber: block.number });
         },
         error: (cause) => {
@@ -180,15 +190,6 @@ function watch<Raw, Value>(
     };
 }
 
-/** Storage values are plain data, and bigint is the one type JSON cannot carry. */
-function fingerprint(value: unknown): string {
-    return value === undefined
-        ? "undefined"
-        : JSON.stringify(value, (_, inner) =>
-              typeof inner === "bigint" ? `${inner.toString()}n` : inner,
-          );
-}
-
 if (import.meta.vitest) {
     const { describe, expect, test, vi } = import.meta.vitest;
     const { Enum } = await import("polkadot-api");
@@ -197,15 +198,14 @@ if (import.meta.vitest) {
     const BLOCK = { hash: `0x${"ab".repeat(32)}`, number: 10 };
     const AT = { blockHash: BLOCK.hash, blockNumber: BLOCK.number };
     const PLAYER: PlayerKey = Enum("Account", "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY");
+    const block = (number: number) => ({
+        hash: `0x${number.toString(16).padStart(64, "0")}`,
+        number,
+    });
 
-    /** A hand-driven observable that records how it was subscribed and stopped. */
+    /** A hand-driven observable that records how it was stopped. */
     function source<Value>() {
-        let observer:
-            | {
-                  next: (emission: { block: typeof BLOCK; value: Value }) => void;
-                  error: (error: unknown) => void;
-              }
-            | undefined;
+        let observer: Parameters<WatchedValue<Value>["subscribe"]>[0] | undefined;
         const unsubscribe = vi.fn();
         const value: WatchedValue<Value> = {
             subscribe(next) {
@@ -216,9 +216,45 @@ if (import.meta.vitest) {
         return {
             value,
             unsubscribe,
-            emit: (emitted: Value, block = BLOCK) => observer?.next({ block, value: emitted }),
+            emit: (emitted: Value, at = BLOCK) => observer?.next({ block: at, value: emitted }),
             fail: (error: unknown) => observer?.error(error),
         };
+    }
+
+    function fakeChain() {
+        const game = source<RawGameInfo | undefined>();
+        const players = source<{ registered: boolean } | undefined>();
+        const participants = source<RawParticipant | undefined>();
+        const calls: unknown[][] = [];
+        const chain: CurrentGameWatchChain & PlayerWatchChain & ParticipantWatchChain = {
+            individuality: {
+                query: {
+                    Game: {
+                        Game: {
+                            watchValue(options) {
+                                calls.push(["Game", options]);
+                                return game.value;
+                            },
+                        },
+                        Players: {
+                            watchValue: (key, options) => {
+                                calls.push(["Players", key, options]);
+                                return players.value;
+                            },
+                        },
+                    },
+                    Score: {
+                        Participants: {
+                            watchValue: (key, options) => {
+                                calls.push(["Participants", key, options]);
+                                return participants.value;
+                            },
+                        },
+                    },
+                },
+            },
+        };
+        return { chain, calls, game, players, participants };
     }
 
     const rawGame = (overrides: Partial<RawGameInfo> = {}): RawGameInfo => ({
@@ -235,33 +271,24 @@ if (import.meta.vitest) {
         ...overrides,
     });
 
-    function gameChain() {
-        const game = source<RawGameInfo | undefined>();
-        const options: unknown[] = [];
-        const chain: CurrentGameWatchChain = {
-            individuality: {
-                query: {
-                    Game: {
-                        Game: {
-                            watchValue(at) {
-                                options.push(at);
-                                return game.value;
-                            },
-                        },
-                    },
-                },
-            },
-        };
-        return { chain, game, options };
-    }
+    const rawParticipant = (overrides: Partial<RawParticipant> = {}): RawParticipant => ({
+        score: 4,
+        streak: { type: "Attended", value: 2 },
+        attendance_history: 0b11,
+        reached_personhood: false,
+        has_ever_reached_personhood: false,
+        recognition: { type: "NotRecognized" },
+        last_attended_game: 40,
+        ...overrides,
+    });
 
     describe("watchCurrentGame", () => {
-        test("decodes each emission with toCurrentGame, and reports its block", () => {
-            const { chain, game, options } = gameChain();
+        test("decodes each emission with toCurrentGame at the best block, and reports its block", () => {
+            const { chain, calls, game } = fakeChain();
             const onValue = vi.fn();
             watchCurrentGame(chain, onValue, vi.fn());
             game.emit(rawGame());
-            expect(options).toEqual([{ at: "best" }]);
+            expect(calls).toEqual([["Game", { at: "best" }]]);
             expect(onValue).toHaveBeenCalledWith(toCurrentGame(rawGame()), AT);
             expect(onValue.mock.calls[0]?.[0]).toMatchObject({
                 phase: "Reporting",
@@ -270,27 +297,63 @@ if (import.meta.vitest) {
         });
 
         test("is null between games", () => {
-            const { chain, game } = gameChain();
+            const { chain, game } = fakeChain();
             const onValue = vi.fn();
             watchCurrentGame(chain, onValue, vi.fn());
             game.emit(undefined);
             expect(onValue).toHaveBeenCalledWith(null, AT);
         });
 
-        test("sends a value that fails to decode to onError, and keeps watching", () => {
-            const { chain, game } = gameChain();
+        test("delivers a value once, however many blocks repeat it", () => {
+            const { chain, game } = fakeChain();
+            const onValue = vi.fn();
+            watchCurrentGame(chain, onValue, vi.fn());
+            const same = rawGame();
+            game.emit(undefined);
+            game.emit(undefined, block(11));
+            game.emit(same, block(12));
+            game.emit(same, block(13));
+            game.emit(rawGame(), block(14));
+            expect(
+                onValue.mock.calls.map(([value, at]) => [value?.index ?? null, at.blockNumber]),
+            ).toEqual([
+                [null, 10],
+                [41, 12],
+            ]);
+        });
+
+        test("delivers nothing when only a cursor the decoder drops has moved", () => {
+            const { chain, game } = fakeChain();
+            const onValue = vi.fn();
+            watchCurrentGame(chain, onValue, vi.fn());
+            const cursor = (next_player_index: number) =>
+                rawGame({
+                    state: {
+                        type: "Shuffle",
+                        value: { step: { type: "Step2Retrieve", value: { next_player_index } } },
+                    },
+                });
+            game.emit(cursor(1));
+            game.emit(cursor(2), block(11));
+            expect(onValue).toHaveBeenCalledTimes(1);
+        });
+
+        test("sends a value that fails to decode to onError once, and keeps watching", () => {
+            const { chain, game } = fakeChain();
             const onValue = vi.fn();
             const onError = vi.fn();
             watchCurrentGame(chain, onValue, onError);
-            game.emit(rawGame({ state: { type: "Reshuffling" } }));
-            game.emit(rawGame());
+            const broken = rawGame({ state: { type: "Reshuffling" } });
+            game.emit(broken);
+            game.emit(broken, block(11));
+            game.emit(rawGame(), block(12));
             expect(onError).toHaveBeenCalledTimes(1);
             expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(IndividualityDecodeError);
             expect(onValue).toHaveBeenCalledTimes(1);
         });
 
         test("sends a failed subscription to onError as a package error with its cause", () => {
-            const { chain, game } = gameChain();
+            const { chain, game } = fakeChain();
             const onError = vi.fn();
             watchCurrentGame(chain, vi.fn(), onError);
             game.fail(new Error("disconnected"));
@@ -299,36 +362,8 @@ if (import.meta.vitest) {
             expect((error.cause as Error).message).toBe("disconnected");
         });
 
-        test("delivers a value once, however many blocks repeat it", () => {
-            const { chain, game } = gameChain();
-            const onValue = vi.fn();
-            watchCurrentGame(chain, onValue, vi.fn());
-            game.emit(undefined);
-            game.emit(undefined, { hash: `0x${"cd".repeat(32)}`, number: 11 });
-            game.emit(rawGame(), { hash: `0x${"ef".repeat(32)}`, number: 12 });
-            game.emit(rawGame(), { hash: `0x${"12".repeat(32)}`, number: 13 });
-            expect(
-                onValue.mock.calls.map(([value, block]) => [
-                    value?.index ?? null,
-                    block.blockNumber,
-                ]),
-            ).toEqual([
-                [null, 10],
-                [41, 12],
-            ]);
-        });
-
-        test("reports a value that fails to decode once, not once per block", () => {
-            const { chain, game } = gameChain();
-            const onError = vi.fn();
-            watchCurrentGame(chain, vi.fn(), onError);
-            game.emit(rawGame({ state: { type: "Reshuffling" } }));
-            game.emit(rawGame({ state: { type: "Reshuffling" } }));
-            expect(onError).toHaveBeenCalledTimes(1);
-        });
-
         test("stops the subscription, and delivers nothing after it", () => {
-            const { chain, game } = gameChain();
+            const { chain, game } = fakeChain();
             const onValue = vi.fn();
             const onError = vi.fn();
             const stop = watchCurrentGame(chain, onValue, onError);
@@ -342,104 +377,56 @@ if (import.meta.vitest) {
     });
 
     describe("watchPlayer", () => {
-        function playerChain() {
-            const players = source<{ registered: boolean } | undefined>();
-            const keys: unknown[] = [];
-            const chain: PlayerWatchChain = {
-                individuality: {
-                    query: {
-                        Game: {
-                            Players: {
-                                watchValue: (key, at) => {
-                                    keys.push([key, at]);
-                                    return players.value;
-                                },
-                            },
-                        },
-                    },
-                },
-            };
-            return { chain, players, keys };
-        }
-
-        test("watches the key as given, at the best block", () => {
-            const { chain, keys } = playerChain();
-            watchPlayer(chain, { player: PLAYER }, vi.fn(), vi.fn());
-            expect(keys).toEqual([[PLAYER, { at: "best" }]]);
-        });
-
-        test("keeps only the registration, and is null without a record", () => {
-            const { chain, players } = playerChain();
+        test("watches the key as given at the best block, keeping only the registration", () => {
+            const { chain, calls, players } = fakeChain();
             const onValue = vi.fn();
             watchPlayer(chain, { player: PLAYER }, onValue, vi.fn());
             players.emit({ registered: true, first_game: 3 } as { registered: boolean });
-            players.emit(undefined);
+            players.emit({ registered: true, first_game: 4 } as { registered: boolean }, block(11));
+            players.emit(undefined, block(12));
+            expect(calls).toEqual([["Players", PLAYER, { at: "best" }]]);
             expect(onValue.mock.calls).toEqual([
                 [{ registered: true }, AT],
-                [null, AT],
+                [null, { blockHash: block(12).hash, blockNumber: 12 }],
             ]);
         });
     });
 
     describe("watchParticipant", () => {
-        const raw: RawParticipant = {
-            score: 4,
-            streak: { type: "Attended", value: 2 },
-            attendance_history: 0b11,
-            reached_personhood: false,
-            has_ever_reached_personhood: false,
-            recognition: { type: "NotRecognized" },
-            last_attended_game: 40,
-        };
-
-        function participantChain() {
-            const participants = source<RawParticipant | undefined>();
-            const keys: unknown[] = [];
-            const chain: ParticipantWatchChain = {
-                individuality: {
-                    query: {
-                        Score: {
-                            Participants: {
-                                watchValue: (key, at) => {
-                                    keys.push([key, at]);
-                                    return participants.value;
-                                },
-                            },
-                        },
-                    },
-                },
-            };
-            return { chain, participants, keys };
-        }
-
         test("decodes each emission with toPersonhoodParticipant, and is null without a record", () => {
-            const { chain, participants, keys } = participantChain();
+            const { chain, calls, participants } = fakeChain();
             const onValue = vi.fn();
             watchParticipant(chain, { player: PLAYER }, onValue, vi.fn());
-            participants.emit(raw);
-            participants.emit(undefined);
-            expect(keys).toEqual([[PLAYER, { at: "best" }]]);
+            participants.emit(rawParticipant());
+            participants.emit(undefined, block(11));
+            expect(calls).toEqual([["Participants", PLAYER, { at: "best" }]]);
             expect(onValue.mock.calls).toEqual([
-                [toPersonhoodParticipant(raw), AT],
-                [null, AT],
+                [toPersonhoodParticipant(rawParticipant()), AT],
+                [null, { blockHash: block(11).hash, blockNumber: 11 }],
             ]);
         });
 
-        test("tells values apart by their bigint payloads too", () => {
-            const { chain, participants } = participantChain();
+        test("delivers a new score, but not a new recognition revision the decoder drops", () => {
+            const { chain, participants } = fakeChain();
             const onValue = vi.fn();
             watchParticipant(chain, { player: PLAYER }, onValue, vi.fn());
-            participants.emit({ ...raw, recognition: { type: "Recognized", value: 1n } });
-            participants.emit({ ...raw, recognition: { type: "Recognized", value: 1n } });
-            participants.emit({ ...raw, recognition: { type: "Recognized", value: 2n } });
-            expect(onValue).toHaveBeenCalledTimes(2);
+            participants.emit(rawParticipant({ recognition: { type: "Recognized", value: 1n } }));
+            participants.emit(
+                rawParticipant({ recognition: { type: "Recognized", value: 2n } }),
+                block(11),
+            );
+            participants.emit(
+                rawParticipant({ score: 5, recognition: { type: "Recognized", value: 2n } }),
+                block(12),
+            );
+            expect(onValue.mock.calls.map(([value]) => value?.score)).toEqual([4, 5]);
         });
 
         test("sends an unknown recognition to onError", () => {
-            const { chain, participants } = participantChain();
+            const { chain, participants } = fakeChain();
             const onError = vi.fn();
             watchParticipant(chain, { player: PLAYER }, vi.fn(), onError);
-            participants.emit({ ...raw, recognition: { type: "Provisional" } });
+            participants.emit(rawParticipant({ recognition: { type: "Provisional" } }));
             expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(IndividualityDecodeError);
         });
     });
