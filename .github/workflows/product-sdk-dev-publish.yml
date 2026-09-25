@@ -1,45 +1,44 @@
 name: "product-sdk: Dev publish"
 
-# Manually-triggered publish of an UNRELEASED branch to npm under the `dev`
-# dist-tag, so a consumer can integrate against in-flight SDK work without
-# waiting for a release wave.
+# Publishes an UNRELEASED branch to npm under the `dev` dist-tag, so a consumer
+# can integrate against in-flight SDK work without waiting for a release wave.
 #
-# Modelled on bulletin-deploy, which publishes the same way: a version like
-# `0.15.2-dev.1282.0` is "the 0th dev cut of PR 1282, ahead of 0.15.2", carried
-# on the `dev` tag so `npm install` (which resolves `@latest`) can never pick it
-# up by accident.
+# It is modelled on bulletin-deploy, which publishes the same way: a version
+# like `0.0.0-dev.312.0` is "the 0th dev cut of PR 312", carried on the `dev`
+# tag so `npm install`, which resolves `@latest`, can never pick it up by
+# accident.
 #
-# Two ways in, because GitHub only exposes `workflow_dispatch` for workflows
-# that already live on the default branch:
+# There are two ways in, because GitHub only exposes `workflow_dispatch` for
+# workflows that already live on the default branch:
 #
-#   1. Label the PR `dev-publish-<iteration>`, e.g. `dev-publish-0`. A
-#      `pull_request` workflow runs the file as it exists in the PR's own head
+#   1. Label the PR `dev-publish-<iteration>`, for example `dev-publish-0`. A
+#      `pull_request` workflow runs the file as it exists in the PR head
 #      branch, so this works while the workflow is still unmerged. Re-cut by
 #      adding `dev-publish-1`, and so on.
-#   2. Once this file is on `main`: Actions → "product-sdk: Dev publish" → Run
-#      workflow → pr: 312, iteration: 0.
+#   2. Once this file is on `main`, run "product-sdk: Dev publish" from the
+#      Actions tab with pr 312 and iteration 0.
 #
 # Both paths converge on the same two values and the same guards. The label
 # carries the iteration rather than deriving one from `github.run_number`
 # because a re-run must be able to reproduce a version, not invent a new one.
 #
-# Why this cannot reuse product-sdk-release.yml: that workflow consumes
+# This cannot reuse product-sdk-release.yml. That workflow consumes
 # changesets, commits `chore: version packages`, tags, and publishes to
 # `@latest`. All four are wrong for a throwaway cut off a feature branch. This
-# one writes nothing back to the repo — the version bump lives only in the
-# runner's working tree.
+# one writes nothing back to the repository. The version bump lives only in
+# the working tree on the runner.
 #
-# Why it stages `pending-changesets/`: this repo parks in-flight changesets
-# there precisely so they do NOT ship on the next push to main (see
-# pending-changesets/README.md). A dev cut is the one moment we DO want them
-# applied, so they are copied into `.changeset/` on the runner and never
-# committed.
+# It stages `pending-changesets/` because this repository parks in-flight
+# changesets there precisely so they do NOT ship on the next push to main, as
+# pending-changesets/README.md explains. A dev cut is the one moment we DO
+# want them applied, so they are copied into `.changeset/` on the runner and
+# never committed.
 
 on:
     workflow_dispatch:
         inputs:
             pr:
-                description: "PR number this cut comes from (e.g. 312). Names the version: 0.16.0-dev.<pr>.<iteration>."
+                description: "PR number this cut comes from, for example 312. The version becomes 0.0.0-dev.<pr>.<iteration>."
                 type: string
                 required: true
             iteration:
@@ -63,9 +62,9 @@ defaults:
 
 jobs:
     dev-publish:
-        # Every other label is ignored. The same-repo check is belt and braces:
-        # a fork PR gets no `id-token` and no secrets, so it would fail at the
-        # publish step anyway, but failing here says why.
+        # The same-repository check is belt and braces: a fork PR gets no
+        # secrets, so it would fail at the publish step anyway, but failing
+        # here says why.
         if: >-
             github.event_name == 'workflow_dispatch' ||
             (startsWith(github.event.label.name, 'dev-publish-') &&
@@ -79,8 +78,8 @@ jobs:
             - name: Resolve and validate the cut
               id: cut
               # Overrides `defaults.run.working-directory`, which points inside
-              # the repo. This step runs BEFORE checkout so a bad input fails
-              # in seconds, and that directory does not exist yet.
+              # the repository. This step runs BEFORE checkout so a bad input
+              # fails in seconds, and that directory does not exist yet.
               working-directory: ${{ github.workspace }}
               env:
                   EVENT: ${{ github.event_name }}
@@ -95,15 +94,15 @@ jobs:
                     ITERATION="$INPUT_ITERATION"
                   else
                     PR="$PR_NUMBER"
-                    # `dev-publish-3` → 3. The job-level `if` already required
-                    # the prefix, so this only has to strip it.
+                    # `dev-publish-3` becomes 3. The job-level `if` already
+                    # required the prefix, so this only has to strip it.
                     ITERATION="${LABEL#dev-publish-}"
                   fi
                   # Both land inside an npm version string, so they are digits
                   # only. Anything else could smuggle a second dist-tag or an
-                  # extra semver segment past the prerelease check below — and
-                  # on the label path the value is whatever someone typed into
-                  # a label, so this is the only thing standing between a typo
+                  # extra semver segment past the prerelease check below. On
+                  # the label path the value is whatever someone typed into a
+                  # label, so this is the only thing standing between a typo
                   # and a malformed publish.
                   [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be digits, got '$PR'"; exit 1; }
                   [[ "$ITERATION" =~ ^[0-9]+$ ]] || { echo "::error::iteration must be digits, got '$ITERATION'"; exit 1; }
@@ -113,7 +112,7 @@ jobs:
 
             - name: Refuse to cut a dev release from main
               if: github.ref == 'refs/heads/main'
-              # Pre-checkout, same as above.
+              # This also runs before checkout.
               working-directory: ${{ github.workspace }}
               run: |
                   echo "::error::main publishes through product-sdk-release.yml. A dev cut is for unmerged branches."
@@ -136,17 +135,14 @@ jobs:
 
             - run: pnpm install --frozen-lockfile
 
-            # The whole point of a dev cut: apply the changesets that are
-            # deliberately parked out of the release path. Copied, not moved —
-            # nothing is committed from this runner.
             - name: Stage pending changesets
               run: |
                   set -euo pipefail
                   shopt -s nullglob
                   staged=0
-                  for f in pending-changesets/*.md; do
-                    [ "$(basename "$f")" = "README.md" ] && continue
-                    cp "$f" ".changeset/$(basename "$f")"
+                  for changeset in pending-changesets/*.md; do
+                    [ "$(basename "$changeset")" = "README.md" ] && continue
+                    cp "$changeset" ".changeset/$(basename "$changeset")"
                     staged=$((staged + 1))
                   done
                   if [ "$staged" -eq 0 ] && ! ls .changeset/*.md 2>/dev/null | grep -qv README.md; then
@@ -155,22 +151,20 @@ jobs:
                   fi
                   echo "::notice::Staged $staged pending changeset(s)"
 
-            # `--snapshot` bypasses the normal version bump and stamps every
-            # affected package with a prerelease built from the tag. The
-            # template is pinned to `{tag}` alone so the version is reproducible
-            # from the inputs — the default appends a timestamp, which would
-            # make the same PR+iteration publish two different versions.
-            # The baseline the assertion below diffs against, captured
-            # before anything mutates a package.json.
             - name: Record versions before the bump
               run: |
                   set -euo pipefail
-                  for pkg in packages/*/package.json; do
-                    private=$(jq -r '.private // false' "$pkg")
+                  for manifest in packages/*/package.json; do
+                    private=$(jq -r '.private // false' "$manifest")
                     [ "$private" = "true" ] && continue
-                    echo "$(jq -r '.name' "$pkg") $(jq -r '.version' "$pkg")"
+                    echo "$(jq -r '.name' "$manifest") $(jq -r '.version' "$manifest")"
                   done > "$RUNNER_TEMP/versions-before.txt"
 
+            # `--snapshot` bypasses the normal version bump and stamps every
+            # affected package with a prerelease built from the tag. The
+            # template is pinned to `{tag}` alone so the version is reproducible
+            # from the inputs. The default appends a timestamp, which would make
+            # the same PR and iteration publish two different versions.
             - name: Version as a snapshot
               env:
                   PR: ${{ steps.cut.outputs.pr }}
@@ -181,28 +175,27 @@ jobs:
                     --snapshot "dev.${PR}.${ITERATION}" \
                     --snapshot-prerelease-template '{tag}'
 
-            # A snapshot version MUST carry a prerelease segment. Without one,
-            # `changeset publish` would push to `@latest` and a dev cut would
-            # silently become the version every consumer installs.
+            # A snapshot version MUST carry a prerelease segment, so semver
+            # ranges never match a dev cut.
             #
-            # Scoped to what CHANGED, not to every package. A snapshot bump only
-            # touches packages the changesets name; the rest keep their released
-            # versions, and `changeset publish` skips them because those
-            # versions are already on the registry. Asserting over all packages
-            # therefore fails on ones this cut never publishes. The property
-            # that actually has to hold is narrower: everything this cut ships
-            # is a prerelease.
+            # The check is scoped to what CHANGED, not to every package. A
+            # snapshot bump only touches packages the changesets name. The rest
+            # keep their released versions, and npm_publish_automation skips
+            # them because those versions are already on the registry.
+            # Asserting over all packages therefore fails on ones this cut
+            # never publishes. The property that actually has to hold is
+            # narrower: everything this cut ships is a prerelease.
             - name: Assert everything this cut publishes is a prerelease
               run: |
                   set -euo pipefail
                   fail=0
                   changed=0
-                  for pkg in packages/*/package.json; do
-                    private=$(jq -r '.private // false' "$pkg")
+                  for manifest in packages/*/package.json; do
+                    private=$(jq -r '.private // false' "$manifest")
                     [ "$private" = "true" ] && continue
-                    name=$(jq -r '.name' "$pkg")
-                    version=$(jq -r '.version' "$pkg")
-                    before=$(awk -v n="$name" '$1 == n { print $2 }' "$RUNNER_TEMP/versions-before.txt")
+                    name=$(jq -r '.name' "$manifest")
+                    version=$(jq -r '.version' "$manifest")
+                    before=$(awk -v name="$name" '$1 == name { print $2 }' "$RUNNER_TEMP/versions-before.txt")
                     [ "$version" = "$before" ] && continue
                     changed=$((changed + 1))
                     case "$version" in
@@ -213,23 +206,23 @@ jobs:
                   # A cut that bumps nothing would publish nothing and report
                   # success, which reads as "it shipped".
                   if [ "$changed" -eq 0 ]; then
-                    echo "::error::The snapshot bump changed no versions - nothing to publish."
+                    echo "::error::The snapshot bump changed no versions, so there is nothing to publish."
                     fail=1
                   fi
                   [ "$fail" -eq 0 ]
 
             - run: pnpm build
 
-            # Publishing goes the same way release.yml sends it: pack here,
-            # upload, and hand off to paritytech/npm_publish_automation, which
-            # holds the org's NPM_TOKEN. This runner has no npm credential of
-            # its own and must not grow one.
+            # Publishing goes the same way product-sdk-release.yml sends it:
+            # pack here, upload, and hand off to paritytech/npm_publish_automation,
+            # which holds the organization NPM_TOKEN. This runner has no npm
+            # credential of its own and must not grow one.
             - name: Pack packages
               run: |
                   mkdir -p artifacts
-                  for dir in packages/*/; do
-                    if [ -f "$dir/package.json" ]; then
-                      (cd "$dir" && pnpm pack --pack-destination ../../artifacts/)
+                  for package in packages/*/; do
+                    if [ -f "$package/package.json" ]; then
+                      (cd "$package" && pnpm pack --pack-destination ../../artifacts/)
                     fi
                   done
 
@@ -239,7 +232,7 @@ jobs:
                   name: packages
                   path: product-sdk/artifacts/*.tgz
 
-            # `npm_tag: dev` is what keeps `@latest` untouched — without it the
+            # `npm_tag: dev` is what keeps `@latest` untouched. Without it the
             # automation publishes to `latest`, and npm does NOT special-case a
             # prerelease version there. Consumers opt in explicitly with
             # `npm install @parity/product-sdk-host@dev` or by pinning.
@@ -254,18 +247,19 @@ jobs:
 
             # These versions were DISPATCHED, not confirmed. The publish
             # happens in npm_publish_automation, which opens an issue here on
-            # failure — so a green run means handed off, not on the registry.
+            # failure. A green run means the versions were handed off, not that
+            # they reached the registry.
             - name: Report what was dispatched
               run: |
                   set -euo pipefail
-                  for pkg in packages/*/package.json; do
-                    private=$(jq -r '.private // false' "$pkg")
+                  for manifest in packages/*/package.json; do
+                    private=$(jq -r '.private // false' "$manifest")
                     [ "$private" = "true" ] && continue
-                    name=$(jq -r '.name' "$pkg")
-                    version=$(jq -r '.version' "$pkg")
-                    # Unchanged packages were skipped by `changeset publish`;
-                    # listing them here would claim a release that never went out.
-                    before=$(awk -v n="$name" '$1 == n { print $2 }' "$RUNNER_TEMP/versions-before.txt")
+                    name=$(jq -r '.name' "$manifest")
+                    version=$(jq -r '.version' "$manifest")
+                    # Unchanged packages were skipped by npm_publish_automation.
+                    # Listing them here would claim a release that never went out.
+                    before=$(awk -v name="$name" '$1 == name { print $2 }' "$RUNNER_TEMP/versions-before.txt")
                     [ "$version" = "$before" ] && continue
                     echo "::notice::dispatched $name@$version"
                   done
