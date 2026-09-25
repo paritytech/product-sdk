@@ -16,6 +16,8 @@
  *   4. getCollectionItems(chain, id) -> the catalogue of that collection
  *   5. getCollectionItems(chain, MISSING_COLLECTION) -> `NotFound` on the ok
  *      channel, which is the part of the contract worth seeing in a UI
+ *   6. getCredits(chain, { claimant }) -> every credit one account holds, read
+ *      across the People chain and Asset Hub at one pinned block each
  *
  * Live chain state decides what steps 2 to 4 report, so the Playwright suite
  * asserts shapes, a sorted registry, every claimable id present in the full
@@ -27,10 +29,12 @@ import { createChainClient } from "@parity/product-sdk-chain-client";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
 import type { FinalizedSnapshot } from "@parity/product-sdk-nfts";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+import { paseo_individuality } from "@parity/product-sdk-descriptors/paseo-individuality";
 import {
     getCollections,
     getClaimableCollections,
     getCollectionItems,
+    getCredits,
     NftsChainEntryError,
 } from "@parity/product-sdk-nfts";
 
@@ -61,6 +65,9 @@ const $itemSupply = getEl<HTMLSpanElement>("item-supply");
 const $itemImageHex = getEl<HTMLSpanElement>("item-image-hex");
 const $itemImageText = getEl<HTMLSpanElement>("item-image-text");
 const $missingTag = getEl<HTMLSpanElement>("missing-tag");
+const $creditsBlock = getEl<HTMLSpanElement>("credits-block");
+const $creditsCount = getEl<HTMLSpanElement>("credits-count");
+const $creditsStates = getEl<HTMLSpanElement>("credits-states");
 const $btnRefresh = getEl<HTMLButtonElement>("btn-refresh");
 const $log = getEl<HTMLElement>("nfts-log");
 
@@ -71,7 +78,10 @@ function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void
 /** No `Scarcity.Collections` record can exist at u32 max, so this is always a miss. */
 const MISSING_COLLECTION = 4_294_967_295;
 
-let chain: ChainClient<{ assetHub: typeof paseo_asset_hub }> | null = null;
+let chain: ChainClient<{
+    assetHub: typeof paseo_asset_hub;
+    individuality: typeof paseo_individuality;
+}> | null = null;
 
 /**
  * `NftsChainEntryError` is the one failure worth reporting by class: it means
@@ -208,6 +218,34 @@ async function readCatalogue(id: number): Promise<void> {
     $itemImageText.textContent = item.imageRef?.text ?? "-";
 }
 
+/**
+ * The account whose credits the demo reads. Any account works, since the suite
+ * asserts the shape of the answer and not a count a game would change. Alice is
+ * the dev account every network carries.
+ */
+const CREDITS_CLAIMANT = {
+    tag: "Account",
+    address: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+} as const;
+
+async function readCredits(): Promise<void> {
+    if (!chain) return;
+    const result = await getCredits(chain, { claimant: CREDITS_CLAIMANT });
+    if (!result.ok) {
+        $creditsCount.textContent = "error";
+        log(`getCredits failed: ${describeError(result.error)}`, "err");
+        return;
+    }
+    const { at, credits } = result.value;
+    $creditsBlock.textContent = String(at.individuality.blockNumber);
+    $creditsCount.textContent = String(credits.length);
+    const states = new Map<string, number>();
+    for (const credit of credits) states.set(credit.state, (states.get(credit.state) ?? 0) + 1);
+    $creditsStates.textContent =
+        [...states.entries()].map(([state, n]) => `${state}:${n}`).join(",") || "-";
+    log(`getCredits: ${credits.length} credits at People #${at.individuality.blockNumber}`, "ok");
+}
+
 async function read(): Promise<void> {
     if (!chain) return;
     $btnRefresh.disabled = true;
@@ -242,6 +280,8 @@ async function read(): Promise<void> {
         // The miss is a success value, and reading it is the only way to see that.
         const missing = await getCollectionItems(chain, MISSING_COLLECTION, { limit: 1 });
         $missingTag.textContent = missing.ok ? missing.value.tag : "error";
+
+        await readCredits();
     } finally {
         $btnRefresh.disabled = false;
     }
@@ -257,7 +297,9 @@ async function init(): Promise<void> {
     log("Booting nfts-demo...");
 
     try {
-        chain = await createChainClient({ chains: { assetHub: paseo_asset_hub } });
+        chain = await createChainClient({
+            chains: { assetHub: paseo_asset_hub, individuality: paseo_individuality },
+        });
         $chainStatus.textContent = "connected";
         log("Chain client connected via the host", "ok");
     } catch (err) {
@@ -278,7 +320,11 @@ declare global {
             getClaimableCollections: typeof getClaimableCollections;
             getCollections: typeof getCollections;
             getCollectionItems: typeof getCollectionItems;
-            readonly chain: ChainClient<{ assetHub: typeof paseo_asset_hub }> | null;
+            getCredits: typeof getCredits;
+            readonly chain: ChainClient<{
+                assetHub: typeof paseo_asset_hub;
+                individuality: typeof paseo_individuality;
+            }> | null;
             MISSING_COLLECTION: number;
         };
     }
@@ -288,6 +334,7 @@ window.__NFTS__ = {
     getClaimableCollections,
     getCollections,
     getCollectionItems,
+    getCredits,
     get chain() {
         return chain;
     },

@@ -68,7 +68,16 @@
  * single-operation read here, and the one whose bytes scale with the collection.
  */
 import type { FinalizedSnapshot, RawCollection, RawItemDef, RawMetadataEntry } from "./types.js";
-import type { RawBytes, RawMinter, ReadAt } from "./types.js";
+import type {
+    Claimant,
+    RawBytes,
+    RawCreditAward,
+    RawCreditProof,
+    RawCreditRoot,
+    RawMinter,
+    ReadAt,
+    RuntimeResult,
+} from "./types.js";
 
 /** One `getEntries` row: the keys that were not fixed by the query, and the value. */
 export interface Entry<Keys extends unknown[], Value> {
@@ -228,6 +237,93 @@ export interface NftsChain {
 }
 
 /**
+ * The second chain a credits read needs, beside {@link NftsChain}.
+ *
+ * Credits are awarded on the People chain, which the chain client names
+ * `individuality`, and become spendable on Asset Hub once their award block is
+ * rooted there. So `getCredits` takes `NftsChain & NftsCreditsChain`, the same
+ * composition `readCurrentGame` uses in `@parity/product-sdk-individuality`, and
+ * the catalogue reads keep a contract that never asks for a chain they do not
+ * read. A client from `getChainAPI(...)` satisfies both at once.
+ *
+ * Matched against the generated Paseo descriptors on 2026-09-25:
+ *
+ * ```
+ * NftCredits.NftClaimCreditBlocks     map AccountOrPerson -> Vec<u32>
+ * NftCredits.NftClaimCreditAwards     map (u32, u32)      -> Vec<{ claimant, credit }>
+ * NftCreditsApi.nft_claim_credit_roots(claimant)          -> Vec<(u32, { game_index, root, leaf_count, timestamp })>
+ * NftCreditsApi.nft_claim_credit_proofs(block, claimant)  -> Result<Vec<{ credit, leaf_index, proof }>, ProofError>
+ * NftClaims.CreditTrees               map u32             -> { game_index, root, leaf_count, timestamp }
+ * NftClaims.ClaimedLeaves             map u32             -> bitmap, bit `leaf_index`, least significant first
+ * ```
+ *
+ * `NftClaimCreditAwards` is chunked: the first key is the award block, the
+ * second the chunk within it, and a block holds at most `CHUNKS_PER_TREE`
+ * chunks. PAPI renders the key as `FixedSizeArray<2, number>`, and on this map
+ * its prefix scan fails to decode the keys at runtime, so the read asks for the
+ * chunks by exact key instead: a window of `[block, 0..n)` keys in one
+ * `getValues`, widened while the last chunk in the window is non-empty. A
+ * missing chunk is an empty list, not `undefined`, because the map has a
+ * default.
+ *
+ * `AccountOrPerson` is an enum, and PAPI represents it as `{ type, value }`.
+ * The read builds it from a {@link Claimant}.
+ */
+export interface NftsCreditsChain {
+    individuality: {
+        query: {
+            NftCredits: {
+                NftClaimCreditBlocks: {
+                    getValue(
+                        claimant: { type: "Account" | "Person"; value: string },
+                        options: ReadAt,
+                    ): Promise<number[] | undefined>;
+                };
+                NftClaimCreditAwards: {
+                    getValues(
+                        keys: Array<[number, number]>,
+                        options: ReadAt,
+                    ): Promise<RawCreditAward[][]>;
+                };
+            };
+        };
+        apis: {
+            NftCreditsApi: {
+                nft_claim_credit_roots(
+                    claimant: { type: "Account" | "Person"; value: string },
+                    options: ReadAt,
+                ): Promise<Array<[number, RawCreditRoot]>>;
+                nft_claim_credit_proofs(
+                    awardBlock: number,
+                    claimant: { type: "Account" | "Person"; value: string },
+                    options: ReadAt,
+                ): Promise<RuntimeResult<RawCreditProof[]>>;
+            };
+        };
+    };
+    assetHub: {
+        query: {
+            NftClaims: {
+                CreditTrees: {
+                    getValues(
+                        keys: Array<[number]>,
+                        options: ReadAt,
+                    ): Promise<Array<RawCreditRoot | undefined>>;
+                };
+                ClaimedLeaves: {
+                    getValues(keys: Array<[number]>, options: ReadAt): Promise<Uint8Array[]>;
+                };
+            };
+        };
+    };
+    raw: {
+        individuality: {
+            getFinalizedBlock(): Promise<{ hash: string; number: number }>;
+        };
+    };
+}
+
+/**
  * Pin the block a read addresses.
  *
  * Every value in one result comes from the same block: a catalogue read pulls
@@ -249,12 +345,21 @@ export async function pinBlock(
     signal: AbortSignal | undefined,
     given?: FinalizedSnapshot,
 ): Promise<FinalizedSnapshot> {
+    return pinFinalized(chain.raw.assetHub, signal, given);
+}
+
+/** The pin itself, for whichever chain a read addresses. */
+export async function pinFinalized(
+    raw: { getFinalizedBlock(): Promise<{ hash: string; number: number }> },
+    signal: AbortSignal | undefined,
+    given?: FinalizedSnapshot,
+): Promise<FinalizedSnapshot> {
     signal?.throwIfAborted();
     // A caller that already has a snapshot is joining it rather than opening a
     // new one: several reads, or several pages of one read, addressing a single
     // block. It costs no round trip, and the abort check above still applies.
     if (given !== undefined) return given;
-    const block = await chain.raw.assetHub.getFinalizedBlock();
+    const block = await raw.getFinalizedBlock();
     return { blockHash: block.hash, blockNumber: block.number };
 }
 

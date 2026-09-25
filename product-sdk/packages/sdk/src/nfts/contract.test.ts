@@ -25,7 +25,7 @@
  * hypothetical: it is the live state of the other supported network.
  */
 import type { getChainAPI } from "@parity/product-sdk-chain-client";
-import type { NftsChain } from "@parity/product-sdk-nfts";
+import type { NftsChain, NftsCreditsChain } from "@parity/product-sdk-nfts";
 import { expect, test } from "vitest";
 
 // The false branch must be `false`, not `never`. `never` is assignable to
@@ -38,6 +38,10 @@ type DevnetClient = Awaited<ReturnType<typeof getChainAPI<"devnet">>>;
 // The test: this alias fails to typecheck if the contract drifts from the
 // descriptor, so it needs no export and no runtime reference.
 type PaseoSatisfiesContract = Assert<PaseoClient extends NftsChain ? true : false>;
+
+// The credits read spans both chains the preset carries, so the same client
+// has to satisfy the second contract too.
+type PaseoSatisfiesCredits = Assert<PaseoClient extends NftsCreditsChain ? true : false>;
 
 // The negative control, and a real fact about the network rather than a
 // hypothetical: devnet Asset Hub has no `Scarcity` and no `NftClaims`. If

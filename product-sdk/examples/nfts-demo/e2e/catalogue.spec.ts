@@ -56,7 +56,10 @@ test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
         await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("registered at #");
 
         // -- getCollections ---------------------------------------------
-        // Its own pinned block: two reads are two snapshots.
+        // Its own pinned block: two reads are two snapshots. The log line lands
+        // after the cells render, so waiting on it is what makes the cells safe
+        // to read.
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("getCollections:");
         expect(await numberIn(frame, "all-block")).toBeGreaterThan(0);
 
         const allIdsText = await frame.locator('[data-testid="all-ids"]').textContent();
@@ -157,5 +160,19 @@ test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
 
         expect(await numberIn(frame, "registry-block")).toBeGreaterThan(0);
         await expect(frame.locator('[data-testid="nfts-log"]')).not.toContainText("failed");
+    });
+
+    test("credits read across both chains at one pinned block each", async ({ testHost }) => {
+        const frame = await waitForAppReady(testHost);
+
+        // The People block is the proof the second chain was reached. The count
+        // is whatever the dev account has earned, which a game can change, so
+        // only its shape is pinned.
+        await expect(frame.locator('[data-testid="credits-count"]')).not.toHaveText("-", {
+            timeout: 60_000,
+        });
+        expect(await numberIn(frame, "credits-block")).toBeGreaterThan(0);
+        expect(await numberIn(frame, "credits-count")).toBeGreaterThanOrEqual(0);
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("getCredits:");
     });
 });
