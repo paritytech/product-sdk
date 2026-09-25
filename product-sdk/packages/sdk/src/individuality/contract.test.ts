@@ -41,6 +41,7 @@ import type {
     AirdropChain,
     ClaimChain,
     ConsumersChain,
+    CreditsChain,
     GameChain,
     GamePlayersChain,
     IndividualityChain,
@@ -129,7 +130,8 @@ type FromPapiSatisfiesContracts = Assert<
         GamePlayersChain &
         ScoreContextChain &
         SignUpChain &
-        LiteSignUpChain
+        LiteSignUpChain &
+        CreditsChain
         ? true
         : false
 >;
@@ -325,6 +327,17 @@ type ClaimAirdropTakesTheDocumentedArgs = Assert<
                 : false
             : false
         : false
+>;
+
+// The credits read is the one contract typed over runtime APIs rather than storage,
+// so a renamed claimant arm or a reshaped proof result fails here.
+type PaseoSatisfiesCreditsContract = Assert<PaseoClient extends CreditsChain ? true : false>;
+type PreviewnetSatisfiesCreditsContract = Assert<
+    PreviewnetClient extends CreditsChain ? true : false
+>;
+type DevnetPredatesTheCreditsContract = Assert<DevnetClient extends CreditsChain ? false : true>;
+type RejectsBogusCreditsClient = Assert<
+    ClientWithoutIndividuality extends CreditsChain ? false : true
 >;
 
 // Game sign-up.
