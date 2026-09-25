@@ -173,7 +173,7 @@ test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
         });
         expect(await numberIn(frame, "credits-block")).toBeGreaterThan(0);
         expect(await numberIn(frame, "credits-count")).toBeGreaterThanOrEqual(0);
-        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("getCredits:");
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("getClaims:");
     });
 
     test("a preview answers once per claimable collection", async ({ testHost }) => {

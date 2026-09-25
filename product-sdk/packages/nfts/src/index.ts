@@ -77,7 +77,7 @@
  * ```
  *
  * `previewClaim` adds one runtime API, `api.NftClaimsApi.preview_mints`, and
- * `getCredits` adds two Asset Hub entries and four on the People chain:
+ * `getClaims` adds two Asset Hub entries and four on the People chain:
  *
  * ```
  * query.NftClaims.CreditTrees         query.NftClaims.ClaimedLeaves
@@ -148,8 +148,8 @@ export { getCollectionItems } from "./items.js";
 export type { GetCollectionItemsOptions } from "./items.js";
 
 // The credits read spans two chains, so it takes `NftsChain & NftsCreditsChain`.
-export { getCredits, toClaimantKey } from "./credits.js";
-export type { GetCreditsOptions } from "./credits.js";
+export { getClaims, toClaimantKey } from "./claims.js";
+export type { GetClaimsOptions } from "./claims.js";
 
 // What a credit would mint, per collection, from the real claim selector.
 export { previewClaim } from "./preview.js";
@@ -196,9 +196,9 @@ export {
 // The shapes the reads return, and the raw storage shapes behind them.
 export type {
     Claimant,
-    Credit,
-    CreditState,
-    CreditsResult,
+    Claim,
+    ClaimState,
+    ClaimsResult,
     CollectionDetail,
     CollectionItem,
     CollectionItemsResult,

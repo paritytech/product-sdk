@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * `getCredits`, every NFT claim credit one claimant holds, with where each stands.
+ * `getClaims`, every NFT claim credit one claimant holds, with where each stands.
  *
  * A credit is awarded on the People chain and spent on Asset Hub, so the read
  * spans both. The People side says which award blocks the claimant has credits
@@ -21,16 +21,16 @@ import { pinBlock, pinFinalized, readAt, type NftsChain, type NftsCreditsChain }
 import { matchChainEntryError, ProductNftsError } from "./errors.js";
 import type {
     Claimant,
-    Credit,
-    CreditsResult,
-    CreditState,
+    Claim,
+    ClaimsResult,
+    ClaimState,
     FinalizedSnapshot,
     RawCreditAward,
     RawCreditRoot,
     ReadAt,
 } from "./types.js";
 
-export interface GetCreditsOptions {
+export interface GetClaimsOptions {
     /** Whose credits. Accounts and person aliases are keyed apart on chain. */
     claimant: Claimant;
     /** Join a block another Asset Hub read already pinned. */
@@ -90,12 +90,16 @@ async function readAwardChunks(
  */
 const UNPROVABLE = new Set(["AwardsPruned", "UnknownCreditTree"]);
 
-function unprovable(
-    awardBlock: number,
-    awardedAt: number | null,
-    gameIndex: number | null,
-): Credit {
-    return { hash: null, awardBlock, awardedAt, gameIndex, leafIndex: null, state: "unprovable" };
+function unprovable(awardBlock: number, awardedAt: number | null, gameIndex: number | null): Claim {
+    return {
+        hash: null,
+        awardBlock,
+        awardedAt,
+        gameIndex,
+        leafIndex: null,
+        proof: null,
+        state: "unprovable",
+    };
 }
 
 /** Bit `leafIndex` of the bitmap, least significant bit first, as the pallet stores it. */
@@ -123,18 +127,18 @@ function normalizeHex(value: string): string {
  * @example
  * ```ts
  * const chain = await getChainAPI("paseo");
- * const result = await getCredits(chain, { claimant: { tag: "Account", address } });
+ * const result = await getClaims(chain, { claimant: { tag: "Account", address } });
  * if (result.ok) {
- *     for (const credit of result.value.credits) {
+ *     for (const credit of result.value.claims) {
  *         console.log(credit.hash, credit.state, credit.awardedAt);
  *     }
  * }
  * ```
  */
-export async function getCredits(
+export async function getClaims(
     chain: NftsChain & NftsCreditsChain,
-    options: GetCreditsOptions,
-): Promise<Result<CreditsResult, ProductNftsError>> {
+    options: GetClaimsOptions,
+): Promise<Result<ClaimsResult, ProductNftsError>> {
     try {
         const { claimant, signal } = options;
         const [people, assetHub] = await Promise.all([
@@ -184,7 +188,7 @@ export async function getCredits(
                       assetHubAt,
                   );
 
-        const found: Credit[] = [];
+        const found: Claim[] = [];
         rootedBlocks.forEach((block, index) => {
             const info = rooted.get(block) as RawCreditRoot;
             const proof = proofs[index];
@@ -203,7 +207,7 @@ export async function getCredits(
             const bitmap = bitmaps[index] ?? new Uint8Array();
             const treeArrived = trees[index] !== undefined;
             for (const entry of proof.value) {
-                const state: CreditState = isLeafClaimed(bitmap, entry.leaf_index)
+                const state: ClaimState = isLeafClaimed(bitmap, entry.leaf_index)
                     ? "claimed"
                     : treeArrived
                       ? "claimable"
@@ -214,6 +218,7 @@ export async function getCredits(
                     awardedAt: info.timestamp,
                     gameIndex: info.game_index,
                     leafIndex: entry.leaf_index,
+                    proof: entry.proof.map(normalizeHex),
                     state,
                 });
             }
@@ -238,13 +243,14 @@ export async function getCredits(
                     awardedAt: null,
                     gameIndex: null,
                     leafIndex: null,
+                    proof: null,
                     state: "earned",
                 });
             }
         });
 
         found.sort((a, b) => b.awardBlock - a.awardBlock);
-        return ok({ at: { individuality: people, assetHub }, credits: found });
+        return ok({ at: { individuality: people, assetHub }, claims: found });
     } catch (cause) {
         return err(matchChainEntryError(cause) ?? normalizeError(cause, ProductNftsError));
     }
@@ -351,16 +357,24 @@ if (import.meta.vitest) {
     ];
     const proof = (credits: number[]) => ({
         success: true,
-        value: credits.map((c, i) => ({ credit: h(c), leaf_index: i, proof: [] })),
+        value: credits.map((c, i) => ({
+            credit: h(c),
+            leaf_index: i,
+            proof: [
+                h(900 + i)
+                    .toUpperCase()
+                    .replace("0X", "0x"),
+            ],
+        })),
     });
 
-    describe("getCredits", () => {
+    describe("getClaims", () => {
         test("a claimant with no award blocks has no credits, and reads nothing else", async () => {
             const { chain, calls } = fakeChain({ blocks: undefined });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits).toEqual([]);
+            expect(result.value.claims).toEqual([]);
             expect(result.value.at).toEqual({
                 individuality: { blockHash: PEOPLE.hash, blockNumber: PEOPLE.number },
                 assetHub: { blockHash: ASSET_HUB.hash, blockNumber: ASSET_HUB.number },
@@ -378,14 +392,16 @@ if (import.meta.vitest) {
                 trees: [10],
                 claimed: { 10: [1] },
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits.map((c) => [c.hash, c.state, c.leafIndex])).toEqual([
+            expect(result.value.claims.map((c) => [c.hash, c.state, c.leafIndex])).toEqual([
                 [h(1), "claimable", 0],
                 [h(2), "claimed", 1],
             ]);
-            expect(result.value.credits[0]).toMatchObject({
+            // The proof a mint spends, lowercased like every other hash here.
+            expect(result.value.claims.map((c) => c.proof)).toEqual([[h(900)], [h(901)]]);
+            expect(result.value.claims[0]).toMatchObject({
                 awardBlock: 10,
                 awardedAt: 1_700_000_010,
                 gameIndex: 7,
@@ -399,11 +415,11 @@ if (import.meta.vitest) {
                 proofs: { 10: proof([1]) },
                 trees: [],
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits[0].state).toBe("earned");
-            expect(result.value.credits[0].leafIndex).toBe(0);
+            expect(result.value.claims[0].state).toBe("earned");
+            expect(result.value.claims[0].leafIndex).toBe(0);
             expect(calls).toContain("claimed:10");
         });
 
@@ -415,10 +431,10 @@ if (import.meta.vitest) {
                 trees: [],
                 claimed: { 10: [0] },
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits.map((c) => c.state)).toEqual(["claimed", "earned"]);
+            expect(result.value.claims.map((c) => c.state)).toEqual(["claimed", "earned"]);
         });
 
         test("a leaf past the first byte of the bitmap is read from its own byte", async () => {
@@ -429,10 +445,10 @@ if (import.meta.vitest) {
                 trees: [10],
                 claimed: { 10: [9] },
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            const states = result.value.credits.map((c) => [c.leafIndex, c.state]);
+            const states = result.value.claims.map((c) => [c.leafIndex, c.state]);
             expect(states.filter(([, state]) => state === "claimed")).toEqual([[9, "claimed"]]);
         });
 
@@ -447,16 +463,17 @@ if (import.meta.vitest) {
                     ],
                 },
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits).toEqual([
+            expect(result.value.claims).toEqual([
                 {
                     hash: h(5),
                     awardBlock: 11,
                     awardedAt: null,
                     gameIndex: null,
                     leafIndex: null,
+                    proof: null,
                     state: "earned",
                 },
             ]);
@@ -468,10 +485,10 @@ if (import.meta.vitest) {
                 credit: h(100 + i),
             }));
             const { chain, calls } = fakeChain({ blocks: [11], roots: [], awards: { 11: rows } });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits).toHaveLength(20);
+            expect(result.value.claims).toHaveLength(20);
             expect(calls.filter((c) => c.startsWith("awards:11"))).toEqual([
                 "awards:11:0..15",
                 "awards:11:16..31",
@@ -485,17 +502,18 @@ if (import.meta.vitest) {
                 proofs: { 10: { success: false, value: { type: "AwardsPruned" } } },
                 trees: [10],
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
             // One entry for the whole block: its credit count went with the awards.
-            expect(result.value.credits).toEqual([
+            expect(result.value.claims).toEqual([
                 {
                     hash: null,
                     awardBlock: 10,
                     awardedAt: 1_700_000_010,
                     gameIndex: 7,
                     leafIndex: null,
+                    proof: null,
                     state: "unprovable",
                 },
             ]);
@@ -507,26 +525,27 @@ if (import.meta.vitest) {
                 roots: [root(10)],
                 proofs: { 10: { success: false, value: { type: "UnknownCreditTree" } } },
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits).toMatchObject([
+            expect(result.value.claims).toMatchObject([
                 { awardBlock: 10, hash: null, state: "unprovable" },
             ]);
         });
 
         test("a past block with no root and no awards is unprovable, not dropped", async () => {
             const { chain } = fakeChain({ blocks: [11], roots: [] });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits).toEqual([
+            expect(result.value.claims).toEqual([
                 {
                     hash: null,
                     awardBlock: 11,
                     awardedAt: null,
                     gameIndex: null,
                     leafIndex: null,
+                    proof: null,
                     state: "unprovable",
                 },
             ]);
@@ -534,10 +553,10 @@ if (import.meta.vitest) {
 
         test("a block still to come is earned with no hash yet", async () => {
             const { chain } = fakeChain({ blocks: [PEOPLE.number + 5], roots: [] });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits[0]).toMatchObject({ hash: null, state: "earned" });
+            expect(result.value.claims[0]).toMatchObject({ hash: null, state: "earned" });
         });
 
         test("a proof error that is an integrity failure lands on the err channel", async () => {
@@ -546,7 +565,7 @@ if (import.meta.vitest) {
                 roots: [root(10)],
                 proofs: { 10: { success: false, value: { type: "RootMismatch" } } },
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(false);
         });
 
@@ -558,10 +577,10 @@ if (import.meta.vitest) {
                 awards: { 12: [{ claimant: key, credit: h(9) }] },
                 trees: [10],
             });
-            const result = await getCredits(chain, { claimant });
+            const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits.map((c) => c.awardBlock)).toEqual([12, 10]);
+            expect(result.value.claims.map((c) => c.awardBlock)).toEqual([12, 10]);
         });
 
         test("a person alias is keyed as Person and matched case-insensitively", async () => {
@@ -581,17 +600,17 @@ if (import.meta.vitest) {
                     ],
                 },
             });
-            const result = await getCredits(chain, { claimant: { tag: "Person", alias } });
+            const result = await getClaims(chain, { claimant: { tag: "Person", alias } });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits.map((c) => c.hash)).toEqual([h(3)]);
+            expect(result.value.claims.map((c) => c.hash)).toEqual([h(3)]);
         });
 
         test("an aborted signal lands on the err channel before any read", async () => {
             const { chain, calls } = fakeChain({ blocks: [10] });
             const controller = new AbortController();
             controller.abort();
-            const result = await getCredits(chain, { claimant, signal: controller.signal });
+            const result = await getClaims(chain, { claimant, signal: controller.signal });
             expect(result.ok).toBe(false);
             expect(calls).toEqual([]);
         });

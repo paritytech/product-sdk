@@ -7,7 +7,7 @@ description: >
   separates claimable from merely existing, the chain client they require and why a TypedApi is not
   enough, the descriptor entries they touch and what a pruned whitelist does, the open metadata
   schema and the two readings of ImageRef, why a missing collection is a success value rather than
-  an error, getCredits across the People chain and Asset Hub with the four states a credit can be
+  an error, getClaims across the People chain and Asset Hub with the four states a credit can be
   in, previewClaim and why it is the item a claim will produce, getVerifiedArtwork and why bytes
   are withheld unless they hash to the reference, and the purse-scoped reads that do not exist yet.
 ---
@@ -314,7 +314,7 @@ Every value in one result is read at a single pinned finalized block, reported a
 
 Three more reads, for the claim side of the same pallets.
 
-`getCredits(chain, { claimant })` reads every NFT claim credit one claimant holds. A credit is
+`getClaims(chain, { claimant })` reads every NFT claim credit one claimant holds. A credit is
 awarded on the People chain and spent on Asset Hub, so this is the one read here that spans two
 chains: it takes `NftsChain & NftsCreditsChain`, pins one block on each, and reports both in `at`.
 A claimant is `{ tag: "Account", address }` or `{ tag: "Person", alias }`, and the pallet keys the

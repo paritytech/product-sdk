@@ -54,10 +54,10 @@ export type Claimant = { tag: "Account"; address: string } | { tag: "Person"; al
  * An `earned` entry with a `null` hash is a block still to come: awarding spills
  * into later blocks, and the credits are not known until that block is built.
  */
-export type CreditState = "earned" | "claimable" | "claimed" | "unprovable";
+export type ClaimState = "earned" | "claimable" | "claimed" | "unprovable";
 
 /** One NFT claim credit, as the People chain awarded it and Asset Hub sees it. */
-export interface Credit {
+export interface Claim {
     /**
      * The credit hash, `0x` prefixed, as `NftClaimCreditAwards` stores it, or
      * `null` when the awards of its block are gone and the hash with them. A
@@ -79,15 +79,21 @@ export interface Credit {
      * its awards were pruned.
      */
     leafIndex: number | null;
-    state: CreditState;
+    /**
+     * The Merkle proof a mint spends, sibling hashes from the leaf up to the
+     * root, lowercase and `0x` prefixed. `null` for a claim whose block has no
+     * root yet and for an unprovable one, since neither has a proof to spend.
+     */
+    proof: string[] | null;
+    state: ClaimState;
 }
 
-/** What one `getCredits` call returns. */
-export interface CreditsResult {
+/** What one `getClaims` call returns. */
+export interface ClaimsResult {
     /** Two chains, so two pinned blocks. Every value came from one or the other. */
     at: { individuality: FinalizedSnapshot; assetHub: FinalizedSnapshot };
     /** Newest award block first. */
-    credits: Credit[];
+    claims: Claim[];
 }
 
 /**
@@ -146,7 +152,8 @@ export interface RawCreditAward {
 export interface RawCreditProof {
     credit: string;
     leaf_index: number;
-    proof: unknown;
+    /** The sibling hashes from the leaf up to the root, `0x` prefixed. */
+    proof: string[];
 }
 
 /** The runtime `Result` a PAPI runtime API call resolves to. */
