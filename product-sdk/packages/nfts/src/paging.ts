@@ -111,10 +111,7 @@ export function pageBounds(options: { limit?: number; fromId?: number }): {
     const from = usable(options.fromId) ?? 0;
     return {
         limit: Math.min(Math.max(0, Math.trunc(asked)), MAX_PAGE_LIMIT),
-        // Clamped to the id space rather than rejected, unlike an explicit id: a
-        // cursor past the end has nothing there, so the page comes back empty
-        // with `nextId: null`, which is the truthful answer for that request.
-        fromId: Math.min(Math.max(0, Math.trunc(from)), ID_CEILING),
+        fromId: Math.max(0, Math.trunc(from)),
     };
 }
 

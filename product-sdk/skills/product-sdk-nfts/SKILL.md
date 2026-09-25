@@ -353,7 +353,7 @@ hash to the digest the reference names. Where the bytes come from is the caller'
 `preimageSource(manager)` over the host preimage manager, whose key is the digest, or
 `gatewaySource(baseUrl)` over an IPFS gateway by CID. The four outcomes are all on the `ok` channel:
 `Verified` with the bytes, `Missing`, `Mismatch` with the bytes withheld, and `Unreadable` when the
-reference decodes to no address.
+reference decodes to no address or names a multihash other than blake2b-256 or sha2-256.
 
 ## Not Built Yet
 

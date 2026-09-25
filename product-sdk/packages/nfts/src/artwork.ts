@@ -56,7 +56,8 @@ export interface GetVerifiedArtworkOptions {
  * nothing under that address. `Mismatch` means the source answered with bytes
  * that do not hash to the digest, which is the case this read exists for: they
  * are reported as absent rather than handed over. `Unreadable` means the
- * `ImageRef` itself could not be decoded into an address, which is a metadata
+ * `ImageRef` could not be decoded into an address, or names a multihash other
+ * than blake2b-256 or sha2-256 that this read cannot check, which is a metadata
  * problem rather than a source one.
  */
 export type VerifiedArtwork =
@@ -226,8 +227,9 @@ export async function getVerifiedArtwork(
         if (bytes === null) return ok({ tag: "Missing", address });
         const expected = fromHex(address.digest) as Uint8Array;
         const actual = digestOf(bytes, address.multihash);
-        if (actual === null || !sameBytes(actual, expected))
-            return ok({ tag: "Mismatch", address });
+        // A multihash this read cannot compute says nothing about the source.
+        if (actual === null) return ok({ tag: "Unreadable" });
+        if (!sameBytes(actual, expected)) return ok({ tag: "Mismatch", address });
         return ok({ tag: "Verified", address, bytes });
     } catch (cause) {
         return err(normalizeError(cause, ProductNftsError));
@@ -278,7 +280,11 @@ export function preimageSource(
                 if (preimage !== null) settle(preimage);
             });
             live.cancelInterrupt = live.subscription.onInterrupt?.(() => settle(null));
-            if (live.settled) live.subscription.unsubscribe?.();
+            // A host that answered synchronously settled before either handle existed.
+            if (live.settled) {
+                live.cancelInterrupt?.();
+                live.subscription.unsubscribe?.();
+            }
         });
 }
 
@@ -378,6 +384,13 @@ if (import.meta.vitest) {
             expect(result.ok && result.value.tag).toBe("Missing");
         });
 
+        test("a multihash this read cannot compute is unreadable, not a mismatch", async () => {
+            const odd = cidFor(digest, 0x1b);
+            const { source } = sourceOf(bytes);
+            const result = await getVerifiedArtwork({ hex: "0x00", text: odd }, { source });
+            expect(result.ok && result.value.tag).toBe("Unreadable");
+        });
+
         test("a sha2-256 address verifies with sha2-256", async () => {
             const sha = sha256(bytes);
             const { source } = sourceOf(bytes);
@@ -468,6 +481,53 @@ if (import.meta.vitest) {
                 new Promise((resolve) => setTimeout(() => resolve("still pending"), 50)),
             ]);
             expect(raced).toBeNull();
+            expect(unsubscribed).toBe(1);
+        });
+
+        test("an abort mid-lookup settles as null without waiting for the timeout", async () => {
+            const manager = { lookup: () => ({ unsubscribe: () => {} }) };
+            const controller = new AbortController();
+            const address = artworkAddress(ref({})) as ArtworkAddress;
+            const pending = preimageSource(manager, 60_000)(address, controller.signal);
+            controller.abort();
+            const raced = await Promise.race([
+                pending,
+                new Promise((resolve) => setTimeout(() => resolve("still pending"), 50)),
+            ]);
+            expect(raced).toBeNull();
+        });
+
+        test("a pre-aborted signal settles as null without waiting for the timeout", async () => {
+            const manager = { lookup: () => ({ unsubscribe: () => {} }) };
+            const controller = new AbortController();
+            controller.abort();
+            const address = artworkAddress(ref({})) as ArtworkAddress;
+            const raced = await Promise.race([
+                preimageSource(manager, 60_000)(address, controller.signal),
+                new Promise((resolve) => setTimeout(() => resolve("still pending"), 50)),
+            ]);
+            expect(raced).toBeNull();
+        });
+
+        test("a synchronous answer cancels the interrupt it had not registered yet", async () => {
+            let cancelled = 0;
+            let unsubscribed = 0;
+            const manager = {
+                lookup: (_key: string, callback: (preimage: Uint8Array | null) => void) => {
+                    callback(bytes);
+                    return {
+                        unsubscribe: () => {
+                            unsubscribed += 1;
+                        },
+                        onInterrupt: () => () => {
+                            cancelled += 1;
+                        },
+                    };
+                },
+            };
+            const address = artworkAddress(ref({})) as ArtworkAddress;
+            expect(await preimageSource(manager)(address)).toBe(bytes);
+            expect(cancelled).toBe(1);
             expect(unsubscribed).toBe(1);
         });
 

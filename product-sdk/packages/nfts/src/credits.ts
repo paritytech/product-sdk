@@ -501,6 +501,20 @@ if (import.meta.vitest) {
             ]);
         });
 
+        test("a rooted block whose tree is unknown to the proofs API is unprovable, not an error", async () => {
+            const { chain } = fakeChain({
+                blocks: [10],
+                roots: [root(10)],
+                proofs: { 10: { success: false, value: { type: "UnknownCreditTree" } } },
+            });
+            const result = await getCredits(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.credits).toMatchObject([
+                { awardBlock: 10, hash: null, state: "unprovable" },
+            ]);
+        });
+
         test("a past block with no root and no awards is unprovable, not dropped", async () => {
             const { chain } = fakeChain({ blocks: [11], roots: [] });
             const result = await getCredits(chain, { claimant });

@@ -16,7 +16,7 @@ const art = await getVerifiedArtwork(item.imageRef, { source: preimageSource(man
 // -> ok({ tag: "Verified", address: { cid, digest, multihash }, bytes })
 //    ok({ tag: "Missing", address })      the source had nothing
 //    ok({ tag: "Mismatch", address })     the source lied, and the bytes are withheld
-//    ok({ tag: "Unreadable" })            the reference decodes to no address
+//    ok({ tag: "Unreadable" })            no address, or a multihash it cannot check
 ```
 
 Two sources ship. `preimageSource(manager)` reads the host preimage manager by digest, which on
