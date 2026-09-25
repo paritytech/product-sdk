@@ -196,3 +196,18 @@ Exit: as phase 1, plus one demo image rendered from verified bytes.
 - [ ] `getVerifiedArtwork`, `packages/nfts/src/artwork.ts`, done when a matching and a mismatching digest each have a passing test
 - [ ] Phase 3 changeset, `pending-changesets/nfts-artwork.md`, done when it lists nfts and the umbrella at minor
 - [ ] Ask on issue 318 which `AccountOrPerson` key awards use, done when the answer is recorded in the `Credit` doc comment
+
+## What building it changed
+
+Three things the plan did not foresee, all found by running the demo against Paseo.
+
+Both chains had moved to runtime 3003000, and both descriptors were re-pinned. On the People chain
+`NftClaimCreditAwards` became a chunked map keyed `(block, chunk)`, and the PAPI prefix scan over
+that map fails to decode its keys at runtime, so the rootless read asks for chunks by exact key in
+windows instead. On Asset Hub `NftClaims.ClaimedCredits` was replaced by a `ClaimedLeaves` bitmap
+per tree block, so `Credit` carries `leafIndex` rather than a leaf hash.
+
+`preview_mints` was reachable all along. The contract is what grew.
+
+Artwork verification did not take a `cloud-storage` dependency. That package carries bulletin,
+chain-client and tx, so `nfts` hashes with `utils` and parses the CID itself.

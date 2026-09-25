@@ -68,7 +68,7 @@
  *
  * # Descriptor whitelists
  *
- * These reads touch six entries:
+ * The catalogue reads touch six entries, all Asset Hub:
  *
  * ```
  * query.Scarcity.NextCollectionId     query.Scarcity.Collections
@@ -76,8 +76,19 @@
  * query.Scarcity.ItemMetadata         query.NftClaims.CollectionMinters
  * ```
  *
- * An app that prunes its own descriptors with a PAPI whitelist has to list all
- * six, including the ones its own code never reads. A missing entry surfaces as
+ * `previewClaim` adds one runtime API, `api.NftClaimsApi.preview_mints`, and
+ * `getCredits` adds two Asset Hub entries and four on the People chain:
+ *
+ * ```
+ * query.NftClaims.CreditTrees         query.NftClaims.ClaimedLeaves
+ * query.NftCredits.NftClaimCreditBlocks
+ * query.NftCredits.NftClaimCreditAwards
+ * api.NftCreditsApi.nft_claim_credit_roots
+ * api.NftCreditsApi.nft_claim_credit_proofs
+ * ```
+ *
+ * An app that prunes its own descriptors with a PAPI whitelist has to list every
+ * entry a read it calls touches, including the ones its own code never reads. A missing entry surfaces as
  * the PAPI `Incompatible runtime entry Storage(...)`, which reads like descriptor
  * drift; these reads report it as {@link NftsChainEntryError} instead, which
  * names the entry in its message and carries it on `entry`.
@@ -143,6 +154,16 @@ export type { GetCreditsOptions } from "./credits.js";
 // What a credit would mint, per collection, from the real claim selector.
 export { previewClaim } from "./preview.js";
 export type { PreviewClaimOptions } from "./preview.js";
+
+// The bytes an image reference names, and only when they hash to it. No chain
+// read: the source is the caller's, the check is this package's.
+export { artworkAddress, gatewaySource, getVerifiedArtwork, preimageSource } from "./artwork.js";
+export type {
+    ArtworkAddress,
+    ArtworkSource,
+    GetVerifiedArtworkOptions,
+    VerifiedArtwork,
+} from "./artwork.js";
 
 // The paging vocabulary every read shares: `limit` defaults to one constant and
 // caps at the other, and the scan budget is how far past `limit` a sparse page

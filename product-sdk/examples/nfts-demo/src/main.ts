@@ -20,6 +20,8 @@
  *      across the People chain and Asset Hub at one pinned block each
  *   7. previewClaim(chain, { credit, collections }) -> what that credit would
  *      mint in each claimable collection, from the real claim selector
+ *   8. getVerifiedArtwork(item.imageRef, { source }) -> the bytes of the first
+ *      catalogue item, from the Bulletin gateway, only if they hash to the reference
  *
  * Live chain state decides what steps 2 to 4 report, so the Playwright suite
  * asserts shapes, a sorted registry, every claimable id present in the full
@@ -37,6 +39,8 @@ import {
     getClaimableCollections,
     getCollectionItems,
     getCredits,
+    getVerifiedArtwork,
+    gatewaySource,
     previewClaim,
     NftsChainEntryError,
 } from "@parity/product-sdk-nfts";
@@ -73,6 +77,8 @@ const $creditsCount = getEl<HTMLSpanElement>("credits-count");
 const $creditsStates = getEl<HTMLSpanElement>("credits-states");
 const $previewCount = getEl<HTMLSpanElement>("preview-count");
 const $previewOutcomes = getEl<HTMLSpanElement>("preview-outcomes");
+const $artworkTag = getEl<HTMLSpanElement>("artwork-tag");
+const $artworkBytes = getEl<HTMLSpanElement>("artwork-bytes");
 const $btnRefresh = getEl<HTMLButtonElement>("btn-refresh");
 const $log = getEl<HTMLElement>("nfts-log");
 
@@ -221,7 +227,26 @@ async function readCatalogue(id: number): Promise<void> {
     // `image` holds a content digest or an ASCII CID.
     $itemImageHex.textContent = item.imageRef?.hex ?? "-";
     $itemImageText.textContent = item.imageRef?.text ?? "-";
+
+    // The bytes behind that reference, and whether they are what it says.
+    const artwork = await getVerifiedArtwork(item.imageRef, {
+        source: gatewaySource(IPFS_GATEWAY),
+        signal: AbortSignal.timeout(ARTWORK_TIMEOUT_MS),
+    });
+    if (!artwork.ok) {
+        $artworkTag.textContent = "error";
+        log(`getVerifiedArtwork failed: ${describeError(artwork.error)}`, "err");
+        return;
+    }
+    $artworkTag.textContent = artwork.value.tag;
+    $artworkBytes.textContent =
+        artwork.value.tag === "Verified" ? String(artwork.value.bytes.length) : "-";
+    log(`getVerifiedArtwork: ${artwork.value.tag}`, "ok");
 }
+
+/** The public gateway in front of the Bulletin chain this deployment stores art on. */
+const IPFS_GATEWAY = "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs";
+const ARTWORK_TIMEOUT_MS = 20_000;
 
 /**
  * The account whose credits the demo reads. Any account works, since the suite
