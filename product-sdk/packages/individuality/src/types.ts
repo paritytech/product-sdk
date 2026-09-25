@@ -104,6 +104,8 @@ export interface PersonhoodParticipant {
     streak: { tag: "Attended" | "Absent"; count: number };
     attendanceHistory: number;
     reachedPersonhood: boolean;
+    /** Stays true once personhood was reached, after the score falls back below the threshold. */
+    hasEverReachedPersonhood: boolean;
     recognition: "ExternallyRecognized" | "NotRecognized" | "Suspended" | "Recognized";
     lastAttendedGame: number | null;
 }
@@ -175,6 +177,8 @@ export type PersonhoodResult =
      * @param alias - the contextual alias from `People.AccountToAlias`, or
      *   `null` when the account has none.
      * @param metrics - the numbers the state was derived from, in every state.
+     * @param participant - the decoded `Score.Participants` record the state was
+     *   derived from, or `null` when the account has none.
      */
     | {
           tag: "Resolved";
@@ -183,4 +187,5 @@ export type PersonhoodResult =
           alias: string | null;
           state: PersonhoodState;
           metrics: PersonhoodMetrics;
+          participant: PersonhoodParticipant | null;
       };

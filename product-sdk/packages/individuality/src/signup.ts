@@ -548,6 +548,7 @@ if (import.meta.vitest) {
         streak: { type: "Attended", value: 1 },
         attendance_history: 1,
         reached_personhood: true,
+        has_ever_reached_personhood: true,
         recognition: { type: "Recognized", value: `0x${"cc".repeat(32)}` },
         last_attended_game: 6,
     };
@@ -592,6 +593,7 @@ if (import.meta.vitest) {
                     streak: { type: "Absent", value: 2 },
                     attendance_history: 0,
                     reached_personhood: false,
+                    has_ever_reached_personhood: false,
                     recognition: { type: "Suspended", value: `0x${"cc".repeat(32)}` },
                     last_attended_game: 6,
                 },
