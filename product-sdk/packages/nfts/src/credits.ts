@@ -83,6 +83,21 @@ async function readAwardChunks(
     }
 }
 
+/**
+ * The proof errors that mean the awards are gone, rather than that something
+ * disagrees. `RootMismatch`, `LeafCountMismatch` and `LeafIndexOutOfBounds` are
+ * integrity failures and land on the `err` channel instead.
+ */
+const UNPROVABLE = new Set(["AwardsPruned", "UnknownCreditTree"]);
+
+function unprovable(
+    awardBlock: number,
+    awardedAt: number | null,
+    gameIndex: number | null,
+): Credit {
+    return { hash: null, awardBlock, awardedAt, gameIndex, leafIndex: null, state: "unprovable" };
+}
+
 /** Bit `leafIndex` of the bitmap, least significant bit first, as the pallet stores it. */
 function isLeafClaimed(bitmap: Uint8Array, leafIndex: number): boolean {
     const byte = bitmap[leafIndex >> 3];
@@ -158,43 +173,41 @@ export async function getCredits(
         ]);
 
         const rootedBlocks = [...rooted.keys()];
-        const arrived = rootedBlocks.filter((_, index) => trees[index] !== undefined);
+        // Every rooted block, not only the ones whose tree is still on Asset Hub:
+        // the bitmap outlives the tree, so a claim made before the sweep still
+        // reads as claimed after it.
         const bitmaps =
-            arrived.length === 0
+            rootedBlocks.length === 0
                 ? []
                 : await chain.assetHub.query.NftClaims.ClaimedLeaves.getValues(
-                      arrived.map((block) => [block] as [number]),
+                      rootedBlocks.map((block) => [block] as [number]),
                       assetHubAt,
                   );
-        const claimedByBlock = new Map<number, Uint8Array>(
-            arrived.map((block, index) => [block, bitmaps[index] ?? new Uint8Array()]),
-        );
 
         const found: Credit[] = [];
         rootedBlocks.forEach((block, index) => {
             const info = rooted.get(block) as RawCreditRoot;
             const proof = proofs[index];
             if (!proof.success) {
-                // The awards were pruned before this read, so the hashes are gone
-                // with them. The block still counts, and says so.
-                found.push({
-                    hash: info.root,
-                    awardBlock: block,
-                    awardedAt: info.timestamp,
-                    gameIndex: info.game_index,
-                    leafIndex: null,
-                    state: "unprovable",
-                });
+                if (!UNPROVABLE.has(proof.value.type)) {
+                    throw new ProductNftsError(
+                        `nft_claim_credit_proofs refused award block ${block}: ${proof.value.type}`,
+                    );
+                }
+                // The awards went before this read, and the hashes with them, so
+                // how many credits the block held is unknown too. One entry per
+                // block says the block counted.
+                found.push(unprovable(block, info.timestamp, info.game_index));
                 return;
             }
-            const claimed = claimedByBlock.get(block);
+            const bitmap = bitmaps[index] ?? new Uint8Array();
+            const treeArrived = trees[index] !== undefined;
             for (const entry of proof.value) {
-                const state: CreditState =
-                    claimed === undefined
-                        ? "earned"
-                        : isLeafClaimed(claimed, entry.leaf_index)
-                          ? "claimed"
-                          : "claimable";
+                const state: CreditState = isLeafClaimed(bitmap, entry.leaf_index)
+                    ? "claimed"
+                    : treeArrived
+                      ? "claimable"
+                      : "earned";
                 found.push({
                     hash: normalizeHex(entry.credit),
                     awardBlock: block,
@@ -206,8 +219,19 @@ export async function getCredits(
             }
         });
         rootless.forEach((block, index) => {
-            for (const award of chunks[index]) {
-                if (!sameClaimant(award.claimant, claimant)) continue;
+            const mine = chunks[index].filter((award) => sameClaimant(award.claimant, claimant));
+            if (mine.length === 0) {
+                // No root and no awards left. A block still to come has neither
+                // yet, and one whose root expired has lost both, and only the
+                // block number tells them apart.
+                found.push(
+                    block > people.blockNumber
+                        ? { ...unprovable(block, null, null), state: "earned" }
+                        : unprovable(block, null, null),
+                );
+                return;
+            }
+            for (const award of mine) {
                 found.push({
                     hash: normalizeHex(award.credit),
                     awardBlock: block,
@@ -380,7 +404,36 @@ if (import.meta.vitest) {
             if (!result.ok) return;
             expect(result.value.credits[0].state).toBe("earned");
             expect(result.value.credits[0].leafIndex).toBe(0);
-            expect(calls).not.toContain("claimed:");
+            expect(calls).toContain("claimed:10");
+        });
+
+        test("a claim made before the tree was swept still reads as claimed after it", async () => {
+            const { chain } = fakeChain({
+                blocks: [10],
+                roots: [root(10)],
+                proofs: { 10: proof([1, 2]) },
+                trees: [],
+                claimed: { 10: [0] },
+            });
+            const result = await getCredits(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.credits.map((c) => c.state)).toEqual(["claimed", "earned"]);
+        });
+
+        test("a leaf past the first byte of the bitmap is read from its own byte", async () => {
+            const { chain } = fakeChain({
+                blocks: [10],
+                roots: [root(10)],
+                proofs: { 10: proof(Array.from({ length: 11 }, (_, i) => i + 1)) },
+                trees: [10],
+                claimed: { 10: [9] },
+            });
+            const result = await getCredits(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            const states = result.value.credits.map((c) => [c.leafIndex, c.state]);
+            expect(states.filter(([, state]) => state === "claimed")).toEqual([[9, "claimed"]]);
         });
 
         test("a rootless block is read from the awards buffer, for this claimant only", async () => {
@@ -435,12 +488,52 @@ if (import.meta.vitest) {
             const result = await getCredits(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(result.value.credits).toHaveLength(1);
-            expect(result.value.credits[0]).toMatchObject({
-                awardBlock: 10,
-                state: "unprovable",
-                leafIndex: null,
+            // One entry for the whole block: its credit count went with the awards.
+            expect(result.value.credits).toEqual([
+                {
+                    hash: null,
+                    awardBlock: 10,
+                    awardedAt: 1_700_000_010,
+                    gameIndex: 7,
+                    leafIndex: null,
+                    state: "unprovable",
+                },
+            ]);
+        });
+
+        test("a past block with no root and no awards is unprovable, not dropped", async () => {
+            const { chain } = fakeChain({ blocks: [11], roots: [] });
+            const result = await getCredits(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.credits).toEqual([
+                {
+                    hash: null,
+                    awardBlock: 11,
+                    awardedAt: null,
+                    gameIndex: null,
+                    leafIndex: null,
+                    state: "unprovable",
+                },
+            ]);
+        });
+
+        test("a block still to come is earned with no hash yet", async () => {
+            const { chain } = fakeChain({ blocks: [PEOPLE.number + 5], roots: [] });
+            const result = await getCredits(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.credits[0]).toMatchObject({ hash: null, state: "earned" });
+        });
+
+        test("a proof error that is an integrity failure lands on the err channel", async () => {
+            const { chain } = fakeChain({
+                blocks: [10],
+                roots: [root(10)],
+                proofs: { 10: { success: false, value: { type: "RootMismatch" } } },
             });
+            const result = await getCredits(chain, { claimant });
+            expect(result.ok).toBe(false);
         });
 
         test("newest award block first", async () => {

@@ -17,9 +17,15 @@ const result = await getCredits(chain, { claimant: { tag: "Account", address } }
 
 `state` is one of four. `earned` means the award block has no root on Asset Hub yet, so a claim
 would be refused. `claimable` means the root arrived and the leaf is unspent. `claimed` means the
-leaf is spent. `unprovable` means the awards were pruned before the proofs were read, so the credit
-exists but this read cannot produce the leaf index a claim needs. That last case is reported rather than
-dropped, because a shelf that silently loses old credits is worse than one that says why.
+leaf is spent, and a claim made before Asset Hub swept the tree still reads as claimed after it.
+`unprovable` means the awards of the block are gone, pruned or expired, so the block counted but its
+credit count and hashes went with the awards. That case is one entry per block with `hash: null`,
+reported rather than dropped, because a shelf that silently loses old credits is worse than one that
+says why. An `earned` entry with `hash: null` is a block still to come. Proof errors that are
+integrity failures, `RootMismatch`, `LeafCountMismatch` and `LeafIndexOutOfBounds`, land on the `err`
+channel.
+
+
 
 A claimant is `{ tag: "Account", address }` or `{ tag: "Person", alias }`. The pallet keys the two
 apart and nothing links them, so a player who moved from account to alias has to be read twice.

@@ -274,7 +274,8 @@ async function readCredits(): Promise<string | undefined> {
     $creditsStates.textContent =
         [...states.entries()].map(([state, n]) => `${state}:${n}`).join(",") || "-";
     log(`getCredits: ${credits.length} credits at People #${at.individuality.blockNumber}`, "ok");
-    return credits.find((c) => c.state === "claimable")?.hash ?? credits[0]?.hash;
+    const withHash = credits.filter((c) => c.hash !== null);
+    return (withHash.find((c) => c.state === "claimable") ?? withHash[0])?.hash ?? undefined;
 }
 
 /**

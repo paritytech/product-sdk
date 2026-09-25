@@ -325,8 +325,11 @@ twice. Each credit carries a `state`:
 |---|---|
 | `earned` | Awarded, and the award block has no root on Asset Hub yet. A claim would be refused. |
 | `claimable` | The root arrived and the leaf is unspent. |
-| `claimed` | The leaf is spent. The item it minted exists somewhere. |
-| `unprovable` | The awards were pruned before the proofs were read. The credit exists, but this read cannot produce the leaf index a claim needs. |
+| `claimed` | The leaf is spent. The item it minted exists somewhere. Stays claimed after Asset Hub sweeps the tree. |
+| `unprovable` | The awards of the block are gone, pruned or expired. One entry per block, `hash: null`, credit count unknown. |
+
+An `earned` entry with `hash: null` is a block still to come. Pass only non-null hashes to
+`previewClaim`.
 
 `previewClaim(chain, { credit, collections })` answers what that credit would mint in each
 collection, in one `NftClaimsApi.preview_mints` call. It runs the real claim selector, so for a

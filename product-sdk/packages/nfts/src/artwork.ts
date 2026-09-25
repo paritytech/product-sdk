@@ -170,9 +170,10 @@ function decodeCid(cid: string): ArtworkAddress | null {
  * the only convention seen on a live deployment. `null` when neither reads.
  */
 export function artworkAddress(image: ImageRef): ArtworkAddress | null {
-    if (image.text?.startsWith("b")) {
-        const fromCid = decodeCid(image.text);
-        if (fromCid !== null) return fromCid;
+    // Multibase allows `B` for upper-case base32, the same bytes.
+    if (image.text?.startsWith("b") || image.text?.startsWith("B")) {
+        const fromCid = decodeCid(`b${image.text.slice(1).toLowerCase()}`);
+        if (fromCid !== null) return { ...fromCid, cid: image.text };
     }
     const digest = fromHex(image.hex);
     if (digest === null) return null;
@@ -246,25 +247,38 @@ export function preimageSource(
         lookup(
             key: `0x${string}`,
             callback: (preimage: Uint8Array | null) => void,
-        ): { unsubscribe?: () => void };
+        ): { unsubscribe?: () => void; onInterrupt?: (callback: () => void) => () => void };
     },
     timeoutMs = 20_000,
 ): ArtworkSource {
     return (address, signal) =>
         new Promise((resolve) => {
-            const subscription = manager.lookup(address.digest, (preimage) => {
-                subscription.unsubscribe?.();
-                resolve(preimage);
+            // Filled in as the lookup starts, read by `settle` whenever it runs.
+            const live: {
+                settled: boolean;
+                timer?: ReturnType<typeof setTimeout>;
+                subscription?: ReturnType<typeof manager.lookup>;
+                cancelInterrupt?: () => void;
+            } = { settled: false };
+            const onAbort = () => settle(null);
+            function settle(value: Uint8Array | null): void {
+                if (live.settled) return;
+                live.settled = true;
+                clearTimeout(live.timer);
+                signal?.removeEventListener("abort", onAbort);
+                live.cancelInterrupt?.();
+                live.subscription?.unsubscribe?.();
+                resolve(value);
+            }
+            if (signal?.aborted) return settle(null);
+            signal?.addEventListener("abort", onAbort);
+            live.timer = setTimeout(() => settle(null), timeoutMs);
+            // A null answer means "not found yet", and the host keeps looking.
+            live.subscription = manager.lookup(address.digest, (preimage) => {
+                if (preimage !== null) settle(preimage);
             });
-            const timer = setTimeout(() => {
-                subscription.unsubscribe?.();
-                resolve(null);
-            }, timeoutMs);
-            signal?.addEventListener("abort", () => {
-                clearTimeout(timer);
-                subscription.unsubscribe?.();
-                resolve(null);
-            });
+            live.cancelInterrupt = live.subscription.onInterrupt?.(() => settle(null));
+            if (live.settled) live.subscription.unsubscribe?.();
         });
 }
 
@@ -318,6 +332,17 @@ if (import.meta.vitest) {
         test("text that is not a CID falls back to the hex", () => {
             const address = artworkAddress(ref({ text: "not a cid" }));
             expect(address?.cid).toBe(CID);
+        });
+
+        test("a CID with trailing bytes after the digest is not a CID", () => {
+            const padded = `${CID}aa`;
+            expect(artworkAddress({ hex: "0x00", text: padded })).toBeNull();
+        });
+
+        test("an upper-case multibase CID reads as the same address", () => {
+            const upper = `B${CID.slice(1).toUpperCase()}`;
+            // A hex that decodes to nothing, so only the CID can supply the digest.
+            expect(artworkAddress({ hex: "0x00", text: upper })?.digest).toBe(HEX);
         });
 
         test("nothing readable is null", () => {
@@ -405,6 +430,44 @@ if (import.meta.vitest) {
             };
             const address = artworkAddress(ref({})) as ArtworkAddress;
             expect(await preimageSource(manager)(address)).toBe(bytes);
+            expect(unsubscribed).toBe(1);
+        });
+
+        test("a null answer is 'not found yet', so it waits for the bytes", async () => {
+            const manager = {
+                lookup: (_key: string, callback: (preimage: Uint8Array | null) => void) => {
+                    queueMicrotask(() => callback(null));
+                    setTimeout(() => callback(bytes), 5);
+                    return { unsubscribe: () => {} };
+                },
+            };
+            const address = artworkAddress(ref({})) as ArtworkAddress;
+            expect(await preimageSource(manager, 1000)(address)).toBe(bytes);
+        });
+
+        test("an interrupted lookup settles as null and unsubscribes", async () => {
+            let interrupt: () => void = () => {};
+            let unsubscribed = 0;
+            const manager = {
+                lookup: () => ({
+                    unsubscribe: () => {
+                        unsubscribed += 1;
+                    },
+                    onInterrupt: (callback: () => void) => {
+                        interrupt = callback;
+                        return () => {};
+                    },
+                }),
+            };
+            const address = artworkAddress(ref({})) as ArtworkAddress;
+            const pending = preimageSource(manager, 60_000)(address);
+            interrupt();
+            // Settled by the interrupt, not by the minute-long timeout.
+            const raced = await Promise.race([
+                pending,
+                new Promise((resolve) => setTimeout(() => resolve("still pending"), 50)),
+            ]);
+            expect(raced).toBeNull();
             expect(unsubscribed).toBe(1);
         });
 

@@ -48,15 +48,22 @@ export type Claimant = { tag: "Account"; address: string } | { tag: "Person"; al
  * the root of its award block, so a claim would be refused. `claimable` means the
  * root arrived and the leaf is unspent. `claimed` means the leaf is spent, so the
  * item it minted exists somewhere and the credit is done. `unprovable` means the
- * award block was pruned before its proofs were read, so the credit exists but
- * this read cannot produce the leaf a claim needs.
+ * awards of the block are gone, pruned or expired, so the block counted but this
+ * read cannot say how many credits it held or produce the leaf a claim needs.
+ *
+ * An `earned` entry with a `null` hash is a block still to come: awarding spills
+ * into later blocks, and the credits are not known until that block is built.
  */
 export type CreditState = "earned" | "claimable" | "claimed" | "unprovable";
 
 /** One NFT claim credit, as the People chain awarded it and Asset Hub sees it. */
 export interface Credit {
-    /** The credit hash, `0x` prefixed, as `NftClaimCreditAwards` stores it. */
-    hash: string;
+    /**
+     * The credit hash, `0x` prefixed, as `NftClaimCreditAwards` stores it, or
+     * `null` when the awards of its block are gone and the hash with them. A
+     * `null` entry stands for a whole block, whose credit count is unknown.
+     */
+    hash: string | null;
     /** The People chain block the credit was awarded in. */
     awardBlock: number;
     /**

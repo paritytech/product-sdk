@@ -74,6 +74,9 @@ export async function previewClaim(
 ): Promise<Result<MintPreviewResult, ProductNftsError>> {
     try {
         const { credit, collections, signal } = options;
+        if (!/^0x[0-9a-fA-F]{64}$/.test(credit)) {
+            return err(new ProductNftsError("credit must be a 0x-prefixed 32-byte hash"));
+        }
         for (const id of collections) {
             if (!isValidId(id)) return err(new NftsIdError(id));
         }
@@ -87,9 +90,8 @@ export async function previewClaim(
             at,
         );
         if (!result.success) {
-            return err(
-                new NftsDecodeError(`preview_mints refused the batch: ${result.value.type}`),
-            );
+            // `TooLarge` is the only refusal the runtime declares.
+            return err(new ProductNftsError("preview_mints refused the batch as too large"));
         }
         const outcomes = result.value;
         if (outcomes.length !== collections.length) {
@@ -312,6 +314,34 @@ if (import.meta.vitest) {
             });
         });
 
+        test("a contract selection is reported as the contract, not as random", async () => {
+            const contract = `0x${"ab".repeat(20)}`;
+            const { chain } = fakeChain({
+                outcomes: [
+                    {
+                        type: "Mints",
+                        value: { item: 2, via: { type: "Contract", value: contract } },
+                    },
+                ],
+            });
+            const result = await previewClaim(chain, { credit: CREDIT, collections: [4] });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            const outcome = result.value.previews[0]?.outcome;
+            expect(outcome?.tag === "Mints" && outcome.via).toEqual({
+                tag: "Contract",
+                address: contract,
+            });
+        });
+
+        test("an answer with the wrong number of outcomes is an error, not a misaligned list", async () => {
+            const { chain } = fakeChain({ outcomes: [mints(1)] });
+            const result = await previewClaim(chain, { credit: CREDIT, collections: [0, 1] });
+            expect(result.ok).toBe(false);
+            if (result.ok) return;
+            expect(result.error).toBeInstanceOf(NftsDecodeError);
+        });
+
         test("no collections is no round trip past the pin", async () => {
             const { chain, calls } = fakeChain({});
             const result = await previewClaim(chain, { credit: CREDIT, collections: [] });
@@ -326,7 +356,14 @@ if (import.meta.vitest) {
             const result = await previewClaim(chain, { credit: CREDIT, collections: [0] });
             expect(result.ok).toBe(false);
             if (result.ok) return;
-            expect(result.error).toBeInstanceOf(NftsDecodeError);
+            expect(result.error.message).toContain("too large");
+        });
+
+        test("a credit that is not a 32-byte hash is refused before the pin", async () => {
+            const { chain, blocks } = fakeChain({});
+            const result = await previewClaim(chain, { credit: "0x1234", collections: [0] });
+            expect(result.ok).toBe(false);
+            expect(blocks()).toBe(0);
         });
 
         test("a collection id that is not a u32 is refused before the pin", async () => {
