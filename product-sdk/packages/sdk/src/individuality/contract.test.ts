@@ -42,6 +42,7 @@ import type {
     ClaimChain,
     ConsumersChain,
     CreditCandidatesChain,
+    FeeEstimable,
     CreditsChain,
     GameChain,
     GamePlayersChain,
@@ -59,6 +60,7 @@ import type {
     RosterChain,
     ScoreContextChain,
     SignUpChain,
+    SignUpFundsChain,
     AccountVrfSignature,
     VrfTranscriptItem as IndividualityVrfTranscriptItem,
     RingVRFProof as AsPersonRingVRFProof,
@@ -384,6 +386,21 @@ type RejectsBogusCreditsClient = Assert<
 type PaseoSatisfiesSignUpContract = Assert<PaseoClient extends SignUpChain ? true : false>;
 type RejectsBogusSignUpClient = Assert<
     ClientWithoutIndividuality extends SignUpChain ? false : true
+>;
+
+// The cost read also takes the raw client, for the chain spec that names the token.
+type PaseoSatisfiesSignUpFundsContract = Assert<
+    PaseoClient extends SignUpFundsChain ? true : false
+>;
+type PreviewnetSatisfiesSignUpFundsContract = Assert<
+    PreviewnetClient extends SignUpFundsChain ? true : false
+>;
+type RejectsBogusSignUpFundsClient = Assert<
+    ClientWithoutIndividuality extends SignUpFundsChain ? false : true
+>;
+// The fee comes from the built sign-up itself, so a real PAPI transaction must fit.
+type SignUpTxIsFeeEstimable = Assert<
+    ReturnType<GameTx["sign_up_with_account"]> extends FeeEstimable ? true : false
 >;
 
 // `SignUpChain` alone does not reject devnet and cannot: a `tx` argument is

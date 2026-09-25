@@ -277,13 +277,18 @@ export type { VrfTranscript, VrfTranscriptItem } from "./signup-vrf.js";
 export {
     mintAccountAirdropVrfs,
     readGameSignUpRequirement,
+    readSignUpFunds,
     signUpWithAccountTx,
 } from "./signup.js";
 export type {
     AirdropVrfSigner,
+    FeeEstimable,
     MintAccountAirdropVrfsOptions,
     ReadGameSignUpRequirementOptions,
+    ReadSignUpFundsOptions,
     SignUpChain,
+    SignUpFunds,
+    SignUpFundsChain,
     SignUpWithAccountOptions,
 } from "./signup.js";
 
