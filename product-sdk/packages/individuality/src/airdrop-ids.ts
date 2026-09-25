@@ -40,8 +40,8 @@ const EVENT_ID_BYTES = 32;
 const GAME_BASE_BYTES = 27;
 const PEOPLE_AIRDROPS_BASE_BYTES = 24;
 
-const U8_MAX = 0xff;
-const U32_MAX = 0xff_ff_ff_ff;
+export const U8_MAX = 0xff;
+export const U32_MAX = 0xff_ff_ff_ff;
 const U64_MAX = 0xff_ff_ff_ff_ff_ff_ff_ffn;
 
 /** `0x`-prefixed lower-case hex, the form every PAPI storage key here takes. */
@@ -82,9 +82,10 @@ function decodeBase(base: string): Uint8Array {
     return bytes;
 }
 
-function checkIndex(value: number, max: number, what: string): number {
+/** An integer in `0..=max`. Exported for `credits.ts`, not part of the package surface. */
+export function checkIndex(value: number, max: number, what: string): number {
     if (!Number.isInteger(value) || value < 0 || value > max) {
-        throw new ProductIndividualityError(`airdrop ${what} is out of range`);
+        throw new ProductIndividualityError(`${what} is out of range`);
     }
     return value;
 }
@@ -106,8 +107,8 @@ export function gameAirdropEventId(options: {
     const base = baseBytes(options.base, GAME_BASE_BYTES);
     // A u8 on chain. Not capped at MAX_GAME_AIRDROPS: `claim_airdrop` takes the
     // full width, and capping here would make a legitimate id underivable.
-    const airdropIndex = checkIndex(options.airdropIndex, U8_MAX, "index");
-    const gameIndex = checkIndex(options.gameIndex, U32_MAX, "game index");
+    const airdropIndex = checkIndex(options.airdropIndex, U8_MAX, "airdrop index");
+    const gameIndex = checkIndex(options.gameIndex, U32_MAX, "airdrop game index");
 
     const id = new Uint8Array(EVENT_ID_BYTES);
     id.set(base, 0);
@@ -184,7 +185,7 @@ export function gameAirdropEventIds(options: {
     gameIndex: number;
     airdropsScheduled: number;
 }): string[] {
-    const count = checkIndex(options.airdropsScheduled, MAX_GAME_AIRDROPS, "draw count");
+    const count = checkIndex(options.airdropsScheduled, MAX_GAME_AIRDROPS, "airdrop draw count");
     return Array.from({ length: count }, (_, airdropIndex) =>
         gameAirdropEventId({
             base: options.base,

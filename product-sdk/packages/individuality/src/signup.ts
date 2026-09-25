@@ -60,6 +60,7 @@ import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
 import { playerKey, type PlayerKey } from "./player-key.js";
+import { FEE_ESTIMATE_EXTENSIONS } from "./origin-extension.js";
 import { airdropVrfTranscript, type VrfTranscriptItem } from "./signup-vrf.js";
 import type {
     AccountVrfSignature,
@@ -310,9 +311,11 @@ export interface MintAccountAirdropVrfsOptions {
  * sixteen at once is hidden by an `AutoSigning` allowance until a product ships
  * without one.
  *
- * No local verification, though one bad entry fails the whole sign-up. Schnorrkel
- * VRF verification does not exist in this workspace, and the failure it guards
- * against is the wrong key, which the transcript binds and the width checks catch.
+ * No local verification, though one bad entry fails the whole sign-up. The failure
+ * it would guard against is the wrong key, which the transcript binds and the width
+ * checks catch.
+ *
+ * A script with no host signs with `localAirdropVrfSigner` from the `testing` subpath.
  */
 /**
  * The adapter is caller-written and usually unwraps a `Result`, so resolving with
@@ -364,7 +367,8 @@ export interface SignUpWithAccountOptions {
     airdropsScheduled?: number;
 }
 
-const IDENTIFIER_KEY_BYTES = 65;
+/** `CommunicationIdentifier`. Exported for `roster.ts`, which reads it back. */
+export const IDENTIFIER_KEY_BYTES = 65;
 const VRF_PRE_OUTPUT_BYTES = 32;
 const VRF_PROOF_BYTES = 64;
 
@@ -374,6 +378,10 @@ const VRF_PROOF_BYTES = 64;
  *
  * No `Alias` argument: a recognized player needs one that cannot be produced, and
  * an argument that always fails on chain is worse than none.
+ *
+ * A returning player owes no deposit and can sign under `withScoreParticipant` to
+ * skip the fee as well, which is how a zero-balance account signs up again. A new
+ * or archived player owes the deposit, so sign plainly.
  *
  * @throws ProductIndividualityError on a wrong-width key or signature, or an
  *   airdrop count that disagrees with `airdropsScheduled`. Checked because the
@@ -442,6 +450,130 @@ function sizedSignaturePart(bytes: Uint8Array, length: number, what: string): Ui
         throw new ProductIndividualityError(`airdrop VRF ${what} must be ${length} bytes`);
     }
     return bytes;
+}
+
+/** A built transaction whose fee can be estimated, as every PAPI transaction can. */
+export interface FeeEstimable {
+    getEstimatedFees(
+        from: string,
+        options: { nonce: number; customSignedExtensions: Record<string, { value: unknown }> },
+    ): Promise<bigint>;
+}
+
+/**
+ * What {@link readSignUpFunds} reads. Matched by hand against the paseo descriptors
+ * on 2026-09-25:
+ *
+ * ```
+ * Game.PlayDepositAmount: StorageDescriptor<[], bigint, false, never>
+ * System.Account:         StorageDescriptor<[Key: SS58String], AccountInfo, false, never>
+ * ```
+ */
+export type SignUpFundsChain = PinnedChain & {
+    individuality: {
+        query: {
+            Game: { PlayDepositAmount: { getValue(options: ReadAt): Promise<bigint> } };
+            System: {
+                Account: {
+                    getValue(account: string, options: ReadAt): Promise<{ data: { free: bigint } }>;
+                };
+            };
+        };
+    };
+    raw: {
+        individuality: {
+            /** Where the chain publishes its token decimals and symbol. */
+            getChainSpecData(): Promise<{ properties?: unknown }>;
+        };
+    };
+};
+
+/** Options for {@link readSignUpFunds}. */
+export interface ReadSignUpFundsOptions {
+    /** SS58. The account that will sign and hold the deposit. */
+    account: string;
+    /**
+     * The sign-up transaction as built, for example by {@link signUpWithAccountTx}.
+     * Omit it and `estimatedFee` is `null`. Placeholder VRFs of the right width cost
+     * the same as real ones, so the funds can be checked before any is minted.
+     */
+    tx?: FeeEstimable;
+    signal?: AbortSignal;
+}
+
+/**
+ * The parts of what a sign-up costs, in the smallest unit of the native token.
+ *
+ * How much headroom to demand on top is product policy, so no total is given.
+ */
+export interface SignUpFunds {
+    at: FinalizedSnapshot;
+    /**
+     * Held from a new or archived player at sign-up. A returning player owes none,
+     * and an existing deposit keeps the amount it was created with.
+     */
+    deposit: bigint;
+    /**
+     * Charged up front and refunded on success, so the account needs it to start
+     * with. Nothing under `withScoreParticipant`. PAPI estimates it at the latest
+     * finalized block, which can be newer than `at`.
+     */
+    estimatedFee: bigint | null;
+    free: bigint;
+    /** `null` when the chain spec does not publish it. */
+    decimals: number | null;
+    symbol: string | null;
+}
+
+/**
+ * The deposit, the free balance and the fee of a sign-up.
+ *
+ * The deposit and the balance come from one pinned finalized block, the fee from
+ * wherever PAPI estimates it, see {@link SignUpFunds.estimatedFee}.
+ */
+export async function readSignUpFunds(
+    chain: SignUpFundsChain,
+    options: ReadSignUpFundsOptions,
+): Promise<Result<SignUpFunds, ProductIndividualityError>> {
+    try {
+        const { account, tx, signal } = options;
+        const query = chain.individuality.query;
+        const snapshot = await pinBlock(chain, signal);
+        const at = readAt(snapshot, signal);
+
+        const [deposit, info, estimatedFee, spec] = await Promise.all([
+            query.Game.PlayDepositAmount.getValue(at),
+            query.System.Account.getValue(account, at),
+            // A fixed nonce saves the nonce lookup PAPI runs before estimating, and
+            // moves the length by a few bytes at most.
+            tx === undefined
+                ? null
+                : tx.getEstimatedFees(account, {
+                      nonce: 0,
+                      customSignedExtensions: FEE_ESTIMATE_EXTENSIONS,
+                  }),
+            chain.raw.individuality.getChainSpecData(),
+        ]);
+        const token = tokenProperties(spec.properties);
+        return ok({ at: snapshot, deposit, estimatedFee, free: info.data.free, ...token });
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Multi-token chains publish a list, and the native token is the first entry. */
+function tokenProperties(properties: unknown): { decimals: number | null; symbol: string | null } {
+    const { tokenDecimals, tokenSymbol } = (properties ?? {}) as {
+        tokenDecimals?: unknown;
+        tokenSymbol?: unknown;
+    };
+    const decimals = Array.isArray(tokenDecimals) ? tokenDecimals[0] : tokenDecimals;
+    const symbol = Array.isArray(tokenSymbol) ? tokenSymbol[0] : tokenSymbol;
+    return {
+        decimals:
+            Number.isInteger(decimals) && (decimals as number) >= 0 ? (decimals as number) : null,
+        symbol: typeof symbol === "string" && symbol.length > 0 ? symbol : null,
+    };
 }
 
 if (import.meta.vitest) {
@@ -544,6 +676,7 @@ if (import.meta.vitest) {
         streak: { type: "Attended", value: 1 },
         attendance_history: 1,
         reached_personhood: true,
+        has_ever_reached_personhood: true,
         recognition: { type: "Recognized", value: `0x${"cc".repeat(32)}` },
         last_attended_game: 6,
     };
@@ -588,6 +721,7 @@ if (import.meta.vitest) {
                     streak: { type: "Absent", value: 2 },
                     attendance_history: 0,
                     reached_personhood: false,
+                    has_ever_reached_personhood: false,
                     recognition: { type: "Suspended", value: `0x${"cc".repeat(32)}` },
                     last_attended_game: 6,
                 },
@@ -866,6 +1000,150 @@ if (import.meta.vitest) {
                     airdrops: [{ preOutput: new Uint8Array(31), proof: new Uint8Array(64) }],
                 }),
             ).toThrow(ProductIndividualityError);
+        });
+    });
+
+    describe("readSignUpFunds", () => {
+        const BLOCK = { hash: `0x${"99".repeat(32)}`, number: 321 };
+
+        function fundsChain(
+            overrides: { properties?: unknown; failOn?: "deposit" | "account" | "spec" } = {},
+        ) {
+            const calls: Array<{ entry: string; at: string }> = [];
+            const chain: SignUpFundsChain = {
+                individuality: {
+                    query: {
+                        Game: {
+                            PlayDepositAmount: {
+                                getValue: async (options) => {
+                                    options.signal?.throwIfAborted();
+                                    calls.push({ entry: "PlayDepositAmount", at: options.at });
+                                    if (overrides.failOn === "deposit")
+                                        throw new Error("deposit unreachable");
+                                    return 2_000_000_000_000n;
+                                },
+                            },
+                        },
+                        System: {
+                            Account: {
+                                getValue: async (account, options) => {
+                                    calls.push({ entry: `Account:${account}`, at: options.at });
+                                    if (overrides.failOn === "account")
+                                        throw new Error("account unreachable");
+                                    return { data: { free: 5_000_000_000_000n } };
+                                },
+                            },
+                        },
+                    },
+                },
+                raw: {
+                    individuality: {
+                        getFinalizedBlock: async () => BLOCK,
+                        getChainSpecData: async () => {
+                            if (overrides.failOn === "spec") throw new Error("spec unreachable");
+                            return {
+                                properties:
+                                    "properties" in overrides
+                                        ? overrides.properties
+                                        : { tokenDecimals: 10, tokenSymbol: "PAS" },
+                            };
+                        },
+                    },
+                },
+            };
+            return { chain, calls };
+        }
+
+        const feeTx = (fee: bigint) => {
+            const estimates: Array<{ from: string; options: unknown }> = [];
+            const tx: FeeEstimable = {
+                getEstimatedFees: async (from, options) => {
+                    estimates.push({ from, options });
+                    return fee;
+                },
+            };
+            return { tx, estimates };
+        };
+
+        test("returns the parts of the cost, and the token they are counted in", async () => {
+            const { chain } = fundsChain();
+            const { tx } = feeTx(12_345n);
+            expect(unwrapOk(await readSignUpFunds(chain, { account: ACCOUNT, tx }))).toEqual({
+                at: { blockHash: BLOCK.hash, blockNumber: BLOCK.number },
+                deposit: 2_000_000_000_000n,
+                estimatedFee: 12_345n,
+                free: 5_000_000_000_000n,
+                decimals: 10,
+                symbol: "PAS",
+            });
+        });
+
+        test("reads every entry at the pinned block, and estimates the fee for the account", async () => {
+            const { chain, calls } = fundsChain();
+            const { tx, estimates } = feeTx(1n);
+            await readSignUpFunds(chain, { account: ACCOUNT, tx });
+            expect(calls).toEqual([
+                { entry: "PlayDepositAmount", at: BLOCK.hash },
+                { entry: `Account:${ACCOUNT}`, at: BLOCK.hash },
+            ]);
+            expect(estimates).toEqual([
+                {
+                    from: ACCOUNT,
+                    options: {
+                        nonce: 0,
+                        // Without it PAPI refuses with "Missing VerifyMultiSignature
+                        // signed extension", measured against paseo on 2026-09-25.
+                        customSignedExtensions: {
+                            VerifyMultiSignature: { value: { type: "Disabled", value: undefined } },
+                        },
+                    },
+                },
+            ]);
+        });
+
+        test("has no fee without a transaction to estimate", async () => {
+            const { chain } = fundsChain();
+            const funds = unwrapOk(await readSignUpFunds(chain, { account: ACCOUNT }));
+            expect(funds.estimatedFee).toBeNull();
+        });
+
+        test("takes the first token of a multi-token chain spec", async () => {
+            const { chain } = fundsChain({
+                properties: { tokenDecimals: [12, 6], tokenSymbol: ["DOT", "USDT"] },
+            });
+            const funds = unwrapOk(await readSignUpFunds(chain, { account: ACCOUNT }));
+            expect([funds.decimals, funds.symbol]).toEqual([12, "DOT"]);
+        });
+
+        test.each([
+            ["no properties", undefined],
+            ["no token fields", {}],
+            ["malformed token fields", { tokenDecimals: "ten", tokenSymbol: "" }],
+        ])("leaves the token null with %s, rather than guessing one", async (_, properties) => {
+            const { chain } = fundsChain({ properties });
+            const funds = unwrapOk(await readSignUpFunds(chain, { account: ACCOUNT }));
+            expect([funds.decimals, funds.symbol]).toEqual([null, null]);
+        });
+
+        test.each(["deposit", "account", "spec"] as const)(
+            "a failure reading the %s arrives on the err channel with its cause",
+            async (failOn) => {
+                const { chain } = fundsChain({ failOn });
+                const error = unwrapErr(await readSignUpFunds(chain, { account: ACCOUNT }));
+                expect(error).toBeInstanceOf(ProductIndividualityError);
+                expect((error.cause as Error).message).toBe(`${failOn} unreachable`);
+            },
+        );
+
+        test("an already-aborted signal costs no round trip", async () => {
+            const { chain, calls } = fundsChain();
+            const controller = new AbortController();
+            controller.abort();
+            const error = unwrapErr(
+                await readSignUpFunds(chain, { account: ACCOUNT, signal: controller.signal }),
+            );
+            expect(error).toBeInstanceOf(ProductIndividualityError);
+            expect(calls).toHaveLength(0);
         });
     });
 }
