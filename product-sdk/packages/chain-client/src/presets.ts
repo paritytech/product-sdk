@@ -359,7 +359,7 @@ if (import.meta.vitest) {
         previewnet_asset_hub: "0xc27c8bf3f13f96dc2130cd2b0a3debe57618fd02521ecc1902bd7dd4ed83d2fe",
         previewnet_bulletin: "0xea9158d768971553e315b76323cbffda238b6b865f3d3d5e138350b12312173d",
         previewnet_individuality:
-            "0xf720c28fe3315e67fa799a616fc59abad47dd257b1a336af6538435844d35218",
+            "0x55e3e689ecfa9d2fffcf7d309b8011956671493982230bfd0420c683542249e9",
         devnet_asset_hub: "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
         devnet_bulletin: "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
         devnet_individuality: "0xe6c30d6e148f250b887105237bcaa5cb9f16dd203bf7b5b9d4f1da7387cb86ec",
