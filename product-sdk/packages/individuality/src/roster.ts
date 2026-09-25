@@ -280,9 +280,9 @@ export interface CreditCandidatesResult {
  * round, with the game and the roster read at one pinned finalized block.
  *
  * Deriving is what names the attester behind each credit, and it is the only way to
- * see the credits that have not been awarded yet. Match the hashes against
- * `readCredits` to tell the two apart. The roster is drained when the game ends, so
- * cache the result if it has to outlive the game.
+ * see the credits that have not been awarded yet. Match the hashes against the claims
+ * `@parity/product-sdk-nfts` reads to tell the two apart. The roster is drained when
+ * the game ends, so cache the result if it has to outlive the game.
  */
 export async function readCreditCandidates(
     chain: CreditCandidatesChain,

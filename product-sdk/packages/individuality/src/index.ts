@@ -334,21 +334,9 @@ export type {
 export { offboardTx, reportTx } from "./report.js";
 export type { RawReportVote, ReportChain, ReportOptions, ReportVote } from "./report.js";
 
-// NFT claim credits, read through the `NftCreditsApi` runtime APIs because only they
-// serve the proof a claim on Asset Hub needs. The claimant is a `PlayerKey`, so the
-// credits of an account and of the alias the same person plays under are two reads.
-export { creditHash, readCreditRoots, readCredits } from "./credits.js";
-export type {
-    AwardedCredit,
-    CreditRoot,
-    CreditRootsResult,
-    CreditsChain,
-    CreditsResult,
-    RawCreditProof,
-    RawCreditProofs,
-    RawCreditRoot,
-    ReadCreditsOptions,
-} from "./credits.js";
+// The hash of one NFT claim credit, derived offline. Reading the claims the chain has
+// awarded belongs to `@parity/product-sdk-nfts`, which carries the proof a mint needs.
+export { creditHash } from "./credits.js";
 
 // Proof contexts, derived offline. Everything a host signs under is
 // `blake2b-256("product/" ++ productId ++ "/" ++ suffix)`, so a product can

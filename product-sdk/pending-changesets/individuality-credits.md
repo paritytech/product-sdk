@@ -3,10 +3,8 @@
 "@parity/product-sdk": minor
 ---
 
-**Read NFT claim credits: `readCreditRoots`, `readCredits` and `creditHash`.**
+**Hash an NFT claim credit offline: `creditHash`.**
 
-`readCreditRoots` lists the credit roots a claimant holds credits under, with the game index, the time and the leaf count of each. Roots outlive the credits they commit, so this is the durable half: a game whose credits were pruned still answers here. `readCredits` reads the credits themselves with the leaf index and the Merkle proof a claim on Asset Hub needs. A block whose credits were pruned is listed in `prunedBlocks` rather than failing the read.
+`creditHash({ gameIndex, round, attester, attestee })` returns the credit one attestation awards, the preimage the game pallet hashes, pinned against the two vectors of the pallet `nft_claim_credit_spec` test. `readCreditCandidates` uses it to name the credits a player could earn.
 
-Both read one pinned finalized block through the `NftCreditsApi` runtime APIs, not storage. The claimant is a `PlayerKey`, so the credits of an account and of the alias the same person plays under are two reads with no link between them.
-
-`creditHash` is the pure preimage the pallet hashes a credit from, pinned against the two vectors of the pallet `nft_claim_credit_spec` test.
+Reading the claims the chain has awarded, with the proof a mint needs, belongs to `@parity/product-sdk-nfts`, see #329.

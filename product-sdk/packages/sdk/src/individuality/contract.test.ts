@@ -44,7 +44,6 @@ import type {
     CreditCandidatesChain,
     CurrentGameWatchChain,
     FeeEstimable,
-    CreditsChain,
     GameChain,
     GamePlayersChain,
     IndividualityChain,
@@ -139,7 +138,6 @@ type FromPapiSatisfiesContracts = Assert<
         ScoreContextChain &
         SignUpChain &
         LiteSignUpChain &
-        CreditsChain &
         CreditCandidatesChain &
         WatchChains
         ? true
@@ -384,17 +382,6 @@ type PreviewnetSatisfiesWatchContracts = Assert<
 >;
 type RejectsBogusWatchClient = Assert<
     ClientWithoutIndividuality extends CurrentGameWatchChain ? false : true
->;
-
-// The credits read is the one contract typed over runtime APIs rather than storage,
-// so a renamed claimant arm or a reshaped proof result fails here.
-type PaseoSatisfiesCreditsContract = Assert<PaseoClient extends CreditsChain ? true : false>;
-type PreviewnetSatisfiesCreditsContract = Assert<
-    PreviewnetClient extends CreditsChain ? true : false
->;
-type DevnetPredatesTheCreditsContract = Assert<DevnetClient extends CreditsChain ? false : true>;
-type RejectsBogusCreditsClient = Assert<
-    ClientWithoutIndividuality extends CreditsChain ? false : true
 >;
 
 // Game sign-up.
