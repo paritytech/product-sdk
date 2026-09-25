@@ -375,6 +375,10 @@ const VRF_PROOF_BYTES = 64;
  * No `Alias` argument: a recognized player needs one that cannot be produced, and
  * an argument that always fails on chain is worse than none.
  *
+ * A returning player owes no deposit and can sign under `withScoreParticipant` to
+ * skip the fee as well, which is how a zero-balance account signs up again. A new
+ * or archived player owes the deposit, so sign plainly.
+ *
  * @throws ProductIndividualityError on a wrong-width key or signature, or an
  *   airdrop count that disagrees with `airdropsScheduled`. Checked because the
  *   chain's own failure rejects the sign-up with nothing to inspect.

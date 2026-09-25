@@ -53,6 +53,7 @@ import type {
     PrizeStatusChain,
     RegisterChain,
     RegistrationEligibilityChain,
+    ReportChain,
     RingLocation as SdkRingLocation,
     ScoreContextChain,
     SignUpChain,
@@ -325,6 +326,26 @@ type ClaimAirdropTakesTheDocumentedArgs = Assert<
             ? "beneficiary" extends keyof ClaimAirdropArgs
                 ? true
                 : false
+            : false
+        : false
+>;
+
+// The report and offboard builders touch `tx` only. `full_report` and the two vote
+// variants are pinned by name, since PAPI encodes whatever object it is handed.
+type PaseoSatisfiesReportContract = Assert<PaseoClient extends ReportChain ? true : false>;
+type PreviewnetSatisfiesReportContract = Assert<
+    PreviewnetClient extends ReportChain ? true : false
+>;
+type RejectsBogusReportClient = Assert<
+    ClientWithoutIndividuality extends ReportChain ? false : true
+>;
+type ReportArgs = Parameters<GameTx["report"]>[0];
+type ReportTakesFullReport = Assert<"full_report" extends keyof ReportArgs ? true : false>;
+type ReportVoteVariant = ReportArgs["full_report"][number][number]["type"];
+type ReportVotesArePersonAndNotPerson = Assert<
+    [ReportVoteVariant] extends ["Person" | "NotPerson"]
+        ? ["Person" | "NotPerson"] extends [ReportVoteVariant]
+            ? true
             : false
         : false
 >;

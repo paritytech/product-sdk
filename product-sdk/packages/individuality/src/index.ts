@@ -283,6 +283,11 @@ export type {
     ReadClaimEligibilityOptions,
 } from "./claim.js";
 
+// Reporting on a finished game, and leaving the game. Unsigned, like `claimPrizeTx`.
+// Both take the score participant origin, so wrap the signer in `withScoreParticipant`.
+export { offboardTx, reportTx } from "./report.js";
+export type { RawReportVote, ReportChain, ReportOptions, ReportVote } from "./report.js";
+
 // NFT claim credits, read through the `NftCreditsApi` runtime APIs because only they
 // serve the proof a claim on Asset Hub needs. The claimant is a `PlayerKey`, so the
 // credits of an account and of the alias the same person plays under are two reads.
