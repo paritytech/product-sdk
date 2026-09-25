@@ -17,9 +17,12 @@ const PRODUCT_URL = "http://localhost:5280";
 /**
  * Paseo Asset Hub config with a configurable RPC endpoint.
  *
+ * The genesis comes from the descriptor because the test SDK constant lags chain
+ * resets, and a stale one makes the host refuse the chain.
+ *
  * Override via `PASEO_AH_RPC` if the default RPC has outages. The override must
- * serve the same chain as `PASEO_ASSET_HUB.genesisHash`; a mirror on any other
- * genesis fails the chain handshake (seen as `Tracking stopped` / `BadProof`).
+ * serve the same chain as the descriptor genesis. A mirror on any other genesis
+ * fails the chain handshake, seen as `Tracking stopped` or `BadProof`.
  *
  * The chain matters more here than in the other demos: `Scarcity` and
  * `NftClaims` are not on every network the SDK supports, and `devnet-asset-hub`
