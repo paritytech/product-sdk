@@ -223,6 +223,21 @@ export { readCurrentGame } from "./game-read.js";
 export type { GameChain, GamePlayersChain, ReadCurrentGameOptions } from "./game-read.js";
 export type { PlayerKey } from "./player-key.js";
 
+// Best-block subscriptions over the same decoders as the pinned reads, for a UI that
+// follows the game live. Each returns its stop function and reports errors to `onError`.
+export { watchCurrentGame, watchParticipant, watchPlayer } from "./watch.js";
+export type {
+    CurrentGameWatchChain,
+    ParticipantWatchChain,
+    PlayerRecord,
+    PlayerWatchChain,
+    WatchAt,
+    WatchedBlock,
+    WatchedValue,
+    WatchErrorHandler,
+    WatchPlayerOptions,
+} from "./watch.js";
+
 // The roster of the running game. It exists from the end of the shuffle until
 // `PlayerProcess` drains it, which is exactly when `CurrentGame.playerCount` is set.
 export {

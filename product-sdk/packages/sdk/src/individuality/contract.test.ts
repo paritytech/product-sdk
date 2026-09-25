@@ -42,6 +42,7 @@ import type {
     ClaimChain,
     ConsumersChain,
     CreditCandidatesChain,
+    CurrentGameWatchChain,
     FeeEstimable,
     CreditsChain,
     GameChain,
@@ -52,6 +53,8 @@ import type {
     LiteSignUpChain,
     NetworkSuffixChain,
     PapiIndividualityChain,
+    ParticipantWatchChain,
+    PlayerWatchChain,
     PrizeStatusChain,
     RegisterChain,
     RegistrationEligibilityChain,
@@ -137,7 +140,8 @@ type FromPapiSatisfiesContracts = Assert<
         SignUpChain &
         LiteSignUpChain &
         CreditsChain &
-        CreditCandidatesChain
+        CreditCandidatesChain &
+        WatchChains
         ? true
         : false
 >;
@@ -369,6 +373,17 @@ type PreviewnetSatisfiesCreditCandidatesContract = Assert<
 >;
 type RejectsBogusRosterClient = Assert<
     ClientWithoutIndividuality extends RosterChain ? false : true
+>;
+
+// The watches take `watchValue` rather than `getValue`, which the pinned contracts
+// never name, so a PAPI release that changed its emission shape fails here.
+type WatchChains = CurrentGameWatchChain & PlayerWatchChain & ParticipantWatchChain;
+type PaseoSatisfiesWatchContracts = Assert<PaseoClient extends WatchChains ? true : false>;
+type PreviewnetSatisfiesWatchContracts = Assert<
+    PreviewnetClient extends WatchChains ? true : false
+>;
+type RejectsBogusWatchClient = Assert<
+    ClientWithoutIndividuality extends CurrentGameWatchChain ? false : true
 >;
 
 // The credits read is the one contract typed over runtime APIs rather than storage,
