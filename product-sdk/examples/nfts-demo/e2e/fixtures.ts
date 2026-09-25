@@ -4,25 +4,31 @@ import { test as base } from "@playwright/test";
 import {
     createTestHostFixture,
     PASEO_ASSET_HUB,
-    type ChainConfig,
+    type NetworkConfig,
+    type HexString,
     type TestHost,
 } from "@parity/host-api-test-sdk/playwright";
+import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
 
 const PRODUCT_URL = "http://localhost:5280";
 
 /**
  * Paseo Asset Hub config with a configurable RPC endpoint.
  *
+ * The genesis comes from the descriptor because the test SDK constant lags chain
+ * resets, and a stale one makes the host refuse the chain.
+ *
  * Override via `PASEO_AH_RPC` if the default RPC has outages. The override must
- * serve the same chain as `PASEO_ASSET_HUB.genesisHash`; a mirror on any other
- * genesis fails the chain handshake (seen as `Tracking stopped` / `BadProof`).
+ * serve the same chain as the descriptor genesis. A mirror on any other genesis
+ * fails the chain handshake, seen as `Tracking stopped` or `BadProof`.
  *
  * The chain matters more here than in the other demos: `Scarcity` and
  * `NftClaims` are not on every network the SDK supports, and `devnet-asset-hub`
  * carries neither.
  */
-const PASEO_AH: ChainConfig = {
+const PASEO_AH: NetworkConfig = {
     ...PASEO_ASSET_HUB,
+    genesisHash: paseo_asset_hub.genesis as HexString,
     rpcUrl: process.env.PASEO_AH_RPC ?? "wss://paseo-asset-hub-next-rpc.polkadot.io",
 };
 
@@ -34,8 +40,8 @@ const PASEO_AH: ChainConfig = {
 const bobFixture = createTestHostFixture({
     productUrl: PRODUCT_URL,
     accounts: ["bob"],
-    chain: PASEO_AH,
-    productAccounts: { "nfts-demo.dot/0": "bob" },
+    networks: [PASEO_AH],
+    productAccounts: { "nfts-demo.dot": "bob" },
 });
 
 export const test = base.extend<{ testHost: TestHost }>(bobFixture);

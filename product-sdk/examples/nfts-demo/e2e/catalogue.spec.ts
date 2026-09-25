@@ -56,7 +56,10 @@ test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
         await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("registered at #");
 
         // -- getCollections ---------------------------------------------
-        // Its own pinned block: two reads are two snapshots.
+        // Its own pinned block: two reads are two snapshots. The log line lands
+        // after the cells render, so waiting on it is what makes the cells safe
+        // to read.
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("getCollections:");
         expect(await numberIn(frame, "all-block")).toBeGreaterThan(0);
 
         const allIdsText = await frame.locator('[data-testid="all-ids"]').textContent();
