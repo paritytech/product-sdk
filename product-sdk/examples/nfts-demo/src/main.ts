@@ -16,7 +16,7 @@
  *   4. getCollectionItems(chain, id) -> the catalogue of that collection
  *   5. getCollectionItems(chain, MISSING_COLLECTION) -> `NotFound` on the ok
  *      channel, which is the part of the contract worth seeing in a UI
- *   6. getCredits(chain, { claimant }) -> every credit one account holds, read
+ *   6. getClaims(chain, { claimant }) -> every credit one account holds, read
  *      across the People chain and Asset Hub at one pinned block each
  *   7. previewClaim(chain, { credit, collections }) -> what that credit would
  *      mint in each claimable collection, from the real claim selector
@@ -38,7 +38,7 @@ import {
     getCollections,
     getClaimableCollections,
     getCollectionItems,
-    getCredits,
+    getClaims,
     getVerifiedArtwork,
     gatewaySource,
     previewClaim,
@@ -260,21 +260,21 @@ const CREDITS_CLAIMANT = {
 
 async function readCredits(): Promise<string | undefined> {
     if (!chain) return undefined;
-    const result = await getCredits(chain, { claimant: CREDITS_CLAIMANT });
+    const result = await getClaims(chain, { claimant: CREDITS_CLAIMANT });
     if (!result.ok) {
         $creditsCount.textContent = "error";
-        log(`getCredits failed: ${describeError(result.error)}`, "err");
+        log(`getClaims failed: ${describeError(result.error)}`, "err");
         return undefined;
     }
-    const { at, credits } = result.value;
+    const { at, claims } = result.value;
     $creditsBlock.textContent = String(at.individuality.blockNumber);
-    $creditsCount.textContent = String(credits.length);
+    $creditsCount.textContent = String(claims.length);
     const states = new Map<string, number>();
-    for (const credit of credits) states.set(credit.state, (states.get(credit.state) ?? 0) + 1);
+    for (const claim of claims) states.set(claim.state, (states.get(claim.state) ?? 0) + 1);
     $creditsStates.textContent =
         [...states.entries()].map(([state, n]) => `${state}:${n}`).join(",") || "-";
-    log(`getCredits: ${credits.length} credits at People #${at.individuality.blockNumber}`, "ok");
-    const withHash = credits.filter((c) => c.hash !== null);
+    log(`getClaims: ${claims.length} claims at People #${at.individuality.blockNumber}`, "ok");
+    const withHash = claims.filter((c) => c.hash !== null);
     return (withHash.find((c) => c.state === "claimable") ?? withHash[0])?.hash ?? undefined;
 }
 
@@ -384,7 +384,7 @@ declare global {
             getClaimableCollections: typeof getClaimableCollections;
             getCollections: typeof getCollections;
             getCollectionItems: typeof getCollectionItems;
-            getCredits: typeof getCredits;
+            getClaims: typeof getClaims;
             previewClaim: typeof previewClaim;
             readonly chain: ChainClient<{
                 assetHub: typeof paseo_asset_hub;
@@ -399,7 +399,7 @@ window.__NFTS__ = {
     getClaimableCollections,
     getCollections,
     getCollectionItems,
-    getCredits,
+    getClaims,
     previewClaim,
     get chain() {
         return chain;

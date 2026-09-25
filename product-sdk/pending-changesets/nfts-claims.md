@@ -3,7 +3,7 @@
 "@parity/product-sdk": minor
 ---
 
-**`getCredits(chain, { claimant })`: every NFT claim credit one claimant holds, with where each stands.**
+**`getClaims(chain, { claimant })`: every NFT claim credit one claimant holds, with where each stands.**
 
 A credit is awarded on the People chain and spent on Asset Hub, so this is the first read here that
 spans two chains. It takes `NftsChain & NftsCreditsChain`, the new contract for the People side plus
@@ -11,8 +11,8 @@ the two `NftClaims` entries on Asset Hub, and a client from `getChainAPI(...)` s
 once. Two blocks are pinned, one per chain, and both come back in `at`.
 
 ```ts
-const result = await getCredits(chain, { claimant: { tag: "Account", address } });
-// -> { at: { individuality, assetHub }, credits: [{ hash, awardBlock, awardedAt, gameIndex, leafIndex, state }] }
+const result = await getClaims(chain, { claimant: { tag: "Account", address } });
+// -> { at: { individuality, assetHub }, claims: [{ hash, awardBlock, awardedAt, gameIndex, leafIndex, proof, state }] }
 ```
 
 `state` is one of four. `earned` means the award block has no root on Asset Hub yet, so a claim
@@ -26,6 +26,10 @@ integrity failures, `RootMismatch`, `LeafCountMismatch` and `LeafIndexOutOfBound
 channel.
 
 
+
+Each claim carries the Merkle `proof` a mint spends, the sibling hashes from its leaf up to the
+root, so a later mint needs no second read. It is `null` for a block with no root yet and for an
+unprovable one.
 
 A claimant is `{ tag: "Account", address }` or `{ tag: "Person", alias }`. The pallet keys the two
 apart and nothing links them, so a player who moved from account to alias has to be read twice.

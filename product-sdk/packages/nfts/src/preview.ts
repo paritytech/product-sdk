@@ -23,7 +23,7 @@ import { isValidId } from "./paging.js";
 import type { FinalizedSnapshot, MintPreview, MintPreviewResult, RawMintOutcome } from "./types.js";
 
 export interface PreviewClaimOptions {
-    /** The credit hash, `0x` prefixed, as `getCredits` reports it. */
+    /** The credit hash, `0x` prefixed, as `getClaims` reports it. */
     credit: string;
     /** The collections to preview into, from `getClaimableCollections`. */
     collections: number[];

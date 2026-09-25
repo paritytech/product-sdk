@@ -254,7 +254,7 @@ export interface NftsChain {
  *
  * Credits are awarded on the People chain, which the chain client names
  * `individuality`, and become spendable on Asset Hub once their award block is
- * rooted there. So `getCredits` takes `NftsChain & NftsCreditsChain`, the same
+ * rooted there. So `getClaims` takes `NftsChain & NftsCreditsChain`, the same
  * composition `readCurrentGame` uses in `@parity/product-sdk-individuality`, and
  * the catalogue reads keep a contract that never asks for a chain they do not
  * read. A client from `getChainAPI(...)` satisfies both at once.
