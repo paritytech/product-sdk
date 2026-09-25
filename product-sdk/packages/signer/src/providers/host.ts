@@ -4,6 +4,7 @@ import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
     type ProductAccountLookup,
+    type ProductAccountSignerOptions,
     type RegisteredRingVrfKey,
     type RingLocation,
     type RingVrfKeyDisclosure,
@@ -147,6 +148,7 @@ export interface ContextualAlias {
 export type {
     DerivationIndex,
     ProductAccountLookup,
+    ProductAccountSignerOptions,
     ProductProofContext,
     RegisteredRingVrfKey,
     RingVrfKeyDisclosure,
@@ -195,7 +197,10 @@ export interface AccountsProvider {
         dotNsIdentifier: string,
         derivationIndex?: number,
     ) => NeverthrowResultAsync<RawAccount, unknown>;
-    getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+    getProductAccountSigner: (
+        account: ProductAccount,
+        options?: ProductAccountSignerOptions,
+    ) => import("polkadot-api").PolkadotSigner;
     registerRingVrfKey: (
         index: number,
         ring: RingLocation,
@@ -417,12 +422,19 @@ export class HostProvider implements SignerProvider {
      * Signing routes through the host's `createTransaction` path, so unknown
      * signed extensions (e.g. `AsPgas` on Paseo Next) are forwarded to the host
      * as opaque bytes for metadata-driven decoding.
+     *
+     * `options.extrinsicFormat` pins the envelope (`"v5"` for a call that must be
+     * a general transaction); omitted, the signer prefers the signed V4 envelope
+     * while the runtime offers it.
      */
-    getProductAccountSigner(account: ProductAccount): import("polkadot-api").PolkadotSigner {
+    getProductAccountSigner(
+        account: ProductAccount,
+        options?: ProductAccountSignerOptions,
+    ): import("polkadot-api").PolkadotSigner {
         if (!this.accountsProvider) {
             throw new Error("Host provider is not connected");
         }
-        return this.accountsProvider.getProductAccountSigner(account);
+        return this.accountsProvider.getProductAccountSigner(account, options);
     }
 
     /**
@@ -1508,7 +1520,8 @@ if (import.meta.vitest) {
             // The host accounts provider's getProductAccountSigner has a single
             // signing path (the host's `createTransaction`, which forwards opaque
             // signed extensions like AsPgas on Paseo Next). There is no PJS
-            // fallback to select, so it's called with just the account.
+            // fallback to select, so it's called with the account and, from the
+            // direct path, whatever signer options the caller passed.
             const rawAccounts: RawAccountTest[] = [
                 { publicKey: new Uint8Array(32).fill(0xaa), name: "Alice" },
             ];
@@ -1528,6 +1541,21 @@ if (import.meta.vitest) {
             });
             expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
                 expect.anything(),
+                undefined,
+            );
+
+            // Path 1 with a pinned envelope: the option reaches the accounts provider
+            provider.getProductAccountSigner(
+                {
+                    dotNsIdentifier: "test.dot",
+                    derivationIndex: 0,
+                    publicKey: rawAccounts[0].publicKey,
+                },
+                { extrinsicFormat: "v5" },
+            );
+            expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
+                expect.anything(),
+                { extrinsicFormat: "v5" },
             );
 
             // Path 2: getSigner() returned from HostProvider.getProductAccount(...)
