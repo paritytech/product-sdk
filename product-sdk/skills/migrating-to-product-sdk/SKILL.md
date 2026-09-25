@@ -223,7 +223,7 @@ For each of the 15 areas below, assign a **status** and pick a
 ### Sub-pattern selection per area
 
 - **(1) Bootstrap** → `createApp({ name, cloudStorage: <env|false>, logLevel })` lazy singleton in `lib/app.ts` (or equivalent). If framework is React, **prefer `ProductSDKProvider` + `useWallet`/`useStorage`/`useChain`** from `@parity/product-sdk/react` over a manual singleton — flag as opportunity even when current code is React-based but rolled its own provider. `cloudStorage: false` is **required** when area 9 is out of scope (default opens an unnecessary WebSocket).
-- **(2) Chain access** → preset path `getChainAPI('paseo')` (zero-config) vs BYOD `createChainClient({ chains })`. For container apps, also route via `getHostProvider(genesisHash)` from `@parity/product-sdk-host` with a direct-WS fallback. Cache the chain client **per-chain** so a single failed chain doesn't bring down the others. Note: 'paseo' resolves to **Paseo Next v2** chains in current SDK (`@parity/product-sdk-chain-client@0.4.1+`, `@parity/product-sdk-host@0.2.2+`, `@parity/product-sdk-cloud-storage@0.4.2+`).
+- **(2) Chain access** → preset path `getChainAPI('paseo')` (zero-config) vs BYOD `createChainClient({ chains })`. Both paths already route through the host provider (`getHostProvider(genesisHash)` from `@parity/product-sdk-host`) with no direct-WebSocket fallback, so don't wire one up; check reachability first with `isChainSupported(genesisHash)`. Cache the chain client **per-chain** so a single failed chain doesn't bring down the others. Note: 'paseo' resolves to **Paseo Next v2** chains in current SDK (`@parity/product-sdk-chain-client@0.4.1+`, `@parity/product-sdk-host@0.2.2+`, `@parity/product-sdk-cloud-storage@0.4.2+`).
 - **(3) Wallet / Signer** → `SignerManager` from `@parity/product-sdk-signer`. If Cloud Storage (9) is in scope, **also** call `app.wallet.connect()` + `app.wallet.selectAccount(addr)` after the existing connection flow so the App-bound signer is populated (gotcha G2).
 - **(4) Crypto** → `@parity/product-sdk-crypto`: `aesGcmEncryptText`/`Decrypt`, `boxEncrypt`/`Decrypt`, `deriveKey`, `randomBytes`, `nacl` re-export.
 - **(5) Utils** → `@parity/product-sdk-utils`: `bytesToHex`, `hexToBytes`, `utf8ToBytes`, `concatBytes`, `sha256`, `blake2b256`, `keccak256`, `formatPlanck`, `parseToPlanck`, `getBalance`. Prefer the leaf package over the `@parity/product-sdk/crypto` re-exports in new code.
@@ -264,7 +264,7 @@ illustrative — yours must reflect the actual repo):
 | #  | Area              | Status   | Sub-pattern                                     | Notes                              |
 |----|-------------------|----------|-------------------------------------------------|------------------------------------|
 | 1  | Bootstrap         | yes      | createApp({ name: '<repo>', cloudStorage: false }) | Singleton in lib/app.ts            |
-| 2  | Chain access      | yes      | getChainAPI('paseo') + getHostProvider fallback | dual; per-chain cache              |
+| 2  | Chain access      | yes      | getChainAPI('paseo')                            | host-routed; per-chain cache       |
 | 4  | Crypto            | yes      | replace tweetnacl + skiff-adapter               |                                    |
 | 6  | Key management    | deferred | KeyManager.fromSignature only                   | G3 — info-string mismatch persists |
 | 8  | App storage       | no       |                                                 | sessionStorage only                |

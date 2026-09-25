@@ -49,7 +49,8 @@ function configFingerprint(chains: Record<string, ChainDefinition>): string {
 }
 
 /**
- * Create a multi-chain client with user-provided descriptors and RPC endpoints.
+ * Create a multi-chain client with user-provided descriptors. No RPC endpoints are
+ * configured: the host resolves each connection from the descriptor's genesis hash.
  *
  * Returns fully-typed APIs for each chain plus raw `PolkadotClient` access via `.raw`.
  * Connections route through the host provider (`@parity/product-sdk-host`) — the SDK

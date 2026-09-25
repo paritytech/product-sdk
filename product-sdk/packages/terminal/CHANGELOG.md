@@ -1,5 +1,12 @@
 # @parity/product-sdk-terminal
 
+## 0.10.1
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.15.1
+- @parity/product-sdk-keys@0.4.1
+
 ## 0.10.0
 
 ### Minor Changes
