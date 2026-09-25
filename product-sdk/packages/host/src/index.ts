@@ -82,6 +82,8 @@ export type {
     AccountsProvider,
     WithDecodeError,
     DerivationIndex,
+    ExtrinsicFormat,
+    ProductAccountSignerOptions,
     HostAccount,
     ProductAccount,
     ProductAccountLookup,

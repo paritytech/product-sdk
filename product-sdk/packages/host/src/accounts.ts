@@ -17,7 +17,9 @@
  * metadata-driven `txExtVersion` and maps the signed extensions to the host's
  * wire shape; `signBytes` calls `signing.signRaw(WithLegacyAccount)`. No PJS
  * bridge is involved, so opaque signed extensions (e.g. Paseo Next's `AsPgas`)
- * survive end-to-end.
+ * survive end-to-end. A product signer defaults to the signed V4 envelope
+ * while the runtime offers it and can be pinned to the V5 general one with
+ * `{ extrinsicFormat: "v5" }` — see {@link ProductAccountSignerOptions}.
  *
  * Every one of those raw-signing paths `<Bytes>`-wraps the payload before the
  * key touches it. A runtime that verifies a bare-byte ownership proof — today
@@ -367,8 +369,15 @@ export interface AccountsProvider {
      * Build a `PolkadotSigner` for a product account. Signing routes through the
      * host's `createTransaction` path: the host decodes the metadata and forwards
      * the opaque signed-extension bytes, so unknown extensions survive end-to-end.
+     *
+     * By default the signer asks for the signed V4 envelope whenever the runtime
+     * offers it. Pass `{ extrinsicFormat: "v5" }` for a call that must be a V5
+     * general transaction — see {@link ProductAccountSignerOptions}.
      */
-    getProductAccountSigner(account: ProductAccount): PolkadotSigner;
+    getProductAccountSigner(
+        account: ProductAccount,
+        options?: ProductAccountSignerOptions,
+    ): PolkadotSigner;
     /**
      * Build a `PolkadotSigner` for one of the user's existing wallet accounts.
      * `name` is accepted for callsite ergonomics but unused — the signer is
@@ -392,21 +401,60 @@ export interface AccountsProvider {
     ): HostSubscription;
 }
 
+const V4_FORMAT_SELECTOR = 0;
 const V5_FORMAT_SELECTOR = 5;
+
+/**
+ * The extrinsic envelope a product-account signer asks the host to build.
+ *
+ * - `"v4"` — the signed extrinsic: the account signature sits in the envelope,
+ *   and the host forwards the supplied extension values as they are.
+ * - `"v5"` — the general transaction: authorization comes from the runtime's
+ *   transaction-extension pipeline. The host resolves that pipeline from the
+ *   chain, fills `VerifyMultiSignature` itself and refuses an extension list
+ *   that does not fit — which is what a call carrying an origin extension
+ *   (`withScoreParticipant`, `withLiteAlias`, `withAsPerson`, …) needs to come
+ *   out complete on every host.
+ */
+export type ExtrinsicFormat = "v4" | "v5";
+
+/** Options for {@link AccountsProvider.getProductAccountSigner}. */
+export interface ProductAccountSignerOptions {
+    /**
+     * Pin the envelope. Omitted, the signer prefers V4 while the runtime offers it
+     * and falls back to V5 on a V5-only runtime (the metadata alone cannot prove the
+     * connected host implements a runtime's V5 pipeline, so the SDK does not choose
+     * V5 on its own). A pinned format the runtime does not offer throws at `signTx`.
+     */
+    extrinsicFormat?: ExtrinsicFormat;
+}
 
 /**
  * Pick the `txExtVersion` for the host's `create_transaction` from the extrinsic formats
  * the runtime offers. The host treats the field as a format switch: `0` builds V4, `5`
- * builds a V5 general transaction, anything else is `NotSupported`. Prefer V4 while
- * offered, since it carries the account signature in its envelope. The host derives the
+ * builds a V5 general transaction, anything else is `NotSupported`. Unpinned, prefer V4
+ * while offered, since it carries the account signature in its envelope; pinned, send
+ * the requested format or throw when the runtime does not offer it. The host derives the
  * transaction-extension version from the metadata itself.
  */
-function selectHostTxExtVersion(formatVersions: readonly number[]): number {
+function selectHostTxExtVersion(
+    formatVersions: readonly number[],
+    format?: ExtrinsicFormat,
+): number {
     if (formatVersions.length === 0) {
         throw new Error("No extrinsic version found in metadata");
     }
+    if (format !== undefined) {
+        const wanted = format === "v4" ? 4 : 5;
+        if (!formatVersions.includes(wanted)) {
+            throw new Error(
+                `Runtime offers no extrinsic format ${wanted} (offers: ${formatVersions.join(", ")}); cannot pin the signer to ${format}.`,
+            );
+        }
+        return wanted === 4 ? V4_FORMAT_SELECTOR : V5_FORMAT_SELECTOR;
+    }
     if (formatVersions.includes(4)) {
-        return 0;
+        return V4_FORMAT_SELECTOR;
     }
     if (formatVersions.includes(5)) {
         return V5_FORMAT_SELECTOR;
@@ -416,8 +464,11 @@ function selectHostTxExtVersion(formatVersions: readonly number[]): number {
     );
 }
 
-function deriveTxExtVersion(metadata: Uint8Array): number {
-    return selectHostTxExtVersion(unifyMetadata(decAnyMetadata(metadata)).extrinsic.version);
+function deriveTxExtVersion(metadata: Uint8Array, format?: ExtrinsicFormat): number {
+    return selectHostTxExtVersion(
+        unifyMetadata(decAnyMetadata(metadata)).extrinsic.version,
+        format,
+    );
 }
 
 /** Internal seam so `import.meta.vitest` can stub the metadata decode. @internal */
@@ -616,8 +667,9 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     })),
             );
         },
-        getProductAccountSigner(account_) {
+        getProductAccountSigner(account_, options = {}) {
             const productAccountId = toWireProductAccountId(account_);
+            const { extrinsicFormat } = options;
 
             return {
                 publicKey: account_.publicKey,
@@ -633,7 +685,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                             genesisHash: toHex(checkGenesis.additionalSigned),
                             callData: toHex(callData),
                             extensions: toHostExtensions(signedExtensions),
-                            txExtVersion: deps.deriveTxExtVersion(metadata),
+                            txExtVersion: deps.deriveTxExtVersion(metadata, extrinsicFormat),
                         }),
                         "createTransaction failed",
                     );
@@ -756,6 +808,29 @@ if (import.meta.vitest) {
         expect(() => selectHostTxExtVersion([])).toThrow("No extrinsic version found in metadata");
     });
 
+    test("a pinned v5 sends the V5 selector on a dual V4/V5 runtime", () => {
+        expect(selectHostTxExtVersion([4, 5], "v5")).toBe(5);
+    });
+
+    test("a pinned v4 sends the V4 selector on a dual V4/V5 runtime", () => {
+        expect(selectHostTxExtVersion([4, 5], "v4")).toBe(0);
+    });
+
+    test("a pinned format the runtime does not offer throws, naming the formats", () => {
+        expect(() => selectHostTxExtVersion([4], "v5")).toThrow(
+            /no extrinsic format 5 \(offers: 4\); cannot pin the signer to v5/,
+        );
+        expect(() => selectHostTxExtVersion([5], "v4")).toThrow(
+            /no extrinsic format 4 \(offers: 5\); cannot pin the signer to v4/,
+        );
+    });
+
+    test("a pinned format still rejects metadata with no extrinsic version", () => {
+        expect(() => selectHostTxExtVersion([], "v5")).toThrow(
+            "No extrinsic version found in metadata",
+        );
+    });
+
     test("deriveTxExtVersion reads the format list out of every tracked chain's metadata", async () => {
         const { readFileSync, readdirSync } = await import("node:fs");
         const dir = new URL("../../descriptors/.papi/metadata/", import.meta.url);
@@ -766,6 +841,20 @@ if (import.meta.vitest) {
         for (const name of blobs) {
             const metadata = new Uint8Array(readFileSync(new URL(name, dir)));
             expect(deriveTxExtVersion(metadata), name).toBe(0);
+        }
+    });
+
+    test("deriveTxExtVersion pinned to v5 sends the V5 selector on every tracked chain", async () => {
+        const { readFileSync, readdirSync } = await import("node:fs");
+        const dir = new URL("../../descriptors/.papi/metadata/", import.meta.url);
+        const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
+
+        // Every deployed runtime also offers format 5, so the pin is honoured
+        // everywhere. Fails the day one drops it — which is then a runtime that
+        // cannot carry an origin extension at all.
+        for (const name of blobs) {
+            const metadata = new Uint8Array(readFileSync(new URL(name, dir)));
+            expect(deriveTxExtVersion(metadata, "v5"), name).toBe(5);
         }
     });
 
@@ -1251,6 +1340,34 @@ if (import.meta.vitest) {
             },
         ]);
         expect(signed).toEqual(fromHex("0xdead"));
+        vi.restoreAllMocks();
+    });
+
+    test("the product signer forwards a pinned extrinsic format into the txExtVersion derivation", async () => {
+        const derive = vi
+            .spyOn(deps, "deriveTxExtVersion")
+            .mockImplementation((_metadata, format) => (format === "v5" ? 5 : 0));
+        const calls: Array<[string, unknown]> = [];
+        const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
+        const provider = adaptAccountsProvider(client);
+        const account = {
+            dotNsIdentifier: "app.dot",
+            derivationIndex: 0,
+            publicKey: new Uint8Array(32).fill(0xaa),
+        };
+        const metadata = new Uint8Array([0x6d]);
+
+        await provider
+            .getProductAccountSigner(account, { extrinsicFormat: "v5" })
+            .signTx(new Uint8Array([0xca, 0x11]), sampleExtensions, metadata, 0);
+        expect(derive).toHaveBeenLastCalledWith(metadata, "v5");
+        expect(calls.at(-1)?.[1]).toMatchObject({ txExtVersion: 5 });
+
+        await provider
+            .getProductAccountSigner(account)
+            .signTx(new Uint8Array([0xca, 0x11]), sampleExtensions, metadata, 0);
+        expect(derive).toHaveBeenLastCalledWith(metadata, undefined);
+        expect(calls.at(-1)?.[1]).toMatchObject({ txExtVersion: 0 });
         vi.restoreAllMocks();
     });
 
