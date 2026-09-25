@@ -87,10 +87,12 @@
  *
  * # What this package deliberately does not do yet
  *
- * - **No runtime APIs.** Display metadata is read from the `CollectionMetadata`
- *   / `ItemMetadata` storage layers, which answer the same question and are
- *   carried by the pinned descriptor. `previewClaim` has no storage equivalent,
- *   so it waits on `NftClaimsApi.preview_mints` being reachable here.
+ * - **One runtime API, `preview_mints`, and no others.** Display metadata is
+ *   read from the `CollectionMetadata` / `ItemMetadata` storage layers, which
+ *   answer the same question and are carried by the pinned descriptor.
+ *   `previewClaim` has no storage equivalent, so it is the exception, and the
+ *   fidelity guard in `@parity/product-sdk` checks its signature against the
+ *   descriptor the same way it checks the storage entries.
  * - **No `transferability`.** It traces to `pallet_nfts`, not `Scarcity`, and has
  *   no source in the pallet. See {@link CollectionItem}.
  * - **`attributes` costs a prefix scan of the whole collection.** The typed
@@ -138,6 +140,10 @@ export type { GetCollectionItemsOptions } from "./items.js";
 export { getCredits, toClaimantKey } from "./credits.js";
 export type { GetCreditsOptions } from "./credits.js";
 
+// What a credit would mint, per collection, from the real claim selector.
+export { previewClaim } from "./preview.js";
+export type { PreviewClaimOptions } from "./preview.js";
+
 // The paging vocabulary every read shares: `limit` defaults to one constant and
 // caps at the other, and the scan budget is how far past `limit` a sparse page
 // may read before it comes back short.
@@ -178,6 +184,9 @@ export type {
     FinalizedSnapshot,
     ImageRef,
     ItemSelection,
+    MintPreview,
+    MintPreviewResult,
+    RawMintOutcome,
     PinnedReadOptions,
     ClaimableCollection,
     Collection,

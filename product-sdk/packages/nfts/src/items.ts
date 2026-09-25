@@ -58,7 +58,7 @@ function byItem(
 }
 
 /** `CollectionMetadata` rows into one raw bag. */
-function collectionBag(
+export function collectionBag(
     entries: Array<Entry<[number, RawBytes], RawMetadataEntry>>,
 ): Record<string, RawBytes> {
     const bag: Record<string, RawBytes> = Object.create(null);
@@ -71,7 +71,7 @@ function collectionBag(
 /** The overrides of a page that has no items, shared rather than reallocated. */
 const NO_OVERRIDES: ReadonlyMap<number, Record<string, RawBytes>> = new Map();
 
-function decodeBag(raw: Record<string, RawBytes>): Record<string, string> {
+export function decodeBag(raw: Record<string, RawBytes>): Record<string, string> {
     const decoded: Record<string, string> = Object.create(null);
     for (const [key, value] of Object.entries(raw)) {
         decoded[key] = decodeMetadataValue(value);
@@ -274,7 +274,7 @@ export async function getCollectionItems(
  * {@link imageRefFrom} reports `image` both ways and cannot recover bytes from a
  * decoded string.
  */
-async function readTypedKeys(
+export async function readTypedKeys(
     query: NftsChain["assetHub"]["query"],
     collection: number,
     indices: number[],

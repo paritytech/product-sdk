@@ -72,6 +72,7 @@ import type {
     Claimant,
     RawBytes,
     RawCreditAward,
+    RawMintOutcome,
     RawCreditProof,
     RawCreditRoot,
     RawMinter,
@@ -226,6 +227,18 @@ export interface NftsChain {
                         options: ReadAt,
                     ): Promise<Array<RawMinter | undefined>>;
                 };
+            };
+        };
+        apis: {
+            NftClaimsApi: {
+                /**
+                 * The real claim selector, run without a claim. One call takes a
+                 * batch of (credit, collection) pairs and answers positionally.
+                 */
+                preview_mints(
+                    queries: Array<{ credit: string; collection: number }>,
+                    options: ReadAt,
+                ): Promise<RuntimeResult<RawMintOutcome[]>>;
             };
         };
     };

@@ -83,6 +83,44 @@ export interface CreditsResult {
     credits: Credit[];
 }
 
+/**
+ * What claiming one credit into one collection would mint.
+ *
+ * `preview_mints` runs the real claim selector, so for a `Random` collection
+ * this is the item the claim will produce, and switching collection is the only
+ * way to change it. A `Contract` collection asks its contract, which can fail,
+ * and that failure is an outcome here rather than an error: the chain was asked
+ * and answered.
+ */
+export interface MintPreview {
+    collection: number;
+    outcome:
+        | {
+              tag: "Mints";
+              item: number;
+              via: ItemSelection;
+              /** The `name` metadata of the item, collection defaults inherited, or `null`. */
+              name: string | null;
+              /** The `rarity` metadata of the item, collection defaults inherited, or `null`. */
+              rarity: string | null;
+              /** The `image` metadata of the item, read both ways, or `null`. */
+              imageRef: ImageRef | null;
+          }
+        | { tag: "Fails"; reason: string };
+}
+
+/** What one `previewClaim` call returns. */
+export interface MintPreviewResult {
+    at: FinalizedSnapshot;
+    /** One per collection asked for, in the order asked. */
+    previews: MintPreview[];
+}
+
+/** One `NftClaimsApi.preview_mints` outcome, positionally matched to its query. */
+export type RawMintOutcome =
+    | { type: "Mints"; value: { item: number; via: { type: string; value?: unknown } } }
+    | { type: "Fails"; value: { reason: { type: string; value?: unknown } } };
+
 /** `NftCredits.NftClaimCreditRoots`, and the same shape `NftClaims.CreditTrees` stores. */
 export interface RawCreditRoot {
     game_index: number;

@@ -18,6 +18,8 @@
  *      channel, which is the part of the contract worth seeing in a UI
  *   6. getCredits(chain, { claimant }) -> every credit one account holds, read
  *      across the People chain and Asset Hub at one pinned block each
+ *   7. previewClaim(chain, { credit, collections }) -> what that credit would
+ *      mint in each claimable collection, from the real claim selector
  *
  * Live chain state decides what steps 2 to 4 report, so the Playwright suite
  * asserts shapes, a sorted registry, every claimable id present in the full
@@ -35,6 +37,7 @@ import {
     getClaimableCollections,
     getCollectionItems,
     getCredits,
+    previewClaim,
     NftsChainEntryError,
 } from "@parity/product-sdk-nfts";
 
@@ -68,6 +71,8 @@ const $missingTag = getEl<HTMLSpanElement>("missing-tag");
 const $creditsBlock = getEl<HTMLSpanElement>("credits-block");
 const $creditsCount = getEl<HTMLSpanElement>("credits-count");
 const $creditsStates = getEl<HTMLSpanElement>("credits-states");
+const $previewCount = getEl<HTMLSpanElement>("preview-count");
+const $previewOutcomes = getEl<HTMLSpanElement>("preview-outcomes");
 const $btnRefresh = getEl<HTMLButtonElement>("btn-refresh");
 const $log = getEl<HTMLElement>("nfts-log");
 
@@ -228,13 +233,13 @@ const CREDITS_CLAIMANT = {
     address: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
 } as const;
 
-async function readCredits(): Promise<void> {
-    if (!chain) return;
+async function readCredits(): Promise<string | undefined> {
+    if (!chain) return undefined;
     const result = await getCredits(chain, { claimant: CREDITS_CLAIMANT });
     if (!result.ok) {
         $creditsCount.textContent = "error";
         log(`getCredits failed: ${describeError(result.error)}`, "err");
-        return;
+        return undefined;
     }
     const { at, credits } = result.value;
     $creditsBlock.textContent = String(at.individuality.blockNumber);
@@ -244,6 +249,35 @@ async function readCredits(): Promise<void> {
     $creditsStates.textContent =
         [...states.entries()].map(([state, n]) => `${state}:${n}`).join(",") || "-";
     log(`getCredits: ${credits.length} credits at People #${at.individuality.blockNumber}`, "ok");
+    return credits.find((c) => c.state === "claimable")?.hash ?? credits[0]?.hash;
+}
+
+/**
+ * A credit to preview with when the demo account holds none. `preview_mints`
+ * runs the selector on whatever hash it is given, so a fixed one still shows
+ * what each collection would answer.
+ */
+const FALLBACK_CREDIT = `0x${"5c".repeat(32)}`;
+
+async function readPreview(collections: number[], credit: string): Promise<void> {
+    if (!chain) return;
+    const result = await previewClaim(chain, { credit, collections });
+    if (!result.ok) {
+        $previewCount.textContent = "error";
+        log(`previewClaim failed: ${describeError(result.error)}`, "err");
+        return;
+    }
+    const { previews } = result.value;
+    $previewCount.textContent = String(previews.length);
+    $previewOutcomes.textContent =
+        previews
+            .map((p) =>
+                p.outcome.tag === "Mints"
+                    ? `${p.collection}:item ${p.outcome.item}${p.outcome.name ? ` ${p.outcome.name}` : ""}`
+                    : `${p.collection}:${p.outcome.reason}`,
+            )
+            .join(", ") || "-";
+    log(`previewClaim: ${previews.length} outcomes for ${credit.slice(0, 10)}…`, "ok");
 }
 
 async function read(): Promise<void> {
@@ -281,7 +315,11 @@ async function read(): Promise<void> {
         const missing = await getCollectionItems(chain, MISSING_COLLECTION, { limit: 1 });
         $missingTag.textContent = missing.ok ? missing.value.tag : "error";
 
-        await readCredits();
+        const credit = (await readCredits()) ?? FALLBACK_CREDIT;
+        await readPreview(
+            collections.map((c) => c.id),
+            credit,
+        );
     } finally {
         $btnRefresh.disabled = false;
     }
@@ -321,6 +359,7 @@ declare global {
             getCollections: typeof getCollections;
             getCollectionItems: typeof getCollectionItems;
             getCredits: typeof getCredits;
+            previewClaim: typeof previewClaim;
             readonly chain: ChainClient<{
                 assetHub: typeof paseo_asset_hub;
                 individuality: typeof paseo_individuality;
@@ -335,6 +374,7 @@ window.__NFTS__ = {
     getCollections,
     getCollectionItems,
     getCredits,
+    previewClaim,
     get chain() {
         return chain;
     },
