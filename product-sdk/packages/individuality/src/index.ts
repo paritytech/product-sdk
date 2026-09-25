@@ -223,6 +223,32 @@ export { readCurrentGame } from "./game-read.js";
 export type { GameChain, GamePlayersChain, ReadCurrentGameOptions } from "./game-read.js";
 export type { PlayerKey } from "./player-key.js";
 
+// The roster of the running game. It exists from the end of the shuffle until
+// `PlayerProcess` drains it, which is exactly when `CurrentGame.playerCount` is set.
+export {
+    groupSeats,
+    numberOfGroups,
+    readCommunicationIdentifier,
+    readCreditCandidates,
+    readGroupMembers,
+    readPlayerIndices,
+} from "./roster.js";
+export type {
+    CommunicationIdentifierResult,
+    CreditCandidate,
+    CreditCandidatesChain,
+    CreditCandidatesResult,
+    GroupMember,
+    GroupMembersResult,
+    GroupSeat,
+    PlayerIndicesResult,
+    ReadCommunicationIdentifierOptions,
+    ReadCreditCandidatesOptions,
+    ReadGroupMembersOptions,
+    ReadPlayerIndicesOptions,
+    RosterChain,
+} from "./roster.js";
+
 // For callers holding their own PAPI client: build the chain shape without
 // `@parity/product-sdk-chain-client`.
 export { fromPapi } from "./chain.js";

@@ -41,6 +41,7 @@ import type {
     AirdropChain,
     ClaimChain,
     ConsumersChain,
+    CreditCandidatesChain,
     CreditsChain,
     GameChain,
     GamePlayersChain,
@@ -55,6 +56,7 @@ import type {
     RegistrationEligibilityChain,
     ReportChain,
     RingLocation as SdkRingLocation,
+    RosterChain,
     ScoreContextChain,
     SignUpChain,
     AccountVrfSignature,
@@ -132,7 +134,8 @@ type FromPapiSatisfiesContracts = Assert<
         ScoreContextChain &
         SignUpChain &
         LiteSignUpChain &
-        CreditsChain
+        CreditsChain &
+        CreditCandidatesChain
         ? true
         : false
 >;
@@ -348,6 +351,22 @@ type ReportVotesArePersonAndNotPerson = Assert<
             ? true
             : false
         : false
+>;
+
+// The roster reads, and the candidates read that adds `Game.Game` to them. The
+// batched `IndexToPlayer.getValues` takes `[round, index]` tuples as its single key.
+type PaseoSatisfiesRosterContract = Assert<PaseoClient extends RosterChain ? true : false>;
+type PreviewnetSatisfiesRosterContract = Assert<
+    PreviewnetClient extends RosterChain ? true : false
+>;
+type PaseoSatisfiesCreditCandidatesContract = Assert<
+    PaseoClient extends CreditCandidatesChain ? true : false
+>;
+type PreviewnetSatisfiesCreditCandidatesContract = Assert<
+    PreviewnetClient extends CreditCandidatesChain ? true : false
+>;
+type RejectsBogusRosterClient = Assert<
+    ClientWithoutIndividuality extends RosterChain ? false : true
 >;
 
 // The credits read is the one contract typed over runtime APIs rather than storage,

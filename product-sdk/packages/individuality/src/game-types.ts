@@ -19,7 +19,8 @@ import type { FinalizedSnapshot } from "./types.js";
 /**
  * The phase a game is in, named as the chain's `GameState` variant. Their payloads
  * are not decoded — offchain-worker cursors and sub-step markers, not anything a
- * product renders; `pendingAttendance` is the progress signal that is.
+ * product renders; `pendingAttendance` is the progress signal that is. The one
+ * exception is the player count, see {@link CurrentGame.playerCount}.
  */
 export type GamePhase =
     /** Sign-ups are open until `registrationEnds`. */
@@ -99,6 +100,13 @@ export interface CurrentGame {
     reportingEnds: number;
     maxGroupSize: number;
     rounds: number;
+    /**
+     * Players in the roster, which the group arithmetic of the roster reads needs.
+     *
+     * Known from the end of the shuffle until `PlayerProcess` clears the indices,
+     * and `null` outside that window, which is also when the roster reads are valid.
+     */
+    playerCount: number | null;
     /**
      * Registered players whose attendance is not settled yet. Reaches zero when
      * every player has been resolved, which can end the reporting phase early.
