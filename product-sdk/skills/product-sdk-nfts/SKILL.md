@@ -5,10 +5,11 @@ description: >
   collections a claim can mint into, every collection, and what one of them holds. Covers
   getClaimableCollections, getCollections and getCollectionItems, the one storage map that
   separates claimable from merely existing, the chain client they require and why a TypedApi is not
-  enough, the six
-  descriptor entries they touch and what a pruned whitelist does, the open metadata schema and
-  the two readings of ImageRef, why a missing collection is a success value rather than an error, and
-  the purse-scoped reads that do not exist yet.
+  enough, the descriptor entries they touch and what a pruned whitelist does, the open metadata
+  schema and the two readings of ImageRef, why a missing collection is a success value rather than
+  an error, getCredits across the People chain and Asset Hub with the four states a credit can be
+  in, previewClaim and why it is the item a claim will produce, getVerifiedArtwork and why bytes
+  are withheld unless they hash to the reference, and the purse-scoped reads that do not exist yet.
 ---
 
 # Product SDK NFTs
@@ -309,15 +310,57 @@ error with `isSdkError(e)` from `@parity/product-sdk-errors`.
 Every value in one result is read at a single pinned finalized block, reported as `at`
 (`{ blockHash, blockNumber }`). Two reads in sequence pin two blocks. A walk can outlive its pinned block. When a page fails on the `err` channel mid-walk, drop `at`, read again from the last `nextId`, and continue on the new snapshot.
 
+## Credits, Preview and Artwork
+
+Three more reads, for the claim side of the same pallets.
+
+`getCredits(chain, { claimant })` reads every NFT claim credit one claimant holds. A credit is
+awarded on the People chain and spent on Asset Hub, so this is the one read here that spans two
+chains: it takes `NftsChain & NftsCreditsChain`, pins one block on each, and reports both in `at`.
+A claimant is `{ tag: "Account", address }` or `{ tag: "Person", alias }`, and the pallet keys the
+two apart with nothing linking them, so a player who moved from account to alias has to be read
+twice. Each credit carries a `state`:
+
+| `state` | Meaning |
+|---|---|
+| `earned` | Awarded, and the award block has no root on Asset Hub yet. A claim would be refused. |
+| `claimable` | The root arrived and the leaf is unspent. |
+| `claimed` | The leaf is spent. The item it minted exists somewhere. Stays claimed after Asset Hub sweeps the tree. |
+| `unprovable` | The awards of the block are gone, pruned or expired. One entry per block, `hash: null`, credit count unknown. |
+
+An `earned` entry with `hash: null` is a block still to come. Pass only non-null hashes to
+`previewClaim`.
+
+`previewClaim(chain, { credit, collections })` answers what that credit would mint in each
+collection, in one `NftClaimsApi.preview_mints` call. It runs the real claim selector, so for a
+`Random` collection the preview is the item the claim will produce, and switching collection is the
+only way to change it. A collection the credit cannot mint into is a `Fails` outcome with the
+reason, not an error. The item that would mint is resolved through the same exact-key metadata path
+a catalogue page uses, so its `name`, `rarity` and `imageRef` agree with `getCollectionItems`.
+
+```typescript
+const registry = await getClaimableCollections(chain);
+if (!registry.ok) return;
+const preview = await previewClaim(chain, {
+    credit,
+    collections: registry.value.collections.map((c) => c.id),
+    at: registry.value.at,
+});
+```
+
+`getVerifiedArtwork(imageRef, { source })` turns an `ImageRef` into bytes, and only when the bytes
+hash to the digest the reference names. Where the bytes come from is the caller's `source`:
+`preimageSource(manager)` over the host preimage manager, whose key is the digest, or
+`gatewaySource(baseUrl)` over an IPFS gateway by CID. The four outcomes are all on the `ok` channel:
+`Verified` with the bytes, `Missing`, `Mismatch` with the bytes withheld, and `Unreadable` when the
+reference decodes to no address.
+
 ## Not Built Yet
 
 - **Nothing purse-scoped.** `getOwnedNfts`, `getNextEmptyPurse` and `findPurseHolding` need a purse
   primitive shared across apps, which the wallet does not expose. App-scoped product-account
   derivation is not a substitute: it is keyed by `productId`, so nothing derived under it can be
   shared between two apps.
-- **`previewClaim`.** It needs `NftClaimsApi.preview_mints`, which is not reachable through the
-  pinned descriptor, and has no storage equivalent. Display metadata needs no such API. The
-  `CollectionMetadata` / `ItemMetadata` storage layers answer the same question.
 
 ## Common Mistakes
 

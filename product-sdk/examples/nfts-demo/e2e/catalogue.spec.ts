@@ -161,4 +161,44 @@ test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
         expect(await numberIn(frame, "registry-block")).toBeGreaterThan(0);
         await expect(frame.locator('[data-testid="nfts-log"]')).not.toContainText("failed");
     });
+
+    test("credits read across both chains at one pinned block each", async ({ testHost }) => {
+        const frame = await waitForAppReady(testHost);
+
+        // The People block is the proof the second chain was reached. The count
+        // is whatever the dev account has earned, which a game can change, so
+        // only its shape is pinned.
+        await expect(frame.locator('[data-testid="credits-count"]')).not.toHaveText("-", {
+            timeout: 60_000,
+        });
+        expect(await numberIn(frame, "credits-block")).toBeGreaterThan(0);
+        expect(await numberIn(frame, "credits-count")).toBeGreaterThanOrEqual(0);
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("getCredits:");
+    });
+
+    test("a preview answers once per claimable collection", async ({ testHost }) => {
+        const frame = await waitForAppReady(testHost);
+
+        await expect(frame.locator('[data-testid="preview-count"]')).not.toHaveText("-", {
+            timeout: 60_000,
+        });
+        // One outcome per registered collection, whether it mints or fails.
+        const registered = await numberIn(frame, "registry-count");
+        expect(await numberIn(frame, "preview-count")).toBe(registered);
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("previewClaim:");
+    });
+
+    test("the artwork of the first item is fetched and checked against its reference", async ({
+        testHost,
+    }) => {
+        const frame = await waitForAppReady(testHost);
+
+        // A public gateway decides between Verified and Missing, so only the
+        // shape of the answer is pinned. Mismatch would mean the gateway served
+        // bytes under a name they do not hash to, which is worth failing on.
+        const tag = frame.locator('[data-testid="artwork-tag"]');
+        await expect(tag).not.toHaveText("-", { timeout: 60_000 });
+        expect(["Verified", "Missing", "Unreadable"]).toContain(await tag.textContent());
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("getVerifiedArtwork:");
+    });
 });

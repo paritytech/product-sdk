@@ -24,6 +24,7 @@
     },
     "dependencies": {
         "@parity/product-sdk-errors": "workspace:*",
+        "@parity/product-sdk-utils": "workspace:*",
         "@parity/result": "workspace:*"
     },
     "devDependencies": {

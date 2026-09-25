@@ -68,7 +68,7 @@
  *
  * # Descriptor whitelists
  *
- * These reads touch six entries:
+ * The catalogue reads touch six entries, all Asset Hub:
  *
  * ```
  * query.Scarcity.NextCollectionId     query.Scarcity.Collections
@@ -76,8 +76,19 @@
  * query.Scarcity.ItemMetadata         query.NftClaims.CollectionMinters
  * ```
  *
- * An app that prunes its own descriptors with a PAPI whitelist has to list all
- * six, including the ones its own code never reads. A missing entry surfaces as
+ * `previewClaim` adds one runtime API, `api.NftClaimsApi.preview_mints`, and
+ * `getCredits` adds two Asset Hub entries and four on the People chain:
+ *
+ * ```
+ * query.NftClaims.CreditTrees         query.NftClaims.ClaimedLeaves
+ * query.NftCredits.NftClaimCreditBlocks
+ * query.NftCredits.NftClaimCreditAwards
+ * api.NftCreditsApi.nft_claim_credit_roots
+ * api.NftCreditsApi.nft_claim_credit_proofs
+ * ```
+ *
+ * An app that prunes its own descriptors with a PAPI whitelist has to list every
+ * entry a read it calls touches, including the ones its own code never reads. A missing entry surfaces as
  * the PAPI `Incompatible runtime entry Storage(...)`, which reads like descriptor
  * drift; these reads report it as {@link NftsChainEntryError} instead, which
  * names the entry in its message and carries it on `entry`.
@@ -87,10 +98,12 @@
  *
  * # What this package deliberately does not do yet
  *
- * - **No runtime APIs.** Display metadata is read from the `CollectionMetadata`
- *   / `ItemMetadata` storage layers, which answer the same question and are
- *   carried by the pinned descriptor. `previewClaim` has no storage equivalent,
- *   so it waits on `NftClaimsApi.preview_mints` being reachable here.
+ * - **One runtime API, `preview_mints`, and no others.** Display metadata is
+ *   read from the `CollectionMetadata` / `ItemMetadata` storage layers, which
+ *   answer the same question and are carried by the pinned descriptor.
+ *   `previewClaim` has no storage equivalent, so it is the exception, and the
+ *   fidelity guard in `@parity/product-sdk` checks its signature against the
+ *   descriptor the same way it checks the storage entries.
  * - **No `transferability`.** It traces to `pallet_nfts`, not `Scarcity`, and has
  *   no source in the pallet. See {@link CollectionItem}.
  * - **`attributes` costs a prefix scan of the whole collection.** The typed
@@ -134,6 +147,24 @@ export type {
 export { getCollectionItems } from "./items.js";
 export type { GetCollectionItemsOptions } from "./items.js";
 
+// The credits read spans two chains, so it takes `NftsChain & NftsCreditsChain`.
+export { getCredits, toClaimantKey } from "./credits.js";
+export type { GetCreditsOptions } from "./credits.js";
+
+// What a credit would mint, per collection, from the real claim selector.
+export { previewClaim } from "./preview.js";
+export type { PreviewClaimOptions } from "./preview.js";
+
+// The bytes an image reference names, and only when they hash to it. No chain
+// read: the source is the caller's, the check is this package's.
+export { artworkAddress, gatewaySource, getVerifiedArtwork, preimageSource } from "./artwork.js";
+export type {
+    ArtworkAddress,
+    ArtworkSource,
+    GetVerifiedArtworkOptions,
+    VerifiedArtwork,
+} from "./artwork.js";
+
 // The paging vocabulary every read shares: `limit` defaults to one constant and
 // caps at the other, and the scan budget is how far past `limit` a sparse page
 // may read before it comes back short.
@@ -141,7 +172,7 @@ export { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, SCAN_BUDGET_FACTOR } from "./paging
 
 // The chain contract both reads take: the storage entries and the raw client
 // they pin with, structural so no genesis hash is pinned to read a catalogue.
-export type { Entry, NftsChain } from "./chain.js";
+export type { Entry, NftsChain, NftsCreditsChain } from "./chain.js";
 
 // `NftsChainEntryError` is the one worth narrowing on: it means the client
 // cannot read an entry this package needs, which no retry will fix.
@@ -164,19 +195,30 @@ export {
 
 // The shapes the reads return, and the raw storage shapes behind them.
 export type {
+    Claimant,
+    Credit,
+    CreditState,
+    CreditsResult,
     CollectionDetail,
     CollectionItem,
     CollectionItemsResult,
     FinalizedSnapshot,
     ImageRef,
     ItemSelection,
+    MintPreview,
+    MintPreviewResult,
+    RawMintOutcome,
     PinnedReadOptions,
     ClaimableCollection,
     Collection,
     RawBytes,
     RawCollection,
+    RawCreditAward,
+    RawCreditProof,
+    RawCreditRoot,
     RawItemDef,
     RawMetadataEntry,
     RawMinter,
     ReadAt,
+    RuntimeResult,
 } from "./types.js";

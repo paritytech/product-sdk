@@ -711,6 +711,9 @@ importers:
       '@parity/product-sdk-errors':
         specifier: workspace:*
         version: link:../errors
+      '@parity/product-sdk-utils':
+        specifier: workspace:*
+        version: link:../utils
       '@parity/result':
         specifier: workspace:*
         version: link:../result

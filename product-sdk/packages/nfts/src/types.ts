@@ -38,6 +38,122 @@ export interface PinnedReadOptions {
     signal?: AbortSignal;
 }
 
+/** Whose credits to read: the People chain keys them by account or by person alias. */
+export type Claimant = { tag: "Account"; address: string } | { tag: "Person"; alias: string };
+
+/**
+ * Where one credit stands between being awarded and being spent.
+ *
+ * `earned` means the People chain awarded it and Asset Hub has not yet received
+ * the root of its award block, so a claim would be refused. `claimable` means the
+ * root arrived and the leaf is unspent. `claimed` means the leaf is spent, so the
+ * item it minted exists somewhere and the credit is done. `unprovable` means the
+ * awards of the block are gone, pruned or expired, so the block counted but this
+ * read cannot say how many credits it held or produce the leaf a claim needs.
+ *
+ * An `earned` entry with a `null` hash is a block still to come: awarding spills
+ * into later blocks, and the credits are not known until that block is built.
+ */
+export type CreditState = "earned" | "claimable" | "claimed" | "unprovable";
+
+/** One NFT claim credit, as the People chain awarded it and Asset Hub sees it. */
+export interface Credit {
+    /**
+     * The credit hash, `0x` prefixed, as `NftClaimCreditAwards` stores it, or
+     * `null` when the awards of its block are gone and the hash with them. A
+     * `null` entry stands for a whole block, whose credit count is unknown.
+     */
+    hash: string | null;
+    /** The People chain block the credit was awarded in. */
+    awardBlock: number;
+    /**
+     * When the award block was rooted, in Unix seconds, or `null` for a block
+     * whose root has not been recorded yet.
+     */
+    awardedAt: number | null;
+    /** The game the award block belongs to, or `null` before its root exists. */
+    gameIndex: number | null;
+    /**
+     * Where the credit sits in the tree of its award block, which a proof binds
+     * to it and a claim spends, or `null` while the block is rootless or once
+     * its awards were pruned.
+     */
+    leafIndex: number | null;
+    state: CreditState;
+}
+
+/** What one `getCredits` call returns. */
+export interface CreditsResult {
+    /** Two chains, so two pinned blocks. Every value came from one or the other. */
+    at: { individuality: FinalizedSnapshot; assetHub: FinalizedSnapshot };
+    /** Newest award block first. */
+    credits: Credit[];
+}
+
+/**
+ * What claiming one credit into one collection would mint.
+ *
+ * `preview_mints` runs the real claim selector, so for a `Random` collection
+ * this is the item the claim will produce, and switching collection is the only
+ * way to change it. A `Contract` collection asks its contract, which can fail,
+ * and that failure is an outcome here rather than an error: the chain was asked
+ * and answered.
+ */
+export interface MintPreview {
+    collection: number;
+    outcome:
+        | {
+              tag: "Mints";
+              item: number;
+              via: ItemSelection;
+              /** The `name` metadata of the item, collection defaults inherited, or `null`. */
+              name: string | null;
+              /** The `rarity` metadata of the item, collection defaults inherited, or `null`. */
+              rarity: string | null;
+              /** The `image` metadata of the item, read both ways, or `null`. */
+              imageRef: ImageRef | null;
+          }
+        | { tag: "Fails"; reason: string };
+}
+
+/** What one `previewClaim` call returns. */
+export interface MintPreviewResult {
+    at: FinalizedSnapshot;
+    /** One per collection asked for, in the order asked. */
+    previews: MintPreview[];
+}
+
+/** One `NftClaimsApi.preview_mints` outcome, positionally matched to its query. */
+export type RawMintOutcome =
+    | { type: "Mints"; value: { item: number; via: { type: string; value?: unknown } } }
+    | { type: "Fails"; value: { reason: { type: string; value?: unknown } } };
+
+/** `NftCredits.NftClaimCreditRoots`, and the same shape `NftClaims.CreditTrees` stores. */
+export interface RawCreditRoot {
+    game_index: number;
+    root: string;
+    leaf_count: number;
+    timestamp: number;
+}
+
+/** One row of `NftCredits.NftClaimCreditAwards`. */
+export interface RawCreditAward {
+    claimant: { type: "Account" | "Person"; value: string };
+    credit: string;
+}
+
+/** One entry of a successful `NftCreditsApi.nft_claim_credit_proofs`. */
+export interface RawCreditProof {
+    credit: string;
+    leaf_index: number;
+    proof: unknown;
+}
+
+/** The runtime `Result` a PAPI runtime API call resolves to. */
+export type RuntimeResult<T, E = { type: string }> =
+    | { success: true; value: T }
+    | { success: false; value: E };
+
 /** Options every pinned storage read is given, so all of them agree on a block. */
 export interface ReadAt {
     at: string;

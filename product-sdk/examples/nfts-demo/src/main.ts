@@ -16,6 +16,12 @@
  *   4. getCollectionItems(chain, id) -> the catalogue of that collection
  *   5. getCollectionItems(chain, MISSING_COLLECTION) -> `NotFound` on the ok
  *      channel, which is the part of the contract worth seeing in a UI
+ *   6. getCredits(chain, { claimant }) -> every credit one account holds, read
+ *      across the People chain and Asset Hub at one pinned block each
+ *   7. previewClaim(chain, { credit, collections }) -> what that credit would
+ *      mint in each claimable collection, from the real claim selector
+ *   8. getVerifiedArtwork(item.imageRef, { source }) -> the bytes of the first
+ *      catalogue item, from the Bulletin gateway, only if they hash to the reference
  *
  * Live chain state decides what steps 2 to 4 report, so the Playwright suite
  * asserts shapes, a sorted registry, every claimable id present in the full
@@ -27,10 +33,15 @@ import { createChainClient } from "@parity/product-sdk-chain-client";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
 import type { FinalizedSnapshot } from "@parity/product-sdk-nfts";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+import { paseo_individuality } from "@parity/product-sdk-descriptors/paseo-individuality";
 import {
     getCollections,
     getClaimableCollections,
     getCollectionItems,
+    getCredits,
+    getVerifiedArtwork,
+    gatewaySource,
+    previewClaim,
     NftsChainEntryError,
 } from "@parity/product-sdk-nfts";
 
@@ -61,6 +72,13 @@ const $itemSupply = getEl<HTMLSpanElement>("item-supply");
 const $itemImageHex = getEl<HTMLSpanElement>("item-image-hex");
 const $itemImageText = getEl<HTMLSpanElement>("item-image-text");
 const $missingTag = getEl<HTMLSpanElement>("missing-tag");
+const $creditsBlock = getEl<HTMLSpanElement>("credits-block");
+const $creditsCount = getEl<HTMLSpanElement>("credits-count");
+const $creditsStates = getEl<HTMLSpanElement>("credits-states");
+const $previewCount = getEl<HTMLSpanElement>("preview-count");
+const $previewOutcomes = getEl<HTMLSpanElement>("preview-outcomes");
+const $artworkTag = getEl<HTMLSpanElement>("artwork-tag");
+const $artworkBytes = getEl<HTMLSpanElement>("artwork-bytes");
 const $btnRefresh = getEl<HTMLButtonElement>("btn-refresh");
 const $log = getEl<HTMLElement>("nfts-log");
 
@@ -71,7 +89,10 @@ function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void
 /** No `Scarcity.Collections` record can exist at u32 max, so this is always a miss. */
 const MISSING_COLLECTION = 4_294_967_295;
 
-let chain: ChainClient<{ assetHub: typeof paseo_asset_hub }> | null = null;
+let chain: ChainClient<{
+    assetHub: typeof paseo_asset_hub;
+    individuality: typeof paseo_individuality;
+}> | null = null;
 
 /**
  * `NftsChainEntryError` is the one failure worth reporting by class: it means
@@ -206,6 +227,83 @@ async function readCatalogue(id: number): Promise<void> {
     // `image` holds a content digest or an ASCII CID.
     $itemImageHex.textContent = item.imageRef?.hex ?? "-";
     $itemImageText.textContent = item.imageRef?.text ?? "-";
+
+    // The bytes behind that reference, and whether they are what it says.
+    const artwork = await getVerifiedArtwork(item.imageRef, {
+        source: gatewaySource(IPFS_GATEWAY),
+        signal: AbortSignal.timeout(ARTWORK_TIMEOUT_MS),
+    });
+    if (!artwork.ok) {
+        $artworkTag.textContent = "error";
+        log(`getVerifiedArtwork failed: ${describeError(artwork.error)}`, "err");
+        return;
+    }
+    $artworkTag.textContent = artwork.value.tag;
+    $artworkBytes.textContent =
+        artwork.value.tag === "Verified" ? String(artwork.value.bytes.length) : "-";
+    log(`getVerifiedArtwork: ${artwork.value.tag}`, "ok");
+}
+
+/** The public gateway in front of the Bulletin chain this deployment stores art on. */
+const IPFS_GATEWAY = "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs";
+const ARTWORK_TIMEOUT_MS = 20_000;
+
+/**
+ * The account whose credits the demo reads. Any account works, since the suite
+ * asserts the shape of the answer and not a count a game would change. Alice is
+ * the dev account every network carries.
+ */
+const CREDITS_CLAIMANT = {
+    tag: "Account",
+    address: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+} as const;
+
+async function readCredits(): Promise<string | undefined> {
+    if (!chain) return undefined;
+    const result = await getCredits(chain, { claimant: CREDITS_CLAIMANT });
+    if (!result.ok) {
+        $creditsCount.textContent = "error";
+        log(`getCredits failed: ${describeError(result.error)}`, "err");
+        return undefined;
+    }
+    const { at, credits } = result.value;
+    $creditsBlock.textContent = String(at.individuality.blockNumber);
+    $creditsCount.textContent = String(credits.length);
+    const states = new Map<string, number>();
+    for (const credit of credits) states.set(credit.state, (states.get(credit.state) ?? 0) + 1);
+    $creditsStates.textContent =
+        [...states.entries()].map(([state, n]) => `${state}:${n}`).join(",") || "-";
+    log(`getCredits: ${credits.length} credits at People #${at.individuality.blockNumber}`, "ok");
+    const withHash = credits.filter((c) => c.hash !== null);
+    return (withHash.find((c) => c.state === "claimable") ?? withHash[0])?.hash ?? undefined;
+}
+
+/**
+ * A credit to preview with when the demo account holds none. `preview_mints`
+ * runs the selector on whatever hash it is given, so a fixed one still shows
+ * what each collection would answer.
+ */
+const FALLBACK_CREDIT = `0x${"5c".repeat(32)}`;
+
+async function readPreview(collections: number[], credit: string): Promise<void> {
+    if (!chain) return;
+    const result = await previewClaim(chain, { credit, collections });
+    if (!result.ok) {
+        $previewCount.textContent = "error";
+        log(`previewClaim failed: ${describeError(result.error)}`, "err");
+        return;
+    }
+    const { previews } = result.value;
+    $previewCount.textContent = String(previews.length);
+    $previewOutcomes.textContent =
+        previews
+            .map((p) =>
+                p.outcome.tag === "Mints"
+                    ? `${p.collection}:item ${p.outcome.item}${p.outcome.name ? ` ${p.outcome.name}` : ""}`
+                    : `${p.collection}:${p.outcome.reason}`,
+            )
+            .join(", ") || "-";
+    log(`previewClaim: ${previews.length} outcomes for ${credit.slice(0, 10)}…`, "ok");
 }
 
 async function read(): Promise<void> {
@@ -242,6 +340,12 @@ async function read(): Promise<void> {
         // The miss is a success value, and reading it is the only way to see that.
         const missing = await getCollectionItems(chain, MISSING_COLLECTION, { limit: 1 });
         $missingTag.textContent = missing.ok ? missing.value.tag : "error";
+
+        const credit = (await readCredits()) ?? FALLBACK_CREDIT;
+        await readPreview(
+            collections.map((c) => c.id),
+            credit,
+        );
     } finally {
         $btnRefresh.disabled = false;
     }
@@ -257,7 +361,9 @@ async function init(): Promise<void> {
     log("Booting nfts-demo...");
 
     try {
-        chain = await createChainClient({ chains: { assetHub: paseo_asset_hub } });
+        chain = await createChainClient({
+            chains: { assetHub: paseo_asset_hub, individuality: paseo_individuality },
+        });
         $chainStatus.textContent = "connected";
         log("Chain client connected via the host", "ok");
     } catch (err) {
@@ -278,7 +384,12 @@ declare global {
             getClaimableCollections: typeof getClaimableCollections;
             getCollections: typeof getCollections;
             getCollectionItems: typeof getCollectionItems;
-            readonly chain: ChainClient<{ assetHub: typeof paseo_asset_hub }> | null;
+            getCredits: typeof getCredits;
+            previewClaim: typeof previewClaim;
+            readonly chain: ChainClient<{
+                assetHub: typeof paseo_asset_hub;
+                individuality: typeof paseo_individuality;
+            }> | null;
             MISSING_COLLECTION: number;
         };
     }
@@ -288,6 +399,8 @@ window.__NFTS__ = {
     getClaimableCollections,
     getCollections,
     getCollectionItems,
+    getCredits,
+    previewClaim,
     get chain() {
         return chain;
     },
