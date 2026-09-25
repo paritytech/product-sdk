@@ -311,9 +311,11 @@ export interface MintAccountAirdropVrfsOptions {
  * sixteen at once is hidden by an `AutoSigning` allowance until a product ships
  * without one.
  *
- * No local verification, though one bad entry fails the whole sign-up. Schnorrkel
- * VRF verification does not exist in this workspace, and the failure it guards
- * against is the wrong key, which the transcript binds and the width checks catch.
+ * No local verification, though one bad entry fails the whole sign-up. The failure
+ * it would guard against is the wrong key, which the transcript binds and the width
+ * checks catch.
+ *
+ * A script with no host signs with `localAirdropVrfSigner` from the `testing` subpath.
  */
 /**
  * The adapter is caller-written and usually unwraps a `Result`, so resolving with

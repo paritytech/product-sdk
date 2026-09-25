@@ -36,6 +36,7 @@ export * from "@parity/product-sdk-local-storage/testing";
 export * from "@parity/product-sdk-signer/testing";
 export * from "@parity/product-sdk-contracts/testing";
 export * from "@parity/product-sdk-host/testing";
+export * from "@parity/product-sdk-individuality/testing";
 
 /** Configurable behavior for the fake {@link WalletApi}. */
 export interface FakeWalletOptions {
