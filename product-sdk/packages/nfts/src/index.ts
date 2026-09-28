@@ -104,8 +104,6 @@
  *   `previewClaim` has no storage equivalent, so it is the exception, and the
  *   fidelity guard in `@parity/product-sdk` checks its signature against the
  *   descriptor the same way it checks the storage entries.
- * - **No `transferability`.** It traces to `pallet_nfts`, not `Scarcity`, and has
- *   no source in the pallet. See {@link CollectionItem}.
  * - **`attributes` costs a prefix scan of the whole collection.** The typed
  *   fields are keys this package can name, so a page fetches them for its window
  *   in one exact-key read. The keys of the open bag are not knowable in advance, so
@@ -217,6 +215,7 @@ export type {
     RawCreditProof,
     RawCreditRoot,
     RawItemDef,
+    Transferability,
     RawMetadataEntry,
     RawMinter,
     ReadAt,

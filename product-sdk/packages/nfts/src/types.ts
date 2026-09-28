@@ -270,6 +270,8 @@ export interface CollectionItem {
     supply: number;
     /** Instances currently alive, which is `supply` less those burned. */
     liveSupply: number;
+    /** Whether a minted instance can be sent on. A `Soulbound` one stays with its first owner. */
+    transferability: Transferability;
     /** The `name` metadata of the item, or `null` when neither it nor its collection sets one. */
     name: string | null;
     /**
@@ -310,11 +312,6 @@ export interface CollectionItem {
      * `1`, so the chain stored the text "21" there rather than a binary number.
      * A caller wanting a number parses the string and decides what a malformed
      * one means.
-     *
-     * `transferability` is absent on purpose. The field appears in earlier
-     * `pallet_nfts`-based designs (`CollectionSetting::TransferableItems`) and
-     * has no source in `Scarcity`. Neither `ItemDefs` nor any metadata key on
-     * the live chain carries it.
      */
     attributes: Record<string, string> | null;
 }
@@ -389,7 +386,11 @@ export interface RawCollection {
 export interface RawItemDef {
     supply: number;
     live_supply: number;
+    transferability: { type: Transferability };
 }
+
+/** Whether a minted instance of an item can be sent on, from `ItemDefs.transferability`. */
+export type Transferability = "Transferable" | "Soulbound";
 
 /** `NftClaims.CollectionMinters`. */
 export interface RawMinter {

@@ -278,8 +278,8 @@ const src = item.imageRef?.text            // an ASCII CID, when that is what is
     ?? cidFromDigest(item.imageRef?.hex);  // your own digest to CID step otherwise
 ```
 
-- `transferability` is **not** returned. It traces to `pallet_nfts`'
-  `CollectionSetting::TransferableItems` and has no source in `Scarcity`.
+- `transferability` is `Transferable` or `Soulbound`, from `ItemDefs`. A soulbound instance stays
+  with its first owner, so do not offer to send one.
 
 ## Results, and the One Success Value That Looks Like an Error
 

@@ -32,6 +32,7 @@ import type {
     FinalizedSnapshot,
     PinnedReadOptions,
     RawBytes,
+    RawItemDef,
     RawMetadataEntry,
     ReadAt,
 } from "./types.js";
@@ -151,10 +152,8 @@ export interface GetCollectionItemsOptions extends PinnedReadOptions {
  * otherwise return the catalogue of collection 0 labelled `id: NaN`, on the `ok`
  * channel, which no caller could tell from a real answer.
  *
- * **`transferability` is not returned.** The field in the original spec traces to
- * `pallet_nfts`' `CollectionSetting::TransferableItems` and has no source in
- * `Scarcity`: not in `ItemDefs`, and not in any metadata key the live chain
- * carries. It is left out rather than invented.
+ * `transferability` comes from the item definition, the same read that carries
+ * `supply`, so it costs nothing extra.
  *
  * @example
  * ```ts
@@ -246,6 +245,7 @@ export async function getCollectionItems(
                 index,
                 supply: def.supply,
                 liveSupply: def.live_supply,
+                transferability: def.transferability.type,
                 name: decoded.name ?? decodedDefaults.name ?? null,
                 imageRef: imageRefFrom([defaultBag, raw]),
                 rarity: decoded.rarity ?? decodedDefaults.rarity ?? null,
@@ -332,7 +332,16 @@ if (import.meta.vitest) {
 
     function fakeChain(state: {
         record?: { owner: string; item_count: number; next_item_index?: number };
-        defs?: Array<[number, { supply: number; live_supply: number }]>;
+        defs?: Array<
+            [
+                number,
+                {
+                    supply: number;
+                    live_supply: number;
+                    transferability?: RawItemDef["transferability"];
+                },
+            ]
+        >;
         itemMetadata?: Array<[number, Bag]>;
         collectionMetadata?: Bag;
     }) {
@@ -364,7 +373,9 @@ if (import.meta.vitest) {
                                 scans.push(`defs:${keys.map(([, i]) => i).join(",")}`);
                                 return keys.map(([, index]) => {
                                     const hit = (state.defs ?? []).find(([i]) => i === index);
-                                    return hit === undefined ? undefined : hit[1];
+                                    return hit === undefined
+                                        ? undefined
+                                        : { transferability: { type: "Transferable" }, ...hit[1] };
                                 });
                             },
                             getEntries: async (collection: number) => {
@@ -460,6 +471,7 @@ if (import.meta.vitest) {
                 index: 0,
                 supply: 1,
                 liveSupply: 1,
+                transferability: "Transferable",
                 name: "Hollow Beacon #0",
                 rarity: "common",
                 imageRef: { hex: `0x${"ab".repeat(32)}`, text: null },
@@ -792,6 +804,7 @@ if (import.meta.vitest) {
                 index: 0,
                 supply: 5,
                 liveSupply: 4,
+                transferability: "Transferable",
                 name: "Hollow Beacon #0",
                 rarity: "common",
                 imageRef: { hex: `0x${"ab".repeat(32)}`, text: null },
@@ -985,6 +998,25 @@ if (import.meta.vitest) {
                 signal: controller.signal,
             });
             expect(result.ok).toBe(false);
+        });
+    });
+
+    describe("getCollectionItems, transferability", () => {
+        test("a soulbound definition is reported as soulbound", async () => {
+            const { chain } = fakeChain({
+                record: { owner: "alice", item_count: 2, next_item_index: 2 },
+                defs: [
+                    [0, { supply: 1, live_supply: 1, transferability: { type: "Soulbound" } }],
+                    [1, { supply: 1, live_supply: 1, transferability: { type: "Transferable" } }],
+                ],
+            });
+            const result = await getCollectionItems(chain, 0);
+            expect(result.ok).toBe(true);
+            if (!result.ok || result.value.tag !== "Found") return;
+            expect(result.value.collection.items.map((i) => i.transferability)).toEqual([
+                "Soulbound",
+                "Transferable",
+            ]);
         });
     });
 

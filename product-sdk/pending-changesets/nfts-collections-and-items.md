@@ -155,9 +155,8 @@ as the PAPI `Incompatible runtime entry Storage(...)`, which reads like descript
 arrives as the new `NftsChainEntryError`, naming the entry in its message, carrying it on `entry`
 and the PAPI error as the `cause`.
 
-`transferability` is **not** returned. It traces to `pallet_nfts`'
-`CollectionSetting::TransferableItems` and has no source in `Scarcity`, not in `ItemDefs` and not in
-any metadata key the live chain carries.
+Each item carries `transferability`, `Transferable` or `Soulbound`, read from the same
+`Scarcity.ItemDefs` entry as `supply`, so it costs no extra read.
 
 **Paseo only.** `devnet-asset-hub` carries neither pallet, which `@parity/product-sdk`'s
 `src/nfts/contract.test.ts` pins as a negative control alongside the positive assertion that
