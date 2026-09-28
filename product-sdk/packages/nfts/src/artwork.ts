@@ -56,9 +56,9 @@ export interface GetVerifiedArtworkOptions {
  * nothing under that address. `Mismatch` means the source answered with bytes
  * that do not hash to the digest, which is the case this read exists for: they
  * are reported as absent rather than handed over. `Unreadable` means the
- * `ImageRef` could not be decoded into an address, or names a multihash other
- * than blake2b-256 or sha2-256 that this read cannot check, which is a metadata
- * problem rather than a source one.
+ * `ImageRef` could not be decoded into an address, is a CID with a codec other
+ * than raw, or names a multihash other than blake2b-256 or sha2-256 that this
+ * read cannot check, which is a metadata problem rather than a source one.
  */
 export type VerifiedArtwork =
     | { tag: "Verified"; address: ArtworkAddress; bytes: Uint8Array }
@@ -155,7 +155,9 @@ function decodeCid(cid: string): ArtworkAddress | null {
     const bytes = base32Decode(cid.slice(1));
     if (bytes === null || bytes[0] !== 1) return null;
     const codec = readVarint(bytes, 1);
-    if (codec === null) return null;
+    // Only a raw CID digests the file itself. A dag-pb digest covers the UnixFS
+    // node around it, so correct bytes would read as a mismatch.
+    if (codec === null || codec[0] !== RAW_CODEC) return null;
     const multihash = readVarint(bytes, codec[1]);
     if (multihash === null) return null;
     const length = readVarint(bytes, multihash[1]);
@@ -382,6 +384,14 @@ if (import.meta.vitest) {
             const { source } = sourceOf(null);
             const result = await getVerifiedArtwork(ref({}), { source });
             expect(result.ok && result.value.tag).toBe("Missing");
+        });
+
+        test("a dag-pb CID is unreadable without asking the source", async () => {
+            const dagPb = `b${base32Encode(new Uint8Array([1, 0x70, 0xa0, 0xe4, 0x02, 32, ...digest]))}`;
+            const { source, asked } = sourceOf(bytes);
+            const result = await getVerifiedArtwork({ hex: "0x00", text: dagPb }, { source });
+            expect(result.ok && result.value.tag).toBe("Unreadable");
+            expect(asked).toEqual([]);
         });
 
         test("a multihash this read cannot compute is unreadable, not a mismatch", async () => {
