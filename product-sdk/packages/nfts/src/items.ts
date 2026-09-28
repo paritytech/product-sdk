@@ -109,11 +109,16 @@ export interface GetCollectionItemsOptions extends PinnedReadOptions {
      * defaulting to `false`.
      *
      * The typed fields (`name`, `image`, `rarity`) are keys this package can name,
-     * so a page fetches them for its whole window in one exact-key read. The bag's
-     * keys are open by definition, so there is nothing to ask for by name: filling
-     * it means a prefix scan of **the whole collection's** item metadata. That is
-     * still one read, but its bytes scale with the catalogue rather than the page,
-     * which is exactly what paging is for.
+     * so a page fetches them for its whole window in one exact-key read. The keys
+     * of the bag are open by definition, so there is nothing to ask for by name:
+     * filling it means a prefix scan of the item metadata of **the whole
+     * collection**. That is still one read, but its bytes scale with the catalogue
+     * rather than the page, which is exactly what paging is for.
+     *
+     * Nothing on the client caps that read. Each key is at most `MaxKeyLen` and
+     * each value at most `MaxValueLen`, 32 and 256 bytes on Paseo today, but no
+     * runtime constant bounds how many keys an item definition carries, so the
+     * response is items times keys times up to 288 bytes.
      *
      * So: pass it for a collection you know is small, or when a caller genuinely
      * needs app-specific keys. Leave it off and `attributes` is `null`, meaning
