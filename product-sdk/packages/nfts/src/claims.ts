@@ -57,12 +57,23 @@ function sameClaimant(
 }
 
 /**
+ * The most award chunks a block holds, and the most awards in one chunk.
+ *
+ * The runtime has these as `CHUNKS_PER_TREE` and `AWARDS_PER_CHUNK` in
+ * `pallets/nft-credits/src/lib.rs` but exports neither as a constant, so they are
+ * pinned here. The chunk cap is what stops the walk on a node that keeps answering
+ * non-empty, and a chunk past the award cap means the bytes decoded as something
+ * the pallet cannot have written.
+ */
+const CHUNKS_PER_TREE = 64;
+const AWARDS_PER_CHUNK = 32;
+
+/**
  * How many award chunks one read asks for at a time.
  *
- * A block holds at most `CHUNKS_PER_TREE` chunks and one award reads one chunk,
- * so a game block during reporting can spill past a small window. The window
- * widens while its last chunk came back non-empty, so the cost is one keyed
- * read per window rather than one per chunk.
+ * Awards fill chunks in leaf order, so the first empty chunk ends the block. The
+ * window widens while its last chunk came back non-empty, so the cost is one keyed
+ * read per window rather than one per chunk, and at most four for a full block.
  */
 const CHUNK_WINDOW = 16;
 
@@ -72,15 +83,23 @@ async function readAwardChunks(
     at: ReadAt,
 ): Promise<RawCreditAward[]> {
     const found: RawCreditAward[] = [];
-    for (let from = 0; ; from += CHUNK_WINDOW) {
+    for (let from = 0; from < CHUNKS_PER_TREE; from += CHUNK_WINDOW) {
         const keys = Array.from(
             { length: CHUNK_WINDOW },
             (_, i) => [block, from + i] as [number, number],
         );
         const chunks = await awards.getValues(keys, at);
-        for (const chunk of chunks) found.push(...chunk);
+        for (const chunk of chunks) {
+            if (chunk.length > AWARDS_PER_CHUNK) {
+                throw new ProductNftsError(
+                    `award block ${block} has a chunk of ${chunk.length} awards, more than the ${AWARDS_PER_CHUNK} a chunk holds`,
+                );
+            }
+            found.push(...chunk);
+        }
         if ((chunks[chunks.length - 1]?.length ?? 0) === 0) return found;
     }
+    return found;
 }
 
 /**
@@ -493,6 +512,36 @@ if (import.meta.vitest) {
                 "awards:11:0..15",
                 "awards:11:16..31",
             ]);
+        });
+
+        test("a node that answers non-empty for every chunk stops at the chunk cap", async () => {
+            const rows = Array.from({ length: 200 }, (_, i) => ({
+                claimant: key,
+                credit: h(1000 + i),
+            }));
+            const { chain, calls } = fakeChain({ blocks: [11], roots: [], awards: { 11: rows } });
+            const result = await getClaims(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            // One award a chunk in the fake, 64 chunks a block, four windows of 16.
+            expect(result.value.claims).toHaveLength(64);
+            expect(calls.filter((c) => c.startsWith("awards:11"))).toEqual([
+                "awards:11:0..15",
+                "awards:11:16..31",
+                "awards:11:32..47",
+                "awards:11:48..63",
+            ]);
+        });
+
+        test("a chunk with more awards than a chunk can hold lands on the err channel", async () => {
+            const { chain } = fakeChain({ blocks: [11], roots: [] });
+            const awards = chain.individuality.query.NftCredits.NftClaimCreditAwards as {
+                getValues: (keys: Array<[number, number]>) => Promise<unknown[][]>;
+            };
+            awards.getValues = async (keys) =>
+                keys.map(() => Array.from({ length: 33 }, () => ({ claimant: key, credit: h(7) })));
+            const result = await getClaims(chain, { claimant });
+            expect(result.ok).toBe(false);
         });
 
         test("a pruned block is reported as unprovable rather than dropped", async () => {
