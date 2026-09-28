@@ -90,6 +90,11 @@ test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
         await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("accepting no claims");
 
         // -- getCollections, paged by id window ----------------------------
+        // `readPaged` runs several round trips after the log line, and writes
+        // `paged-pages` once the walk is done, after `all-id-ceiling`.
+        await expect(frame.locator('[data-testid="paged-pages"]')).not.toHaveText("-", {
+            timeout: 60_000,
+        });
         // The id space is bounded by `NextCollectionId`, which is exclusive, so
         // it is at least as large as the highest live id plus one.
         const ceiling = await numberIn(frame, "all-id-ceiling");
