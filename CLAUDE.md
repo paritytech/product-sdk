@@ -91,6 +91,7 @@ When the user's question matches a skill, invoke it via the `Skill` tool rather 
 - `product-sdk-contracts` — contract calls (queries, txs).
 - `product-sdk-cloud-storage` — cloud-storage chain client.
 - `product-sdk-statement-store` — statement store.
+- `product-sdk-nfts` — Scarcity collection and item-catalogue reads, the descriptor entries they need, and the open metadata schema.
 - `product-sdk-individuality` — personhood / membership state reads, the account to username read, the game and its prize draws, the account and lite sign-up paths, the two-transaction lite bind flow, full-personhood registration, ring-VRF proof contexts and ring locations, and the person, lite-alias and score-participant origin extensions.
 - `product-sdk-pocket-cards` — Pocket cards: building a face, checking it, and drawing it from a worker.
 - `product-sdk-utilities` — address, crypto, logger, local-storage, utils.
