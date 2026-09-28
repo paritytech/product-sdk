@@ -42,7 +42,6 @@
  */
 import type { UserSession } from "@novasamatech/host-papp";
 import { NoAllowanceError } from "@novasamatech/statement-store";
-import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 import { AllowanceExpiredError } from "@parity/product-sdk-signer/errors";
 import { toHex } from "@polkadot-api/utils";
@@ -147,7 +146,7 @@ type PapiSignedExtensions = Parameters<PolkadotSigner["signTx"]>[1];
  * these plus `txExtVersion` to assemble and sign the extrinsic.
  *
  * Pure and synchronous so the wire-shape contract can be unit-tested without a
- * paired phone; the metadata decode + SSO round-trip live in {@link makeTxSignTx}.
+ * paired phone; the SSO round-trip lives in {@link makeTxSignTx}.
  */
 function buildCreateTransactionRequest(
     productAccountId: ProductAccountId,
@@ -184,40 +183,20 @@ function buildCreateTransactionRequest(
     };
 }
 
-const V5_FORMAT_SELECTOR = 5;
-
 /**
- * Pick the `txExtVersion` for the paired host's `createTransaction` from the extrinsic
- * formats the runtime offers. The host treats the field as a format switch: `0` builds
- * V4, `5` builds a V5 general transaction, anything else is `NotSupported`. Prefer V4
- * while offered, since it carries the account signature in its envelope. The host
- * derives the transaction-extension version from the metadata itself.
+ * The transaction extension version every `createTransaction` payload names.
+ * PAPI encodes the signed extensions it hands to `signTx` for version 0, and
+ * rejects metadata without one, so the payload always follows that version.
+ * The wallet chooses V4 or V5 from it and the runtime metadata.
  */
-function selectTxExtVersion(formatVersions: readonly number[]): number {
-    if (formatVersions.length === 0) {
-        throw new Error("No extrinsic version found in metadata");
-    }
-    if (formatVersions.includes(4)) {
-        return 0;
-    }
-    if (formatVersions.includes(5)) {
-        return V5_FORMAT_SELECTOR;
-    }
-    throw new Error(
-        `Runtime offers no extrinsic format 4 or 5 (offers: ${formatVersions.join(", ")}); the host protocol has no txExtVersion for it.`,
-    );
-}
-
-function txExtVersionFromMetadata(metadata: Uint8Array): number {
-    return selectTxExtVersion(unifyMetadata(decAnyMetadata(metadata)).extrinsic.version);
-}
+const PAPI_TX_EXT_VERSION = 0;
 
 /**
  * Send the request to the paired wallet's `createTransaction` and unwrap it.
  *
  * Extracted and named so the SSO round-trip + error handling can be
- * unit-tested without a real phone or chain metadata; the metadata decode and
- * payload assembly live in {@link makeTxSignTx} / {@link buildCreateTransactionRequest}.
+ * unit-tested without a real phone; payload assembly lives in
+ * {@link makeTxSignTx} / {@link buildCreateTransactionRequest}.
  */
 async function requestSignedTransaction(
     session: UserSession,
@@ -246,14 +225,14 @@ function makeTxSignTx(
     session: UserSession,
     productAccountId: ProductAccountId,
 ): PolkadotSigner["signTx"] {
-    return async (callData, signedExtensions, metadata) =>
+    return async (callData, signedExtensions) =>
         requestSignedTransaction(
             session,
             buildCreateTransactionRequest(
                 productAccountId,
                 callData,
                 signedExtensions,
-                txExtVersionFromMetadata(metadata),
+                PAPI_TX_EXT_VERSION,
             ),
         );
 }
@@ -608,49 +587,9 @@ if (import.meta.vitest) {
 
     describe("buildCreateTransactionRequest — tx payload (the AsPgas fix)", () => {
         // Asserts the wire shape handed to the wallet. The full PAPI signTx →
-        // metadata decode → SSO round-trip is exercised by the manual smoke
+        // SSO round-trip is exercised by the manual smoke
         // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
         // a real phone.
-
-        test("prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
-            expect(selectTxExtVersion([4, 5])).toBe(0);
-        });
-
-        test("uses the V5 selector when the runtime offers no V4", () => {
-            expect(selectTxExtVersion([5])).toBe(5);
-        });
-
-        test("maps a V4-only runtime to the wire sentinel", () => {
-            expect(selectTxExtVersion([4])).toBe(0);
-        });
-
-        test("prefers V5 over a format it does not know", () => {
-            // max(formats) would send 6, which no host accepts.
-            expect(selectTxExtVersion([5, 6])).toBe(5);
-        });
-
-        test("rejects a runtime offering neither format 4 nor 5", () => {
-            expect(() => selectTxExtVersion([6])).toThrow(/no extrinsic format 4 or 5/i);
-        });
-
-        test("rejects metadata with no extrinsic version", () => {
-            expect(() => selectTxExtVersion([])).toThrow("No extrinsic version found in metadata");
-        });
-
-        test("txExtVersionFromMetadata reads the format list out of every tracked chain's metadata", async () => {
-            const { readFileSync, readdirSync } = await import("node:fs");
-            const { join } = await import("node:path");
-            // Not new URL(): without treeshake the literal reaches dist, and bundlers resolve it.
-            const dir = join(import.meta.dirname, "..", "..", "descriptors", ".papi", "metadata");
-            const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
-
-            expect(blobs.length, "raise when a chain is added").toBeGreaterThanOrEqual(11);
-            // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
-            for (const name of blobs) {
-                const metadata = new Uint8Array(readFileSync(join(dir, name)));
-                expect(txExtVersionFromMetadata(metadata), name).toBe(0);
-            }
-        });
 
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
 
