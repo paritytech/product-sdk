@@ -412,6 +412,7 @@ if (import.meta.vitest) {
             streak: { tag: "Attended", count: 0 },
             attendanceHistory: 0,
             reachedPersonhood: false,
+            hasEverReachedPersonhood: false,
             recognition: "NotRecognized",
             lastAttendedGame: null,
             ...overrides,
@@ -449,6 +450,7 @@ if (import.meta.vitest) {
             streak: { type: "Attended", value: 3 },
             attendance_history: 0b111,
             reached_personhood: false,
+            has_ever_reached_personhood: false,
             recognition: { type: "NotRecognized" },
             last_attended_game: 14,
         };
