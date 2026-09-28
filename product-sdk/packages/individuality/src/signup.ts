@@ -519,6 +519,13 @@ export interface SignUpFunds {
      * finalized block, which can be newer than `at`.
      */
     estimatedFee: bigint | null;
+    /**
+     * The raw free balance, which is more than a sign-up can spend.
+     *
+     * The fee cannot come out of frozen funds, and neither the fee nor the deposit
+     * may take the account below the existential deposit. So `deposit + estimatedFee
+     * <= free` can pass while the sign-up fails.
+     */
     free: bigint;
     /** `null` when the chain spec does not publish it. */
     decimals: number | null;
