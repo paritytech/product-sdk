@@ -5,7 +5,8 @@
  * in. Each public read pins its own, so two in sequence pin two — {@link pinBlock}
  * lets a composing read pin once and hand the snapshot down.
  */
-import type { FinalizedSnapshot } from "./types.js";
+import { ProductIndividualityError } from "./errors.js";
+import type { BlockAt, FinalizedSnapshot } from "./types.js";
 
 /** Options every pinned storage read is given, so all of them agree on a block. */
 export interface ReadAt {
@@ -22,6 +23,8 @@ export interface PinnedChain {
     raw: {
         individuality: {
             getFinalizedBlock(): Promise<{ hash: string; number: number }>;
+            /** Needed only by a read asked for `"best"`. PAPI's `PolkadotClient` has it. */
+            getBestBlocks?(): Promise<{ hash: string; number: number }[]>;
         };
     };
 }
@@ -34,13 +37,28 @@ export interface PinnedChain {
 export async function pinBlock(
     chain: PinnedChain,
     signal: AbortSignal | undefined,
-    snapshot?: FinalizedSnapshot,
+    snapshot?: BlockAt,
 ): Promise<FinalizedSnapshot> {
     signal?.throwIfAborted();
+    if (snapshot === "best") {
+        return pinBest(chain);
+    }
     if (snapshot !== undefined) {
         return snapshot;
     }
     const block = await chain.raw.individuality.getFinalizedBlock();
+    return { blockHash: block.hash, blockNumber: block.number };
+}
+
+async function pinBest(chain: PinnedChain): Promise<FinalizedSnapshot> {
+    const source = chain.raw.individuality;
+    if (source.getBestBlocks === undefined) {
+        throw new ProductIndividualityError("the chain client cannot read the best block");
+    }
+    const [block] = await source.getBestBlocks();
+    if (block === undefined) {
+        throw new ProductIndividualityError("the chain client reported no best block");
+    }
     return { blockHash: block.hash, blockNumber: block.number };
 }
 
@@ -85,6 +103,30 @@ if (import.meta.vitest) {
             const { chain, fetches } = fakeChain();
             expect(await pinBlock(chain, undefined, SNAPSHOT)).toBe(SNAPSHOT);
             expect(fetches()).toBe(0);
+        });
+
+        test("pins the newest best block when asked for best", async () => {
+            const { chain, fetches } = fakeChain();
+            const best = { hash: `0x${"77".repeat(32)}`, number: 79 };
+            const withBest: PinnedChain = {
+                raw: {
+                    individuality: {
+                        ...chain.raw.individuality,
+                        getBestBlocks: async () => [best, BLOCK],
+                    },
+                },
+            };
+            expect(await pinBlock(withBest, undefined, "best")).toEqual({
+                blockHash: best.hash,
+                blockNumber: best.number,
+            });
+            expect(fetches()).toBe(0);
+        });
+
+        test("refuses best on a client that cannot read it", async () => {
+            await expect(pinBlock(fakeChain().chain, undefined, "best")).rejects.toThrow(
+                "the chain client cannot read the best block",
+            );
         });
 
         test("an aborted signal throws before any round trip", async () => {

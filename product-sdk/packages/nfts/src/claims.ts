@@ -35,6 +35,13 @@ export interface GetClaimsOptions {
     claimant: Claimant;
     /** Join a block another Asset Hub read already pinned. */
     at?: FinalizedSnapshot;
+    /**
+     * The People block to read the awards at. Omit it for the latest finalized
+     * block. `"best"` reads the newest best block, so an award in a block a
+     * best-block watch just saw is already there, and needs a client with
+     * `getBestBlocks`.
+     */
+    individualityAt?: FinalizedSnapshot | "best";
     /** Forwarded into every underlying pull, so an aborted caller stops the batch. */
     signal?: AbortSignal;
 }
@@ -161,7 +168,7 @@ export async function getClaims(
     try {
         const { claimant, signal } = options;
         const [people, assetHub] = await Promise.all([
-            pinFinalized(chain.raw.individuality, signal),
+            pinFinalized(chain.raw.individuality, signal, options.individualityAt),
             pinBlock(chain, signal, options.at),
         ]);
         const peopleAt = readAt(people, signal);
@@ -401,6 +408,25 @@ if (import.meta.vitest) {
             expect(calls.filter((c) => c.startsWith("proofs") || c.startsWith("claimed"))).toEqual(
                 [],
             );
+        });
+
+        test("reads the People awards at the best block when asked", async () => {
+            const { chain } = fakeChain({ blocks: undefined });
+            const best = { hash: `0x${"bb".repeat(32)}`, number: 99 };
+            (
+                chain.raw.individuality as { getBestBlocks?: () => Promise<(typeof best)[]> }
+            ).getBestBlocks = async () => [best];
+            const result = await getClaims(chain, { claimant, individualityAt: "best" });
+            expect(result.ok && result.value.at).toEqual({
+                individuality: { blockHash: best.hash, blockNumber: best.number },
+                assetHub: { blockHash: ASSET_HUB.hash, blockNumber: ASSET_HUB.number },
+            });
+        });
+
+        test("refuses a best People read on a client that cannot make it", async () => {
+            const { chain } = fakeChain({ blocks: undefined });
+            const result = await getClaims(chain, { claimant, individualityAt: "best" });
+            expect(!result.ok && result.error.message).toMatch(/cannot read the best block/);
         });
 
         test("a rooted block whose root reached Asset Hub is claimable, and claimed once spent", async () => {

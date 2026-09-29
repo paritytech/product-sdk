@@ -54,6 +54,7 @@ import { bytesToHex } from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
 import type { GameChain } from "./game-read.js";
 import { pinBlock, readAt, type ReadAt } from "./pinned.js";
+import type { BlockAt } from "./types.js";
 import {
     ringCollectionId,
     runScoreContextRead,
@@ -192,6 +193,12 @@ export interface ReadLiteSignUpRequirementOptions {
     now?: number;
     /** Required when the chain publishes no suffix, and wins when it does. */
     tld?: string;
+    /**
+     * The block to read at. Omit it for the latest finalized block. `"best"` reads
+     * the newest best block, which follows a best-block watch without lagging
+     * finality but can still be retracted, and needs a client with `getBestBlocks`.
+     */
+    at?: BlockAt;
     signal?: AbortSignal;
 }
 
@@ -255,7 +262,7 @@ export async function readLiteSignUpRequirement(
             );
         }
 
-        const snapshot = await pinBlock(chain, signal);
+        const snapshot = await pinBlock(chain, signal, options.at);
         const at = readAt(snapshot, signal);
         const query = chain.individuality.query;
 
@@ -613,6 +620,28 @@ if (import.meta.vitest) {
             expect(value.variant).toBe("Account");
             expect(value.airdropsScheduled).toBe(2);
             expect(value.eventIds).toHaveLength(2);
+        });
+
+        test("reads at the best block when asked, so a bind in a best block counts", async () => {
+            const { chain } = fakeChain({ binding: BOUND, invited: ACCOUNT });
+            const best = { hash: `0x${"bb".repeat(32)}`, number: 43 };
+            const atBest = {
+                ...chain,
+                raw: {
+                    individuality: {
+                        ...chain.raw.individuality,
+                        getBestBlocks: async () => [best],
+                    },
+                },
+            };
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(atBest, {
+                    account: ACCOUNT,
+                    now: 1_000,
+                    at: "best",
+                }),
+            );
+            expect(value.at).toEqual({ blockHash: best.hash, blockNumber: best.number });
         });
 
         test("no invite pin yet is the first sign-up, not a blocker", async () => {

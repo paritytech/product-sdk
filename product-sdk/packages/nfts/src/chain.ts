@@ -67,6 +67,7 @@
  * `limit` is how many the call opens. `getEntries` is the genuinely
  * single-operation read here, and the one whose bytes scale with the collection.
  */
+import { ProductNftsError } from "./errors.js";
 import type { FinalizedSnapshot, RawCollection, RawItemDef, RawMetadataEntry } from "./types.js";
 import type {
     Claimant,
@@ -332,6 +333,8 @@ export interface NftsCreditsChain {
     raw: {
         individuality: {
             getFinalizedBlock(): Promise<{ hash: string; number: number }>;
+            /** Needed only when `getClaims` is asked for `individualityAt: "best"`. */
+            getBestBlocks?(): Promise<{ hash: string; number: number }[]>;
         };
     };
 }
@@ -363,11 +366,23 @@ export async function pinBlock(
 
 /** The pin itself, for whichever chain a read addresses. */
 export async function pinFinalized(
-    raw: { getFinalizedBlock(): Promise<{ hash: string; number: number }> },
+    raw: {
+        getFinalizedBlock(): Promise<{ hash: string; number: number }>;
+        getBestBlocks?(): Promise<{ hash: string; number: number }[]>;
+    },
     signal: AbortSignal | undefined,
-    given?: FinalizedSnapshot,
+    given?: FinalizedSnapshot | "best",
 ): Promise<FinalizedSnapshot> {
     signal?.throwIfAborted();
+    if (given === "best") {
+        if (raw.getBestBlocks === undefined) {
+            throw new ProductNftsError("the chain client cannot read the best block");
+        }
+        const [best] = await raw.getBestBlocks();
+        if (best === undefined)
+            throw new ProductNftsError("the chain client reported no best block");
+        return { blockHash: best.hash, blockNumber: best.number };
+    }
     // A caller that already has a snapshot is joining it rather than opening a
     // new one: several reads, or several pages of one read, addressing a single
     // block. It costs no round trip, and the abort check above still applies.

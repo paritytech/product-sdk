@@ -76,6 +76,7 @@
 // The seven-state union, its wrappers, and the pinned-block coordinates.
 export type {
     AbsenceGracePolicy,
+    BlockAt,
     FinalizedSnapshot,
     PersonhoodInputs,
     PersonhoodMetrics,

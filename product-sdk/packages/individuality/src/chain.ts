@@ -26,6 +26,8 @@
 /** The one raw-client method the pinned reads use. Structural, so `PolkadotClient` fits. */
 export interface FinalizedBlockSource {
     getFinalizedBlock(): Promise<{ hash: string; number: number }>;
+    /** Needed only by a read asked for `"best"`. */
+    getBestBlocks?(): Promise<{ hash: string; number: number }[]>;
 }
 
 /** What {@link fromPapi} returns, with the typed API preserved. */

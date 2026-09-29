@@ -74,11 +74,18 @@ export type PersonhoodState =
      */
     | { tag: "Suspended" };
 
-/** The finalized block every read in a result was pinned to. */
+/**
+ * The block every read in a result was pinned to.
+ *
+ * It is the latest finalized block unless the caller asked for `"best"`.
+ */
 export interface FinalizedSnapshot {
     blockHash: string;
     blockNumber: number;
 }
+
+/** A block to read at: a snapshot already pinned, or `"best"` for the newest best block. */
+export type BlockAt = FinalizedSnapshot | "best";
 
 /**
  * The absence-grace policy currently in force, decoded from
