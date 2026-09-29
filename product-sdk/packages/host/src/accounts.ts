@@ -13,9 +13,9 @@
  *
  * The signer factories build a PAPI `PolkadotSigner` directly over
  * `truApi.signing.createTransaction` (product) /
- * `createTransactionWithLegacyAccount` (legacy) — `signTx` derives the
- * metadata-driven `txExtVersion` and maps the signed extensions to the host's
- * wire shape; `signBytes` calls `signing.signRaw(WithLegacyAccount)`. No PJS
+ * `createTransactionWithLegacyAccount` (legacy). `signTx` sends the fixed
+ * `PAPI_TX_EXT_VERSION` (`0`) as `txExtVersion` and maps signed extensions to the
+ * host's wire shape; `signBytes` calls `signing.signRaw(WithLegacyAccount)`. No PJS
  * bridge is involved, so opaque signed extensions (e.g. Paseo Next's `AsPgas`)
  * survive end-to-end.
  *
