@@ -4,13 +4,13 @@
  * @parity/product-sdk
  *
  * Unified SDK for building products on the Polkadot ecosystem.
+ * App identity comes from the host and scopes wallet accounts and local storage.
  *
  * @example
  * ```ts
  * import { createApp } from '@parity/product-sdk';
  *
- * const app = createApp({
- *   name: 'my-app',
+ * const app = await createApp({
  *   logLevel: 'info',
  * });
  *
@@ -30,6 +30,7 @@ export { configure, createLogger } from "./core/logger.js";
 export type {
     App,
     AppConfig,
+    AppInfo,
     LogLevel,
     WalletApi,
     LocalStorageApi,

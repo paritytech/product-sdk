@@ -12,17 +12,17 @@
 import type {
     ChatBotRegistrationStatus,
     ChatRoomRegistrationStatus,
-    CustomRendererNode,
     HostChatActionSubscribeItem,
     HostChatCreateRoomRequest,
     HostChatRegisterBotRequest,
-    ObservableSource,
-    ProductChatCustomMessageRenderRequest,
+    HostRendererActionSubscribeItem,
+    RendererNode,
     TrUApiClient,
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
 import { getNativeChatManager, isNativeChatHost } from "./nativeChat.js";
+import { type RenderHandler, registerRenderContext, renderFailure } from "./renderer.js";
 import { fromHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -40,20 +40,26 @@ export type ChatRoomRegistrationResult = ChatRoomRegistrationStatus;
 export type ChatBotRegistrationResult = ChatBotRegistrationStatus;
 
 /** Request delivered when the host needs a native tree for a stored custom message. */
-export type ChatCustomMessageRenderingRequest = Omit<
-    ProductChatCustomMessageRenderRequest,
-    "payload"
-> & {
+export interface ChatCustomMessageRenderingRequest {
+    messageId: string;
+    messageType: string;
     payload: Uint8Array;
     subscribeActions(
         callback: (actionId: string, payload: Uint8Array | undefined) => void,
     ): VoidFunction;
-};
+}
+
+/** Minimal push source: what a rendering request handler returns. */
+export interface ObservableSource<Item> {
+    subscribe(observer: { next?(value: Item): void; error?(error: unknown): void }): {
+        unsubscribe(): void;
+    };
+}
 
 /** Product callback that streams native renderer trees for one custom message. */
 export type ChatCustomMessageRenderingRequestHandler = (
     request: ChatCustomMessageRenderingRequest,
-) => ObservableSource<CustomRendererNode>;
+) => ObservableSource<RendererNode>;
 
 /** Registration returned by the custom-message renderer channel. */
 export interface ChatCustomMessageRenderingRegistration {
@@ -91,9 +97,10 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
     const actionListeners = new Set<ActionListener>();
     const rendererActionListeners = new Map<string, Set<RendererActionListener>>();
     let actionSubscription: HostSubscription | undefined;
+    let rendererActionSubscription: HostSubscription | undefined;
 
     const stopActionsIfUnused = () => {
-        if (actionListeners.size > 0 || rendererActionListeners.size > 0) return;
+        if (actionListeners.size > 0) return;
         actionSubscription?.unsubscribe();
         actionSubscription = undefined;
     };
@@ -103,13 +110,6 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
 
         actionSubscription = subscribeWithInterrupt(chat.actionSubscribe(), (action) => {
             for (const listener of actionListeners) listener.next(action);
-
-            if (action.payload.tag !== "ActionTriggered") return;
-            const { messageId: actionMessageId, actionId, payload } = action.payload.value;
-            const decodedPayload = payload === undefined ? undefined : fromHex(payload);
-            for (const listener of rendererActionListeners.get(actionMessageId) ?? []) {
-                listener(actionId, decodedPayload);
-            }
         });
         actionSubscription.onInterrupt((reason) => {
             actionSubscription = undefined;
@@ -117,9 +117,34 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
         });
     };
 
+    const stopRendererActionsIfUnused = () => {
+        if (rendererActionListeners.size > 0) return;
+        rendererActionSubscription?.unsubscribe();
+        rendererActionSubscription = undefined;
+    };
+
+    const ensureRendererActionSubscription = () => {
+        if (rendererActionSubscription) return;
+
+        rendererActionSubscription = subscribeWithInterrupt(
+            client.renderer.actionSubscribe(),
+            ({ context, actionId, payload }) => {
+                if (context.tag !== "ChatMessage") return;
+                // A button press carries an empty payload.
+                const decodedPayload = payload === "0x" ? undefined : fromHex(payload);
+                for (const listener of rendererActionListeners.get(context.value.messageId) ?? []) {
+                    listener(actionId, decodedPayload);
+                }
+            },
+        );
+        rendererActionSubscription.onInterrupt(() => {
+            rendererActionSubscription = undefined;
+        });
+    };
+
     const disposeRendererActions = () => {
         rendererActionListeners.clear();
-        stopActionsIfUnused();
+        stopRendererActionsIfUnused();
     };
 
     const subscribeRendererActions = (
@@ -130,12 +155,12 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
             rendererActionListeners.get(messageId) ?? new Set<RendererActionListener>();
         listeners.add(callback);
         rendererActionListeners.set(messageId, listeners);
-        ensureActionSubscription();
+        ensureRendererActionSubscription();
 
         return () => {
             listeners.delete(callback);
             if (listeners.size === 0) rendererActionListeners.delete(messageId);
-            stopActionsIfUnused();
+            stopRendererActionsIfUnused();
         };
     };
 
@@ -192,14 +217,29 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
             };
         },
         onCustomMessageRenderingRequest(handler) {
-            const registration = chat.onCustomMessageRender((request) =>
-                handler({
-                    messageId: request.messageId,
-                    messageType: request.messageType,
-                    payload: fromHex(request.payload),
-                    subscribeActions: (callback) =>
-                        subscribeRendererActions(request.messageId, callback),
-                }),
+            const registration = registerRenderContext(
+                client,
+                "ChatMessage",
+                ({ context, payload }, send, interrupt) => {
+                    if (context.tag !== "ChatMessage") return;
+                    const { messageId, messageType } = context.value;
+                    const subscription = handler({
+                        messageId,
+                        messageType,
+                        payload: fromHex(payload),
+                        subscribeActions: (callback) =>
+                            subscribeRendererActions(messageId, callback),
+                    }).subscribe({
+                        next: send,
+                        error: (error) =>
+                            interrupt(
+                                renderFailure(
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                            ),
+                    });
+                    return () => subscription.unsubscribe();
+                },
             );
 
             return {
@@ -248,14 +288,11 @@ if (import.meta.vitest) {
     });
 
     test("custom renderer requests decode payloads and receive message-scoped actions", () => {
-        let renderHandler:
-            | ((
-                  request: ProductChatCustomMessageRenderRequest,
-              ) => ObservableSource<CustomRendererNode>)
-            | undefined;
+        let renderHandler: RenderHandler | undefined;
         let actionObserver: ((action: HostChatActionSubscribeItem) => void) | undefined;
-        const stopRender = vi.fn();
+        let rendererActionObserver: ((action: HostRendererActionSubscribeItem) => void) | undefined;
         const stopActions = vi.fn();
+        const stopRendererActions = vi.fn();
         const actionSubscribe = vi.fn(() => ({
             subscribe(observer: { next?(action: HostChatActionSubscribeItem): void }) {
                 actionObserver = observer.next;
@@ -268,13 +305,26 @@ if (import.meta.vitest) {
                 return this;
             },
         }));
+        const rendererActionSubscribe = vi.fn(() => ({
+            subscribe(observer: { next?(action: HostRendererActionSubscribeItem): void }) {
+                rendererActionObserver = observer.next;
+                return {
+                    subscriptionId: "renderer-action-subscription",
+                    unsubscribe: stopRendererActions,
+                };
+            },
+            [Symbol.observable]() {
+                return this;
+            },
+        }));
         const client = {
-            chat: {
-                onCustomMessageRender(handler: typeof renderHandler) {
+            chat: { actionSubscribe },
+            renderer: {
+                onRender(handler: RenderHandler) {
                     renderHandler = handler;
-                    return { unsubscribe: stopRender };
+                    return { unsubscribe: () => undefined };
                 },
-                actionSubscribe,
+                actionSubscribe: rendererActionSubscribe,
             },
         } as unknown as TrUApiClient;
         const manager = adaptChatManager(client);
@@ -293,11 +343,11 @@ if (import.meta.vitest) {
                 subscribe: () => ({ unsubscribe: () => undefined }),
             };
         });
-        renderHandler?.({
-            messageId: "message-1",
-            messageType: "result",
-            payload: "0x0102",
-        });
+        const context = {
+            tag: "ChatMessage" as const,
+            value: { roomId: "room-1", messageId: "message-1", messageType: "result" },
+        };
+        renderHandler?.({ context, payload: "0x0102" }, vi.fn(), vi.fn());
         const postedAction: HostChatActionSubscribeItem = {
             roomId: "room-1",
             peer: "peer-1",
@@ -314,18 +364,20 @@ if (import.meta.vitest) {
                 tag: "ActionTriggered",
                 value: {
                     messageId: "message-1",
-                    actionId: "flip-again",
+                    actionId: "host-drawn",
                     payload: "0x03",
                 },
             },
         });
+        rendererActionObserver?.({ context, actionId: "flip-again", payload: "0x03" });
 
         expect(actionSubscribe).toHaveBeenCalledOnce();
+        expect(rendererActionSubscribe).toHaveBeenCalledOnce();
         expect(receivedMessages).toHaveLength(2);
         expect(receivedMessages[0]).toEqual(postedAction);
         expect(receivedActions).toEqual([["flip-again", Uint8Array.of(3)]]);
         registration.unsubscribe();
-        expect(stopRender).toHaveBeenCalledOnce();
+        expect(stopRendererActions).toHaveBeenCalledOnce();
         expect(stopActions).not.toHaveBeenCalled();
         messageSubscription.unsubscribe();
         expect(stopActions).toHaveBeenCalledOnce();

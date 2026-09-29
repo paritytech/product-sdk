@@ -31,20 +31,9 @@
  * The origin works, the call does not: `sig`, the statement-account proof, is a
  * bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it.
  *
- * Order inside `signTx` is not arbitrary, and getting it wrong produces a bad
- * proof with nothing local to read:
- *
- * 1. `RestrictOrigins` to `true`. It sits after `AsPerson`, so it is inside the
- *    hash, and the origin-restriction pallet rejects the call outright when it is
- *    false against a person origin.
- * 2. For the proof variant, `VerifyMultiSignature` to `Disabled`, which tells the
- *    host to assemble an unsigned general transaction. That is what makes the
- *    origin `None`, which is the only origin that variant accepts.
- * 3. Hash the implication, which now covers the final value of every slot after
- *    `AsPerson`.
- * 4. Ask for the proof over that hash.
- * 5. Write `AsPerson` last. Its own value is outside its own hash, which is what
- *    makes steps 3 and 5 orderable at all.
+ * The order inside `signTx` is `withOriginExtension`'s, in
+ * `origin-extension.ts`. Getting it wrong produces a bad proof with nothing
+ * local to read, which is why it lives in one place.
  */
 import type { PolkadotSigner } from "polkadot-api";
 
@@ -54,7 +43,6 @@ import {
     type ExtensionPipeline,
     encodeAsPersonInfo,
     encodeChecked,
-    decodeCheckNonce,
     readExtensionPipeline,
 } from "./as-person-codec.js";
 import {
@@ -64,42 +52,22 @@ import {
     reviseMessage,
 } from "./as-person-implication.js";
 import { AsPersonError } from "./errors.js";
+import {
+    CHECK_NONCE,
+    RESTRICT_ORIGINS,
+    VERIFY_SIGNATURE,
+    cachedPipelineReader,
+    nonceFrom,
+    requestProof,
+    type CreateRingVRFProof,
+    type RingVRFProof,
+    withOriginExtension,
+    withSlot,
+} from "./origin-extension.js";
 
-/**
- * A ring VRF proof and the values the chain needs to verify it.
- *
- * Structurally compatible with the host's `RingVRFProof`, and declared here
- * rather than imported so this package needs no dependency on
- * `@parity/product-sdk-host`. Same approach as `IndividualityChain`, and the
- * umbrella package asserts the two stay compatible at compile time.
- */
-export interface RingVRFProof {
-    /** Raw ring VRF proof bytes. */
-    proof: Uint8Array;
-    /** The alias the proof commits to, and the 32-byte context it is bound to. */
-    contextualAlias: { context: Uint8Array; alias: Uint8Array };
-    /** Index of the ring the proof was generated against. */
-    ringIndex: number;
-    /** Revision of that ring at generation time. */
-    ringRevision: number;
-}
-
-/**
- * Produce a ring VRF proof over `message`.
- *
- * Wire this to `SignerManager.createRingVRFProof(keyHandle, context, location,
- * message)`, or to any other call that returns a proof for the context the chain
- * expects.
- *
- * **The message is computed here and must not be chosen by the caller.** It is
- * blake2-256 of the call implication, which depends on the nonce, the era, the
- * tip and every other extension after `AsPerson`. A proof over anything else
- * fails on chain as a bad proof.
- *
- * The context is taken from the returned proof, not from the request, so
- * whichever call mints the proof decides it.
- */
-export type CreateRingVRFProof = (message: Uint8Array) => Promise<RingVRFProof>;
+// Re-exported from the shared plumbing, so the types stay importable from where
+// consumers found them before `withLiteAlias` moved them to `origin-extension.ts`.
+export type { CreateRingVRFProof, RingVRFProof } from "./origin-extension.js";
 
 /**
  * Which person origin the transaction should run under.
@@ -140,101 +108,6 @@ export type AsPersonInfo =
      */
     | { tag: "AliasWithAccountRevised"; createProof: CreateRingVRFProof };
 
-/** Metadata identifier of the extension that carries the host's signature. */
-const VERIFY_SIGNATURE = "VerifyMultiSignature";
-
-/** Metadata identifier of the origin-restriction extension. */
-const RESTRICT_ORIGINS = "RestrictOrigins";
-
-/** Metadata identifier of the nonce extension. */
-const CHECK_NONCE = "CheckNonce";
-
-/**
- * Set one slot's value, keeping the map in the order the chain declares.
- *
- * The order matters less than it looks: the host resolves V5 extension slots by
- * name. But a V4 body is a plain concatenation, where a reordered map shifts
- * every slot after the first difference, so the order is preserved rather than
- * relied upon not to matter.
- *
- * The implicit half is carried through untouched when the slot already exists,
- * and encoded from the chain's own declared type when it does not. That second
- * case is `VerifyMultiSignature`, which PAPI omits entirely whenever the host is
- * the one signing.
- */
-function withSlot(
-    pipeline: ExtensionPipeline,
-    extensions: PapiSignedExtensions,
-    identifier: string,
-    value: Uint8Array,
-): PapiSignedExtensions {
-    const slot = pipeline.slot(identifier);
-    const existing = extensions[identifier];
-    const additionalSigned =
-        existing?.additionalSigned ??
-        // Throws unless the declared implicit is empty, which is the only case
-        // this package can fill on the chain's behalf.
-        encodeChecked(pipeline.codec(slot.implicit), undefined);
-
-    const next: PapiSignedExtensions = {
-        ...extensions,
-        [identifier]: { identifier, value, additionalSigned },
-    };
-
-    return Object.fromEntries(
-        pipeline.extensions
-            .filter((declared) => declared.identifier in next)
-            .map((declared) => [declared.identifier, next[declared.identifier]]),
-    ) as PapiSignedExtensions;
-}
-
-/** Read the account nonce out of the slot PAPI already filled. */
-function nonceFrom(pipeline: ExtensionPipeline, extensions: PapiSignedExtensions): number {
-    const supplied = extensions[CHECK_NONCE];
-    if (!supplied) {
-        throw new AsPersonError(
-            "signed extension CheckNonce is missing, so the account nonce cannot be read",
-        );
-    }
-    return decodeCheckNonce(pipeline, supplied.value);
-}
-
-/**
- * Ask for a proof, and report both ways it can fail as this package's own error.
- *
- * `createProof` is the one input a caller has to write themselves, and it usually
- * adapts a host call that returns a `Result` into a promise of a plain object, so
- * resolving with `undefined` or a partial object is a likelier mistake than
- * rejecting. Without the shape check below that surfaces as
- * `TypeError: Cannot read properties of undefined`, which names neither this
- * package nor the callback.
- */
-async function requestProof(
-    createProof: CreateRingVRFProof,
-    message: Uint8Array,
-): Promise<RingVRFProof> {
-    let proof: RingVRFProof;
-    try {
-        proof = await createProof(message);
-    } catch (cause) {
-        // No message bytes and no proof bytes: both identify a person.
-        throw new AsPersonError("ring VRF proof request failed", { cause });
-    }
-
-    if (
-        !(proof?.proof instanceof Uint8Array) ||
-        !(proof?.contextualAlias?.context instanceof Uint8Array) ||
-        typeof proof?.ringIndex !== "number" ||
-        typeof proof?.ringRevision !== "number"
-    ) {
-        // Which field is missing is not named: the values are pseudonymous
-        // identity, and listing the present ones leaks by omission.
-        throw new AsPersonError("ring VRF proof is missing a field the extension needs");
-    }
-
-    return proof;
-}
-
 /**
  * Build the `AsPerson` value for `info`, requesting a proof when the variant
  * needs one.
@@ -259,7 +132,7 @@ async function buildValue(
         case "AliasWithProof": {
             const proof = await requestProof(
                 info.createProof,
-                implicationMessage(pipeline, callData, extensions),
+                implicationMessage(pipeline, callData, extensions, AS_PERSON),
             );
             return {
                 tag: "AsPersonalAliasWithProof",
@@ -275,7 +148,7 @@ async function buildValue(
             // This variant binds the implication plus a label, the alias account
             // and the nonce, so it needs the implication bytes rather than the
             // plain message.
-            const implication = buildImplication(pipeline, callData, extensions);
+            const implication = buildImplication(pipeline, callData, extensions, AS_PERSON);
             const proof = await requestProof(
                 info.createProof,
                 reviseMessage(implication, aliasAccount, nonce),
@@ -312,68 +185,13 @@ async function buildValue(
  * @returns a `PolkadotSigner` usable anywhere the original was.
  */
 export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): PolkadotSigner {
-    // Decoding the metadata is the expensive part of reading the pipeline, around
-    // 7 ms for a 435 KB blob, and PAPI hands the same array for every signature
-    // until the runtime upgrades. Cached on identity rather than content, so a
-    // runtime upgrade brings a different array and cannot be served a stale
-    // pipeline. Per closure, not module level, so two wrapped signers on two
-    // chains cannot share an entry.
-    let cached: { metadata: Uint8Array; pipeline: ExtensionPipeline } | undefined;
-    const pipelineFor = (metadata: Uint8Array): ExtensionPipeline => {
-        if (cached?.metadata !== metadata) {
-            cached = { metadata, pipeline: readExtensionPipeline(metadata) };
-        }
-        return cached.pipeline;
-    };
-
-    return {
-        publicKey: signer.publicKey,
-        signBytes: (data) => signer.signBytes(data),
-        async signTx(callData, signedExtensions, metadata, atBlockNumber, hasher) {
-            const pipeline = pipelineFor(metadata);
-            let extensions = signedExtensions;
-
-            // Step 1. Inside the hash, and false is an immediate rejection for a
-            // person origin. Skipped only when the chain has no such extension.
-            if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    RESTRICT_ORIGINS,
-                    encodeChecked(pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type), true),
-                );
-            }
-
-            // Step 2. Taking over the authorization slot is what makes the host
-            // return an unsigned general transaction, so the origin is `None`.
-            // The other two variants need a signed origin and so must leave the
-            // slot alone, which is also PAPI's default: it omits it entirely.
-            if (info.tag === "AliasWithProof") {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    VERIFY_SIGNATURE,
-                    encodeChecked(pipeline.codec(pipeline.slot(VERIFY_SIGNATURE).type), {
-                        type: "Disabled",
-                        value: undefined,
-                    }),
-                );
-            }
-
-            // Steps 3 and 4.
-            const value = await buildValue(pipeline, callData, extensions, info, signer.publicKey);
-
-            // Step 5. Last, because its own value is outside its own hash.
-            extensions = withSlot(
-                pipeline,
-                extensions,
-                AS_PERSON,
-                encodeAsPersonInfo(pipeline, value),
-            );
-
-            return signer.signTx(callData, extensions, metadata, atBlockNumber, hasher);
-        },
-    };
+    return withOriginExtension<AsPersonValue>(signer, {
+        identifier: AS_PERSON,
+        unsigned: info.tag === "AliasWithProof",
+        encode: encodeAsPersonInfo,
+        buildValue: (pipeline, callData, extensions, aliasAccount) =>
+            buildValue(pipeline, callData, extensions, info, aliasAccount),
+    });
 }
 
 if (import.meta.vitest) {
@@ -487,7 +305,9 @@ if (import.meta.vitest) {
                 VERIFY_SIGNATURE,
                 Uint8Array.from([0x00]),
             );
-            expect(seenMessage).toEqual(implicationMessage(PIPELINE, CALL_DATA, patched));
+            expect(seenMessage).toEqual(
+                implicationMessage(PIPELINE, CALL_DATA, patched, AS_PERSON),
+            );
         });
 
         test("writes AsPerson last, and its value is outside its own hash", async () => {
@@ -508,7 +328,7 @@ if (import.meta.vitest) {
             // whole ordering rests on: writing the proof into AsPerson cannot
             // invalidate the proof, because AsPerson is outside its own hash. If
             // this ever became an inequality the design would be circular.
-            expect(seenMessage).toEqual(implicationMessage(PIPELINE, CALL_DATA, seen));
+            expect(seenMessage).toEqual(implicationMessage(PIPELINE, CALL_DATA, seen, AS_PERSON));
         });
 
         test("keeps the map in the order the chain declares", async () => {
@@ -788,10 +608,12 @@ if (import.meta.vitest) {
                 RESTRICT_ORIGINS,
                 Uint8Array.from([0x01]),
             );
-            const implication = buildImplication(PIPELINE, CALL_DATA, patched);
+            const implication = buildImplication(PIPELINE, CALL_DATA, patched, AS_PERSON);
             expect(seenMessage).toEqual(reviseMessage(implication, PUBLIC_KEY, 9));
             // The distinction that matters: it is not the plain message.
-            expect(seenMessage).not.toEqual(implicationMessage(PIPELINE, CALL_DATA, patched));
+            expect(seenMessage).not.toEqual(
+                implicationMessage(PIPELINE, CALL_DATA, patched, AS_PERSON),
+            );
         });
 
         test("uses the signer's own public key as the alias account", async () => {
@@ -811,7 +633,11 @@ if (import.meta.vitest) {
             );
             const wrongAccount = Uint8Array.from({ length: 32 }, () => 0x07);
             expect(seenMessage).not.toEqual(
-                reviseMessage(buildImplication(PIPELINE, CALL_DATA, patched), wrongAccount, 9),
+                reviseMessage(
+                    buildImplication(PIPELINE, CALL_DATA, patched, AS_PERSON),
+                    wrongAccount,
+                    9,
+                ),
             );
         });
 

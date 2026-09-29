@@ -233,13 +233,13 @@ For **command-line products**, `@parity/product-sdk-auth` is the shared sign-in
 layer: QR/mobile pairing, persisted sessions, a sign-out flow, and a
 product-account signer — all bound to a product via injected config (no per-CLI
 `config.ts`). It sits on top of `@parity/product-sdk-terminal` and derives the
-product account with the same *derivation scheme* the mobile wallet uses (via
-terminal's `deriveProductPublicKey`, the CLI counterpart of the keys package's
-`deriveProductAccountPublicKey` below).
+product account the RFC-0022 way the mobile wallet does, via terminal's
+`deriveProductPublicKey`.
 
-> The signer it returns signs as the **product account** (`/product/{productId}/{index}`),
-> NOT the wallet's selected account — so its address matches the funded /
-> allowance-granted account. This is the CLI analogue of `SignerManager.getProductAccount()`.
+> The signer it returns signs as the **product account** (`//product//{productId}/{index}`),
+> NOT the wallet's selected account and NOT its root account — so its address matches the
+> funded / allowance-granted account. This is the CLI analogue of
+> `SignerManager.getProductAccount()`. It is async; see `references/keys-api.md`.
 
 ### Getting a signer
 
@@ -249,6 +249,7 @@ signer.
 
 ```ts
 import { createAuthClient, resolveSigner } from "@parity/product-sdk-auth";
+import { StatementStoreNetworks } from "@parity/product-sdk-terminal";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
 // 1. Bind an auth client to your product's config (inject per-product values).
@@ -256,7 +257,7 @@ const authClient = createAuthClient({
   dappId: "playground",              // scopes ~/.polkadot-apps/${dappId}_* + SSO pairing
   productId: "playground.dot",       // derives the product account
   derivationIndex: 0,                // 0 = default product account
-  peopleEndpoints: ["wss://<people-rpc>"],
+  peopleEndpoints: StatementStoreNetworks.paseo, // or .previewnet
 });
 
 // 2. Get a PolkadotSigner — dev SURI if provided, else the persisted QR session.
@@ -363,20 +364,17 @@ const info = await skm.getOrCreate();
 // info.account  - DerivedAccount with signer
 ```
 
-## deriveProductAccountPublicKey: Canonical sr25519 Product-Account Derivation
+## deriveProductAccountPublicKey: RFC-0022 Product-Account Derivation
 
 ```ts
+import { getProductSubtreePublicKey } from "@parity/product-sdk-terminal";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 
-// Derive the same product-account public key the mobile wallet derives privately
-const derivedPubKey = deriveProductAccountPublicKey(
-  parentPublicKey,    // 32-byte sr25519 public key
-  "playground.dot",   // productId (typically a dotNS name)
-  0,                  // derivationIndex
-);
+const subtree = await getProductSubtreePublicKey(session, "playground.dot");
+const derivedPubKey = deriveProductAccountPublicKey(subtree, { tag: "Index", value: 0 });
 ```
 
-Mirrors the algorithm used by polkadot-desktop and polkadot-app-android-v2. sr25519 soft derivation is composable on the parent *public* key alone, so external clients (CLI, web hosts) can compute the same address without seeing the secret key. See `references/keys-api.md` for the cross-platform parity constraint on `productId`.
+The subtree key comes from the wallet because `//product//{productId}` is hard; a root account key will not work. In a CLI, `deriveProductPublicKey(session, ref)` does both steps. See `references/keys-api.md`.
 
 ## Common Mistakes
 
@@ -395,6 +393,8 @@ Mirrors the algorithm used by polkadot-desktop and polkadot-app-android-v2. sr25
 7. **Signing on a fresh session without allocations** (auth) - per the package's own note, RFC-0010 allowances are needed before a fresh session can sign (statement store / Bulletin / smart-contract). Run `authClient.requestAllocation(session)` once after first login and let the user approve it on the phone.
 
 8. **Submitting a person-origin call with a plain signer** (individuality) - a call that must dispatch as a *person* rather than an account needs the `AsPerson` transaction extension, which no plain signer sets. Wrap the signer with `withAsPerson` from `@parity/product-sdk-individuality` and pass it to `submitAndWatch` as usual; see the `product-sdk-individuality` skill. Doing it by hand fails `Invalid.Call` before dispatch for a reason that is not in the error.
+
+9. **Feeding a runtime ownership proof through `signBytes`** (host) - every raw-signing path a `PolkadotSigner` exposes `<Bytes>`-wraps the payload, so a runtime that verifies the bare bytes (People chain's `Resources.register_person` `lite_identity_proof`) rejects the signature with no useful error. `getAccountsProvider()` exposes `signRawUnwatermarkedDeprecated(account, data)` and `signRawUnwatermarkedDeprecatedWithLegacyAccount({ publicKey }, data)`, which sign `data` untouched and return the raw signature bytes. Both are deprecated on the host side too ([host-rust-core#612](https://github.com/paritytech/host-rust-core/issues/612)), need a host on `@parity/truapi` 0.16.0+, and prompt the user harder because an unwatermarked signature can authorize a transaction — reach for them only when a runtime check leaves no alternative, and stay on `signBytes` everywhere else.
 
 ## Reference Files
 

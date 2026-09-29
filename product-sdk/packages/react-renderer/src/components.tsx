@@ -1,6 +1,5 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import { str } from "@parity/truapi/scale";
 import type { PropsWithChildren } from "react";
 import { createElement } from "react";
 
@@ -42,12 +41,10 @@ export function Button({ children, onClick, ...props }: PropsWithChildren<Button
     return createElement("Button", { ...props, clickAction }, children);
 }
 
-const textDecoder = (payload: Uint8Array | undefined) => {
-    if (payload) {
-        return str.dec(payload);
-    }
-    return "";
-};
+// TextField values arrive as bare UTF-8, with no length prefix.
+const utf8 = new TextDecoder();
+
+const textDecoder = (payload: Uint8Array | undefined) => (payload ? utf8.decode(payload) : "");
 
 export function TextField({ onValueChange, ...props }: TextFieldProps) {
     const valueChangeAction = useAction(textDecoder, onValueChange);

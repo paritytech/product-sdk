@@ -105,3 +105,90 @@ export interface GameSignUpRequirement {
     /** Empty exactly when both {@link canSignUp} and {@link canEnterDraws} hold. */
     blockers: SignUpBlocker[];
 }
+
+/**
+ * Why the free lite sign-up (`Game.sign_up_with_account_lite_invite`) cannot go
+ * ahead: every account-path blocker, plus the lite-only gates.
+ *
+ * A parallel union rather than new arms on {@link SignUpBlocker}, on purpose:
+ * widening that union would break every existing exhaustive consumer of the
+ * account read the moment this package is upgraded, for a path they never
+ * call. `readGameSignUpRequirement` keeps returning the narrow union;
+ * `readLiteSignUpRequirement` returns this one, and a consumer of both narrows
+ * once.
+ *
+ * Unlike the account read's draw-only arms, every lite arm blocks the sign-up
+ * itself. `AnotherAccountInvited` and `AccountIsALitePerson` are permanent for
+ * the account they name; `ContextNotProductDerived` is about the environment,
+ * not the account.
+ */
+export type LiteSignUpBlocker =
+    | SignUpBlocker
+    /**
+     * No `PeopleLite.AccountToAlias[account]`: the proof-authorized bind leg
+     * (`PeopleLite.set_alias_account` under `withLiteAlias(AliasWithProof)`)
+     * has not run, so the signed leg would fail with `NoAliasBinding`.
+     */
+    | { tag: "AliasNotBound" }
+    /**
+     * The binding exists, but outside `Score.score_context`, the only context
+     * the game's origin check admits. Recoverable only via
+     * `PeopleLite.unset_alias_account`, which needs a proof in the old context.
+     */
+    | { tag: "AliasBoundElsewhere" }
+    /**
+     * `Game.LiteInvites[alias]` pins **forever** the one account this lite
+     * person may invite, and it is not this one → `Game.AnotherAccountInvited`.
+     * Carries the pinned account so a UI can name the seat that is taken.
+     */
+    | { tag: "AnotherAccountInvited"; invited: string }
+    /**
+     * `PeopleLite.LitePeople[account]` exists → `PeopleLite.AlreadyRegistered`
+     * on a bind. Not the chain's `AccountInUse`, which is a binding already on
+     * the account and is `AliasBoundElsewhere` here.
+     */
+    | { tag: "AccountIsALitePerson" }
+    /**
+     * Only when the caller supplied `liteMemberKey`. The key is not an
+     * `Included` member of the lite people ring
+     * (`Members.Members(litePeopleCollection, key)`), so no proof minted with
+     * it verifies — the check `createAccountProof` runs host-side.
+     */
+    | { tag: "NotLiteMember" }
+    /**
+     * `Score.score_context` is not the product derivation of
+     * `peopl.<Score.Suffix>/Index(0)` (`readScoreContext` answered
+     * `NotProductDerived`), so no stock host can mint the bind leg's proof.
+     * An environment fact, not an account fact.
+     */
+    | { tag: "ContextNotProductDerived" }
+    /**
+     * A `Game.Players` entry exists → `Game.UseInviteButAlreadyPlaying`. The
+     * entry survives a finished game, so the lite call is right only on a
+     * first sign-up and after an archive; otherwise use `signUpWithAccountTx`.
+     */
+    | { tag: "AlreadyPlaying" }
+    /**
+     * `Game.StmtAccountToAlias[account]` exists → `Game.StatementAccountAlreadyInUse`,
+     * checked before the invited and registered gates. Only the alias that
+     * named this account clears it, by naming another or by `offboard`.
+     */
+    | { tag: "AccountIsAStatementAccount" }
+    /**
+     * The binding predates the ring's current revision → `Custom(172)` in
+     * `validate`. Re-point it with
+     * `withLiteAlias({ tag: "AliasWithAccountRevised", createProof })`.
+     */
+    | { tag: "StaleAlias" };
+
+/**
+ * {@link GameSignUpRequirement} with the wider blocker union: what the chain
+ * will accept from this account as a **lite** sign-up, at one pinned block.
+ * `canSignUp` and `canEnterDraws` answer for
+ * `Game.sign_up_with_account_lite_invite` — the account read's answers AND'ed
+ * with "no lite blocker", since every lite arm stops the whole extrinsic.
+ */
+export interface LiteSignUpRequirement extends Omit<GameSignUpRequirement, "blockers"> {
+    /** Empty exactly when both `canSignUp` and `canEnterDraws` hold. */
+    blockers: LiteSignUpBlocker[];
+}

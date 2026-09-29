@@ -1,17 +1,14 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Translate a truapi-shaped `CustomRendererNode` (what
+ * Translate a truapi-shaped `RendererNode` (what
  * `@parity/product-sdk-react-renderer` emits) into the novasama-shaped node the
  * legacy native chat backend's codec expects.
  *
  * The structural transforms invert the renderer's serializer:
  *  - modifier tags: `Margin` → `margin`;
- *  - `Width`/`Height`/`MinWidth`/`MinHeight` values: `{ width }` / `{ height }` → bare `Size`;
- *  - `FillWidth`/`FillHeight` values: `{ enabled }` → bare `boolean`;
  *  - `Dimensions`: struct `{ top, end, bottom?, start? }` → tuple `[top, end, bottom?, start?]`;
- *  - `String` node: `{ text }` → bare string;
- *  - `Shape` `Rounded`: `{ radius }` → bare `Size`.
+ *  - `String` node: `{ text }` → bare string.
  *
  * Enum values additionally need casing translation (`FgPrimary` → `fg.primary`),
  * which the serializer does not do — truapi carries PascalCase tokens, novasama
@@ -100,15 +97,9 @@ function toNovaDimensions(d: Any): Any {
     return [d.top, d.end, d.bottom, d.start];
 }
 
-/** truapi `Shape` → novasama `Shape` (`Rounded` value `{ radius }` → bare). */
-function toNovaShape(shape: Any): Any {
-    if (!shape) return shape;
-    return shape.tag === "Rounded" ? { tag: "Rounded", value: shape.value.radius } : shape;
-}
-
 function toNovaBackground(bg: Any): Any {
     // The serializer always wraps `background` as `{ color, shape? }`.
-    return { color: map(COLOR, bg.color), shape: toNovaShape(bg.shape) };
+    return { color: map(COLOR, bg.color), shape: bg.shape };
 }
 
 function toNovaModifier(mod: Any): Any {
@@ -119,13 +110,11 @@ function toNovaModifier(mod: Any): Any {
             return { tag, value: toNovaDimensions(mod.value) };
         case "Width":
         case "MinWidth":
-            return { tag, value: mod.value.width };
         case "Height":
         case "MinHeight":
-            return { tag, value: mod.value.height };
         case "FillWidth":
         case "FillHeight":
-            return { tag, value: mod.value.enabled };
+            return { tag, value: mod.value };
         case "Background":
             return { tag, value: toNovaBackground(mod.value) };
         case "Border":
@@ -134,7 +123,7 @@ function toNovaModifier(mod: Any): Any {
                 value: {
                     width: mod.value.width,
                     color: map(COLOR, mod.value.color),
-                    shape: toNovaShape(mod.value.shape),
+                    shape: mod.value.shape,
                 },
             };
         default:
@@ -170,7 +159,7 @@ function toNovaProps(nodeTag: string, props: Any): Any {
     }
 }
 
-/** Translate a truapi `CustomRendererNode` into the novasama node shape. */
+/** Translate a truapi `RendererNode` into the novasama node shape. */
 export function toNovasamaNode(node: Any): Any {
     if (node.tag === "String") {
         return { tag: "String", value: node.value.text };
@@ -263,9 +252,9 @@ if (import.meta.vitest) {
             const mods = [
                 { tag: "Padding", value: { top: 8, end: 8 } },
                 { tag: "Margin", value: { top: 1, end: 2, bottom: 3, start: 4 } },
-                { tag: "Width", value: { width: 100 } },
-                { tag: "MinHeight", value: { height: 20 } },
-                { tag: "FillWidth", value: { enabled: true } },
+                { tag: "Width", value: 100 },
+                { tag: "MinHeight", value: 20 },
+                { tag: "FillWidth", value: true },
             ];
             const out = toNovasamaNode({
                 tag: "Spacer",
@@ -289,7 +278,7 @@ if (import.meta.vitest) {
                             tag: "Background",
                             value: {
                                 color: "BgSurfaceContainer",
-                                shape: { tag: "Rounded", value: { radius: 10 } },
+                                shape: { tag: "Rounded", value: 10 },
                             },
                         },
                         {

@@ -5,8 +5,8 @@
         "previewnet_asset_hub": {
             "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
             "metadata": "../../.papi/metadata/previewnet_asset_hub.scale",
-            "genesis": "0x627f54413120c81161261b2ca87f60f0020963107dc28367491e09ec2dd29659",
-            "codeHash": "0x1ab78678006052f5d8d5c2b5e058752cf2a600780025a6b6a3ae3678ade9e87c"
+            "genesis": "0xc27c8bf3f13f96dc2130cd2b0a3debe57618fd02521ecc1902bd7dd4ed83d2fe",
+            "codeHash": "0x9b7360a95d661d66458b13683bc6778d6cd0efd3ed780412eebcb7d9340e18b3"
         }
     }
 }

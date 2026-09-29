@@ -10,14 +10,18 @@
  * makes a default `SignerManager`, `local-storage` auto-detection, and the
  * `statement-store` / `cloud-storage` host paths testable.
  *
+ * `system.getProductContext` returns `"fake-app.dot"` so `createApp()` can
+ * resolve its host identity.
+ *
  * Of the `chain` domain only `getChainInfo` is modeled, so host chain discovery
  * (and `getChainAPI()` on top of it) resolves in tests; see the `chainInfo`
  * option. Not modeled: the rest of the PAPI `chain` JSON-RPC surface behind
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
- * selection — and the `chat` / `coinPayment` / `entropy` / `notifications` /
- * `payment` / `permissions` / `resourceAllocation` / `theme` domains. Touching
- * an unmodeled domain throws a descriptive error rather than failing with
- * `undefined is not a function`.
+ * selection — the `system` domain's `info`, and the
+ * `chat` / `coinPayment` / `entropy` / `locale` / `notifications` / `payment` /
+ * `permissions` / `pocket` / `renderer` / `resourceAllocation` / `theme` /
+ * `worker` domains. Touching an unmodeled domain throws a descriptive error
+ * rather than failing with `undefined is not a function`.
  *
  * @packageDocumentation
  */
@@ -50,6 +54,9 @@ type PublicTruApiClient = { [D in keyof TrUApiClient]: PublicSurface<TrUApiClien
 function toHex(bytes: Uint8Array): `0x${string}` {
     return `0x${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
+
+/** Receives the value a subscribed storage key holds after a change, `undefined` once cleared. */
+type LocalStorageWatcher = (value?: `0x${string}`) => void;
 
 function fakeSubscription(): Subscription {
     return { unsubscribe: () => {}, subscriptionId: "fake-subscription" };
@@ -167,9 +174,10 @@ export interface CreateFakeTruApiClientOptions {
 
 /**
  * Build a fake `TrUApiClient` covering the domains the host accessors use:
- * `localStorage` (real in-memory KV), `account` / `signing` (canned data),
- * `statementStore`, `preimage`, and `system`. Unmodeled domains (`chain` et al —
- * see the module header) throw on member access.
+ * `localStorage` (real in-memory KV, changes observable through `subscribe`),
+ * `account` / `signing` (canned data), `statementStore`, `preimage`, and
+ * `system`. Unmodeled domains (`chain` et al — see the module header) throw on
+ * member access.
  */
 export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions): TrUApiClient {
     const primaryUsername = options?.primaryUsername ?? "alice.dot";
@@ -182,6 +190,24 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
     const kv = new Map<string, `0x${string}`>();
     for (const [key, value] of Object.entries(options?.localStorage ?? {})) {
         kv.set(key, toHex(value));
+    }
+
+    // Live `localStorage.subscribe` streams, per observed key. A write or clear
+    // that leaves the stored bytes as they were notifies nobody, matching the
+    // host.
+    const watchers = new Map<string, Set<LocalStorageWatcher>>();
+    let localStorageSubscriptions = 0;
+
+    function watchersFor(key: string): Set<LocalStorageWatcher> {
+        const existing = watchers.get(key);
+        if (existing) return existing;
+        const created = new Set<LocalStorageWatcher>();
+        watchers.set(key, created);
+        return created;
+    }
+
+    function emitChange(key: string, value?: `0x${string}`) {
+        for (const deliver of watchers.get(key) ?? []) deliver(value);
     }
 
     const legacyAccounts = (options?.legacyAccounts ?? []).map((a) => ({
@@ -197,18 +223,46 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
 
     // Typed against the generated client's public surface: every method below is
     // structurally checked, so a truapi signature change breaks this file's build,
-    // not a consumer's test run.
+    // not a consumer's test run. `notModeled(domain, modeled)` is the exception:
+    // its `modeled` argument is `Partial`, so renames there surface at runtime.
     const client: PublicTruApiClient = {
+        // A literal rather than `notModeled`, to keep all four members
+        // exhaustively checked (see above).
         localStorage: {
             read: ({ key }) => okAsync({ value: kv.get(key) }),
             write: ({ key, value }) => {
-                kv.set(key, value);
+                if (kv.get(key) !== value) {
+                    kv.set(key, value);
+                    emitChange(key, value);
+                }
                 return okAsync(undefined);
             },
             clear: ({ key }) => {
-                kv.delete(key);
+                if (kv.delete(key)) emitChange(key, undefined);
                 return okAsync(undefined);
             },
+            subscribe: ({ request: { key } }) =>
+                makeObservable((observer) => {
+                    const deliver: LocalStorageWatcher = (value) => observer?.next?.({ value });
+                    let stopped = false;
+                    // The current value lands after `subscribe()` returns, so the
+                    // caller holds its handle first. Registering the watcher only
+                    // then also keeps a same-tick write from arriving twice: the
+                    // deferred read already sees it.
+                    queueMicrotask(() => {
+                        if (stopped) return;
+                        deliver(kv.get(key));
+                        watchersFor(key).add(deliver);
+                    });
+                    localStorageSubscriptions += 1;
+                    return {
+                        unsubscribe: () => {
+                            stopped = true;
+                            watchers.get(key)?.delete(deliver);
+                        },
+                        subscriptionId: `fake-local-storage-${localStorageSubscriptions}`,
+                    };
+                }),
         },
         account: {
             getUserId: () => okAsync({ primaryUsername }),
@@ -238,6 +292,8 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
             createTransactionWithLegacyAccount: () => okAsync({ transaction: signature }),
             signRaw: () => okAsync({ signature }),
             signRawWithLegacyAccount: () => okAsync({ signature }),
+            signRawUnwatermarkedDeprecated: () => okAsync({ signature }),
+            signRawUnwatermarkedDeprecatedWithLegacyAccount: () => okAsync({ signature }),
             signPayload: () => okAsync({ signature }),
             signPayloadWithLegacyAccount: () => okAsync({ signature }),
         },
@@ -249,11 +305,13 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 okAsync({ proof: { tag: "Sr25519", value: { signature, signer: publicKey } } }),
             submit: () => okAsync(undefined),
         },
-        system: {
+        // `info` is not modeled; it still throws.
+        system: notModeled("system", {
             handshake: () => okAsync(undefined),
             featureSupported: () => okAsync({ supported: chainSupported }),
             navigateTo: () => okAsync(undefined),
-        },
+            getProductContext: () => okAsync({ productId: "fake-app.dot" }),
+        }),
         preimage: {
             lookupSubscribe: ({ request: { key } }) =>
                 oneShotObservable({ value: preimages.get(key) }),
@@ -280,11 +338,15 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         chat: notModeled("chat"),
         coinPayment: notModeled("coinPayment"),
         entropy: notModeled("entropy"),
+        locale: notModeled("locale"),
         notifications: notModeled("notifications"),
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),
+        pocket: notModeled("pocket"),
+        renderer: notModeled("renderer"),
         resourceAllocation: notModeled("resourceAllocation"),
         theme: notModeled("theme"),
+        worker: notModeled("worker"),
     };
 
     // A plain downcast, not an `unknown` bridge: each generated class is
@@ -377,6 +439,18 @@ if (import.meta.vitest) {
     const { getHostChainInfo } = await import("./chain-discovery.js");
     const { getPreimageManager } = await import("./truapi.js");
 
+    /** Resolve once the microtask a subscription defers its first item to has run. */
+    const flushMicrotasks = () => new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    /** Collect everything `localStorage.subscribe` delivers for one key. */
+    function watchKey(client: TrUApiClient, key: string) {
+        const values: Array<`0x${string}` | undefined> = [];
+        const subscription = client.localStorage
+            .subscribe({ request: { key } })
+            .subscribe({ next: ({ value }) => values.push(value) });
+        return { values, subscription };
+    }
+
     const lookupOnce = (
         manager: NonNullable<Awaited<ReturnType<typeof getPreimageManager>>>,
         key: `0x${string}`,
@@ -390,6 +464,15 @@ if (import.meta.vitest) {
     afterEach(() => setTruApiClient(null));
 
     describe("createFakeHost / createFakeTruApiClient", () => {
+        test("provides the app's host product context", async () => {
+            const host = createFakeHost();
+            const context = await host.client.system.getProductContext().match(
+                (value) => value,
+                () => null,
+            );
+            expect(context).toEqual({ productId: "fake-app.dot" });
+        });
+
         test("host localStorage round-trips through the real adapter", async () => {
             createFakeHost();
             const ls = await getHostLocalStorage();
@@ -405,6 +488,37 @@ if (import.meta.vitest) {
             createFakeHost({ localStorage: { greeting: new TextEncoder().encode("hi") } });
             const ls = await getHostLocalStorage();
             expect(await ls?.readString("greeting")).toBe("hi");
+        });
+
+        test("localStorage.subscribe reports the current value, then every change", async () => {
+            const host = createFakeHost({ localStorage: { k: new TextEncoder().encode("one") } });
+            const seen = watchKey(host.client, "k");
+            await flushMicrotasks();
+            expect(seen.values).toEqual(["0x6f6e65"]);
+
+            const ls = await getHostLocalStorage();
+            await ls?.writeString("k", "two");
+            await ls?.writeString("k", "two");
+            await ls?.clear("k");
+            await ls?.clear("k");
+            // The unchanged write and the second clear are silent.
+            expect(seen.values).toEqual(["0x6f6e65", "0x74776f", undefined]);
+
+            seen.subscription.unsubscribe();
+            await ls?.writeString("k", "three");
+            expect(seen.values).toHaveLength(3);
+        });
+
+        test("a localStorage subscription starts empty for an absent key and ignores others", async () => {
+            const host = createFakeHost();
+            const seen = watchKey(host.client, "mine");
+            await flushMicrotasks();
+            expect(seen.values).toEqual([undefined]);
+
+            const ls = await getHostLocalStorage();
+            await ls?.writeString("theirs", "x");
+            await ls?.writeString("mine", "y");
+            expect(seen.values).toEqual([undefined, "0x79"]);
         });
 
         test("accounts provider resolves the configured user", async () => {

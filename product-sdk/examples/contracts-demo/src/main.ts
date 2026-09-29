@@ -16,7 +16,7 @@
  *   1. SignerManager.connect() establishes the HostProvider session.
  *   2. manager.getProductAccount("contracts-demo.dot", 0) asks the host for
  *      a DotNS-derived product account. The fixture maps
- *      "contracts-demo.dot/0" to Bob's funded keypair via `productAccounts`.
+ *      "contracts-demo.dot" to Bob's funded keypair via `productAccounts`.
  *   3. getChainAPI("paseo") routes RPC through the host's chainConnection
  *      handler.
  *   4. ContractManager.fromClient(cdm, chain.raw.assetHub) wraps the contract.
@@ -246,9 +246,9 @@ async function init() {
     }
 
     // Step 2: request the product account. The fixture maps
-    // "contracts-demo.dot/0" → bob via `productAccounts`, so this returns
+    // "contracts-demo.dot" → bob via `productAccounts`, so this returns
     // Bob's funded account but signs through host_create_transaction.
-    log("Requesting product account contracts-demo.dot/0…");
+    log("Requesting product account contracts-demo.dot (index 0)…");
     const productRes = await manager.getProductAccount("contracts-demo.dot", 0);
     if (!productRes.ok) {
         log(`getProductAccount failed: ${productRes.error.message}`, "err");

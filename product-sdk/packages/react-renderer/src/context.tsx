@@ -1,10 +1,10 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { CustomRendererNode } from "@parity/truapi";
+import type { RendererNode } from "@parity/truapi";
 import type { PropsWithChildren } from "react";
 import { createContext, useCallback, useContext, useEffect, useId, useRef } from "react";
 
-export type RenderCallback = (node: CustomRendererNode) => void;
+export type RenderCallback = (node: RendererNode) => void;
 export type ActionCallback = (actionId: string, payload: Uint8Array | undefined) => void;
 
 export type SubscribeAction = (callback: ActionCallback) => VoidFunction;

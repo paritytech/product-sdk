@@ -145,6 +145,8 @@ export interface AuthClient {
  */
 export function createAuthClient(config: AuthConfig): AuthClient {
     const ref = { productId: config.productId, derivationIndex: config.derivationIndex };
+    // Without the dappId, clearLocalAppStorage's prefix sweep misses the cache.
+    const cacheOptions = { appId: config.dappId };
 
     function createAdapter(): TerminalAdapter {
         return createTerminalAdapter({
@@ -158,9 +160,9 @@ export function createAuthClient(config: AuthConfig): AuthClient {
      * `deriveProductPublicKey` with `createSessionSigner` so the signing key and
      * the display SS58/H160 are computed by exactly one function.
      */
-    function deriveSessionAddresses(session: UserSession): SessionAddresses {
+    async function deriveSessionAddresses(session: UserSession): Promise<SessionAddresses> {
         const rootBytes = sessionRootPublicKey(session);
-        const productPubkey = deriveProductPublicKey(session, ref);
+        const productPubkey = await deriveProductPublicKey(session, ref, cacheOptions);
         return {
             rootAddress: ss58Encode(rootBytes),
             productAddress: ss58Encode(productPubkey),
@@ -168,8 +170,8 @@ export function createAuthClient(config: AuthConfig): AuthClient {
         };
     }
 
-    function createSigner(session: UserSession): PolkadotSigner {
-        return createSessionSigner(session, ref);
+    function createSigner(session: UserSession): Promise<PolkadotSigner> {
+        return createSessionSigner(session, ref, cacheOptions);
     }
 
     function sessionRemoteAddress(session: UserSession): string | null {
@@ -179,9 +181,9 @@ export function createAuthClient(config: AuthConfig): AuthClient {
         return accountId.length === 32 ? ss58Encode(accountId) : null;
     }
 
-    function sessionLogoutAddress(session: UserSession): string {
+    async function sessionLogoutAddress(session: UserSession): Promise<string> {
         try {
-            return deriveSessionAddresses(session).productAddress;
+            return (await deriveSessionAddresses(session)).productAddress;
         } catch {
             return sessionRemoteAddress(session) ?? "(stored session)";
         }
@@ -203,7 +205,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
             // returning — including if deriveSessionAddresses throws on a stale
             // session — or its WebSocket leaks for the process lifetime.
             try {
-                const addresses = deriveSessionAddresses(sessions[0]);
+                const addresses = await deriveSessionAddresses(sessions[0]);
                 return { kind: "existing", address: addresses.productAddress, addresses };
             } finally {
                 adapter.destroy().catch(() => {});
@@ -308,7 +310,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
             if (authenticated) {
                 const sessions = await waitForSessions(adapter, 3000);
                 if (sessions.length > 0) {
-                    const addresses = deriveSessionAddresses(sessions[0]);
+                    const addresses = await deriveSessionAddresses(sessions[0]);
                     address = addresses.productAddress;
                     onStatus({ step: "success", address, addresses });
                 } else {
@@ -344,15 +346,13 @@ export function createAuthClient(config: AuthConfig): AuthClient {
         }
 
         const session = sessions[0];
-        // createSigner / deriveSessionAddresses derive the product key and can
-        // throw on a stale session (missing rootAccountId). Destroy the adapter
-        // on that path — the handle that owns `destroy` is never returned, so
-        // without this the WebSocket leaks.
+        // Both can throw, and the handle that owns `destroy` is never returned
+        // on that path, so without this the WebSocket leaks.
         let signer: PolkadotSigner;
         let addresses: SessionAddresses;
         try {
-            signer = createSigner(session);
-            addresses = deriveSessionAddresses(session);
+            signer = await createSigner(session);
+            addresses = await deriveSessionAddresses(session);
         } catch (err) {
             adapter.destroy().catch(() => {});
             throw err;
@@ -404,7 +404,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
             return null;
         }
         const session = sessions[0];
-        const address = sessionLogoutAddress(session);
+        const address = await sessionLogoutAddress(session);
         return { adapter, address, session };
     }
 

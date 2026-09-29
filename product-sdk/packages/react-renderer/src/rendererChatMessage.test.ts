@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { CustomRendererNode } from "@parity/truapi";
+import type { RendererNode } from "@parity/truapi";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ChatCustomMessageRenderer } from "./rendererChatMessage.js";
@@ -11,7 +11,7 @@ describe("matchChatCustomRenderers", () => {
         let emitAction: ((actionId: string, payload: Uint8Array | undefined) => void) | undefined;
         const stopActions = vi.fn();
         const disposeRenderer = vi.fn();
-        const renderedNode: CustomRendererNode = {
+        const renderedNode: RendererNode = {
             tag: "Text",
             value: {
                 modifiers: [],

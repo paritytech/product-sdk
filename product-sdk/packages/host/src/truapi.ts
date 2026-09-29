@@ -347,6 +347,40 @@ export interface ResultAsync<T, E> {
 if (import.meta.vitest) {
     const { test, expect, describe } = import.meta.vitest;
 
+    // Re-exported verbatim, so a truapi bump reshapes public API with nothing
+    // here to fail.
+    type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+        ? true
+        : false;
+    type Expect<T extends true> = T;
+
+    type PinnedAllocatableResource =
+        | { tag: "StatementStoreAllowance"; value?: undefined }
+        | { tag: "BulletinAllowance"; value?: undefined }
+        | {
+              tag: "SmartContractAllowance";
+              value: { tag: "Index"; value: number } | { tag: "Raw"; value: HexString };
+          }
+        | { tag: "AutoSigning"; value?: undefined };
+
+    type _AllocatableResourceIsPinned = Expect<
+        Equal<AllocatableResource, PinnedAllocatableResource>
+    >;
+    type _AllocationOutcomeIsPinned = Expect<
+        Equal<AllocationOutcome, "Allocated" | "Rejected" | "NotAvailable">
+    >;
+
+    type _RemotePermissionIsPinned = Expect<
+        Equal<
+            RemotePermission,
+            | { tag: "Remote"; value: { domains: string[] } }
+            | { tag: "WebRtc"; value?: undefined }
+            | { tag: "ChainSubmit"; value?: undefined }
+            | { tag: "PreimageSubmit"; value?: undefined }
+            | { tag: "StatementSubmit"; value?: undefined }
+        >
+    >;
+
     test("getTruApi returns null outside a container", async () => {
         const api = await getTruApi();
         expect(api === null || typeof api === "object").toBe(true);

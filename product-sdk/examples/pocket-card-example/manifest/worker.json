@@ -1,0 +1,10 @@
+{
+    "$v": 1,
+    "kind": "worker",
+    "appVersion": [0, 1, 0],
+    "entrypoint": "worker.js",
+    "includes": { "pocket": true },
+    "pocket": {
+        "cards": [{ "id": "loyalty", "title": "Loyalty", "preview": "pocket/partial.json" }]
+    }
+}

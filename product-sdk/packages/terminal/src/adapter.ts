@@ -7,13 +7,7 @@
  * transport layers, enabling QR login, attestation, and signing in
  * terminal/CLI environments.
  */
-import {
-    createPappAdapter,
-    type PappAdapter,
-    type HostMetadata,
-    SS_STABLE_STAGE_ENDPOINTS,
-    SS_PASEO_STABLE_STAGE_ENDPOINTS,
-} from "@novasamatech/host-papp";
+import { createPappAdapter, type PappAdapter, type HostMetadata } from "@novasamatech/host-papp";
 import {
     createLazyClient,
     createPapiStatementStoreAdapter,
@@ -22,6 +16,7 @@ import {
 import { createLogger } from "@parity/product-sdk-logger";
 import { getWsProvider } from "@polkadot-api/ws-provider";
 
+import { StatementStoreNetworks } from "./networks.js";
 import { createNodeStorageAdapter } from "./node-storage.js";
 
 const log = createLogger("terminal");
@@ -30,7 +25,7 @@ const log = createLogger("terminal");
 export interface TerminalAdapterOptions {
     /** Unique app identifier. Used as the storage namespace. */
     appId: string;
-    /** Statement store WebSocket endpoints. Defaults to Paseo stable endpoints. */
+    /** Statement store WebSocket endpoints. Defaults to {@link StatementStoreNetworks.paseo}. */
     endpoints?: string[];
     /** Optional host metadata for the Sign-In screen. */
     hostMetadata?: HostMetadata;
@@ -95,7 +90,7 @@ export type TerminalAdapter = PappAdapter & {
 };
 
 export function createTerminalAdapter(options: TerminalAdapterOptions): TerminalAdapter {
-    const endpoints = options.endpoints ?? SS_PASEO_STABLE_STAGE_ENDPOINTS;
+    const endpoints = options.endpoints ?? StatementStoreNetworks.paseo;
 
     const storage = createNodeStorageAdapter(options.appId, options.storageDir);
     // ws-provider 0.9 takes endpoints positionally; relies on the global
@@ -673,5 +668,3 @@ if (import.meta.vitest) {
         });
     });
 }
-
-export { SS_STABLE_STAGE_ENDPOINTS, SS_PASEO_STABLE_STAGE_ENDPOINTS };

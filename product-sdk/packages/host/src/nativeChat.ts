@@ -31,6 +31,7 @@
  * @module
  */
 import type { ChatMessageContent } from "@parity/truapi";
+import { str } from "@parity/truapi/scale";
 
 import type {
     ChatManager,
@@ -43,6 +44,19 @@ import { toNovasamaNode } from "./nativeChatNode.js";
 import type { HostSubscription } from "./types.js";
 
 type Any = any;
+
+const utf8 = new TextEncoder();
+
+/** The native host SCALE-encodes TextField values; truapi carries bare UTF-8. */
+function toBareActionPayload(payload: Uint8Array | undefined): Uint8Array | undefined {
+    if (!payload || payload.length === 0) return undefined;
+    // Not a SCALE string (e.g. a button's own bytes): hand it over untouched.
+    try {
+        return utf8.encode(str.dec(payload));
+    } catch {
+        return payload;
+    }
+}
 
 /** Minimal shape of `createProductChatManager()`'s return that we consume. */
 interface NativeChatBackend {
@@ -186,15 +200,13 @@ export function createNativeChatManager(backend: NativeChatBackend): ChatManager
                     messageId: params.messageId,
                     messageType: params.messageType,
                     payload: params.payload,
-                    subscribeActions: params.subscribeActions,
+                    subscribeActions: (callback) =>
+                        params.subscribeActions((actionId: string, payload?: Uint8Array) =>
+                            callback(actionId, toBareActionPayload(payload)),
+                        ),
                 });
                 const subscription = source.subscribe({
-                    // `node` is a truapi `CustomRendererNode`, but that type flows in
-                    // from `chat.ts` (base #279) and isn't resolvable against the
-                    // pinned truapi here; `toNovasamaNode` already treats it as the
-                    // novasama-boundary `Any`, so annotate to match and clear the
-                    // implicit-any.
-                    next: (node: Any) => render(toNovasamaNode(node)),
+                    next: (node) => render(toNovasamaNode(node)),
                     // The native render callback has no failure channel (unlike
                     // the truapi host-initiated stream, which interrupts), so a
                     // renderer error can only be dropped here — it just stops
@@ -356,6 +368,31 @@ if (import.meta.vitest) {
             });
             expect(nodes[0].value.props).toEqual({ style: "headline.large", color: "fg.primary" });
             expect(nodes[0].value.children[0]).toEqual({ tag: "String", value: "hi" });
+        });
+
+        it("hands renderer actions over as bare UTF-8", () => {
+            const f = makeFakeBackend();
+            const chat = createNativeChatManager(f.backend);
+            const received: Array<[string, Uint8Array | undefined]> = [];
+            chat.onCustomMessageRenderingRequest((request) => {
+                request.subscribeActions((actionId, payload) => received.push([actionId, payload]));
+                return { subscribe: () => ({ unsubscribe() {} }) };
+            });
+
+            f.driveRender({
+                messageId: "m1",
+                messageType: "t",
+                payload: new Uint8Array(),
+                subscribeActions: (cb: Any) => {
+                    cb("typed", str.enc("héllo"));
+                    cb("pressed", undefined);
+                    return () => {};
+                },
+            });
+            expect(received).toEqual([
+                ["typed", new TextEncoder().encode("héllo")],
+                ["pressed", undefined],
+            ]);
         });
 
         it("forwards the backend interrupt hook (not a no-op)", () => {

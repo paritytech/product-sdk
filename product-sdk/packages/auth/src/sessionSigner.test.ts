@@ -13,37 +13,39 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, expect, test } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ss58Encode } from "@parity/product-sdk-address";
-import { seedToAccount } from "@parity/product-sdk-keys";
+import { deriveProductAccountPublicKey, seedToAccount } from "@parity/product-sdk-keys";
 import type { UserSession } from "@parity/product-sdk-terminal";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createSessionSigner } from "./sessionSigner.js";
 
 const DEV_PHRASE = "bottom drive obey lake curtain smoke basket hold race lonely fit walk";
-// Injected product id (the consumer supplies this via ProductAccountRef). Uses
-// the same value playground derives from so the product account is identical.
 const PRODUCT_ID = "playground.dot";
 
-// ────────────────────────────────────────────────────────────────────────────
-// Account equivalence — pins the invariant that every flow which references
-// "the user's account" resolves to the *same* SS58: the product account
-// derived at `mnemonic + "/product/{PRODUCT_ID}/0"`.
-//
-// The signer built by `createSessionSigner(session, {productId, derivationIndex})`
-// must SS58-equal the mobile/playground-app derivation
-// `seedToAccount(mnemonic, "/product/{PRODUCT_ID}/0")`. These tests are the
-// regression guard against the pre-fix bug where the signer used the wallet
-// account (`remoteAccount.accountId`) instead of the product account.
-// ────────────────────────────────────────────────────────────────────────────
+// Guards the two keys that have each wrongly occupied the signer slot: the
+// wallet account, and the root.
 describe("session signer account equivalence", () => {
-    // Stand-in for the mobile's SSO handshake response: `rootAccountId` is
-    // `deriveRootAccount()` on the mobile = the bare-mnemonic keypair pubkey.
-    // Other fields aren't read by `createSessionSigner` in the path under test.
+    let storageDir: string;
+    let sessionCount = 0;
+
+    beforeEach(() => {
+        storageDir = mkdtempSync(join(tmpdir(), "auth-signer-"));
+        return () => rmSync(storageDir, { recursive: true, force: true });
+    });
+
+    const subtreeAccount = (mnemonic: string) =>
+        seedToAccount(mnemonic, `//product//${PRODUCT_ID}`);
+
     function fakeSession(mnemonic: string): UserSession {
         const root = seedToAccount(mnemonic, "");
-        const wallet = seedToAccount(mnemonic, "//SomeWallet"); // user picking a derived account on mobile
+        const wallet = seedToAccount(mnemonic, "//SomeWallet");
+        const subtree = subtreeAccount(mnemonic);
         return {
-            id: "test",
+            // Unique per session: the subtree cache memoizes on it.
+            id: `test-${sessionCount++}`,
             localAccount: { accountId: new Uint8Array(32), pin: undefined },
             remoteAccount: {
                 accountId: wallet.publicKey,
@@ -51,51 +53,40 @@ describe("session signer account equivalence", () => {
                 pin: undefined,
             },
             rootAccountId: root.publicKey,
+            getProductSubtree: vi.fn(async () => ({
+                isErr: () => false,
+                value: subtree.publicKey,
+            })),
         } as unknown as UserSession;
     }
 
-    test("session signer address === product-account derivation address", () => {
+    const signerFor = (session: UserSession) =>
+        createSessionSigner(session, { productId: PRODUCT_ID, derivationIndex: 0 }, { storageDir });
+
+    test("signs as the product account derived from the subtree key", async () => {
         const session = fakeSession(DEV_PHRASE);
+        const signer = await signerFor(session);
 
-        const cliSigner = createSessionSigner(session, {
-            productId: PRODUCT_ID,
-            derivationIndex: 0,
+        const expected = deriveProductAccountPublicKey(subtreeAccount(DEV_PHRASE).publicKey, {
+            tag: "Index",
+            value: 0,
         });
-        const cliAddress = ss58Encode(cliSigner.publicKey);
-
-        const mobileDerived = seedToAccount(DEV_PHRASE, `/product/${PRODUCT_ID}/0`);
-        const productAccountAddress = ss58Encode(mobileDerived.publicKey);
-
-        expect(cliAddress).toEqual(productAccountAddress);
+        expect(ss58Encode(signer.publicKey)).toEqual(ss58Encode(expected));
     });
 
-    test("regression: signer does NOT use remoteAccount.accountId (= wallet account)", () => {
+    test("does not use remoteAccount.accountId, the wallet account", async () => {
         const session = fakeSession(DEV_PHRASE);
-        const cliSigner = createSessionSigner(session, {
-            productId: PRODUCT_ID,
-            derivationIndex: 0,
-        });
-        const cliAddress = ss58Encode(cliSigner.publicKey);
-        const walletAddress = ss58Encode(new Uint8Array(session.remoteAccount.accountId));
+        const signer = await signerFor(session);
+        const wallet = ss58Encode(new Uint8Array(session.remoteAccount.accountId));
 
-        // Pre-fix bug: signer.publicKey was set from session.remoteAccount.accountId
-        // (the user's wallet account), not the product-derived account. The wallet
-        // account is what the chain would see as From — different from the funded /
-        // allowance-granted product account. This guard ensures we never slip back.
-        expect(cliAddress).not.toEqual(walletAddress);
+        expect(ss58Encode(signer.publicKey)).not.toEqual(wallet);
     });
 
-    test("reports stale sessions without a root account public key", () => {
-        const session = {
-            ...fakeSession(DEV_PHRASE),
-            rootAccountId: new Uint8Array(),
-        } as UserSession;
+    test("does not use rootAccountId, which cannot cross the hard junctions", async () => {
+        const session = fakeSession(DEV_PHRASE);
+        const signer = await signerFor(session);
+        const root = ss58Encode(seedToAccount(DEV_PHRASE, "").publicKey);
 
-        expect(() =>
-            createSessionSigner(session, {
-                productId: PRODUCT_ID,
-                derivationIndex: 0,
-            }),
-        ).toThrow("Stored login session is missing the root account public key.");
+        expect(ss58Encode(signer.publicKey)).not.toEqual(root);
     });
 });

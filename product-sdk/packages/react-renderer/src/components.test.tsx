@@ -3,7 +3,6 @@
 // @ts-expect-error Untyped
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-import { str } from "@parity/truapi/scale";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { act } from "react";
@@ -120,7 +119,7 @@ describe("custom components", () => {
         it("forwards layout modifiers", async () => {
             const { node } = await mount(<Spacer height={16} />);
             const heightMod = (node.value.modifiers as any[]).find((m: any) => m.tag === "Height");
-            expect(heightMod.value).toEqual({ height: 16 });
+            expect(heightMod.value).toBe(16);
         });
     });
 
@@ -252,13 +251,13 @@ describe("custom components", () => {
             expect((node.value.props.valueChangeAction as string).length).toBeGreaterThan(0);
         });
 
-        it("calls onValueChange with the decoded string when the action fires with a SCALE string payload", async () => {
+        it("calls onValueChange with the decoded string when the action fires with a UTF-8 payload", async () => {
             const onValueChange = vi.fn(() => {});
             const { node, dispatchAction } = await mount(
                 <TextField value="" onValueChange={onValueChange} />,
             );
 
-            const encoded = str.enc("hello world");
+            const encoded = new TextEncoder().encode("hello world");
             await dispatchAction(node.value.props.valueChangeAction as string, encoded);
 
             expect(onValueChange).toHaveBeenCalledTimes(1);
@@ -299,7 +298,7 @@ describe("custom components", () => {
                 renderer.mount(<TextField value="" onValueChange={handler2} />);
             });
 
-            const encoded = str.enc("updated");
+            const encoded = new TextEncoder().encode("updated");
             await act(async () => {
                 bus.dispatch(actionId, encoded);
             });

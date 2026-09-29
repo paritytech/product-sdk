@@ -26,11 +26,11 @@ export interface CloudStorageNetwork {
  */
 export const CloudStorageNetworks = {
     paseo: {
-        genesisHash: "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
+        genesisHash: paseoBulletinDescriptor.genesis as `0x${string}`,
         descriptor: paseoBulletinDescriptor,
     },
     previewnet: {
-        genesisHash: "0x1144acd27f0e5b2c88da7dc12c111e396983dec036ccfb42da5bbb0dd7104e89",
+        genesisHash: previewnetBulletinDescriptor.genesis as `0x${string}`,
         // Previewnet Bulletin runs the same Bulletin runtime as Paseo but is a
         // separate deployment with its own genesis; the descriptor type is
         // pinned to the canonical Paseo one so the network interface stays
@@ -38,7 +38,7 @@ export const CloudStorageNetworks = {
         descriptor: previewnetBulletinDescriptor as typeof paseoBulletinDescriptor,
     },
     devnet: {
-        genesisHash: "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
+        genesisHash: devnetBulletinDescriptor.genesis as `0x${string}`,
         // Devnet Bulletin (public Paseo testnet) shares the Bulletin runtime
         // shape with Paseo; the descriptor type is pinned to the canonical
         // Paseo one so the network interface stays uniform across environments.
@@ -57,30 +57,12 @@ if (import.meta.vitest) {
             expect(CloudStorageNetworks.paseo.genesisHash).toMatch(/^0x[a-f0-9]{64}$/);
         });
 
-        test("paseo descriptor has matching genesis", () => {
-            expect(CloudStorageNetworks.paseo.descriptor.genesis).toBe(
-                CloudStorageNetworks.paseo.genesisHash,
-            );
-        });
-
         test("previewnet has a valid genesis hash", () => {
             expect(CloudStorageNetworks.previewnet.genesisHash).toMatch(/^0x[a-f0-9]{64}$/);
         });
 
-        test("previewnet descriptor has matching genesis", () => {
-            expect(CloudStorageNetworks.previewnet.descriptor.genesis).toBe(
-                CloudStorageNetworks.previewnet.genesisHash,
-            );
-        });
-
         test("devnet has a valid genesis hash", () => {
             expect(CloudStorageNetworks.devnet.genesisHash).toMatch(/^0x[a-f0-9]{64}$/);
-        });
-
-        test("devnet descriptor has matching genesis", () => {
-            expect(CloudStorageNetworks.devnet.descriptor.genesis).toBe(
-                CloudStorageNetworks.devnet.genesisHash,
-            );
         });
     });
 }

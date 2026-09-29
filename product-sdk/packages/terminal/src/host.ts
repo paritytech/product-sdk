@@ -4,7 +4,7 @@
  * Host-runner facet of `@parity/product-sdk-terminal`. A CLI using this
  * package plays the Host role per RFC-10; this module implements the
  * three §Stakeholders Host responsibilities (AP client, cache, signer)
- * over `@novasamatech/host-papp@0.7.7`'s `UserSession`.
+ * over `@novasamatech/host-papp@0.10.0`'s `UserSession`.
  *
  * @module
  */
@@ -34,8 +34,6 @@ const log = createLogger("terminal");
 export type { CachedAllocation };
 export { createSlotAccountSigner };
 
-// Types derived from `UserSession['requestResourceAllocation']` so upstream
-// codec changes surface as compile errors here, not runtime decode failures.
 // host-papp doesn't re-export these codec types from its root.
 type ResourceAllocationRequest = Parameters<UserSession["requestResourceAllocation"]>[0];
 
@@ -271,6 +269,47 @@ if (import.meta.vitest) {
     const { mnemonicToMiniSecret, DEV_PHRASE } = await import("@polkadot-labs/hdkd-helpers");
     const { toHex } = await import("@polkadot-api/utils");
 
+    // Deriving from `UserSession` only catches a reshape of a variant this repo
+    // constructs; a bump to any other variant compiles clean.
+    type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+        ? true
+        : false;
+    type Expect<T extends true> = T;
+
+    type PinnedAllocatableResource =
+        | { tag: "StatementStoreAllowance"; value: undefined }
+        | {
+              tag: "SmartContractAllowance";
+              value: { tag: "Index"; value: number } | { tag: "Raw"; value: Uint8Array };
+          }
+        | { tag: "AutoSigning"; value: undefined }
+        | { tag: "BulletInAllowance"; value: undefined };
+
+    type _AllocatableResourceIsPinned = Expect<
+        Equal<AllocatableResource, PinnedAllocatableResource>
+    >;
+    type _OnExistingPolicyIsPinned = Expect<
+        Equal<OnExistingAllowancePolicy, "Ignore" | "Increase">
+    >;
+
+    type PinnedAllocatedResource =
+        | { tag: "StatementStoreAllowance"; value: { slotAccountKey: Uint8Array } }
+        | { tag: "SmartContractAllowance"; value: undefined }
+        | {
+              tag: "AutoSigning";
+              value: { productRootPrivateKey: Uint8Array; ringVrfDomainEntropy: Uint8Array };
+          }
+        | { tag: "BulletInAllowance"; value: { slotAccountKey: Uint8Array } };
+
+    type _ApAllocationOutcomeIsPinned = Expect<
+        Equal<
+            ApAllocationOutcome,
+            | { tag: "Rejected"; value: undefined }
+            | { tag: "Allocated"; value: PinnedAllocatedResource }
+            | { tag: "NotAvailable"; value: undefined }
+        >
+    >;
+
     let testStorageDir: string;
     beforeEach(() => {
         // Per-test temp dir so cache writes don't leak between tests or
@@ -408,13 +447,13 @@ if (import.meta.vitest) {
             });
 
             await requestResourceAllocation(session, fakeAdapter("p"), [
-                { tag: "SmartContractAllowance", value: 7 },
+                { tag: "SmartContractAllowance", value: { tag: "Index", value: 7 } },
             ]);
 
             const sent = captured[0].resources[0];
             expect(sent.tag).toBe("SmartContractAllowance");
             if (sent.tag === "SmartContractAllowance") {
-                expect(sent.value).toBe(7);
+                expect(sent.value).toEqual({ tag: "Index", value: 7 });
             }
         });
 
@@ -647,7 +686,7 @@ if (import.meta.vitest) {
                             value: {
                                 tag: "AutoSigning" as const,
                                 value: {
-                                    productDerivationSecret: "secret",
+                                    ringVrfDomainEntropy: new Uint8Array([0xcd]),
                                     productRootPrivateKey: new Uint8Array([0xab]),
                                 },
                             },
@@ -797,15 +836,21 @@ if (import.meta.vitest) {
             });
             const adapter = fakeAdapter("p");
             await requestResourceAllocation(session, adapter, [
-                { tag: "SmartContractAllowance", value: 5 },
+                { tag: "SmartContractAllowance", value: { tag: "Index", value: 5 } },
             ]);
 
             expect(
-                await getCachedAllocation(adapter, { tag: "SmartContractAllowance", value: 5 }),
-            ).toEqual({ tag: "SmartContractAllowance", dest: 5 });
+                await getCachedAllocation(adapter, {
+                    tag: "SmartContractAllowance",
+                    value: { tag: "Index", value: 5 },
+                }),
+            ).toEqual({ tag: "SmartContractAllowance", dest: "Index::5" });
             // Different dest doesn't match.
             expect(
-                await getCachedAllocation(adapter, { tag: "SmartContractAllowance", value: 6 }),
+                await getCachedAllocation(adapter, {
+                    tag: "SmartContractAllowance",
+                    value: { tag: "Index", value: 6 },
+                }),
             ).toBeNull();
         });
     });

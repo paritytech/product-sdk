@@ -29,12 +29,15 @@ export interface FinalizedBlockSource {
 }
 
 /** What {@link fromPapi} returns, with the typed API preserved. */
-export interface PapiIndividualityChain<Api> {
+export interface PapiIndividualityChain<Api, Client = FinalizedBlockSource> {
     individuality: Api;
-    raw: { individuality: FinalizedBlockSource };
+    raw: { individuality: Client };
 }
 
-export function fromPapi<Api>(client: FinalizedBlockSource, api: Api): PapiIndividualityChain<Api> {
+export function fromPapi<Api, Client extends FinalizedBlockSource>(
+    client: Client,
+    api: Api,
+): PapiIndividualityChain<Api, Client> {
     return { individuality: api, raw: { individuality: client } };
 }
 

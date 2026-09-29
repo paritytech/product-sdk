@@ -12,7 +12,7 @@
  *
  * function App() {
  *   return (
- *     <ProductSDKProvider name="my-app">
+ *     <ProductSDKProvider>
  *       <MyApp />
  *     </ProductSDKProvider>
  *   );

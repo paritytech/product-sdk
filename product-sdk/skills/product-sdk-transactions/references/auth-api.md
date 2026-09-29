@@ -17,7 +17,7 @@ session-storage scoping read from `config`, so the same code serves any product.
 ```ts
 interface AuthConfig {
   dappId: string;          // scopes ~/.polkadot-apps/${dappId}_* + the SSO pairing
-  productId: string;       // derives the product account (/product/{productId}/{index})
+  productId: string;       // derives the product account (//product//{productId}/{index})
   derivationIndex: number; // 0 = default product account
   peopleEndpoints: string[]; // People-parachain RPC endpoints
 }
@@ -100,7 +100,7 @@ interface ResolvedSigner {
 ### Allocations (RFC-0010)
 
 ```ts
-const DEFAULT_RESOURCES: AllocatableResource[]; // BulletInAllowance, StatementStoreAllowance, SmartContractAllowance(0)
+const DEFAULT_RESOURCES: AllocatableResource[]; // BulletInAllowance, StatementStoreAllowance, SmartContractAllowance { tag: "Index", value: 0 }
 
 // Standalone twin of authClient.requestAllocation — for callers that already have a session + productId.
 function requestResourceAllocation(
@@ -117,7 +117,8 @@ function summarizeOutcomes(
 ): { granted: AllocatableResource[]; rejected: AllocatableResource[]; unavailable: AllocatableResource[] };
 
 type AllocationOutcome;              // re-export of terminal's ApAllocationOutcome; .tag: "Allocated" | "Rejected" | …
-type AllocatableResource;            // re-export from terminal ({ tag, value })
+type AllocatableResource;            // re-export from terminal; NOT the host package's same-named
+                                     // type (that one spells BulletinAllowance, Raw is hex)
 type ResourceTag = AllocatableResource["tag"];
 type OnExistingAllowancePolicy;      // re-export from terminal
 ```
@@ -125,12 +126,18 @@ type OnExistingAllowancePolicy;      // re-export from terminal
 ### Session-signer primitives (re-exported from `@parity/product-sdk-terminal`)
 
 ```ts
-createSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner;
-deriveProductPublicKey(session: UserSession, ref: ProductAccountRef): Uint8Array; // CLI counterpart of keys' deriveProductAccountPublicKey
-sessionRootPublicKey(session: UserSession): Uint8Array;
+createSessionSigner(session, ref: ProductAccountRef, options?): Promise<PolkadotSigner>;
+deriveProductPublicKey(session, ref: ProductAccountRef, options?): Promise<Uint8Array>;
+getProductSubtreePublicKey(session, productId, options?): Promise<Uint8Array>;
+sessionRootPublicKey(session: UserSession): Uint8Array;  // the wallet's root, NOT a product account
 const INCOMPLETE_SESSION_MESSAGE: string;
-type ProductAccountRef;              // { productId, derivationIndex }
+type ProductAccountRef;              // { productId, derivationIndex, publicKey? }
+type ProductSubtreeOptions;          // { appId?, storageDir? }
 ```
+
+The first three are async: they fetch the product subtree key from the paired wallet, one
+consent-free round trip per product, cached on disk afterwards. Pass `ref.publicKey` to skip
+it. See `keys-api.md` for why the fetch is unavoidable.
 
 ## `./ui` entrypoint (`@parity/product-sdk-auth/ui`)
 

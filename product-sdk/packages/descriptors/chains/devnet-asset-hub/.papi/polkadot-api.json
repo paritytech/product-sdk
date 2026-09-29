@@ -6,7 +6,7 @@
             "wsUrl": "wss://asset-hub-paseo-rpc.n.dwellir.com",
             "metadata": "../../.papi/metadata/devnet_asset_hub.scale",
             "genesis": "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
-            "codeHash": "0xe9572ef73110639f9d70e844fafa87af483ddb1ac70700d4232b3b1290925290"
+            "codeHash": "0x73bb1c8197a2d7786be576b499faa2703c52b88580f1c7d03f141cf6642bcd5b"
         }
     }
 }

@@ -54,7 +54,7 @@ import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex } from "@parity/product-sdk-utils";
 import { gameAirdropEventIds } from "./airdrop-ids.js";
 import type { AirdropRegistrant } from "./airdrop-types.js";
-import type { PersonhoodParticipant } from "./types.js";
+import type { FinalizedSnapshot, PersonhoodParticipant } from "./types.js";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
@@ -83,8 +83,11 @@ const DRAW_ONLY = {
     NotSr25519: true,
 } satisfies Record<SignUpBlocker["tag"], boolean>;
 
-/** The chain's `AirdropVrfs`. `Alias` is never constructed, only declared. */
-type AirdropVrfsArg =
+/**
+ * The chain's `AirdropVrfs`. `Alias` is never constructed, only declared.
+ * Exported for `signup-lite.ts`, whose call takes the same argument.
+ */
+export type AirdropVrfsArg =
     | { type: "Account"; value: { pre_output: string; proof: string }[] }
     | { type: "Alias"; value: { proofs: Uint8Array[]; ring_index: number; revision: number } };
 
@@ -155,32 +158,50 @@ export async function readGameSignUpRequirement(
     options: ReadGameSignUpRequirementOptions,
 ): Promise<Result<GameSignUpRequirement, ProductIndividualityError>> {
     try {
-        const { registrant, signal } = options;
-        const snapshot = await pinBlock(chain, signal);
-        const at = readAt(snapshot, signal);
-        const key = playerKey(registrant);
+        return ok((await runSignUpRequirementRead(chain, options)).requirement);
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
 
-        const [game, rawParticipant, player] = await Promise.all([
-            runGameRead(chain, { signal }, snapshot),
-            chain.individuality.query.Score.Participants.getValue(key, at),
-            chain.individuality.query.Game.Players.getValue(key, at),
-        ]);
+/**
+ * The throwing body of {@link readGameSignUpRequirement}, taking an optional
+ * already-pinned snapshot so a composing read shares one block — the same
+ * pattern as `runGameRead`. Exported for `readLiteSignUpRequirement`; not part
+ * of the package surface.
+ */
+export async function runSignUpRequirementRead(
+    chain: GameChain & SignUpChain,
+    options: ReadGameSignUpRequirementOptions,
+    pinnedAt?: FinalizedSnapshot,
+): Promise<{ requirement: GameSignUpRequirement; player: { registered: boolean } | undefined }> {
+    const { registrant, signal } = options;
+    const snapshot = await pinBlock(chain, signal, pinnedAt);
+    const at = readAt(snapshot, signal);
+    const key = playerKey(registrant);
 
-        // No `Score` record onboards as `NotRecognized`, the same default
-        // `validate_register_for_airdrop` takes.
-        const recognized =
-            rawParticipant !== undefined &&
-            isRecognized(toPersonhoodParticipant(rawParticipant).recognition);
+    const [game, rawParticipant, player] = await Promise.all([
+        runGameRead(chain, { signal }, snapshot),
+        chain.individuality.query.Score.Participants.getValue(key, at),
+        chain.individuality.query.Game.Players.getValue(key, at),
+    ]);
 
-        const blockers: SignUpBlocker[] = [];
-        if (player?.registered === true) {
-            blockers.push({ tag: "AlreadyRegistered" });
-        }
+    // No `Score` record onboards as `NotRecognized`, the same default
+    // `validate_register_for_airdrop` takes.
+    const recognized =
+        rawParticipant !== undefined &&
+        isRecognized(toPersonhoodParticipant(rawParticipant).recognition);
 
-        if (game.tag === "BetweenGames") {
-            // Only `NoGameRunning`: anything gathered above is about draw entry,
-            // and there is no draw here.
-            return ok({
+    const blockers: SignUpBlocker[] = [];
+    if (player?.registered === true) {
+        blockers.push({ tag: "AlreadyRegistered" });
+    }
+
+    if (game.tag === "BetweenGames") {
+        // Only `NoGameRunning`: anything gathered above is about draw entry,
+        // and there is no draw here.
+        return {
+            requirement: {
                 at: snapshot,
                 gameIndex: null,
                 phase: null,
@@ -191,47 +212,50 @@ export async function readGameSignUpRequirement(
                 airdropsScheduled: 0,
                 eventIds: [],
                 blockers: [{ tag: "NoGameRunning" }],
-            });
-        }
+            },
+            player,
+        };
+    }
 
-        const { index, phase, registrationEnds, airdropsScheduled } = game.game;
-        if (phase !== "Registration") {
-            blockers.push({ tag: "NotInRegistration", phase });
-        } else if ((options.now ?? Math.floor(Date.now() / 1000)) >= registrationEnds) {
-            // The chain checks the clock as well as the state, and the phase moves
-            // on an offchain worker's schedule rather than at the deadline.
-            blockers.push({ tag: "RegistrationEnded", registrationEnds });
-        }
+    const { index, phase, registrationEnds, airdropsScheduled } = game.game;
+    if (phase !== "Registration") {
+        blockers.push({ tag: "NotInRegistration", phase });
+    } else if ((options.now ?? Math.floor(Date.now() / 1000)) >= registrationEnds) {
+        // The chain checks the clock as well as the state, and the phase moves
+        // on an offchain worker's schedule rather than at the deadline.
+        blockers.push({ tag: "RegistrationEnded", registrationEnds });
+    }
 
-        // What the chain demands, which stays `Account` for an unrecognized person
-        // who cannot supply it. The blocker says why not.
-        //
-        // Every draw-entry blocker lives in this one chain, below the count check,
-        // so none of them can name a reason for a draw that does not exist.
-        const variant: AirdropVrfVariant = recognized ? "Alias" : "Account";
-        if (airdropsScheduled === 0) {
-            blockers.push({ tag: "NoDrawsScheduled" });
-        } else if (recognized) {
-            blockers.push({ tag: "AliasVrfsUnavailable" });
-        } else if (registrant.tag === "Alias") {
-            blockers.push({ tag: "AccountVrfsNeedAnAccount" });
-        } else if (options.keyType !== undefined && options.keyType !== "sr25519") {
-            blockers.push({ tag: "NotSr25519", keyType: options.keyType });
-        }
+    // What the chain demands, which stays `Account` for an unrecognized person
+    // who cannot supply it. The blocker says why not.
+    //
+    // Every draw-entry blocker lives in this one chain, below the count check,
+    // so none of them can name a reason for a draw that does not exist.
+    const variant: AirdropVrfVariant = recognized ? "Alias" : "Account";
+    if (airdropsScheduled === 0) {
+        blockers.push({ tag: "NoDrawsScheduled" });
+    } else if (recognized) {
+        blockers.push({ tag: "AliasVrfsUnavailable" });
+    } else if (registrant.tag === "Alias") {
+        blockers.push({ tag: "AccountVrfsNeedAnAccount" });
+    } else if (options.keyType !== undefined && options.keyType !== "sr25519") {
+        blockers.push({ tag: "NotSr25519", keyType: options.keyType });
+    }
 
-        const eventIds =
-            airdropsScheduled === 0
-                ? []
-                : gameAirdropEventIds({
-                      base: await chain.individuality.constants.Game.airdrop_event_id_base(),
-                      gameIndex: index,
-                      airdropsScheduled,
-                  });
+    const eventIds =
+        airdropsScheduled === 0
+            ? []
+            : gameAirdropEventIds({
+                  base: await chain.individuality.constants.Game.airdrop_event_id_base(),
+                  gameIndex: index,
+                  airdropsScheduled,
+              });
 
-        // This split is what lets a recognized player sign up.
-        const canSignUp = blockers.every((blocker) => DRAW_ONLY[blocker.tag]);
+    // This split is what lets a recognized player sign up.
+    const canSignUp = blockers.every((blocker) => DRAW_ONLY[blocker.tag]);
 
-        return ok({
+    return {
+        requirement: {
             at: snapshot,
             gameIndex: index,
             phase,
@@ -242,10 +266,9 @@ export async function readGameSignUpRequirement(
             airdropsScheduled,
             eventIds,
             blockers,
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        },
+        player,
+    };
 }
 
 function isRecognized(recognition: PersonhoodParticipant["recognition"]): boolean {
@@ -360,11 +383,36 @@ export function signUpWithAccountTx<Tx>(
     chain: SignUpChain<Tx>,
     options: SignUpWithAccountOptions,
 ): Tx {
-    if (options.identifierKey.length !== IDENTIFIER_KEY_BYTES) {
+    return chain.individuality.tx.Game.sign_up_with_account({
+        identifier_key: identifierKeyHex(options.identifierKey),
+        airdrops: accountAirdropsArg(options),
+    });
+}
+
+/**
+ * The 65-byte width guard and hex conversion for `identifier_key`, shared with
+ * the lite sign-up: both calls store the same `CommunicationIdentifier`.
+ * Exported for `signup-lite.ts`; not part of the package surface.
+ */
+export function identifierKeyHex(identifierKey: Uint8Array): string {
+    if (identifierKey.length !== IDENTIFIER_KEY_BYTES) {
         throw new ProductIndividualityError(
             `game sign-up identifier key must be ${IDENTIFIER_KEY_BYTES} bytes`,
         );
     }
+    return `0x${bytesToHex(identifierKey)}`;
+}
+
+/**
+ * The `airdrops` argument both sign-up calls take, with the count and width
+ * guards. `undefined` is PAPI's `None`. An empty `Account` list is a different
+ * thing, and fails the count check against any game with draws.
+ * Exported for `signup-lite.ts`; not part of the package surface.
+ */
+export function accountAirdropsArg(options: {
+    airdrops?: AccountVrfSignature[];
+    airdropsScheduled?: number;
+}): AirdropVrfsArg | undefined {
     const count = options.airdrops?.length;
     if (
         options.airdropsScheduled !== undefined &&
@@ -375,30 +423,18 @@ export function signUpWithAccountTx<Tx>(
             `game sign-up needs one airdrop VRF per scheduled draw, got ${count} for ${options.airdropsScheduled}`,
         );
     }
-
-    return chain.individuality.tx.Game.sign_up_with_account({
-        identifier_key: `0x${bytesToHex(options.identifierKey)}`,
-        // `undefined` is PAPI's `None`. An empty `Account` list is a different
-        // thing, and fails the count check against any game with draws.
-        airdrops:
-            options.airdrops === undefined
-                ? undefined
-                : {
-                      type: "Account",
-                      value: options.airdrops.map((signature) => ({
-                          pre_output: `0x${bytesToHex(
-                              sizedSignaturePart(
-                                  signature.preOutput,
-                                  VRF_PRE_OUTPUT_BYTES,
-                                  "pre-output",
-                              ),
-                          )}`,
-                          proof: `0x${bytesToHex(
-                              sizedSignaturePart(signature.proof, VRF_PROOF_BYTES, "proof"),
-                          )}`,
-                      })),
-                  },
-    });
+    if (options.airdrops === undefined) {
+        return undefined;
+    }
+    return {
+        type: "Account",
+        value: options.airdrops.map((signature) => ({
+            pre_output: `0x${bytesToHex(
+                sizedSignaturePart(signature.preOutput, VRF_PRE_OUTPUT_BYTES, "pre-output"),
+            )}`,
+            proof: `0x${bytesToHex(sizedSignaturePart(signature.proof, VRF_PROOF_BYTES, "proof"))}`,
+        })),
+    };
 }
 
 function sizedSignaturePart(bytes: Uint8Array, length: number, what: string): Uint8Array {

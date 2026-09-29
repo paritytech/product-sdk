@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { CustomRendererNode, ObservableSource } from "@parity/truapi";
+import type { RendererNode } from "@parity/truapi";
 import type { ReactNode } from "react";
 
 import { createRenderer } from "./renderer.js";
@@ -19,16 +19,23 @@ export type ChatCustomMessageRendererParams<T = Uint8Array> = {
     ): VoidFunction;
 };
 
+/** Minimal push source: what a rendering request handler returns. */
+export interface ObservableSource<Item> {
+    subscribe(observer: { next?(value: Item): void; error?(error: unknown): void }): {
+        unsubscribe(): void;
+    };
+}
+
 /** Callback invoked by the host transport to render a custom chat message. */
 export type ChatCustomMessageRenderer = (
     params: ChatCustomMessageRendererParams,
-    render: (node: CustomRendererNode) => void,
+    render: (node: RendererNode) => void,
 ) => VoidFunction;
 
 /** Product callback that streams renderer trees for one custom chat message. */
 export type ChatCustomMessageRenderingRequestHandler = (
     request: ChatCustomMessageRendererParams,
-) => ObservableSource<CustomRendererNode>;
+) => ObservableSource<RendererNode>;
 
 /**
  * Register a React-based renderer for custom chat messages.

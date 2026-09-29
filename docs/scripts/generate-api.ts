@@ -36,6 +36,15 @@ async function writeFileAtomic(path: string, contents: string): Promise<void> {
   await writeFile(path, contents, "utf8");
 }
 
+// Sidebar label for a package entry in the root API `_meta.ts`.
+// `@parity/product-sdk` → `product-sdk`, `@parity/product-sdk-foo` → `foo`,
+// anything else (e.g. `@parity/result`) is left untouched.
+function sidebarLabelFor(packageName: string): string {
+  if (packageName === "@parity/product-sdk") return "product-sdk";
+  const prefix = "@parity/product-sdk-";
+  return packageName.startsWith(prefix) ? packageName.slice(prefix.length) : packageName;
+}
+
 function labelFor(item: Declaration): string {
   return item.kind === Kind.Function ? `${item.name}()` : item.name;
 }
@@ -148,8 +157,11 @@ async function main(): Promise<void> {
   // Root api _meta.ts: landing page, umbrella pinned first, then leaves
   // alphabetically. Each package slug maps to its folder; Nextra expands the
   // folder in the sidebar to show the symbol anchors from the nested _meta.ts.
-  // Label is the package's real name (not reconstructed from the slug), so
-  // non-`product-sdk-` packages like `@parity/result` render correctly.
+  // Labels drop the shared `@parity/product-sdk-` prefix so the sidebar shows
+  // only the differentiating part (`individuality`, not
+  // `@parity/product-sdk-individuality`). The full name stays in the page
+  // heading and the landing-page table. Packages outside that prefix (e.g.
+  // `@parity/result`) keep their full name so the sidebar isn't misleading.
   const sortedInfos = [...packageInfos].sort((a, b) => {
     if (a.slug === "sdk") return -1;
     if (b.slug === "sdk") return 1;
@@ -157,7 +169,7 @@ async function main(): Promise<void> {
   });
   const rootMeta: MetaEntry[] = [
     { key: "index", label: "Overview" },
-    ...sortedInfos.map((pkg) => ({ key: pkg.slug, label: pkg.name })),
+    ...sortedInfos.map((pkg) => ({ key: pkg.slug, label: sidebarLabelFor(pkg.name) })),
   ];
   await writeFileAtomic(join(API_CONTENT, "_meta.ts"), renderMeta(rootMeta));
   await writeFileAtomic(

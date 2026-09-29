@@ -50,7 +50,7 @@ things change, and between them they cover almost every call:
 | --- | --- | --- |
 | Device permission | `truApi.devicePermission({ tag: "v1", value: "Camera" })` → `res.value` | `truApi.permissions.requestDevicePermission("Camera")` → `res.granted` |
 | Remote permission | `truApi.permission({ tag: "v1", value: { tag: "Remote", value: [url] } })` | `truApi.permissions.requestRemotePermission({ permission: { tag: "Remote", value: { domains: [url] } } })` → `res.granted` |
-| Resource allocation | `truApi.requestResourceAllocation({ tag: "v1", value: [{ tag: "SmartContractAllowance", value: i }] })` → `res.value[0].tag` | `truApi.resourceAllocation.request({ resources: [{ tag: "SmartContractAllowance", value: i }] })` → `res.outcomes[0]` |
+| Resource allocation | `truApi.requestResourceAllocation({ tag: "v1", value: [{ tag: "SmartContractAllowance", value: i }] })` → `res.value[0].tag` | `truApi.resourceAllocation.request({ resources: [{ tag: "SmartContractAllowance", value: { tag: "Index", value: i } }] })` → `res.outcomes[0]` |
 | Feature check | `truApi.featureSupported({ tag: "v1", value: { tag: "Chain", value: genesis } })` → `res.value` | `truApi.system.featureSupported({ tag: "Chain", value: { genesisHash: genesis } })` → `res.supported` |
 | Sign raw | `truApi.signRaw({ tag: "v1", value: { account: [dotNs, 0], payload: { tag: "Bytes", value: bytes } } })` → `res.value` | `truApi.signing.signRaw({ account: { dotNsIdentifier: dotNs, derivationIndex: 0 }, payload: { tag: "Bytes", value: { bytes: toHex(bytes) } } })` → `res.signature` |
 | Error reason | `err.value.name` | `err.reason` (or `err.tag` for tagged variants) |
@@ -94,13 +94,17 @@ result.match(
 
 // after
 const result = await truApi.resourceAllocation.request({
-  resources: [{ tag: "SmartContractAllowance", value: derivationIndex }],
+  resources: [{ tag: "SmartContractAllowance", value: { tag: "Index", value: derivationIndex } }],
 });
 result.match(
   (res) => (res.outcomes[0] === "Allocated" ? ok() : fail()),
   (err) => fail(err.value.reason),
 );
 ```
+
+`SmartContractAllowance` no longer takes a bare number. Its payload is a tagged
+`DerivationIndex`: `{ tag: "Index", value: n }` for a plain account index, or
+`{ tag: "Raw", value: "0x…" }` for a raw 32-byte index as a hex string.
 
 ### Feature check
 

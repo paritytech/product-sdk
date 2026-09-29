@@ -4,96 +4,66 @@
  * Persistent allowance-key cache. One JSON file per `appId`, 0o600.
  *
  * Cache key is the variant tag, except `SmartContractAllowance::{dest}`
- * which disambiguates per-derivation-index PGAS pre-warming.
+ * which disambiguates per-account PGAS pre-warming.
  *
  * @internal
  */
-import { createLogger } from "@parity/product-sdk-logger";
 import { toHex } from "@polkadot-api/utils";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 
 import type { AllocatableResource, ApAllocationOutcome } from "./host.js";
-
-const log = createLogger("terminal");
-
-const DEFAULT_STORAGE_DIR = join(homedir(), ".polkadot-apps");
-const CACHE_FILE_MODE = 0o600;
+import { cacheFilePath, loadJsonCache, saveJsonCache, withFileLock } from "./json-cache.js";
 
 /** One cached allowance entry. Hex strings are 0x-prefixed. */
 export type CachedAllocation =
     | { tag: "BulletInAllowance"; slotAccountKey: string }
     | { tag: "StatementStoreAllowance"; slotAccountKey: string }
-    | { tag: "SmartContractAllowance"; dest: number }
+    | { tag: "SmartContractAllowance"; dest: string }
     | {
           tag: "AutoSigning";
-          productDerivationSecret: string;
+          ringVrfDomainEntropy: string;
           productRootPrivateKey: string;
       };
 
-interface AllowanceCacheV1 {
-    version: 1;
+interface AllowanceCacheV2 {
+    version: 2;
     entries: Record<string, CachedAllocation>;
 }
 
-function sanitizeAppId(appId: string): string {
-    return appId.replace(/[^a-zA-Z0-9_.-]/g, "_");
-}
-
 function cachePath(appId: string, storageDir?: string): string {
-    return join(storageDir ?? DEFAULT_STORAGE_DIR, `${sanitizeAppId(appId)}_AllowanceKeys.json`);
+    return cacheFilePath(appId, "AllowanceKeys", storageDir);
 }
 
-function emptyCache(): AllowanceCacheV1 {
-    return { version: 1, entries: {} };
+function emptyCache(): AllowanceCacheV2 {
+    return { version: 2, entries: {} };
 }
 
-export async function loadCache(appId: string, storageDir?: string): Promise<AllowanceCacheV1> {
+export async function loadCache(appId: string, storageDir?: string): Promise<AllowanceCacheV2> {
     const path = cachePath(appId, storageDir);
-    let raw: string;
-    try {
-        raw = await readFile(path, "utf-8");
-    } catch (e: unknown) {
-        if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return emptyCache();
-        throw e;
-    }
-    try {
-        const parsed = JSON.parse(raw) as AllowanceCacheV1;
-        if (
-            parsed?.version !== 1 ||
-            typeof parsed.entries !== "object" ||
-            parsed.entries === null
-        ) {
-            log.warn("allowance cache schema mismatch; starting fresh", { appId, path });
-            return emptyCache();
-        }
-        return parsed;
-    } catch (e) {
-        log.warn("allowance cache parse failed; starting fresh", { appId, path, error: String(e) });
+    const cache = await loadJsonCache<AllowanceCacheV2>(path, 2, "allowance cache");
+    if (!cache || typeof cache.entries !== "object" || cache.entries === null) {
         return emptyCache();
     }
+    return cache;
 }
 
 export async function saveCache(
     appId: string,
-    cache: AllowanceCacheV1,
+    cache: AllowanceCacheV2,
     storageDir?: string,
 ): Promise<void> {
-    const path = cachePath(appId, storageDir);
-    await mkdir(dirname(path), { recursive: true });
-    // Temp + rename so a mid-write crash can't leave a half-written file.
-    // Concurrent Hosts: the Account Holder serializes per (user, product,
-    // resource) and returns the same key to all callers, so racing writes
-    // converge on identical bytes.
-    const tmp = `${path}.tmp`;
-    await writeFile(tmp, JSON.stringify(cache, null, 2), { mode: CACHE_FILE_MODE });
-    await rename(tmp, path);
+    await saveJsonCache(cachePath(appId, storageDir), cache);
+}
+
+type SmartContractDest = Extract<AllocatableResource, { tag: "SmartContractAllowance" }>["value"];
+
+/** JSON-safe, so it doubles as the cached `dest`. */
+export function smartContractDest(dest: SmartContractDest): string {
+    return dest.tag === "Index" ? `Index::${dest.value}` : `Raw::${toHex(dest.value)}`;
 }
 
 export function cacheKey(resource: AllocatableResource): string {
     if (resource.tag === "SmartContractAllowance") {
-        return `${resource.tag}::${resource.value}`;
+        return `${resource.tag}::${smartContractDest(resource.value)}`;
     }
     return resource.tag;
 }
@@ -105,7 +75,7 @@ export function cacheKey(resource: AllocatableResource): string {
  * aren't slot-additive so they always force `Ignore`.
  */
 export function pickOnExistingPolicy(
-    cache: AllowanceCacheV1,
+    cache: AllowanceCacheV2,
     resources: AllocatableResource[],
 ): "Ignore" | "Increase" {
     if (resources.length === 0) return "Ignore";
@@ -127,10 +97,10 @@ export function pickOnExistingPolicy(
  * silently truncate.
  */
 export function mergeOutcomes(
-    cache: AllowanceCacheV1,
+    cache: AllowanceCacheV2,
     requested: AllocatableResource[],
     outcomes: ApAllocationOutcome[],
-): AllowanceCacheV1 {
+): AllowanceCacheV2 {
     if (requested.length !== outcomes.length) {
         throw new Error(
             `mergeOutcomes: length mismatch — requested ${requested.length}, got ${outcomes.length}`,
@@ -166,64 +136,48 @@ export function mergeOutcomes(
                 // Variant alignment is enforced above, so req.tag is guaranteed
                 // to be SmartContractAllowance here — the cast narrows it.
                 if (req.tag === "SmartContractAllowance") {
-                    entries[key] = { tag: "SmartContractAllowance", dest: req.value };
+                    entries[key] = {
+                        tag: "SmartContractAllowance",
+                        dest: smartContractDest(req.value),
+                    };
                     mutated = true;
                 }
                 break;
             case "AutoSigning":
                 entries[key] = {
                     tag: "AutoSigning",
-                    productDerivationSecret: inner.value.productDerivationSecret,
+                    ringVrfDomainEntropy: toHex(inner.value.ringVrfDomainEntropy),
                     productRootPrivateKey: toHex(inner.value.productRootPrivateKey),
                 };
                 mutated = true;
                 break;
         }
     }
-    return mutated ? { version: 1, entries } : cache;
+    return mutated ? { version: 2, entries } : cache;
 }
 
 /** Look up a single cached allocation, or `null` if absent. */
 export function readCacheEntry(
-    cache: AllowanceCacheV1,
+    cache: AllowanceCacheV2,
     resource: AllocatableResource,
 ): CachedAllocation | null {
     return cache.entries[cacheKey(resource)] ?? null;
 }
-
-/**
- * Serialize load/merge/save sequences for the same cache file within a
- * single process. Without this, parallel `requestResourceAllocation`
- * calls for *different* resources can race: each snapshots the cache
- * before the other writes, last writer wins, the loser's key is lost.
- *
- * Cross-process races are out of scope here — the Account Holder
- * serializes per user/product/resource and returns identical bytes
- * to concurrent callers for the same resource, so two CLI processes
- * writing the same key converge.
- */
-const cacheLocks = new Map<string, Promise<unknown>>();
 
 export function withCacheLock<T>(
     appId: string,
     storageDir: string | undefined,
     fn: () => Promise<T>,
 ): Promise<T> {
-    const key = cachePath(appId, storageDir);
-    const prev = cacheLocks.get(key) ?? Promise.resolve();
-    // Neutralize a prior rejection so one failure doesn't block subsequent waiters.
-    const next = prev.catch(() => {}).then(fn);
-    cacheLocks.set(
-        key,
-        next.catch(() => {}),
-    );
-    return next;
+    return withFileLock(cachePath(appId, storageDir), fn);
 }
 
 if (import.meta.vitest) {
     const { describe, test, expect, beforeEach } = import.meta.vitest;
     const { mkdtempSync, rmSync } = await import("node:fs");
+    const { mkdir, writeFile } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
 
     let storageDir: string;
     beforeEach(() => {
@@ -243,11 +197,41 @@ if (import.meta.vitest) {
         });
 
         test("disambiguates SmartContractAllowance by dest", () => {
-            expect(cacheKey({ tag: "SmartContractAllowance", value: 0 })).toBe(
-                "SmartContractAllowance::0",
-            );
-            expect(cacheKey({ tag: "SmartContractAllowance", value: 7 })).toBe(
-                "SmartContractAllowance::7",
+            expect(
+                cacheKey({ tag: "SmartContractAllowance", value: { tag: "Index", value: 0 } }),
+            ).toBe("SmartContractAllowance::Index::0");
+            expect(
+                cacheKey({ tag: "SmartContractAllowance", value: { tag: "Index", value: 7 } }),
+            ).toBe("SmartContractAllowance::Index::7");
+        });
+
+        // tsc misses this: a template literal accepts an object.
+        test("an Index and a Raw dest never share a cache key", () => {
+            const raw = new Uint8Array(32);
+            raw[0] = 7;
+            const indexKey = cacheKey({
+                tag: "SmartContractAllowance",
+                value: { tag: "Index", value: 7 },
+            });
+            const rawKey = cacheKey({
+                tag: "SmartContractAllowance",
+                value: { tag: "Raw", value: raw },
+            });
+
+            expect(rawKey).not.toBe(indexKey);
+            expect(rawKey).not.toContain("[object Object]");
+            expect(indexKey).not.toContain("[object Object]");
+        });
+
+        test("two different Raw dests get different keys", () => {
+            const a = new Uint8Array(32);
+            const b = new Uint8Array(32);
+            b[31] = 1;
+
+            expect(
+                cacheKey({ tag: "SmartContractAllowance", value: { tag: "Raw", value: a } }),
+            ).not.toBe(
+                cacheKey({ tag: "SmartContractAllowance", value: { tag: "Raw", value: b } }),
             );
         });
     });
@@ -255,12 +239,29 @@ if (import.meta.vitest) {
     describe("loadCache / saveCache round-trip", () => {
         test("loadCache on missing file returns empty cache, not an error", async () => {
             const cache = await loadCache("my-app", storageDir);
-            expect(cache).toEqual({ version: 1, entries: {} });
+            expect(cache).toEqual({ version: 2, entries: {} });
+        });
+
+        // v1 entries belong to sessions the x25519 change already invalidated.
+        test("a version 1 file on disk is dropped, not read", async () => {
+            const stale = {
+                version: 1,
+                entries: {
+                    BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0xdeadbeef" },
+                },
+            };
+            await mkdir(storageDir, { recursive: true });
+            await writeFile(
+                join(storageDir, "my-app_AllowanceKeys.json"),
+                JSON.stringify(stale, null, 2),
+            );
+
+            expect(await loadCache("my-app", storageDir)).toEqual({ version: 2, entries: {} });
         });
 
         test("saveCache then loadCache returns the same content", async () => {
-            const original: AllowanceCacheV1 = {
-                version: 1,
+            const original: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0xdeadbeef" },
                 },
@@ -271,14 +272,14 @@ if (import.meta.vitest) {
         });
 
         test("two appIds in the same storageDir don't collide", async () => {
-            const a: AllowanceCacheV1 = {
-                version: 1,
+            const a: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0x01" },
                 },
             };
-            const b: AllowanceCacheV1 = {
-                version: 1,
+            const b: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0x02" },
                 },
@@ -295,7 +296,7 @@ if (import.meta.vitest) {
 
         test("appId with non-alphanumeric characters sanitizes to a safe path", async () => {
             // Verifies a path-traversal-style appId can't escape storageDir.
-            const cache: AllowanceCacheV1 = { version: 1, entries: {} };
+            const cache: AllowanceCacheV2 = { version: 2, entries: {} };
             await expect(saveCache("../escape", cache, storageDir)).resolves.toBeUndefined();
             const reloaded = await loadCache("../escape", storageDir);
             expect(reloaded).toEqual(cache);
@@ -304,7 +305,7 @@ if (import.meta.vitest) {
         test("malformed cache file is treated as empty, not thrown", async () => {
             await writeFile(cachePath("my-app", storageDir), "{ not valid json", "utf-8");
             const cache = await loadCache("my-app", storageDir);
-            expect(cache).toEqual({ version: 1, entries: {} });
+            expect(cache).toEqual({ version: 2, entries: {} });
         });
 
         test("version mismatch is treated as empty, not thrown", async () => {
@@ -314,12 +315,12 @@ if (import.meta.vitest) {
                 "utf-8",
             );
             const cache = await loadCache("my-app", storageDir);
-            expect(cache).toEqual({ version: 1, entries: {} });
+            expect(cache).toEqual({ version: 2, entries: {} });
         });
 
         test("file is written with 0o600 permissions (defense-in-depth)", async () => {
             const { stat } = await import("node:fs/promises");
-            const cache: AllowanceCacheV1 = { version: 1, entries: {} };
+            const cache: AllowanceCacheV2 = { version: 2, entries: {} };
             await saveCache("my-app", cache, storageDir);
             const s = await stat(cachePath("my-app", storageDir));
             // Mask to permission bits only — file type bits are above 0o777.
@@ -341,8 +342,8 @@ if (import.meta.vitest) {
         });
 
         test("all slot-table resources cached → Increase", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0x01" },
                     StatementStoreAllowance: {
@@ -360,8 +361,8 @@ if (import.meta.vitest) {
         });
 
         test("mixed cached + uncached → Ignore (conservative)", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0x01" },
                 },
@@ -375,12 +376,12 @@ if (import.meta.vitest) {
         });
 
         test("AutoSigning in the request → Ignore even if cached (not slot-additive)", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     AutoSigning: {
                         tag: "AutoSigning",
-                        productDerivationSecret: "x",
+                        ringVrfDomainEntropy: "0x01",
                         productRootPrivateKey: "0xaa",
                     },
                 },
@@ -391,15 +392,20 @@ if (import.meta.vitest) {
         });
 
         test("SC in the request → Ignore (not slot-additive; PGAS claim is per-call)", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
-                    "SmartContractAllowance::5": { tag: "SmartContractAllowance", dest: 5 },
+                    "SmartContractAllowance::Index::5": {
+                        tag: "SmartContractAllowance",
+                        dest: "Index::5",
+                    },
                 },
             };
-            expect(pickOnExistingPolicy(cache, [{ tag: "SmartContractAllowance", value: 5 }])).toBe(
-                "Ignore",
-            );
+            expect(
+                pickOnExistingPolicy(cache, [
+                    { tag: "SmartContractAllowance", value: { tag: "Index", value: 5 } },
+                ]),
+            ).toBe("Ignore");
         });
     });
 
@@ -441,7 +447,9 @@ if (import.meta.vitest) {
 
         test("stores SmartContractAllowance with dest from the request", () => {
             const cache = emptyCache();
-            const requested: AllocatableResource[] = [{ tag: "SmartContractAllowance", value: 7 }];
+            const requested: AllocatableResource[] = [
+                { tag: "SmartContractAllowance", value: { tag: "Index", value: 7 } },
+            ];
             const outcomes: ApAllocationOutcome[] = [
                 {
                     tag: "Allocated",
@@ -449,9 +457,9 @@ if (import.meta.vitest) {
                 },
             ];
             const merged = mergeOutcomes(cache, requested, outcomes);
-            expect(merged.entries["SmartContractAllowance::7"]).toEqual({
+            expect(merged.entries["SmartContractAllowance::Index::7"]).toEqual({
                 tag: "SmartContractAllowance",
-                dest: 7,
+                dest: "Index::7",
             });
         });
 
@@ -464,7 +472,7 @@ if (import.meta.vitest) {
                     value: {
                         tag: "AutoSigning",
                         value: {
-                            productDerivationSecret: "secret-hex",
+                            ringVrfDomainEntropy: new Uint8Array([0xef]),
                             productRootPrivateKey: new Uint8Array([0xab, 0xcd]),
                         },
                     },
@@ -473,15 +481,15 @@ if (import.meta.vitest) {
             const merged = mergeOutcomes(cache, requested, outcomes);
             expect(merged.entries.AutoSigning).toEqual({
                 tag: "AutoSigning",
-                productDerivationSecret: "secret-hex",
+                ringVrfDomainEntropy: "0xef",
                 productRootPrivateKey: "0xabcd",
             });
         });
 
         test("returns the same cache reference when no Allocated outcomes (no-op)", () => {
             // Lets callers gate disk writes on reference equality.
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     BulletInAllowance: { tag: "BulletInAllowance", slotAccountKey: "0xaa" },
                 },
@@ -552,8 +560,8 @@ if (import.meta.vitest) {
         });
 
         test("preserves existing entries when merging new ones", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
                     StatementStoreAllowance: {
                         tag: "StatementStoreAllowance",
@@ -587,21 +595,31 @@ if (import.meta.vitest) {
 
     describe("readCacheEntry", () => {
         test("returns the cached entry by resource discriminator", () => {
-            const cache: AllowanceCacheV1 = {
-                version: 1,
+            const cache: AllowanceCacheV2 = {
+                version: 2,
                 entries: {
-                    "SmartContractAllowance::5": {
+                    "SmartContractAllowance::Index::5": {
                         tag: "SmartContractAllowance",
-                        dest: 5,
+                        dest: "Index::5",
                     },
                 },
             };
-            expect(readCacheEntry(cache, { tag: "SmartContractAllowance", value: 5 })).toEqual({
+            expect(
+                readCacheEntry(cache, {
+                    tag: "SmartContractAllowance",
+                    value: { tag: "Index", value: 5 },
+                }),
+            ).toEqual({
                 tag: "SmartContractAllowance",
-                dest: 5,
+                dest: "Index::5",
             });
             // Different dest doesn't match.
-            expect(readCacheEntry(cache, { tag: "SmartContractAllowance", value: 6 })).toBeNull();
+            expect(
+                readCacheEntry(cache, {
+                    tag: "SmartContractAllowance",
+                    value: { tag: "Index", value: 6 },
+                }),
+            ).toBeNull();
         });
 
         test("returns null when nothing cached", () => {

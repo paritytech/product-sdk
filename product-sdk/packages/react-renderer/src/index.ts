@@ -10,7 +10,7 @@ export {
     TextField,
 } from "./components.js";
 
-export type { CustomRendererNode } from "@parity/truapi";
+export type { RendererNode as CustomRendererNode } from "@parity/truapi";
 
 export { createRenderer } from "./renderer.js";
 export type {
