@@ -9,7 +9,7 @@ import { act, createElement } from "react";
 
 import { Text } from "./components.js";
 import { useAction } from "./context.js";
-import type { CardCleanup, CardDrawHandler, PocketCardAction } from "./pocket.js";
+import type { CardCleanup, CardDrawHandler, PocketCardPress } from "./pocket.js";
 import { drawPocketCard } from "./pocket.js";
 
 const CARD_ID = "loyalty";
@@ -21,17 +21,18 @@ const CARD_ID = "loyalty";
 function makeFakeHost() {
     const faces: RendererNode[] = [];
     const unsubscribeActions = vi.fn();
+    const unsubscribeDraw = vi.fn();
 
     let draw: CardDrawHandler | undefined;
-    let report: ((action: PocketCardAction) => void) | undefined;
+    let report: ((action: PocketCardPress) => void) | undefined;
     let release: CardCleanup;
 
     const pocket = {
         drawCard(_cardId: string, handler: CardDrawHandler) {
             draw = handler;
-            return { unsubscribe: vi.fn() };
+            return { unsubscribe: unsubscribeDraw };
         },
-        subscribeCardAction(_cardId: string, callback: (action: PocketCardAction) => void) {
+        subscribeCardAction(_cardId: string, callback: (action: PocketCardPress) => void) {
             report = callback;
             return { unsubscribe: unsubscribeActions };
         },
@@ -60,7 +61,15 @@ function makeFakeHost() {
         });
     }
 
-    return { pocket, faces, putCardOnScreen, takeCardOffScreen, reportAction, unsubscribeActions };
+    return {
+        pocket,
+        faces,
+        putCardOnScreen,
+        takeCardOffScreen,
+        reportAction,
+        unsubscribeActions,
+        unsubscribeDraw,
+    };
 }
 
 /**
@@ -143,5 +152,37 @@ describe("drawPocketCard", () => {
 
         await host.reportAction(clickAction, "0x01");
         expect(seen).toHaveLength(0);
+    });
+
+    // The host's own registration only stops future draws. Without this the tree
+    // stays mounted and keeps sending faces into a body nobody is watching.
+    it("unmounts a card that is on screen when the registration is given up", async () => {
+        const host = makeFakeHost();
+        const registration = drawPocketCard(
+            host.pocket,
+            CARD_ID,
+            createElement(Text, null, "Live"),
+        );
+
+        await host.putCardOnScreen();
+        expect(host.faces).toHaveLength(1);
+
+        await act(async () => {
+            registration.unsubscribe();
+        });
+
+        expect(host.unsubscribeDraw).toHaveBeenCalledTimes(1);
+        expect(host.faces.at(-1)).toEqual({ tag: "Nil" });
+    });
+
+    // The payload the host echoes back with the draw request is otherwise
+    // unreachable, since the element is captured before any draw happens.
+    it("gives the element the render request when it is a function", async () => {
+        const host = makeFakeHost();
+        drawPocketCard(host.pocket, CARD_ID, (render) => createElement(Text, null, render.cardId));
+
+        await host.putCardOnScreen();
+
+        expect(JSON.stringify(host.faces[0])).toContain(CARD_ID);
     });
 });

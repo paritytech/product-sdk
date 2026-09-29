@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import * as components from "./components.js";
 import { Box, Button, Column, Effect, Image, Row, Spacer, Text, TextField } from "./components.js";
 import { createRenderer } from "./renderer.js";
 import { SERIALIZED_MODIFIERS, SERIALIZED_NODES } from "./serializer.js";
@@ -38,6 +39,21 @@ describe("vocabulary", () => {
 
     it("serializes every modifier the protocol declares", () => {
         expect([...SERIALIZED_MODIFIERS].sort()).toEqual(Object.keys(MODIFIER_SCHEMA).sort());
+    });
+
+    // The two tests above compare the serializer's tags against the protocol's,
+    // which a new node can satisfy without ever becoming writable: `WIDGET_SHAPES`
+    // is keyed by tag, so the compiler demands an entry, and adding the tag makes
+    // the list match while no component exists. This holds the same vocabulary
+    // against what a caller can actually import.
+    it("exports a component for every node a product writes by hand", () => {
+        // `Nil` and `String` are what the reconciler emits for nothing and for
+        // text, so neither is written as an element.
+        const emittedByTheReconciler = ["Nil", "String"];
+        const writable = SERIALIZED_NODES.filter((tag) => !emittedByTheReconciler.includes(tag));
+
+        const exported = components as Record<string, unknown>;
+        expect(writable.filter((tag) => typeof exported[tag] !== "function")).toEqual([]);
     });
 });
 

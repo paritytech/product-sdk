@@ -7,33 +7,65 @@
  * redraws in place rather than answering once. That is the whole difference
  * between a card and a picture.
  *
- * Authoring in JSX is what makes that loop small. The card is a component with
- * state, so a press calls `setState` and React streams the next face through
- * the sink the host opened. Written against the tree directly, the same thing
- * needs a repaint closure that the render opens and the cleanup clears, plus
- * care not to send into a render nobody is watching.
+ * Authoring in JSX is what makes that loop small. A press updates the card and
+ * React streams the next face through the sink the host opened. Written against
+ * the tree directly, the same thing needs a repaint closure that the render
+ * opens and the cleanup clears.
+ *
+ * What the JSX does not change is where the card's state belongs. `drawPocketCard`
+ * builds a fresh renderer every time the host puts the card on screen and tears
+ * the tree down when the card leaves, so a `useState` inside `LoyaltyCard` is
+ * lost the moment the user switches tabs: six stamps in, back to zero on the way
+ * home. The stamps are the holder's, not the render's, so they live at module
+ * scope and the tree subscribes to them for as long as it is up.
  */
 import { getPocketManager } from "@parity/product-sdk-host";
 import { drawPocketCard } from "@parity/product-sdk-react-renderer";
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 
 import { CARD_ID, LoyaltyFace } from "./face.js";
 
 const GOAL = 10;
 
-function LoyaltyCard() {
-    const [stamps, setStamps] = useState(0);
-    const [presses, setPresses] = useState(0);
+interface CardState {
+    stamps: number;
+    presses: number;
+}
+
+let card: CardState = { stamps: 0, presses: 0 };
+const watchers = new Set<() => void>();
+
+// A whole new record rather than a mutation: `useSyncExternalStore` decides
+// whether to redraw by comparing what it read last with what it reads now.
+function stamp(): void {
+    card = {
+        stamps: card.stamps >= GOAL ? 0 : card.stamps + 1,
+        presses: card.presses + 1,
+    };
+    for (const watcher of watchers) watcher();
+}
+
+function watchCard(onChange: () => void): () => void {
+    watchers.add(onChange);
+    return () => {
+        watchers.delete(onChange);
+    };
+}
+
+function readCard(): CardState {
+    return card;
+}
+
+/** Exported so `worker.test.tsx` can put it on a fake host and take it off again. */
+export function LoyaltyCard() {
+    const { stamps, presses } = useSyncExternalStore(watchCard, readCard);
 
     return (
         <LoyaltyFace
             stamps={stamps}
             goal={GOAL}
             note={presses === 0 ? undefined : `${presses} presses this session`}
-            onStamp={() => {
-                setPresses((count) => count + 1);
-                setStamps((count) => (count >= GOAL ? 0 : count + 1));
-            }}
+            onStamp={stamp}
         />
     );
 }

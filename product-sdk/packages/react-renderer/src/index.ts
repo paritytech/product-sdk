@@ -15,6 +15,7 @@ export {
 export type { RendererNode as CustomRendererNode } from "@parity/truapi";
 
 export { createRenderer } from "./renderer.js";
+export type { FaceCheck, FaceChecker } from "./renderer.js";
 export type {
     ChatCustomMessageRenderer,
     ChatCustomMessageRendererParams,
@@ -31,6 +32,8 @@ export type {
     CardDrawHandler,
     CardDrawRegistration,
     CardRender,
-    PocketCardAction,
+    DrawPocketCardOptions,
+    PocketCardElement,
+    PocketCardPress,
     PocketCardDrawer,
 } from "./pocket.js";

@@ -837,9 +837,6 @@ importers:
       '@parity/product-sdk-nfts':
         specifier: workspace:*
         version: link:../nfts
-      '@parity/product-sdk-react-renderer':
-        specifier: workspace:*
-        version: link:../react-renderer
       '@parity/product-sdk-renderer':
         specifier: workspace:*
         version: link:../renderer

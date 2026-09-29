@@ -3,6 +3,7 @@
 // @ts-expect-error Untyped
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+import { validateFace } from "@parity/product-sdk-renderer";
 import { describe, expect, it, vi } from "vitest";
 import { act, useState } from "react";
 
@@ -278,7 +279,7 @@ describe("createRenderer validation", () => {
         const renderer = createRenderer({
             onRender: vi.fn(() => {}),
             subscribeActions,
-            validate: true,
+            validate: validateFace,
         });
         await act(async () => {
             renderer.mount(<Text padding={16.5}>Hello</Text>);
@@ -312,7 +313,7 @@ describe("createRenderer validation", () => {
         const onRender = vi.fn((_node: unknown) => {});
         const { subscribeActions } = makeActionBus();
 
-        const renderer = createRenderer({ onRender, subscribeActions, validate: true });
+        const renderer = createRenderer({ onRender, subscribeActions, validate: validateFace });
         await act(async () => {
             renderer.mount(<Text padding={16.5}>Hello</Text>);
         });

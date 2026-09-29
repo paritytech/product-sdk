@@ -19,7 +19,7 @@ import type { HexString, RendererNode } from "@parity/truapi";
 import { hexToBytes } from "@parity/truapi/scale";
 import type { ReactNode } from "react";
 
-import { createRenderer } from "./renderer.js";
+import { createRenderer, type FaceChecker } from "./renderer.js";
 
 /** What a draw handler leaves behind: what runs when the card leaves the screen. */
 // biome-ignore lint/suspicious/noConfusingVoidType: a handler body that just draws returns void
@@ -42,8 +42,14 @@ export interface CardDrawRegistration {
     unsubscribe(): void;
 }
 
-/** A press or a value change inside a card's face, as the host reports it. */
-export interface PocketCardAction {
+/**
+ * The part of a reported press this reads.
+ *
+ * Deliberately not called `PocketCardAction`: the host's type of that name also
+ * carries the render context, and two same named types of different shapes is
+ * worse than one honestly narrow one. A real `PocketCardAction` satisfies this.
+ */
+export interface PocketCardPress {
     actionId: string;
     payload: HexString;
 }
@@ -57,7 +63,7 @@ export interface PocketCardDrawer {
     /** The host's handle carries more than this; only giving the subscription back matters here. */
     subscribeCardAction(
         cardId: string,
-        callback: (action: PocketCardAction) => void,
+        callback: (action: PocketCardPress) => void,
     ): { unsubscribe(): void };
 }
 
@@ -69,20 +75,45 @@ function decodePayload(payload: HexString): Uint8Array | undefined {
     return payload === "0x" ? undefined : hexToBytes(payload);
 }
 
+/** What to draw, or a function of the request the host made. */
+export type PocketCardElement = ReactNode | ((render: CardRender) => ReactNode);
+
+export interface DrawPocketCardOptions {
+    /**
+     * Check each face before it reaches the host.
+     *
+     * Pass `validateFace` from `@parity/product-sdk-renderer`. Left out, no
+     * checker is referenced and none is bundled.
+     */
+    validate?: FaceChecker;
+}
+
 /**
- * Draw `cardId` from `element` for as long as the host keeps the card on screen.
+ * Draw `cardId` for as long as the host keeps the card on screen.
  *
  * The tree stays live rather than answering once: state changes inside it redraw
  * the card through the same sink, and a press comes back to the handler that
  * asked for it. The host tears the tree down when the card leaves, and puts a
- * fresh one up if the card returns.
+ * fresh one up if the card returns, so state that must outlive a card belongs
+ * above this rather than inside the tree.
+ *
+ * `element` may be a function of the {@link CardRender} the host sent, which is
+ * the only way to read the payload it echoes back.
+ *
+ * Giving the returned registration up also unmounts a tree that is on screen at
+ * the time. The host's own registration only stops future draws, so without
+ * this the tree would stay mounted and keep sending faces into a body nobody
+ * asked for any more.
  */
 export function drawPocketCard(
     pocket: PocketCardDrawer,
     cardId: string,
-    element: ReactNode,
+    element: PocketCardElement,
+    options: DrawPocketCardOptions = {},
 ): CardDrawRegistration {
-    return pocket.drawCard(cardId, (send) => {
+    let live: { unmount(): void } | null = null;
+
+    const registration = pocket.drawCard(cardId, (send, render) => {
         const renderer = createRenderer({
             onRender: send,
             subscribeActions: (callback) => {
@@ -93,12 +124,24 @@ export function drawPocketCard(
                     subscription.unsubscribe();
                 };
             },
+            validate: options.validate,
         });
 
-        renderer.mount(element);
+        live = renderer;
+        renderer.mount(typeof element === "function" ? element(render) : element);
 
         return () => {
+            live = null;
             renderer.unmount();
         };
     });
+
+    return {
+        unsubscribe() {
+            registration.unsubscribe();
+            const mounted: { unmount(): void } | null = live;
+            live = null;
+            mounted?.unmount();
+        },
+    };
 }

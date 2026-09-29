@@ -87,7 +87,13 @@ export interface ButtonProps extends BaseWidgetProps {
     variant?: ButtonVariant;
     enabled?: boolean;
     loading?: boolean;
-    onClick(): void;
+    /**
+     * Run when the button is pressed.
+     *
+     * Optional, because a face drawn where nothing is listening should name no
+     * action at all. Leave it out and no `clickAction` is emitted.
+     */
+    onClick?(): void;
 }
 
 export interface TextFieldProps extends BaseWidgetProps {
@@ -95,7 +101,8 @@ export interface TextFieldProps extends BaseWidgetProps {
     placeholder?: string;
     label?: string;
     enabled?: boolean;
-    onValueChange(value: string): void;
+    /** Run on every change. Leave it out and no `valueChangeAction` is emitted. */
+    onValueChange?(value: string): void;
 }
 
 export interface ImageProps extends BaseWidgetProps {

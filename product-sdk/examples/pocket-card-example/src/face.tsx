@@ -3,7 +3,7 @@
 /**
  * The loyalty card's face, authored in JSX.
  *
- * One module for two surfaces. The worker mounts it live, and `write-faces.ts`
+ * One module for two surfaces. The worker mounts it live, and `write-faces.tsx`
  * mounts the same component to write the JSON the manifest's `preview` paths
  * point at, which is what the approval sheet draws before the card is added.
  * One source, so the sheet and the card cannot disagree.
@@ -15,9 +15,6 @@ import type { ReactNode } from "react";
 
 /** The card this worker publishes, as named in the manifest. */
 export const CARD_ID = "loyalty";
-
-/** The action id the face names, and the host reports when the button is pressed. */
-export const STAMP_ACTION = "stamp";
 
 /** Where the card holder stands. */
 export interface LoyaltyState {
@@ -39,12 +36,12 @@ const STAMP_RADIUS = 3;
 const STAMP_GAP = 4;
 
 export interface LoyaltyFaceProps extends LoyaltyState {
-    /**
+        /**
      * Run when the button is pressed.
      *
-     * react-renderer mints the action id behind `onClick` and routes the press
-     * back, so the product never names one. The static preview faces leave this
-     * out: nothing is listening when the approval sheet draws them.
+     * Left out by the preview generator, which draws where nothing is
+     * listening. react-renderer then emits no `clickAction`, so the face the
+     * approval sheet reads names no action rather than one nothing registers.
      */
     onStamp?(): void;
 }
@@ -71,7 +68,16 @@ function Stamps({ filled, total }: { filled: number; total: number }): ReactNode
                     key={mark}
                     width={STAMP_SIZE}
                     height={STAMP_SIZE}
-                    margin={{ top: 0, end: mark < total - 1 ? STAMP_GAP : 0 }}
+                    // All four edges, deliberately: `Dimensions` is a shorthand
+                    // where `start` falls back to `end` and `bottom` to `top`,
+                    // so naming only `top` and `end` puts the gap on both sides
+                    // of every box and pushes the row off centre.
+                    margin={{
+                        top: 0,
+                        end: mark < total - 1 ? STAMP_GAP : 0,
+                        bottom: 0,
+                        start: 0,
+                    }}
                     background={{
                         color: mark < filled ? "FgSuccess" : "BgSurfaceNested",
                         shape: { tag: "Rounded", value: STAMP_RADIUS },
@@ -109,7 +115,7 @@ export function LoyaltyFace({ stamps, goal, note, onStamp }: LoyaltyFaceProps): 
             <Button
                 text={done ? "Redeem" : "Stamp"}
                 variant={done ? "Primary" : "Secondary"}
-                onClick={onStamp ?? (() => {})}
+                onClick={onStamp}
             />
         </Column>
     );
