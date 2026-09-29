@@ -1,45 +1,35 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+//
+// TrUAPI-native fixture. Only the source of the fixture changed; the specs and
+// their assertions are untouched.
 import { test as base } from "@playwright/test";
 import {
     createTestHostFixture,
-    PASEO_ASSET_HUB,
-    type NetworkConfig,
     type TestHost,
-} from "@parity/host-api-test-sdk/playwright";
+} from "@parity/truapi-host/testing/playwright";
 
-// Paseo Asset Hub uses SS58 prefix 0 → addresses start with "1".
 export const SS58_PREFIX = 0;
 const PRODUCT_URL = "http://localhost:5220";
 
-/**
- * Paseo Asset Hub config with a configurable RPC endpoint.
- *
- * Override via `PASEO_AH_RPC` if the default RPC has outages. The override must
- * serve the same chain as `PASEO_ASSET_HUB.genesisHash`; a mirror on any other
- * genesis fails the chain handshake (seen as `Tracking stopped` / `BadProof`).
- */
-const PASEO_AH: NetworkConfig = {
-    ...PASEO_ASSET_HUB,
-    rpcUrl: process.env.PASEO_AH_RPC ?? "wss://paseo-asset-hub-next-rpc.polkadot.io",
-};
-
-/**
- * Default fixture: Bob on Paseo Asset Hub.
- *
- * `productAccounts` maps this app's DotNS-derived account (used by `SignerManager`
- * when it asks the host for a non-product account) to the funded dev keypair.
- *
- * The chain config is for the host container's account resolution; the statement
- * store protocol itself is independent of the chain connection.
- */
-const bobFixture = createTestHostFixture({
-    productUrl: PRODUCT_URL,
-    productId: "statement-store-demo.dot",
-    accounts: ["bob"],
-    networks: [PASEO_AH],
-    productAccounts: { "statement-store-demo.dot": "bob" },
-});
-
-export const test = base.extend<{ testHost: TestHost }>(bobFixture);
+export const test = base.extend<{ testHost: TestHost }>(
+    createTestHostFixture({
+        productUrl: PRODUCT_URL,
+        productId: "statement-store-demo.dot",
+        accounts: ["alice", "bob", "charlie", "dave"],
+        // The statement store flows over the people chain, so proxy to the
+        // real one. Genesis is declared because the product checks it.
+        mock: {
+            chainProxies: [
+                { rpcUrl: "wss://paseo-people-next-system-rpc.polkadot.io" },
+            ],
+        },
+        runtimeConfig: {
+            people: {
+                genesisHash:
+                    "0x4a2b5b737de1da59e209b0000a876ec2fa20035dc34fd292a848da32d255ad48",
+            },
+        },
+    }),
+);
 export { expect } from "@playwright/test";

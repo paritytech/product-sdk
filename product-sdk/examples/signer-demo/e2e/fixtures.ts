@@ -1,47 +1,22 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+//
+// TrUAPI-native fixture. Only the source of the fixture changed; the specs and
+// their assertions are untouched.
 import { test as base } from "@playwright/test";
 import {
     createTestHostFixture,
-    PASEO_ASSET_HUB,
-    type NetworkConfig,
     type TestHost,
-} from "@parity/host-api-test-sdk/playwright";
+} from "@parity/truapi-host/testing/playwright";
 
-// Paseo Asset Hub uses SS58 prefix 0 → addresses start with "1".
 export const SS58_PREFIX = 0;
 const PRODUCT_URL = "http://localhost:5210";
 
-/**
- * Paseo Asset Hub config with a configurable RPC endpoint.
- *
- * Override via `PASEO_AH_RPC` if the default RPC has outages. The override must
- * serve the same chain as `PASEO_ASSET_HUB.genesisHash`; a mirror on any other
- * genesis fails the chain handshake (seen as `Tracking stopped` / `BadProof`).
- */
-const PASEO_AH: NetworkConfig = {
-    ...PASEO_ASSET_HUB,
-    rpcUrl: process.env.PASEO_AH_RPC ?? "wss://paseo-asset-hub-next-rpc.polkadot.io",
-};
-
-/**
- * Default fixture: Bob + Charlie both available as non-product accounts.
- * Tests start with Bob selected (first in the list), and can switch to
- * Charlie via `testHost.switchAccount("charlie")`.
- */
-const fixture = createTestHostFixture({
-    productUrl: PRODUCT_URL,
-    productId: "signer-demo.dot",
-    accounts: ["bob", "charlie"],
-    networks: [PASEO_AH],
-    productAccounts: { "signer-demo.dot": "bob" },
-    // Granted AutoSigning makes the core sign in its own worker with no host
-    // round-trip, so nothing reaches getSigningLog(). Withholding it restores
-    // the observable SSO path. Must be a boot option:
-    // setResourceAllocationBehavior() lands after onConnect has already asked.
-    // Unlisted resources stay granted; permission tags are a separate axis.
-    behaviors: { resourceAllocation: { AutoSigning: false } },
-});
-
-export const test = base.extend<{ testHost: TestHost }>(fixture);
+export const test = base.extend<{ testHost: TestHost }>(
+    createTestHostFixture({
+        productUrl: PRODUCT_URL,
+        productId: "signer-demo.dot",
+        accounts: ["alice", "bob", "charlie", "dave"],
+    }),
+);
 export { expect } from "@playwright/test";

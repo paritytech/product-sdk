@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "private": true,
     "type": "module",
-    "description": "E2E demo app for @parity/product-sdk-local-storage — exercises LocalKvStore with host backend auto-detection via the Host API path",
+    "description": "E2E demo app for @parity/product-sdk-local-storage \u2014 exercises LocalKvStore with host backend auto-detection via the Host API path",
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
@@ -21,6 +21,7 @@
         "@parity/host-api-test-sdk": "catalog:",
         "@playwright/test": "catalog:",
         "typescript": "catalog:",
-        "vite": "catalog:"
+        "vite": "catalog:",
+        "@parity/truapi-host": "catalog:"
     }
 }

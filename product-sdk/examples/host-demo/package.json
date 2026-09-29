@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "private": true,
     "type": "module",
-    "description": "E2E demo app for @parity/product-sdk-host — exercises container detection and host localStorage via the Host API path",
+    "description": "E2E demo app for @parity/product-sdk-host \u2014 exercises container detection and host localStorage via the Host API path",
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
@@ -20,6 +20,7 @@
         "@parity/host-api-test-sdk": "catalog:",
         "@playwright/test": "catalog:",
         "typescript": "catalog:",
-        "vite": "catalog:"
+        "vite": "catalog:",
+        "@parity/truapi-host": "catalog:"
     }
 }
