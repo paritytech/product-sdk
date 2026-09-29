@@ -1,9 +1,8 @@
 {
-    "name": "@parity/product-sdk-host",
-    "version": "0.23.0",
-    "description": "Host container detection and storage access for Polkadot Desktop and Mobile environments",
+    "name": "@parity/product-sdk-react-renderer",
+    "version": "0.0.1",
+    "description": "React renderer for TrUAPI custom chat messages: maps a React component tree to CustomRendererNode widget trees",
     "type": "module",
-    "sideEffects": false,
     "main": "./dist/index.js",
     "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -11,10 +10,6 @@
         ".": {
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
-        },
-        "./testing": {
-            "import": "./dist/testing.js",
-            "types": "./dist/testing.d.ts"
         }
     },
     "files": ["dist", "src"],
@@ -25,16 +20,16 @@
         "typecheck": "tsc -p tsconfig.typecheck.json"
     },
     "dependencies": {
-        "@parity/product-sdk-logger": "workspace:*",
-        "@parity/product-sdk-errors": "workspace:*",
-        "@parity/result": "workspace:*",
         "@parity/truapi": "catalog:",
-        "@polkadot-api/json-rpc-provider": "catalog:",
-        "neverthrow": "^8.2.0",
-        "polkadot-api": "catalog:",
-        "@novasamatech/host-api-wrapper": "0.9.2"
+        "react-reconciler": "0.33.0"
+    },
+    "peerDependencies": {
+        "react": "^19.2.0"
     },
     "devDependencies": {
+        "@types/react": "^19.0.0",
+        "@types/react-reconciler": "0.33.0",
+        "react": "^19.2.0",
         "tsup": "catalog:",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0"

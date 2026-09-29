@@ -122,6 +122,9 @@ export type {
     ChatRoom,
     ChatRoomRegistrationResult,
     ChatBotRegistrationResult,
+    ChatCustomMessageRenderingRequest,
+    ChatCustomMessageRenderingRequestHandler,
+    ChatCustomMessageRenderingRegistration,
 } from "./chat.js";
 
 // Renderer (the shared `onRender` slot)
