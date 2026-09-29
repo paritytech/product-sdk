@@ -136,6 +136,19 @@ File-based storage adapter for Node.js. Data persists in `storageDir` (defaults 
 
 Waits for the session list to emit at least one entry, or resolves with `[]` after `timeoutMs`.
 
+### `deriveEntropy(session, productId, key): Uint8Array`
+
+Derives 32 bytes of deterministic entropy from a paired session, scoped to a product and a caller key (RFC-0007, host-spec §C.8). The bytes match what an in-container app gets from `@parity/product-sdk-host`'s `deriveEntropy` for the same wallet + product + key, so keys derived from them interoperate across web and terminal clients. Computed locally from the session's `rootEntropySource` — no round trip to the wallet.
+
+```ts
+const entropy = deriveEntropy(session, "my-cli.dot", new TextEncoder().encode("repo-key"));
+```
+
+- `productId` -- the identifier the in-container deployment is served under: the same value you pass as `productId` to `getBulletinSigner`, **not** `adapter.appId`. Used verbatim and case-sensitively, and scoped per deployment — production, PR previews and `localhost:<port>` all derive different entropy.
+- `key` -- caller key, 1..32 bytes.
+
+Throws if the session predates RFC-0007 (no `rootEntropySource`; re-pair to fix). With several paired sessions, pin the intended wallet with `sessionRootPublicKey` first: the wrong session yields valid entropy for a different wallet. The result is raw key material — don't log it or persist it unwrapped.
+
 ## Allowance signers — the canonical path
 
 For CLIs that need to write to Bulletin or publish to the Statement Store: ask the paired wallet for an allowance slot, get a `PolkadotSigner` back, sign extrinsics with it. This is what most consumers want.

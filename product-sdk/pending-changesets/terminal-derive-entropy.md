@@ -13,4 +13,4 @@ result = blake2b256_keyed(key = callerKey,                   msg = layer2)
 
 Entropy derived here matches what an in-container app gets from `@parity/product-sdk-host`'s `deriveEntropy` for the same wallet + product + key, so entropy-derived keys interoperate across web and terminal clients. The implementation is pinned against the canonical cross-language conformance vectors shared with the Rust, Kotlin and Swift hosts.
 
-`productId` is case-sensitive and used verbatim, and the host scopes it per deployment — production, PR previews and local dev derive different entropy. Pass the same identifier you pass to `requestResourceAllocation`. (refs #254)
+`productId` is case-sensitive and used verbatim, and the host scopes it per deployment — production, PR previews and local dev derive different entropy. Pass the same identifier you pass as `productId` to `getBulletinSigner` and as `options.productId` to `requestResourceAllocation` — not `adapter.appId`, which is a local storage namespace. (refs #254)

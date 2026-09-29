@@ -71,15 +71,16 @@ const b2 = (message: Uint8Array, key?: Uint8Array): Uint8Array =>
  *   `"my-app.dot "` and `"my-app.dot"` derive three uncorrelated entropies.
  *
  *   This must be the identifier the *in-container* deployment is served under —
- *   the same value you pass as `productId` to `getBulletinSigner` — because
- *   that is the scope the host derives against. It is **not** `adapter.appId`:
- *   the adapter id is a local namespace (cache keys, storage dir) and the two
- *   are routinely different. The package's own example pairs
+ *   the same value you pass as `productId` to `getBulletinSigner` and as
+ *   `options.productId` to `requestResourceAllocation` — because that is the
+ *   scope the host derives against. It is **not** `adapter.appId`: the adapter
+ *   id is a local namespace (cache keys, storage dir) and the two are
+ *   routinely different. The package's own example pairs
  *   `createTerminalAdapter({ appId: "my-cli" })` with
  *   `getBulletinSigner(adapter, "my-cli.dot")`. Note that
- *   `requestResourceAllocation` takes no `productId` and forwards
- *   `adapter.appId` as the calling product id, so it is *not* a reliable
- *   reference point for this argument.
+ *   `requestResourceAllocation` falls back to `adapter.appId` when
+ *   `options.productId` is omitted, so a call relying on that default is *not*
+ *   a reliable reference point for this argument.
  *
  *   The host takes the scope from the iframe's deployment label rather than
  *   from the caller, so it differs per deployment: production, each PR preview
@@ -116,7 +117,7 @@ export function deriveEntropy(
     // host-papp types `rootEntropySource` as required, but V1 sessions persisted
     // before RFC-0007 have no such field. The widening annotation keeps the
     // runtime guard below reachable without an `as` cast, so an upstream *rename*
-    // still fails to compile here. Same reasoning as `sessionRootPublicKey`.
+    // still fails to compile here.
     const rootEntropySource: Uint8Array | undefined = session.rootEntropySource;
     if (!rootEntropySource) {
         throw new Error(
