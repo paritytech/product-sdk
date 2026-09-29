@@ -610,6 +610,10 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                             callData: toHex(callData),
                             extensions: toHostExtensions(signedExtensions),
                             txExtVersion,
+                            // truapi 0.23 added a required contacts list for host-side
+                            // contact-handle substitution; this signer builds finished
+                            // call data with no handles to resolve.
+                            contacts: [],
                         }),
                         "createTransaction failed",
                     );
@@ -1200,6 +1204,7 @@ if (import.meta.vitest) {
                 callData: toHex(new Uint8Array([0xca, 0x11])),
                 extensions: expectedHostExtensions,
                 txExtVersion: version,
+                contacts: [],
             },
         ]);
         expect(signed).toEqual(fromHex("0xdead"));

@@ -9,20 +9,24 @@
  */
 
 import type {
+    HexString,
     ProductAccountId,
     RemoteStatementStoreSubscribeItem,
     SignedStatement,
     Statement,
     StatementProof,
-    Topic,
 } from "@parity/truapi";
 
 // Statement-store types, re-exported verbatim from `@parity/truapi` (imported
 // above for the local signatures): `Statement` / `SignedStatement` /
-// `StatementProof` / `Topic` / `ProductAccountId`. Their fields are
+// `StatementProof` / `ProductAccountId`. Their fields are
 // `0x`-prefixed `HexString`s and their enums are `{ tag }` unions; the proof
 // variants cover `Sr25519` / `Ed25519` / `Ecdsa` / `OnChain`.
-export type { ProductAccountId, SignedStatement, Statement, StatementProof, Topic };
+export type { ProductAccountId, SignedStatement, Statement, StatementProof };
+
+// A statement topic is a 32-byte tag. truapi 0.23 dropped the `Topic` alias for
+// the inline `HexString`; kept here so this package's public surface is unchanged.
+export type Topic = HexString;
 
 /**
  * Persistent storage exposed by the host container, including string, JSON
