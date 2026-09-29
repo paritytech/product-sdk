@@ -122,6 +122,11 @@ export interface ProductAccountRef {
     publicKey?: Uint8Array;
 }
 
+export interface SessionSignerOptions extends ProductSubtreeOptions {
+    /** Extension version of the supplied signTx bytes. Defaults to 0; does not change encoding. */
+    txExtVersion?: number;
+}
+
 /** Derived from the session so a codec change fails to compile here. */
 type ProductAccountId = Parameters<UserSession["signRaw"]>[0]["productAccountId"];
 
@@ -184,14 +189,6 @@ function buildCreateTransactionRequest(
 }
 
 /**
- * The transaction extension version every `createTransaction` payload names.
- * PAPI encodes the signed extensions it hands to `signTx` for version 0, and
- * rejects metadata without one, so the payload always follows that version.
- * The wallet chooses V4 or V5 from it and the runtime metadata.
- */
-const PAPI_TX_EXT_VERSION = 0;
-
-/**
  * Send the request to the paired wallet's `createTransaction` and unwrap it.
  *
  * Extracted and named so the SSO round-trip + error handling can be
@@ -224,6 +221,7 @@ async function requestSignedTransaction(
 function makeTxSignTx(
     session: UserSession,
     productAccountId: ProductAccountId,
+    txExtVersion: number,
 ): PolkadotSigner["signTx"] {
     return async (callData, signedExtensions) =>
         requestSignedTransaction(
@@ -232,7 +230,7 @@ function makeTxSignTx(
                 productAccountId,
                 callData,
                 signedExtensions,
-                PAPI_TX_EXT_VERSION,
+                txExtVersion,
             ),
         );
 }
@@ -305,7 +303,7 @@ export async function deriveProductPublicKey(
 async function buildSessionSigner(
     session: UserSession,
     ref: ProductAccountRef,
-    options?: ProductSubtreeOptions,
+    options?: SessionSignerOptions,
 ): Promise<PolkadotSigner> {
     const productAccountId = toProductAccountId(ref);
 
@@ -318,7 +316,7 @@ async function buildSessionSigner(
         // Transaction signing → host-papp `createTransaction`: the wallet builds
         // and signs the extrinsic, so it can show a decoded tx (no `<Bytes>`
         // envelope) and unknown signed extensions (e.g. `AsPgas`) survive.
-        signTx: makeTxSignTx(session, productAccountId),
+        signTx: makeTxSignTx(session, productAccountId, options?.txExtVersion ?? 0),
         // Arbitrary-byte signing keeps the `Bytes` tag so the wallet applies the
         // `<Bytes>...</Bytes>` anti-phishing envelope exactly once on its side
         // (correct for non-extrinsic user data).
@@ -343,7 +341,7 @@ export function createSessionSigner(
     session: UserSession,
     adapter: TerminalAdapter,
     publicKey?: Uint8Array,
-    options?: ProductSubtreeOptions,
+    options?: SessionSignerOptions,
 ): Promise<PolkadotSigner> {
     return buildSessionSigner(
         session,
@@ -365,7 +363,7 @@ export function createSessionSigner(
 export function createSessionSignerForAccount(
     session: UserSession,
     ref: ProductAccountRef,
-    options?: ProductSubtreeOptions,
+    options?: SessionSignerOptions,
 ): Promise<PolkadotSigner> {
     return buildSessionSigner(session, ref, options);
 }
@@ -593,19 +591,67 @@ if (import.meta.vitest) {
 
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
 
-        test("wraps the payload as v1 with signer, callData, and txExtVersion", () => {
-            const callData = new Uint8Array([0xca, 0x11]);
-            const req = buildCreateTransactionRequest(
-                pid("my-app", 3),
-                callData,
-                { CheckGenesis: checkGenesis },
-                5,
-            );
-            expect(req.payload.tag).toBe("v1");
-            expect(req.payload.value.signer).toEqual(pid("my-app", 3));
-            expect(req.payload.value.callData).toEqual(callData);
-            expect(req.payload.value.txExtVersion).toBe(5);
-        });
+        test.each([
+            { account: "default", txExtVersion: undefined },
+            { account: "default", txExtVersion: 1 },
+            { account: "explicit", txExtVersion: undefined },
+            { account: "explicit", txExtVersion: 1 },
+        ])(
+            "$account signer forwards txExtVersion $txExtVersion and extension bytes",
+            async ({ account, txExtVersion }) => {
+                const signed = new Uint8Array([0xab, 0xcd]);
+                const session = makeSession({ createTransaction: async () => ok(signed) });
+                const publicKey = new Uint8Array(32).fill(0xab);
+                const options = { ...cache(), txExtVersion };
+                const signer =
+                    account === "default"
+                        ? await createSessionSigner(
+                              session,
+                              fakeAdapter("my-app"),
+                              publicKey,
+                              options,
+                          )
+                        : await createSessionSignerForAccount(
+                              session,
+                              { productId: "other-app", derivationIndex: 3, publicKey },
+                              options,
+                          );
+                const callData = new Uint8Array([0xca, 0x11]);
+                const result = await signer.signTx(
+                    callData,
+                    {
+                        CheckGenesis: checkGenesis,
+                        AsPgas: ext("AsPgas", [0xde, 0xad], [0xbe, 0xef]),
+                    },
+                    new Uint8Array(),
+                    0,
+                );
+                expect(session.createTransaction).toHaveBeenCalledExactlyOnceWith({
+                    payload: {
+                        tag: "v1",
+                        value: {
+                            signer: account === "default" ? pid("my-app", 0) : pid("other-app", 3),
+                            genesisHash: "0x112233",
+                            callData,
+                            extensions: [
+                                {
+                                    id: "CheckGenesis",
+                                    extra: new Uint8Array(),
+                                    additionalSigned: new Uint8Array([0x11, 0x22, 0x33]),
+                                },
+                                {
+                                    id: "AsPgas",
+                                    extra: new Uint8Array([0xde, 0xad]),
+                                    additionalSigned: new Uint8Array([0xbe, 0xef]),
+                                },
+                            ],
+                            txExtVersion: txExtVersion ?? 0,
+                        },
+                    },
+                });
+                expect(result).toBe(signed);
+            },
+        );
 
         test("takes the genesis hash from CheckGenesis.additionalSigned", () => {
             const req = buildCreateTransactionRequest(

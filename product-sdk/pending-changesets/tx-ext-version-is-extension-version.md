@@ -1,6 +1,8 @@
 ---
-"@parity/product-sdk-host": patch
-"@parity/product-sdk-terminal": patch
+"@parity/product-sdk": minor
+"@parity/product-sdk-host": minor
+"@parity/product-sdk-signer": minor
+"@parity/product-sdk-terminal": minor
 ---
 
-`createTransaction` payloads name transaction extension version `0` as `txExtVersion`, which is the version PAPI encodes the signed extensions for. The host or paired wallet chooses V4 or V5 from it and the runtime metadata. A runtime offering only V5 previously received `5`, which hosts read as an undeclared extension version.
+Host and terminal signer factories accept an optional `txExtVersion`, defaulting to `0`. It names the transaction extension version used to encode the supplied extensions; the host or paired wallet chooses V4 or V5 from it and the runtime metadata. Setting another version forwards it unchanged without re-encoding the extension bytes.

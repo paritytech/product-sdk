@@ -13,9 +13,9 @@
  *
  * The signer factories build a PAPI `PolkadotSigner` directly over
  * `truApi.signing.createTransaction` (product) /
- * `createTransactionWithLegacyAccount` (legacy). `signTx` sends the fixed
- * `PAPI_TX_EXT_VERSION` (`0`) as `txExtVersion` and maps signed extensions to the
- * host's wire shape; `signBytes` calls `signing.signRaw(WithLegacyAccount)`. No PJS
+ * `createTransactionWithLegacyAccount` (legacy). `signTx` sends the configured
+ * `txExtVersion` (default `0`) and maps signed extensions to the host's wire
+ * shape; `signBytes` calls `signing.signRaw(WithLegacyAccount)`. No PJS
  * bridge is involved, so opaque signed extensions (e.g. Paseo Next's `AsPgas`)
  * survive end-to-end.
  *
@@ -136,6 +136,12 @@ export type ProductAccountLookup = Omit<ProductAccountId, "derivationIndex"> & {
     /** Plain account index within the product subtree. Defaults to 0. */
     derivationIndex?: number;
 };
+
+/** Transaction settings for host-backed signers. */
+export interface HostSignerOptions {
+    /** Version used to encode the supplied transaction extensions. Defaults to 0. */
+    txExtVersion?: number;
+}
 
 declare const ringVrfKeyHandleBrand: unique symbol;
 
@@ -367,13 +373,16 @@ export interface AccountsProvider {
      * host's `createTransaction` path: the host decodes the metadata and forwards
      * the opaque signed-extension bytes, so unknown extensions survive end-to-end.
      */
-    getProductAccountSigner(account: ProductAccount): PolkadotSigner;
+    getProductAccountSigner(account: ProductAccount, options?: HostSignerOptions): PolkadotSigner;
     /**
      * Build a `PolkadotSigner` for one of the user's existing wallet accounts.
      * `name` is accepted for callsite ergonomics but unused — the signer is
      * derived from `publicKey` alone.
      */
-    getLegacyAccountSigner(account: { publicKey: Uint8Array; name?: string }): PolkadotSigner;
+    getLegacyAccountSigner(
+        account: { publicKey: Uint8Array; name?: string },
+        options?: HostSignerOptions,
+    ): PolkadotSigner;
     /**
      * @deprecated Temporary — signs `data` with NO `<Bytes>` watermark so a
      * People-chain runtime that verifies a raw-byte proof accepts it
@@ -390,14 +399,6 @@ export interface AccountsProvider {
         callback: (status: HostAccountConnectionStatusSubscribeItem) => void,
     ): HostSubscription;
 }
-
-/**
- * The transaction extension version every `create_transaction` payload names.
- * PAPI encodes the signed extensions it hands to `signTx` for version 0, and
- * rejects metadata without one, so the payload always follows that version.
- * The host chooses V4 or V5 from it and the runtime metadata.
- */
-const PAPI_TX_EXT_VERSION = 0;
 
 /**
  * Map a PAPI `signTx` call's signed extensions onto the host's
@@ -592,7 +593,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                     })),
             );
         },
-        getProductAccountSigner(account_) {
+        getProductAccountSigner(account_, { txExtVersion = 0 } = {}) {
             const productAccountId = toWireProductAccountId(account_);
 
             return {
@@ -609,7 +610,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                             genesisHash: toHex(checkGenesis.additionalSigned),
                             callData: toHex(callData),
                             extensions: toHostExtensions(signedExtensions),
-                            txExtVersion: PAPI_TX_EXT_VERSION,
+                            txExtVersion,
                         }),
                         "createTransaction failed",
                     );
@@ -627,7 +628,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 },
             };
         },
-        getLegacyAccountSigner(account_) {
+        getLegacyAccountSigner(account_, { txExtVersion = 0 } = {}) {
             // `createTransactionWithLegacyAccount` identifies the signer by its
             // raw account id (hex public key); `signRawWithLegacyAccount` takes an
             // SS58 address the wallet can match. Compute both up front.
@@ -648,7 +649,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                             genesisHash: toHex(checkGenesis.additionalSigned),
                             callData: toHex(callData),
                             extensions: toHostExtensions(signedExtensions),
-                            txExtVersion: PAPI_TX_EXT_VERSION,
+                            txExtVersion,
                         }),
                         "createTransactionWithLegacyAccount failed",
                     );
@@ -1143,6 +1144,11 @@ if (import.meta.vitest) {
             value: new Uint8Array([0x05]),
             additionalSigned: new Uint8Array([]),
         },
+        AsPgas: {
+            identifier: "AsPgas",
+            value: new Uint8Array([0xde, 0xad]),
+            additionalSigned: new Uint8Array([0xbe, 0xef]),
+        },
     };
     const expectedHostExtensions = [
         {
@@ -1155,17 +1161,30 @@ if (import.meta.vitest) {
             extra: toHex(new Uint8Array([0x05])),
             additionalSigned: toHex(new Uint8Array([])),
         },
+        {
+            id: "AsPgas",
+            extra: toHex(new Uint8Array([0xde, 0xad])),
+            additionalSigned: toHex(new Uint8Array([0xbe, 0xef])),
+        },
     ];
 
-    test("the product signer's signTx builds createTransaction from genesis + extensions", async () => {
+    const signingVersions = [
+        { options: undefined, version: 0 },
+        { options: { txExtVersion: 1 }, version: 1 },
+    ];
+
+    test.each(signingVersions)("product signer with $options", async ({ options, version }) => {
         const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
         const provider = adaptAccountsProvider(client);
-        const signer = provider.getProductAccountSigner({
-            dotNsIdentifier: "app.dot",
-            derivationIndex: 0,
-            publicKey: new Uint8Array(32).fill(0xaa),
-        });
+        const signer = provider.getProductAccountSigner(
+            {
+                dotNsIdentifier: "app.dot",
+                derivationIndex: 0,
+                publicKey: new Uint8Array(32).fill(0xaa),
+            },
+            options,
+        );
 
         const signed = await signer.signTx(
             new Uint8Array([0xca, 0x11]),
@@ -1181,18 +1200,18 @@ if (import.meta.vitest) {
                 genesisHash: toHex(new Uint8Array([0x01, 0x02])),
                 callData: toHex(new Uint8Array([0xca, 0x11])),
                 extensions: expectedHostExtensions,
-                txExtVersion: 0,
+                txExtVersion: version,
             },
         ]);
         expect(signed).toEqual(fromHex("0xdead"));
     });
 
-    test("the legacy signer's signTx builds createTransactionWithLegacyAccount (signer = hex pubkey)", async () => {
+    test.each(signingVersions)("legacy signer with $options", async ({ options, version }) => {
         const calls: Array<[string, unknown]> = [];
         const client = makeFakeClient({ onCall: (m, a) => calls.push([m, a]) });
         const provider = adaptAccountsProvider(client);
         const publicKey = new Uint8Array(32).fill(0xbb);
-        const signer = provider.getLegacyAccountSigner({ publicKey });
+        const signer = provider.getLegacyAccountSigner({ publicKey }, options);
 
         const signed = await signer.signTx(
             new Uint8Array([0xca, 0x11]),
@@ -1209,7 +1228,7 @@ if (import.meta.vitest) {
                 genesisHash: toHex(new Uint8Array([0x01, 0x02])),
                 callData: toHex(new Uint8Array([0xca, 0x11])),
                 extensions: expectedHostExtensions,
-                txExtVersion: 0,
+                txExtVersion: version,
             },
         ]);
         expect(signed).toEqual(fromHex("0xfeed"));
