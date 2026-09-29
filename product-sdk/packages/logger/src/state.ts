@@ -170,32 +170,43 @@ if (import.meta.vitest) {
         expect(result).toBeUndefined();
     });
 
-    test("importing the logger under Node never emits the --localstorage-file warning", async () => {
-        // Node's global `localStorage` warns lazily, the first time `getItem` is
-        // actually invoked — not on `typeof localStorage`, which is `"object"` on
-        // Node 22+ and warns nothing. So the only reliable way to assert "no
-        // warning" is to run this module in a real subprocess and inspect stderr.
-        const { spawnSync } = await import("node:child_process");
-        const { fileURLToPath } = await import("node:url");
+    // `--experimental-strip-types` (used to run this .ts module directly in the
+    // child) only exists on Node 22.6+, but the package supports Node >=20. On an
+    // older-but-supported Node the flag would error and the test would fail for a
+    // reason unrelated to the bug, so skip it there rather than misfire; the
+    // unit test above still covers the fix on every Node.
+    const [major, minor] = process.versions.node.split(".").map(Number);
+    const stripTypesAvailable = major > 22 || (major === 22 && minor >= 6);
 
-        // Strip PRODUCT_SDK_LOG(_NS) from the child's env: earlier tests in this
-        // file set them via `process.env.X = undefined`, which coerces to the
-        // *string* "undefined" (truthy) on the live process.env rather than
-        // deleting the key. A polluted parent env would otherwise leak into the
-        // child via inheritance and mask the very bug this test exists to catch.
-        // (Unlike process.env, spawnSync's plain-object `env` option omits keys
-        // whose value is `undefined` from the child's environment.)
-        const env = { ...process.env };
-        env.PRODUCT_SDK_LOG = undefined;
-        env.PRODUCT_SDK_LOG_NS = undefined;
+    test.skipIf(!stripTypesAvailable)(
+        "importing the logger under Node never emits the --localstorage-file warning",
+        async () => {
+            // Node's global `localStorage` warns lazily, the first time `getItem` is
+            // actually invoked — not on `typeof localStorage`, which is `"object"` on
+            // Node 22+ and warns nothing. So the only reliable way to assert "no
+            // warning" is to run this module in a real subprocess and inspect stderr.
+            const { spawnSync } = await import("node:child_process");
+            const { fileURLToPath } = await import("node:url");
 
-        const selfPath = fileURLToPath(import.meta.url);
-        const result = spawnSync(process.execPath, ["--experimental-strip-types", selfPath], {
-            encoding: "utf8",
-            env,
-        });
+            // Strip PRODUCT_SDK_LOG(_NS) from the child's env: earlier tests in this
+            // file set them via `process.env.X = undefined`, which coerces to the
+            // *string* "undefined" (truthy) on the live process.env rather than
+            // deleting the key. A polluted parent env would otherwise leak into the
+            // child via inheritance and mask the very bug this test exists to catch.
+            // (Unlike process.env, spawnSync's plain-object `env` option omits keys
+            // whose value is `undefined` from the child's environment.)
+            const env = { ...process.env };
+            env.PRODUCT_SDK_LOG = undefined;
+            env.PRODUCT_SDK_LOG_NS = undefined;
 
-        expect(result.status).toBe(0);
-        expect(result.stderr.toLowerCase()).not.toContain("localstorage");
-    });
+            const selfPath = fileURLToPath(import.meta.url);
+            const result = spawnSync(process.execPath, ["--experimental-strip-types", selfPath], {
+                encoding: "utf8",
+                env,
+            });
+
+            expect(result.status).toBe(0);
+            expect(result.stderr.toLowerCase()).not.toContain("localstorage");
+        },
+    );
 }
