@@ -1,5 +1,28 @@
 # @parity/product-sdk-bench-consumer
 
+## 0.0.39
+
+### Patch Changes
+
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+  - @parity/product-sdk-chain-client@0.12.8
+  - @parity/product-sdk-descriptors@0.13.0
+  - @parity/product-sdk@0.32.0
+  - @parity/product-sdk-cloud-storage@0.12.4
+
 ## 0.0.38
 
 ### Patch Changes
