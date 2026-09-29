@@ -42,7 +42,6 @@
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
-        "@polkadot-api/substrate-bindings": "catalog:",
         "@polkadot-api/utils": "^0.4.0",
         "@polkadot-api/ws-provider": "^0.9.0",
         "@polkadot-labs/hdkd-helpers": "catalog:",

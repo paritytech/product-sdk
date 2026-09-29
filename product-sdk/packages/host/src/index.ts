@@ -83,6 +83,7 @@ export type {
     WithDecodeError,
     DerivationIndex,
     HostAccount,
+    HostSignerOptions,
     ProductAccount,
     ProductAccountLookup,
     ContextualAlias,

@@ -97,7 +97,7 @@ answer from outside it.
 
 Whether `error` is the benign teardown noise above (`Client destroyed`, matched on the message so it never swallows another package's `DestroyedError`). `destroy()` already drops it during its own teardown; export it so a consumer with its own `console.error` guard can drop the same line without reinventing the match.
 
-### `createSessionSigner(session, adapter): Promise<PolkadotSigner>`
+### `createSessionSigner(session, adapter, publicKey?, options?): Promise<PolkadotSigner>`
 
 Creates a `PolkadotSigner` backed by a QR-paired mobile wallet session, using the session's **default account** (`derivationIndex: 0`) under the adapter's `appId`. This is the right entry point for ~all CLI flows.
 
@@ -109,7 +109,7 @@ const signer = await createSessionSigner(session, adapter);
 await contract.publish.tx(domain, cid, { signer, origin });
 ```
 
-### `createSessionSignerForAccount(session, ref): Promise<PolkadotSigner>`
+### `createSessionSignerForAccount(session, ref, options?): Promise<PolkadotSigner>`
 
 Escape hatch for signing as a non-default sub-account of a paired session, or as a `productId` that differs from the adapter's `appId`. Most callers don't need this.
 
@@ -123,6 +123,8 @@ const subSigner = await createSessionSignerForAccount(session, {
     derivationIndex: 3,
 });
 ```
+
+Both factories accept `SessionSignerOptions`, extending `ProductSubtreeOptions` with optional `txExtVersion` (default `0`). For example, pass `{ txExtVersion: 1 }` as the final `options` argument. The extension bytes supplied to `signTx` must match that version. PAPI 2.1.6's standard transaction builder encodes version `0`; this option does not change its encoder.
 
 > **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
 
@@ -344,7 +346,7 @@ const sessions = await waitForSessions(adapter);
 
 After login and attestation, the paired wallet can sign both transactions and raw messages via the statement store. The `PolkadotSigner` returned by `createSessionSigner` routes each path to the right host-papp method:
 
-- **Transactions** (`signTx` from polkadot-api's perspective — what `submitAndWatch`, `signSubmitAndWatch`, contract method calls, etc. invoke) go through `session.signRaw` with the `Payload` tag. polkadot-api assembles the full SCALE-encoded signing payload from runtime metadata — `callData ‖ extras ‖ additionalSigneds` for every signed extension the chain declares — and hands the bytes to the wallet as an opaque hex blob. The wallet signs the payload as-is, with no envelope wrapping. Any signed extension declared by the runtime (including extensions polkadot-api doesn't know about, e.g. `AsPgas` on Paseo Next v2) survives end-to-end because the wallet doesn't inspect the bytes — it just signs them.
+- **Transactions** (`signTx`, used by `submitAndWatch`, `signSubmitAndWatch`, and contract calls) go through `session.createTransaction`. The signer forwards the account, call data, `txExtVersion`, and every extension's encoded `extra` and `additionalSigned` bytes, including unknown extensions such as `AsPgas`. The wallet decodes the transaction for display and returns the signed extrinsic.
 - **Raw bytes** (`signBytes`) go through `session.signRaw` with the `Bytes` tag. Mobile applies the standard `<Bytes>...</Bytes>` anti-phishing wrap before signing — appropriate for arbitrary data, the same behavior `signRaw` has across all Polkadot wallets.
 
 > **Note on previous bugs.** Versions prior to `0.1.1` routed *all* signing through `signRaw` with no tag distinction, producing `BadProof`-rejected signatures. Versions `0.1.1` through `0.2.x` then used `polkadot-api/pjs-signer`, which threw `PJS does not support this signed-extension: <name>` on any extension outside its eight built-in mappers (notably `AsPgas`). The current path bypasses both pitfalls.

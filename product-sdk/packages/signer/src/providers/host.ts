@@ -3,6 +3,7 @@
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import {
     getAccountsProvider,
+    type HostSignerOptions,
     type ProductAccountLookup,
     type RegisteredRingVrfKey,
     type RingLocation,
@@ -195,7 +196,10 @@ export interface AccountsProvider {
         dotNsIdentifier: string,
         derivationIndex?: number,
     ) => NeverthrowResultAsync<RawAccount, unknown>;
-    getProductAccountSigner: (account: ProductAccount) => import("polkadot-api").PolkadotSigner;
+    getProductAccountSigner: (
+        account: ProductAccount,
+        options?: HostSignerOptions,
+    ) => import("polkadot-api").PolkadotSigner;
     registerRingVrfKey: (
         index: number,
         ring: RingLocation,
@@ -418,11 +422,14 @@ export class HostProvider implements SignerProvider {
      * signed extensions (e.g. `AsPgas` on Paseo Next) are forwarded to the host
      * as opaque bytes for metadata-driven decoding.
      */
-    getProductAccountSigner(account: ProductAccount): import("polkadot-api").PolkadotSigner {
+    getProductAccountSigner(
+        account: ProductAccount,
+        options?: HostSignerOptions,
+    ): import("polkadot-api").PolkadotSigner {
         if (!this.accountsProvider) {
             throw new Error("Host provider is not connected");
         }
-        return this.accountsProvider.getProductAccountSigner(account);
+        return this.accountsProvider.getProductAccountSigner(account, options);
     }
 
     /**
@@ -1505,10 +1512,6 @@ if (import.meta.vitest) {
         });
 
         test("getProductAccountSigner delegates to the host accounts provider", async () => {
-            // The host accounts provider's getProductAccountSigner has a single
-            // signing path (the host's `createTransaction`, which forwards opaque
-            // signed extensions like AsPgas on Paseo Next). There is no PJS
-            // fallback to select, so it's called with just the account.
             const rawAccounts: RawAccountTest[] = [
                 { publicKey: new Uint8Array(32).fill(0xaa), name: "Alice" },
             ];
@@ -1521,14 +1524,15 @@ if (import.meta.vitest) {
             await provider.connect();
 
             // Path 1: HostProvider.getProductAccountSigner(...)
-            provider.getProductAccountSigner({
+            const account = {
                 dotNsIdentifier: "test.dot",
                 derivationIndex: 0,
                 publicKey: rawAccounts[0].publicKey,
+            };
+            provider.getProductAccountSigner(account, { txExtVersion: 1 });
+            expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(account, {
+                txExtVersion: 1,
             });
-            expect(mockProvider.getProductAccountSigner).toHaveBeenLastCalledWith(
-                expect.anything(),
-            );
 
             // Path 2: getSigner() returned from HostProvider.getProductAccount(...)
             const productAccountResult = await provider.getProductAccount("test.dot", 0);
