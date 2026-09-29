@@ -1,5 +1,35 @@
 # @parity/product-sdk
 
+## 0.33.0
+
+### Minor Changes
+
+- df6b2c0: Add a native-backend chat adapter so chat products keep working on the legacy
+  native container during the truapi transition. `getChatManager()` now prefers
+  the truapi host and, when there is no truapi host, falls back to the native
+  backend when `isNativeChatHost()` detects it. The novasama wrapper is loaded via
+  a dynamic `import()` so truapi-only products never bundle it.
+- df6b2c0: **Pair with a truapi 0.23.0 host.** `@parity/truapi` moves from `^0.20.0` to `^0.23.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `462dacb6e0d1f504` to `ea1a1441ff0219b1`, so the schema a product speaks no longer matches a host still on 0.20.0. Every host surface has to move in the same window.
+
+  **Surface changes carried through `@parity/product-sdk-host`.** truapi 0.23 adds a `contacts` domain (a `getTruApi().contacts.pick` picker; modeled as not-supported by the testing fake, and product-account transactions now send an empty `contacts` list). It also dropped four type aliases the host re-exported, replaced by the primitives they always were, so no runtime change: `NotificationId` and `CoinPaymentPurseId` are `number`, payment `Balance` is `bigint`, and a statement `Topic` is a `` `0x${string}` `` hex. The `NotificationId` and `Topic` names stay exported from this package as local aliases, so importers are unaffected.
+
+- df6b2c0: Host and terminal signer factories accept an optional `txExtVersion`, defaulting to `0`. It names the transaction extension version used to encode the supplied extensions; the host or paired wallet chooses V4 or V5 from it and the runtime metadata. Setting another version forwards it unchanged without re-encoding the extension bytes.
+
+### Patch Changes
+
+- Updated dependencies [df6b2c0]
+- Updated dependencies [df6b2c0]
+- Updated dependencies [df6b2c0]
+  - @parity/product-sdk-host@0.24.0
+  - @parity/product-sdk-renderer@0.4.0
+  - @parity/product-sdk-signer@0.16.0
+  - @parity/product-sdk-chain-client@0.12.9
+  - @parity/product-sdk-cloud-storage@0.12.5
+  - @parity/product-sdk-local-storage@0.3.14
+  - @parity/product-sdk-contracts@0.10.12
+  - @parity/product-sdk-keys@0.4.2
+  - @parity/product-sdk-tx@0.4.12
+
 ## 0.32.0
 
 ### Minor Changes
