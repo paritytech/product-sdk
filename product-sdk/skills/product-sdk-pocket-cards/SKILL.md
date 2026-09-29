@@ -5,7 +5,8 @@ description: >
   Use when: adding a card to the Polkadot app's Pocket tab, writing or debugging a RendererNode tree,
   a card draws blank or is refused, wiring a worker that answers renderer.onRender, or writing the
   static preview face the approval sheet shows.
-  Covers @parity/product-sdk-renderer (face builders, validateFace, host limits) and
+  Covers @parity/product-sdk-react-renderer (authoring a face in JSX),
+  @parity/product-sdk-renderer (validateFace, host limits) and
   @parity/product-sdk-host (getPocketManager, drawing, actions, card list, removal).
 ---
 
@@ -16,7 +17,8 @@ in its **worker** manifest and answers the host whenever a card is on screen.
 
 | Package | Import | Purpose |
 |---------|--------|---------|
-| renderer | `@parity/product-sdk-renderer` | build a face, check it before it reaches a device |
+| react-renderer | `@parity/product-sdk-react-renderer` | write the face in JSX |
+| renderer | `@parity/product-sdk-renderer` | check it before it reaches a device |
 | host | `@parity/product-sdk-host` | draw the card, hear presses, list and remove cards |
 
 Worked example: `examples/pocket-card-example/`.
@@ -45,31 +47,38 @@ Worked example: `examples/pocket-card-example/`.
 **The `id` in the manifest must match the id the worker draws.** Get it wrong and the card silently keeps
 its static preview face, with nothing on the device saying why.
 
-## Build a face
+## Write a face
 
-```ts
-import {
-    background, button, column, fillWidth, padding, rounded, row, text,
-} from "@parity/product-sdk-renderer";
+```tsx
+import { Box, Button, Column, Row, Text } from "@parity/product-sdk-react-renderer";
 
-// A face is built from state rather than stored, because a card redraws.
-const loyaltyFace = (stamps: number) =>
-    column(
-        [
-            row([text("Loyalty", { style: "TitleMediumRegular", color: "FgPrimary" })], {
-                modifiers: [fillWidth()],
-                horizontalArrangement: "SpaceBetween",
-            }),
-            text(`${stamps} of 10 stamps`, { style: "BodySmallRegular", color: "FgSecondary" }),
-            button("Stamp", { clickAction: "stamp", variant: "Primary" }),
-        ],
-        { modifiers: [fillWidth(), padding(20), background("BgSurfaceContainer", rounded(20))] },
+function LoyaltyFace({ stamps, goal }: { stamps: number; goal: number }) {
+    return (
+        <Column
+            fillMaxWidth
+            padding={20}
+            background={{ color: "BgSurfaceContainer", shape: { tag: "Rounded", value: 20 } }}
+            verticalArrangement="SpaceBetween"
+        >
+            <Row fillMaxWidth horizontalArrangement="SpaceBetween">
+                <Text style="TitleMediumRegular" color="FgPrimary">Loyalty</Text>
+                <Text style="BodySmallRegular" color="FgSecondary">{`${stamps} of ${goal}`}</Text>
+            </Row>
+            <Button text="Stamp" variant="Primary" onClick={() => {}} />
+        </Column>
     );
+}
 ```
 
 The vocabulary is small and closed: 11 node types, 12 modifiers, **9 semantic colour tokens**, 5
-typography presets, one effect. There are no literal colours and no gradients. Images come from a Bulletin
-CID or a path inside your archive, never a URL.
+typography presets, one effect. No literal colours, no gradients. Images come from a Bulletin CID or a
+path inside your archive, never a URL.
+
+**A press is `onClick`, not an action id.** react-renderer mints the id and routes the press back, so you
+never name one.
+
+**Do not interleave `Spacer` nodes to make gaps in a row.** It needs a keyed fragment per item, React
+warns, and the tree is larger. Put a `margin` on the items instead.
 
 ## Check it before it reaches a device
 
@@ -95,13 +104,13 @@ calling `assertFaceValid(face)` alone will happily ship a face the device then r
 These are the ones that cost real time:
 
 - **`Padding` and `Margin` need `top` and `end`.** They are a shorthand where `bottom` defaults to `top`
-  and `start` to `end`. Omitting `end` is a missing field, not a default. The builder's
-  `padding(vertical, horizontal)` makes this unreachable, so use it rather than writing `Dimensions`.
+  and `start` to `end`. Omitting `end` is a missing field, not a default. In JSX, `padding={20}` covers
+  every edge, so reach for the bare number unless the edges genuinely differ.
 - **Sizes are non-negative whole numbers.** `16.5` is refused, not rounded.
 - **Enum names are PascalCase.** `FgPrimary`, `TitleMediumRegular`. A wrong one is refused.
 - **A misspelled prop is ignored, not refused.** `colour` for `color` does nothing at all. `validateFace`
   warns about it; nothing else will tell you.
-- **A `Text` draws nothing without a `String` child.** The builder's `text()` adds it for you.
+- **A `Text` draws nothing without a `String` child.** In JSX its children become one.
 - **A `Button` with no `clickAction` is inert.** It draws and reports nothing when pressed.
 - **A `Box` with no children is fine.** It is how you draw a filled rectangle, which is what progress
   marks have to be, since the vocabulary has no progress bar.

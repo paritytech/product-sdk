@@ -1,5 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import { validateFace } from "@parity/product-sdk-renderer";
+import type { RendererNode } from "@parity/truapi";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
@@ -13,15 +15,45 @@ function onError(error: Error): void {
     console.error("[product-sdk-react-renderer]", error);
 }
 
+/**
+ * Reports what the protocol forbids, and what it allows and no product means,
+ * before the tree reaches the host.
+ *
+ * Deliberately never throws. This runs inside the reconciler's commit, where
+ * an exception leaves React with a half-applied tree it cannot recover from,
+ * and an unreadable card is a far smaller problem than a stuck renderer.
+ */
+function reportIssues(node: RendererNode): void {
+    const { errors, warnings } = validateFace(node);
+    for (const issue of [...errors, ...warnings]) {
+        console.error(
+            `[product-sdk-react-renderer] ${issue.code} at ${issue.path || "<root>"}: ${issue.message}`,
+        );
+    }
+}
+
 type RendererParams = {
     onRender: RenderCallback;
     subscribeActions: SubscribeAction;
+    /**
+     * Check every tree against the renderer protocol and report what is wrong.
+     * Off by default: this package is published, and turning a check on under
+     * a consumer would fill a console they never asked to have written to.
+     */
+    validate?: boolean;
 };
 
-export function createRenderer({ onRender, subscribeActions }: RendererParams) {
+export function createRenderer({ onRender, subscribeActions, validate = false }: RendererParams) {
     let unmounted = false;
 
-    const container: Container = { onRender, children: [] };
+    const render: RenderCallback = validate
+        ? (node) => {
+              reportIssues(node);
+              onRender(node);
+          }
+        : onRender;
+
+    const container: Container = { onRender: render, children: [] };
     const fiberRoot = reconciler.createContainer(
         container,
         0, // LegacyRoot (the tag alone isn't synchronous in react-reconciler

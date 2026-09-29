@@ -3,12 +3,16 @@
 import type {
     Arrangement,
     Background as BackgroundStyle,
+    BlendingMode,
     BorderStyle,
     ButtonVariant,
     ColorToken,
     ContentAlignment,
     Dimensions,
+    Effect,
     HorizontalAlignment,
+    ImageFit,
+    ImageSource,
     Shape,
     Size,
     TypographyStyle,
@@ -18,12 +22,16 @@ import type {
 export type {
     Arrangement,
     BackgroundStyle,
+    BlendingMode,
     BorderStyle,
     ButtonVariant,
     ColorToken,
     ContentAlignment,
     Dimensions,
+    Effect,
     HorizontalAlignment,
+    ImageFit,
+    ImageSource,
     Shape,
     Size,
     TypographyStyle,
@@ -48,6 +56,9 @@ export interface BaseWidgetProps {
     minHeight?: Size;
     fillMaxWidth?: boolean;
     fillMaxHeight?: boolean;
+    /** 0 is fully transparent, 255 fully opaque. */
+    opacity?: number;
+    blendingMode?: BlendingMode;
 }
 
 export interface BoxProps extends BaseWidgetProps {
@@ -85,4 +96,15 @@ export interface TextFieldProps extends BaseWidgetProps {
     label?: string;
     enabled?: boolean;
     onValueChange(value: string): void;
+}
+
+export interface ImageProps extends BaseWidgetProps {
+    source: ImageSource;
+    /** Defaults to `Fill`. */
+    fit?: ImageFit;
+}
+
+/** The one widget the protocol gives no modifiers, hence no {@link BaseWidgetProps}. */
+export interface EffectProps {
+    effect: Effect;
 }

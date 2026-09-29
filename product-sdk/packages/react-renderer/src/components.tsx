@@ -9,6 +9,8 @@ import type {
     BoxProps,
     ButtonProps,
     ColumnProps,
+    EffectProps,
+    ImageProps,
     RowProps,
     SpacerProps,
     TextFieldProps,
@@ -50,4 +52,12 @@ export function TextField({ onValueChange, ...props }: TextFieldProps) {
     const valueChangeAction = useAction(textDecoder, onValueChange);
 
     return createElement("TextField", { ...props, valueChangeAction });
+}
+
+export function Image(props: ImageProps) {
+    return createElement("Image", props);
+}
+
+export function Effect({ children, ...props }: PropsWithChildren<EffectProps>) {
+    return createElement("Effect", props, children);
 }

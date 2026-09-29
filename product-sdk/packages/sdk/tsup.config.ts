@@ -18,6 +18,7 @@ export default defineConfig({
         "react/index": "src/react/index.ts",
         "local-storage/index": "src/local-storage/index.ts",
         "renderer/index": "src/renderer/index.ts",
+        "react-renderer/index": "src/react-renderer/index.ts",
         "wallet/index": "src/wallet/index.ts",
         "testing/index": "src/testing.ts",
     },

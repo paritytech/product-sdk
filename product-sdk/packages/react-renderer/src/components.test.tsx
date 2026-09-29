@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { act } from "react";
 
-import { Box, Button, Column, Row, Spacer, Text, TextField } from "./components.js";
+import { Box, Button, Column, Effect, Image, Row, Spacer, Text, TextField } from "./components.js";
 import type { ActionCallback } from "./context.js";
 import { createRenderer } from "./renderer.js";
 
@@ -305,6 +305,61 @@ describe("custom components", () => {
 
             expect(handler1).not.toHaveBeenCalled();
             expect(handler2).toHaveBeenCalledWith("updated");
+        });
+    });
+
+    describe("Image", () => {
+        it("serializes source and fit props", async () => {
+            const { node } = await mount(
+                <Image source={{ tag: "Bulletin", value: "bafyCID" }} fit="Cover" />,
+            );
+            expect(node.tag).toBe("Image");
+            expect(node.value.props.source).toEqual({ tag: "Bulletin", value: "bafyCID" });
+            expect(node.value.props.fit).toBe("Cover");
+        });
+
+        it("serializes an archive source", async () => {
+            const { node } = await mount(<Image source={{ tag: "Archive", value: "logo.png" }} />);
+            expect(node.value.props.source).toEqual({ tag: "Archive", value: "logo.png" });
+        });
+
+        it("forwards layout modifiers, which are the only way an image is sized", async () => {
+            const { node } = await mount(
+                <Image source={{ tag: "Archive", value: "logo.png" }} width={48} height={48} />,
+            );
+            const tags = (node.value.modifiers as any[]).map((m: any) => m.tag);
+            expect(tags).toEqual(["Width", "Height"]);
+        });
+    });
+
+    describe("Effect", () => {
+        it("serializes the effect prop and wraps its children", async () => {
+            const { node } = await mount(
+                <Effect effect="Rainbow">
+                    <Text>shiny</Text>
+                </Effect>,
+            );
+            expect(node.tag).toBe("Effect");
+            expect(node.value.props.effect).toBe("Rainbow");
+            expect(node.value.children).toHaveLength(1);
+            expect(node.value.children[0].tag).toBe("Text");
+        });
+    });
+
+    describe("modifiers shared by every widget", () => {
+        it("serializes opacity as a 0..255 Opacity modifier", async () => {
+            const { node } = await mount(<Box opacity={128} />);
+            expect(node.value.modifiers).toContainEqual({ tag: "Opacity", value: 128 });
+        });
+
+        it("keeps a fully transparent opacity, which is not the same as unset", async () => {
+            const { node } = await mount(<Box opacity={0} />);
+            expect(node.value.modifiers).toContainEqual({ tag: "Opacity", value: 0 });
+        });
+
+        it("serializes blendingMode", async () => {
+            const { node } = await mount(<Box blendingMode="Multiply" />);
+            expect(node.value.modifiers).toContainEqual({ tag: "BlendingMode", value: "Multiply" });
         });
     });
 });
