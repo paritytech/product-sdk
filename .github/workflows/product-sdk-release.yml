@@ -53,12 +53,15 @@ jobs:
                   # operations (version-bump commit + tags) need it.
                   persist-credentials: true
 
-            # Skip if the triggering commit was a version bump by the bot
+            # Skip if the triggering commit was a version bump by the bot. The
+            # subject matters too: product-sdk-truapi-bump.yml PRs are opened
+            # by the same bot, so their squash merge carries its author.
             - name: Check if bot commit
               id: bot
               run: |
                   author=$(git log -1 --format='%an')
-                  if [ "$author" = "product-sdk-release-bot[bot]" ]; then
+                  subject=$(git log -1 --format='%s')
+                  if [ "$author" = "product-sdk-release-bot[bot]" ] && [ "$subject" = "chore: version packages" ]; then
                     echo "skip=true" >> $GITHUB_OUTPUT
                   else
                     echo "skip=false" >> $GITHUB_OUTPUT

@@ -28,7 +28,7 @@ export function useProductSDK(): App {
     if (!app) {
         throw new Error(
             "useProductSDK must be used within a ProductSDKProvider. " +
-                'Wrap your app with <ProductSDKProvider name="your-app">.',
+                "Wrap your app with <ProductSDKProvider>.",
         );
     }
     return app;

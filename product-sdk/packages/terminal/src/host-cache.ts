@@ -8,18 +8,10 @@
  *
  * @internal
  */
-import { createLogger } from "@parity/product-sdk-logger";
 import { toHex } from "@polkadot-api/utils";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 
 import type { AllocatableResource, ApAllocationOutcome } from "./host.js";
-
-const log = createLogger("terminal");
-
-const DEFAULT_STORAGE_DIR = join(homedir(), ".polkadot-apps");
-const CACHE_FILE_MODE = 0o600;
+import { cacheFilePath, loadJsonCache, saveJsonCache, withFileLock } from "./json-cache.js";
 
 /** One cached allowance entry. Hex strings are 0x-prefixed. */
 export type CachedAllocation =
@@ -37,12 +29,8 @@ interface AllowanceCacheV2 {
     entries: Record<string, CachedAllocation>;
 }
 
-function sanitizeAppId(appId: string): string {
-    return appId.replace(/[^a-zA-Z0-9_.-]/g, "_");
-}
-
 function cachePath(appId: string, storageDir?: string): string {
-    return join(storageDir ?? DEFAULT_STORAGE_DIR, `${sanitizeAppId(appId)}_AllowanceKeys.json`);
+    return cacheFilePath(appId, "AllowanceKeys", storageDir);
 }
 
 function emptyCache(): AllowanceCacheV2 {
@@ -51,28 +39,11 @@ function emptyCache(): AllowanceCacheV2 {
 
 export async function loadCache(appId: string, storageDir?: string): Promise<AllowanceCacheV2> {
     const path = cachePath(appId, storageDir);
-    let raw: string;
-    try {
-        raw = await readFile(path, "utf-8");
-    } catch (e: unknown) {
-        if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return emptyCache();
-        throw e;
-    }
-    try {
-        const parsed = JSON.parse(raw) as AllowanceCacheV2;
-        if (
-            parsed?.version !== 2 ||
-            typeof parsed.entries !== "object" ||
-            parsed.entries === null
-        ) {
-            log.warn("allowance cache schema mismatch; starting fresh", { appId, path });
-            return emptyCache();
-        }
-        return parsed;
-    } catch (e) {
-        log.warn("allowance cache parse failed; starting fresh", { appId, path, error: String(e) });
+    const cache = await loadJsonCache<AllowanceCacheV2>(path, 2, "allowance cache");
+    if (!cache || typeof cache.entries !== "object" || cache.entries === null) {
         return emptyCache();
     }
+    return cache;
 }
 
 export async function saveCache(
@@ -80,15 +51,7 @@ export async function saveCache(
     cache: AllowanceCacheV2,
     storageDir?: string,
 ): Promise<void> {
-    const path = cachePath(appId, storageDir);
-    await mkdir(dirname(path), { recursive: true });
-    // Temp + rename so a mid-write crash can't leave a half-written file.
-    // Concurrent Hosts: the Account Holder serializes per (user, product,
-    // resource) and returns the same key to all callers, so racing writes
-    // converge on identical bytes.
-    const tmp = `${path}.tmp`;
-    await writeFile(tmp, JSON.stringify(cache, null, 2), { mode: CACHE_FILE_MODE });
-    await rename(tmp, path);
+    await saveJsonCache(cachePath(appId, storageDir), cache);
 }
 
 type SmartContractDest = Extract<AllocatableResource, { tag: "SmartContractAllowance" }>["value"];
@@ -201,39 +164,20 @@ export function readCacheEntry(
     return cache.entries[cacheKey(resource)] ?? null;
 }
 
-/**
- * Serialize load/merge/save sequences for the same cache file within a
- * single process. Without this, parallel `requestResourceAllocation`
- * calls for *different* resources can race: each snapshots the cache
- * before the other writes, last writer wins, the loser's key is lost.
- *
- * Cross-process races are out of scope here — the Account Holder
- * serializes per user/product/resource and returns identical bytes
- * to concurrent callers for the same resource, so two CLI processes
- * writing the same key converge.
- */
-const cacheLocks = new Map<string, Promise<unknown>>();
-
 export function withCacheLock<T>(
     appId: string,
     storageDir: string | undefined,
     fn: () => Promise<T>,
 ): Promise<T> {
-    const key = cachePath(appId, storageDir);
-    const prev = cacheLocks.get(key) ?? Promise.resolve();
-    // Neutralize a prior rejection so one failure doesn't block subsequent waiters.
-    const next = prev.catch(() => {}).then(fn);
-    cacheLocks.set(
-        key,
-        next.catch(() => {}),
-    );
-    return next;
+    return withFileLock(cachePath(appId, storageDir), fn);
 }
 
 if (import.meta.vitest) {
     const { describe, test, expect, beforeEach } = import.meta.vitest;
     const { mkdtempSync, rmSync } = await import("node:fs");
+    const { mkdir, writeFile } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
 
     let storageDir: string;
     beforeEach(() => {

@@ -1,5 +1,41 @@
 # @parity/product-sdk-contracts
 
+## 0.10.12
+
+### Patch Changes
+
+- Updated dependencies [df6b2c0]
+  - @parity/product-sdk-signer@0.16.0
+  - @parity/product-sdk-keys@0.4.2
+  - @parity/product-sdk-tx@0.4.12
+
+## 0.10.11
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.15.1
+- @parity/product-sdk-keys@0.4.1
+- @parity/product-sdk-tx@0.4.11
+
+## 0.10.10
+
+### Patch Changes
+
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+  - @parity/product-sdk-keys@0.4.0
+  - @parity/product-sdk-signer@0.15.0
+  - @parity/product-sdk-tx@0.4.10
+
+## 0.10.9
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.14.6
+- @parity/product-sdk-keys@0.3.26
+- @parity/product-sdk-tx@0.4.9
+
 ## 0.10.8
 
 ### Patch Changes

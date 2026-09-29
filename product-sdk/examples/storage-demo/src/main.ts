@@ -14,9 +14,9 @@
  *   4. createLocalKvStore() → host backend (via getHostLocalStorage())
  *   5. createLocalKvStore({ prefix: "demo" }) → prefixed host backend
  *
- * The test SDK backs host localStorage with browser localStorage using
- * a "test-host:" prefix. So store.set("mykey", "val") results in the
- * host page having localStorage.getItem("test-host:mykey") === "val".
+ * The host core namespaces product storage internally, so a `store.set` is
+ * observable from tests via `testHost.getProductStorageValue(key)`, not page
+ * `localStorage`.
  */
 
 import { isInsideContainer } from "@parity/product-sdk-host";

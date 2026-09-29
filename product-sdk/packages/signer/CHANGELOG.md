@@ -1,5 +1,57 @@
 # @parity/product-sdk-signer
 
+## 0.16.0
+
+### Minor Changes
+
+- df6b2c0: Host and terminal signer factories accept an optional `txExtVersion`, defaulting to `0`. It names the transaction extension version used to encode the supplied extensions; the host or paired wallet chooses V4 or V5 from it and the runtime metadata. Setting another version forwards it unchanged without re-encoding the extension bytes.
+
+### Patch Changes
+
+- Updated dependencies [df6b2c0]
+- Updated dependencies [df6b2c0]
+- Updated dependencies [df6b2c0]
+  - @parity/product-sdk-host@0.24.0
+  - @parity/product-sdk-keys@0.4.2
+
+## 0.15.1
+
+### Patch Changes
+
+- Updated dependencies [206f791]
+  - @parity/product-sdk-host@0.23.0
+  - @parity/product-sdk-keys@0.4.1
+
+## 0.15.0
+
+### Minor Changes
+
+- a0fcb48: **`connect()` no longer reports success with no accounts after a recoverable failure.** The two branches that fetch a product account now classify failures the same way. The `productAccount` branch already degraded to an empty account list only for a non-transient rejection and returned anything else for the retry loop; the `dappName` branch — the one a default `SignerManager` takes — degraded on _any_ failure, so a timeout was indistinguishable from an unregistered identifier and `connect()` resolved `ok([])` with nothing to prompt another attempt. Both now share one classifier.
+
+  **`NotConnected` is retried before it degrades.** The host returns that tag both for a signed-out user and for a session that is being re-established — after a host account switch, the core re-mints it, and a product account queried in that window is refused. The two are indistinguishable, so the tag is now retried and degrades to read-only only once the attempts are spent. A signed-out user reaches the same empty-accounts state as before, a retry cycle later; an in-flight re-mint recovers instead of leaving the product connected with no accounts.
+
+  Consumers passing `dappName` who relied on `connect()` always resolving should note it can now return an error for an unclassified host failure, after `maxRetries` attempts.
+
+### Patch Changes
+
+- a0fcb48: **A denied `ChainSubmit` permission is now logged at `warn`.** `HostProvider.connect()` requests `ChainSubmit` up front and, by design, never fails `connect()` on the outcome — the consumer can still use read-only paths, and the first sign call surfaces a clear error. But that meant a denial, which guarantees every later sign call fails with `PermissionDenied`, was only ever logged at `debug`, invisible at the default `warn` level. A grant still logs at `debug`; a denial now logs at `warn`. No API changed — `connect()`'s contract and the thrown-request `catch` path are untouched.
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+- Updated dependencies [a0fcb48]
+  - @parity/product-sdk-host@0.22.0
+  - @parity/product-sdk-keys@0.4.0
+
+## 0.14.6
+
+### Patch Changes
+
+- Updated dependencies [8675e6c]
+  - @parity/product-sdk-host@0.21.0
+  - @parity/product-sdk-keys@0.3.26
+
 ## 0.14.5
 
 ### Patch Changes

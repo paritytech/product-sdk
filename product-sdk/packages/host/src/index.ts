@@ -83,6 +83,7 @@ export type {
     WithDecodeError,
     DerivationIndex,
     HostAccount,
+    HostSignerOptions,
     ProductAccount,
     ProductAccountLookup,
     ContextualAlias,
@@ -121,7 +122,32 @@ export type {
     ChatRoom,
     ChatRoomRegistrationResult,
     ChatBotRegistrationResult,
+    ChatCustomMessageRenderingRequest,
+    ChatCustomMessageRenderingRequestHandler,
+    ChatCustomMessageRenderingRegistration,
 } from "./chat.js";
+
+// Renderer (the shared `onRender` slot)
+export { getRendererManager, registerRenderContext, renderFailure } from "./renderer.js";
+export type {
+    RenderCleanup,
+    RenderContextTag,
+    RendererManager,
+    RenderFailure,
+    RenderHandler,
+    RenderRegistration,
+} from "./renderer.js";
+
+// Pocket
+export { getPocketManager } from "./pocket.js";
+export type {
+    CardCleanup,
+    CardDrawHandler,
+    CardDrawRegistration,
+    PocketCard,
+    PocketCardAction,
+    PocketManager,
+} from "./pocket.js";
 
 // Payments (RFC-0006)
 export { getPaymentManager } from "./payments.js";

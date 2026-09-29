@@ -3,12 +3,9 @@
 import { test, expect } from "./fixtures";
 import { waitForAppReady } from "./helpers";
 
-// SignerManager writes the selected account through `hostLocalStorage`,
-// which the test SDK persists into the host page's `localStorage` under
-// `test-host:${key}`. We poll for that key directly so we can reload only
-// after the postMessage round-trip has actually flushed — avoiding a
-// timing race where reload() races the persist write.
-const STORAGE_KEY = "test-host:product-sdk:signer:signer-demo:selectedAccount";
+// The host core namespaces product storage internally; getProductStorageValue()
+// resolves this local key against it.
+const STORAGE_LOCAL_KEY = "product-sdk:signer:signer-demo:selectedAccount";
 
 test.describe("@parity/product-sdk-signer — persistence", () => {
     test("selected account survives a page reload via hostLocalStorage", async ({
@@ -32,13 +29,11 @@ test.describe("@parity/product-sdk-signer — persistence", () => {
         const beforeReload = await selectedLoc.textContent();
         expect(beforeReload).toBeTruthy();
 
-        // Wait for SignerManager.persistAccount to flush through the
-        // postMessage round-trip into host localStorage. Without this we
-        // race reload() against the async write — passes alone, fails when
-        // run after other specs that warm up the test runner.
+        // Wait out the postMessage round-trip; otherwise reload() races the
+        // write — passes alone, fails after specs that warm the runner.
         await page.waitForFunction(
-            ({ key, addr }) => window.localStorage.getItem(key) === addr,
-            { key: STORAGE_KEY, addr: beforeReload },
+            ({ localKey, addr }) => window.__TEST_HOST__.getProductStorageValue(localKey) === addr,
+            { localKey: STORAGE_LOCAL_KEY, addr: beforeReload },
             { timeout: 10_000 },
         );
 

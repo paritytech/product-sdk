@@ -235,6 +235,7 @@ if (import.meta.vitest) {
         streak: { type: "Attended", value: 3 },
         attendance_history: 0xff,
         reached_personhood: true,
+        has_ever_reached_personhood: true,
         recognition: { type: "Recognized", value: 1n },
         last_attended_game: 41,
         ...overrides,

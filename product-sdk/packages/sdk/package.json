@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk",
-    "version": "0.28.0",
+    "version": "0.33.0",
     "description": "Unified SDK for building products in the Polkadot ecosystem - umbrella package",
     "type": "module",
     "sideEffects": false,
@@ -48,6 +48,10 @@
             "import": "./dist/individuality/index.js",
             "types": "./dist/individuality/index.d.ts"
         },
+        "./nfts": {
+            "import": "./dist/nfts/index.js",
+            "types": "./dist/nfts/index.d.ts"
+        },
         "./react": {
             "import": "./dist/react/index.js",
             "types": "./dist/react/index.d.ts"
@@ -55,6 +59,10 @@
         "./local-storage": {
             "import": "./dist/local-storage/index.js",
             "types": "./dist/local-storage/index.d.ts"
+        },
+        "./renderer": {
+            "import": "./dist/renderer/index.js",
+            "types": "./dist/renderer/index.d.ts"
         },
         "./wallet": {
             "import": "./dist/wallet/index.js",
@@ -84,8 +92,10 @@
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-errors": "workspace:*",
         "@parity/result": "workspace:*",
+        "@parity/product-sdk-nfts": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-local-storage": "workspace:*",
+        "@parity/product-sdk-renderer": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "polkadot-api": "catalog:"
     },
@@ -100,6 +110,7 @@
     "devDependencies": {
         "@types/node": "^22.0.0",
         "@types/react": "^18.0.0",
+        "neverthrow": "^8.2.0",
         "react": "^18.0.0",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0"

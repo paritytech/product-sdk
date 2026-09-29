@@ -1,0 +1,211 @@
+# Opens a release PR whenever a newer @parity/truapi is published. Merging it
+# ships the wave: the changeset goes straight into `.changeset/`, which
+# `changeset-location.yml` allows for `auto/truapi-*` branches only.
+#
+# A truapi minor often changes the wire schema or the generated client surface,
+# so the PR can come up red. A maintainer then pushes the fix to the same branch.
+name: "product-sdk: truapi bump"
+
+on:
+    schedule:
+        - cron: "*/5 * * * *"
+    workflow_dispatch:
+
+concurrency:
+    group: truapi-bump
+    cancel-in-progress: false
+
+defaults:
+    run:
+        working-directory: product-sdk
+
+permissions:
+    contents: read
+
+jobs:
+    # Runs every 5 minutes, so it stays off the `main` environment: an
+    # environment job records a deployment on each run.
+    detect:
+        name: "Detect new truapi release"
+        runs-on: parity-default
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            truapi: ${{ steps.versions.outputs.truapi }}
+        steps:
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+              with:
+                  persist-credentials: false
+                  sparse-checkout: product-sdk/pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
+
+            - name: Compare catalog with npm
+              id: versions
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  pinned=$(sed -n 's/^  "@parity\/truapi": \^//p' pnpm-workspace.yaml)
+                  latest=$(curl -fsSL https://registry.npmjs.org/@parity%2ftruapi/latest | jq -r .version)
+                  if [[ "$(printf '%s\n' "$pinned" "$latest" | sort -V | tail -1)" == "$pinned" ]]; then
+                    echo "Catalog pins ^$pinned, npm latest is $latest. Nothing to do."
+                    exit 0
+                  fi
+                  # Any state, so a PR a maintainer closed is not reopened every 5 minutes.
+                  existing=$(gh pr list --head "auto/truapi-$latest" --state all --json url --jq '.[0].url // empty')
+                  if [[ -n "$existing" ]]; then
+                    echo "truapi $latest already has $existing."
+                    exit 0
+                  fi
+                  echo "truapi=$latest" >> "$GITHUB_OUTPUT"
+
+    open-pr:
+        name: "Open truapi release PR"
+        needs: detect
+        if: needs.detect.outputs.truapi != ''
+        runs-on: parity-default
+        timeout-minutes: 20
+        environment: main
+        permissions:
+            contents: read
+        env:
+            TRUAPI: ${{ needs.detect.outputs.truapi }}
+            BRANCH: auto/truapi-${{ needs.detect.outputs.truapi }}
+            PRINT_WIRE_VERSION: >-
+                import { TRUAPI_CODEC_VERSION, TRUAPI_WIRE_SCHEMA_HASH } from "@parity/truapi";
+                console.log(`codec=${TRUAPI_CODEC_VERSION}\nhash=${TRUAPI_WIRE_SCHEMA_HASH}`);
+        steps:
+            # A PR opened with GITHUB_TOKEN triggers no workflows, so its CI
+            # would never run. The App token does trigger them.
+            - name: Generate GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+              with:
+                  app-id: ${{ secrets.APP_ID }}
+                  private-key: ${{ secrets.APP_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-pull-requests: write
+
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  # Persisted on purpose: the commit step pushes the branch.
+                  persist-credentials: true
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+              with:
+                  version: 10
+
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: "22"
+                  cache: "pnpm"
+                  cache-dependency-path: product-sdk/pnpm-lock.yaml
+
+            - run: pnpm install --frozen-lockfile
+
+            # The codec version and wire schema hash decide whether hosts on
+            # the old truapi can still talk to products on the new one.
+            - name: Read current truapi wire version
+              id: before
+              run: |
+                  set -euo pipefail
+                  echo "truapi=$(sed -n 's/^  "@parity\/truapi": \^//p' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "test_sdk=$(sed -n 's/^  "@parity\/host-api-test-sdk": \^//p' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
+                  cd packages/host
+                  node --input-type=module -e "$PRINT_WIRE_VERSION" >> "$GITHUB_OUTPUT"
+
+            - name: Bump catalog and lockfile
+              id: bump
+              run: |
+                  set -euo pipefail
+                  bump() {
+                    sed -i \
+                      -e "s|^  \"$1\": \^.*|  \"$1\": ^$2|" \
+                      -e "s|'$1@[^']*'|'$1@$2'|" \
+                      pnpm-workspace.yaml
+                    grep -qxF "  \"$1\": ^$2" pnpm-workspace.yaml
+                  }
+                  bump @parity/truapi "$TRUAPI"
+                  test_sdk=$(curl -fsSL https://registry.npmjs.org/@parity%2fhost-api-test-sdk/latest | jq -r .version)
+                  bump @parity/host-api-test-sdk "$test_sdk"
+                  echo "test_sdk=$test_sdk" >> "$GITHUB_OUTPUT"
+                  pnpm install --no-frozen-lockfile
+                  cd packages/host
+                  node --input-type=module -e "$PRINT_WIRE_VERSION" >> "$GITHUB_OUTPUT"
+
+            - name: Write changeset
+              env:
+                  OLD_TRUAPI: ${{ steps.before.outputs.truapi }}
+                  OLD_CODEC: ${{ steps.before.outputs.codec }}
+                  OLD_HASH: ${{ steps.before.outputs.hash }}
+                  NEW_CODEC: ${{ steps.bump.outputs.codec }}
+                  NEW_HASH: ${{ steps.bump.outputs.hash }}
+              run: |
+                  set -euo pipefail
+                  if [[ "$OLD_CODEC" != "$NEW_CODEC" ]]; then
+                    compatibility="\`TRUAPI_CODEC_VERSION\` moves from $OLD_CODEC to $NEW_CODEC and \`TRUAPI_WIRE_SCHEMA_HASH\` from \`$OLD_HASH\` to \`$NEW_HASH\`. The handshake compares codec versions for equality, so a product on $TRUAPI cannot talk to a host still on $OLD_TRUAPI, in either direction. Every host surface has to move in the same window."
+                  elif [[ "$OLD_HASH" != "$NEW_HASH" ]]; then
+                    compatibility="The codec version stays at $NEW_CODEC, but \`TRUAPI_WIRE_SCHEMA_HASH\` moves from \`$OLD_HASH\` to \`$NEW_HASH\`, so the schema a product speaks no longer matches a host still on $OLD_TRUAPI. Every host surface has to move in the same window."
+                  else
+                    compatibility="The codec version ($NEW_CODEC) and \`TRUAPI_WIRE_SCHEMA_HASH\` (\`$NEW_HASH\`) are unchanged, so products and hosts on either version still talk to each other."
+                  fi
+                  {
+                    echo "---"
+                    echo '"@parity/product-sdk": minor'
+                    grep -l '"@parity/truapi"' packages/*/package.json | xargs jq -r '"\"" + .name + "\": minor"'
+                    echo "---"
+                    echo
+                    echo "**Pair with a truapi $TRUAPI host.** \`@parity/truapi\` moves from \`^$OLD_TRUAPI\` to \`^$TRUAPI\`. $compatibility"
+                  } > ".changeset/truapi-$TRUAPI.md"
+                  cat ".changeset/truapi-$TRUAPI.md"
+
+            # Force is safe: `detect` found no PR for this branch, so it can
+            # only hold what an earlier failed run of this job pushed.
+            - name: Commit and push
+              env:
+                  APP_ID: ${{ secrets.APP_ID }}
+              run: |
+                  set -euo pipefail
+                  git config user.name "product-sdk-release-bot[bot]"
+                  git config user.email "${APP_ID}+product-sdk-release-bot[bot]@users.noreply.github.com"
+                  git switch -c "$BRANCH"
+                  git add -A
+                  git commit -m "chore(release): bump @parity/truapi to $TRUAPI"
+                  git push --force origin "$BRANCH"
+
+            - name: Open PR and close superseded ones
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  OLD_TRUAPI: ${{ steps.before.outputs.truapi }}
+                  OLD_TEST_SDK: ${{ steps.before.outputs.test_sdk }}
+                  NEW_TEST_SDK: ${{ steps.bump.outputs.test_sdk }}
+              run: |
+                  set -euo pipefail
+                  {
+                    echo "Automated by [\`product-sdk-truapi-bump.yml\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/main/.github/workflows/product-sdk-truapi-bump.yml)."
+                    echo
+                    echo "- \`@parity/truapi\`: \`^$OLD_TRUAPI\` to \`^$TRUAPI\`"
+                    if [[ "$OLD_TEST_SDK" != "$NEW_TEST_SDK" ]]; then
+                      echo "- \`@parity/host-api-test-sdk\`: \`^$OLD_TEST_SDK\` to \`^$NEW_TEST_SDK\`"
+                    fi
+                    echo
+                    echo "**Merging this PR publishes a release wave.** The changeset is in \`.changeset/\`, not \`pending-changesets/\`, so it also ships every changeset already promoted there."
+                    echo
+                    echo "Before approving:"
+                    echo
+                    echo "- [ ] CI is green. If not, push the fix for the new truapi surface to this branch."
+                    echo "- [ ] \`.changeset/truapi-$TRUAPI.md\` describes what changed in the truapi surface, not only the version move."
+                  } > "$RUNNER_TEMP/pr-body.md"
+                  url=$(gh pr create --base main --head "$BRANCH" \
+                    --title "chore(release): bump @parity/truapi to $TRUAPI" \
+                    --body-file "$RUNNER_TEMP/pr-body.md")
+                  echo "Opened $url"
+                  gh pr list --state open --json number,headRefName \
+                    --jq ".[] | select(.headRefName | startswith(\"auto/truapi-\")) | select(.headRefName != \"$BRANCH\") | .number" |
+                    while read -r number; do
+                      gh pr close "$number" --comment "Superseded by $url."
+                    done

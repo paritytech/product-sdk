@@ -42,3 +42,5 @@ product-sdk/bundle-size.diff.md
 .claude/sessions/
 .claude/cache/
 .claude/settings.local.json
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/

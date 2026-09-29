@@ -37,11 +37,14 @@ test.describe("@parity/product-sdk-local-storage via Host API — prefix namespa
             { timeout: 30_000 },
         );
 
-        // Verify host-side: the key should be stored as "test-host:demo:mykey"
-        const hostValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:demo:mykey"),
-        );
-        expect(hostValue).toBe("prefixed-val");
+        // getProductStorageValue() matches the product's local key exactly.
+        // Suffix matching could not do this: the core's namespaced key ends
+        // in ":demo:mykey", so a search for the bare ":mykey" matches the
+        // prefixed entry and the second assertion below would never fail.
+        const prefixedValue = await testHost.getProductStorageValue("demo:mykey");
+        expect(prefixedValue).toBe("prefixed-val");
+        const bareValue = await testHost.getProductStorageValue("mykey");
+        expect(bareValue).toBeUndefined();
     });
 
     test("prefixed and unprefixed stores don't collide", async ({ testHost }) => {

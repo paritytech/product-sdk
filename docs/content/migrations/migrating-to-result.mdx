@@ -190,7 +190,7 @@ with no adapter.
 `createApp().cloudStorage` now returns `Result` for its fallible methods:
 
 ```ts
-const app = await createApp({ name: "my-app" });
+const app = await createApp();
 
 // upload / fetch — now Result
 const uploaded = await app.cloudStorage?.upload(bytes);

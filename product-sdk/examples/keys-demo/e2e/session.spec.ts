@@ -10,7 +10,7 @@ import { waitForAppReady } from "./helpers";
  *   - SessionKeyManager.create() — generates mnemonic, persists to host storage
  *   - SessionKeyManager.getOrCreate() — loads existing or creates new
  *   - SessionKeyManager.clear() — removes from host storage
- *   - Host-side storage verification (reads directly from the host page's localStorage)
+ *   - Host-side storage verification (reads via getProductStorageValue())
  *
  * Host API surface tested:
  *   - LocalKvStore.set(key, value) via product-sdk hostLocalStorage
@@ -123,11 +123,8 @@ test.describe("@parity/product-sdk-keys via Host API — session key lifecycle",
         const mnemonic = await frame.locator('[data-testid="last-mnemonic"]').textContent();
         expect(mnemonic).toBeTruthy();
 
-        // Verify the mnemonic is stored in the HOST page's localStorage with the test-host: prefix
-        const storedValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:default"),
-        );
-        expect(storedValue).toBe(mnemonic!.trim());
+        const value = await testHost.getProductStorageValue("default");
+        expect(value).toBe(mnemonic!.trim());
 
         // Clear the key
         await frame.locator('[data-testid="btn-clear"]').click();
@@ -136,10 +133,8 @@ test.describe("@parity/product-sdk-keys via Host API — session key lifecycle",
             { timeout: 30_000 },
         );
 
-        // Verify the key is removed from host storage
-        const clearedValue = await testHost.page.evaluate(() =>
-            localStorage.getItem("test-host:default"),
-        );
-        expect(clearedValue).toBeNull();
+        // A cleared key is absent, not empty.
+        const valueAfterClear = await testHost.getProductStorageValue("default");
+        expect(valueAfterClear).toBeUndefined();
     });
 });

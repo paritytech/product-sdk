@@ -29,10 +29,10 @@
  * const [session] = adapter.sessions.sessions.read();
  *
  * // Default account — uses [adapter.appId, 0]:
- * const signer = createSessionSigner(session, adapter);
+ * const signer = await createSessionSigner(session, adapter);
  *
  * // Non-default derivation index, or a different productId:
- * const subSigner = createSessionSignerForAccount(session, {
+ * const subSigner = await createSessionSignerForAccount(session, {
  *     productId: "my-product",
  *     derivationIndex: 3,
  * });
@@ -42,13 +42,13 @@
  */
 import type { UserSession } from "@novasamatech/host-papp";
 import { NoAllowanceError } from "@novasamatech/statement-store";
-import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 import { AllowanceExpiredError } from "@parity/product-sdk-signer/errors";
 import { toHex } from "@polkadot-api/utils";
 import type { PolkadotSigner } from "polkadot-api";
 
 import type { TerminalAdapter } from "./adapter.js";
+import { type ProductSubtreeOptions, getProductSubtreePublicKey } from "./subtree-cache.js";
 
 /**
  * Detect the statement-store `NoAllowanceError` — the chain-side rejection a
@@ -113,17 +113,18 @@ export interface ProductAccountRef {
      * The **product account's** sr25519 public key (32 bytes), as derived by the
      * host for `[productId, derivationIndex]`.
      *
-     * PAPI stamps this into the extrinsic's signer address and verifies the
-     * signature against it, so it must be the *product* account's key — not the
-     * wallet's selected/root account (`session.remoteAccount.accountId`). A
-     * mismatch produces an invalid signature.
+     * PAPI stamps this into the extrinsic's signer address and verifies against
+     * it, so a mismatch produces an invalid signature.
      *
-     * When omitted, the signer soft-derives it from the session's root account
-     * (`mnemonic + "/product/{productId}/{derivationIndex}"`), which is correct
-     * for every product account. Supply it explicitly only to avoid the
-     * re-derivation or when you've already derived it elsewhere.
+     * When omitted, the signer fetches the subtree key and derives it. Supply it
+     * to skip that round trip.
      */
     publicKey?: Uint8Array;
+}
+
+export interface SessionSignerOptions extends ProductSubtreeOptions {
+    /** Extension version of the supplied signTx bytes. Defaults to 0; does not change encoding. */
+    txExtVersion?: number;
 }
 
 /** Derived from the session so a codec change fails to compile here. */
@@ -150,7 +151,7 @@ type PapiSignedExtensions = Parameters<PolkadotSigner["signTx"]>[1];
  * these plus `txExtVersion` to assemble and sign the extrinsic.
  *
  * Pure and synchronous so the wire-shape contract can be unit-tested without a
- * paired phone; the metadata decode + SSO round-trip live in {@link makeTxSignTx}.
+ * paired phone; the SSO round-trip lives in {@link makeTxSignTx}.
  */
 function buildCreateTransactionRequest(
     productAccountId: ProductAccountId,
@@ -187,40 +188,12 @@ function buildCreateTransactionRequest(
     };
 }
 
-const V5_FORMAT_SELECTOR = 5;
-
-/**
- * Pick the `txExtVersion` for the paired host's `createTransaction` from the extrinsic
- * formats the runtime offers. The host treats the field as a format switch: `0` builds
- * V4, `5` builds a V5 general transaction, anything else is `NotSupported`. Prefer V4
- * while offered, since it carries the account signature in its envelope. The host
- * derives the transaction-extension version from the metadata itself.
- */
-function selectTxExtVersion(formatVersions: readonly number[]): number {
-    if (formatVersions.length === 0) {
-        throw new Error("No extrinsic version found in metadata");
-    }
-    if (formatVersions.includes(4)) {
-        return 0;
-    }
-    if (formatVersions.includes(5)) {
-        return V5_FORMAT_SELECTOR;
-    }
-    throw new Error(
-        `Runtime offers no extrinsic format 4 or 5 (offers: ${formatVersions.join(", ")}); the host protocol has no txExtVersion for it.`,
-    );
-}
-
-function txExtVersionFromMetadata(metadata: Uint8Array): number {
-    return selectTxExtVersion(unifyMetadata(decAnyMetadata(metadata)).extrinsic.version);
-}
-
 /**
  * Send the request to the paired wallet's `createTransaction` and unwrap it.
  *
  * Extracted and named so the SSO round-trip + error handling can be
- * unit-tested without a real phone or chain metadata; the metadata decode and
- * payload assembly live in {@link makeTxSignTx} / {@link buildCreateTransactionRequest}.
+ * unit-tested without a real phone; payload assembly lives in
+ * {@link makeTxSignTx} / {@link buildCreateTransactionRequest}.
  */
 async function requestSignedTransaction(
     session: UserSession,
@@ -248,15 +221,16 @@ async function requestSignedTransaction(
 function makeTxSignTx(
     session: UserSession,
     productAccountId: ProductAccountId,
+    txExtVersion: number,
 ): PolkadotSigner["signTx"] {
-    return async (callData, signedExtensions, metadata) =>
+    return async (callData, signedExtensions) =>
         requestSignedTransaction(
             session,
             buildCreateTransactionRequest(
                 productAccountId,
                 callData,
                 signedExtensions,
-                txExtVersionFromMetadata(metadata),
+                txExtVersion,
             ),
         );
 }
@@ -294,13 +268,11 @@ export const INCOMPLETE_SESSION_MESSAGE =
     'Stored login session is missing the root account public key. Run "logout" and then "login" to pair again.';
 
 /**
- * The session's handshake-time root account public key (`rootUserAccountId` =
- * the user's bare-mnemonic keypair on current mobile builds). This is the
- * parent key product accounts soft-derive from. host-papp's live `UserSession`
- * doesn't surface it on the public type, so we read it structurally.
+ * The wallet's own root account key. Product accounts do **not** derive from it:
+ * RFC-0022 puts two hard junctions in between.
  *
  * @throws {@link INCOMPLETE_SESSION_MESSAGE} if the session predates the
- *   `rootAccountId` field (a stale login that must re-pair).
+ *   `rootAccountId` field.
  */
 export function sessionRootPublicKey(session: UserSession): Uint8Array {
     const rootAccountId = (session as { rootAccountId?: Uint8Array }).rootAccountId;
@@ -312,50 +284,39 @@ export function sessionRootPublicKey(session: UserSession): Uint8Array {
 }
 
 /**
- * Soft-derive a product account's sr25519 public key from a paired session's
- * root account.
+ * The product account's sr25519 public key for `ref`.
  *
- * This is the single source of truth for product-account math. The session
- * signer uses it to stamp the correct signer address; consumers that need the
- * product address *without* building a signer (e.g. a login-status display
- * triple) call it directly so the displayed address can't desync from what the
- * signer actually signs with.
+ * The one place product-account math happens, so a displayed address cannot
+ * desync from what the signer signs with.
  *
- * sr25519 soft derivation is composable on public keys alone, so deriving from
- * `session.rootAccountId` locally produces the SAME key the host derives
- * privately via `mnemonic + "/product/{productId}/{derivationIndex}"`.
- *
- * @throws {@link INCOMPLETE_SESSION_MESSAGE} on a stale session with no root key.
+ * @throws Error when the wallet is unreachable on a cold cache.
  */
-export function deriveProductPublicKey(session: UserSession, ref: ProductAccountRef): Uint8Array {
-    return deriveProductAccountPublicKey(
-        sessionRootPublicKey(session),
-        ref.productId,
-        ref.derivationIndex,
-    );
+export async function deriveProductPublicKey(
+    session: UserSession,
+    ref: ProductAccountRef,
+    options?: ProductSubtreeOptions,
+): Promise<Uint8Array> {
+    const subtree = await getProductSubtreePublicKey(session, ref.productId, options);
+    return deriveProductAccountPublicKey(subtree, { tag: "Index", value: ref.derivationIndex });
 }
 
-function buildSessionSigner(session: UserSession, ref: ProductAccountRef): PolkadotSigner {
+async function buildSessionSigner(
+    session: UserSession,
+    ref: ProductAccountRef,
+    options?: SessionSignerOptions,
+): Promise<PolkadotSigner> {
     const productAccountId = toProductAccountId(ref);
 
-    // The signer's public key must be the *product* account's key — the one the
-    // wallet signs with for [productId, derivationIndex] — not the wallet's
-    // selected root account. PAPI stamps this into the extrinsic's address and
-    // verifies against it, so a mismatch yields an invalid signature.
-    //
-    // When the caller supplies `ref.publicKey` we trust it; otherwise we
-    // soft-derive it from the session root. We deliberately do NOT fall back to
-    // `session.remoteAccount.accountId` (the selected account) — that silently
-    // produces an invalid signature for any product account that isn't the
-    // currently-selected one.
-    const publicKey = ref.publicKey ?? deriveProductPublicKey(session, ref);
+    // No fallback to session.remoteAccount.accountId: that signs valid bytes for
+    // the wrong address, which is worse than failing.
+    const publicKey = ref.publicKey ?? (await deriveProductPublicKey(session, ref, options));
 
     return {
         publicKey,
         // Transaction signing → host-papp `createTransaction`: the wallet builds
         // and signs the extrinsic, so it can show a decoded tx (no `<Bytes>`
         // envelope) and unknown signed extensions (e.g. `AsPgas`) survive.
-        signTx: makeTxSignTx(session, productAccountId),
+        signTx: makeTxSignTx(session, productAccountId, options?.txExtVersion ?? 0),
         // Arbitrary-byte signing keeps the `Bytes` tag so the wallet applies the
         // `<Bytes>...</Bytes>` anti-phishing envelope exactly once on its side
         // (correct for non-extrinsic user data).
@@ -373,15 +334,20 @@ function buildSessionSigner(session: UserSession, ref: ProductAccountRef): Polka
  * @param adapter The {@link TerminalAdapter} that loaded the session. Its `appId`
  *   is used as the `productId` in the wire request.
  * @param publicKey The product account's sr25519 public key for
- *   `[adapter.appId, 0]`. Optional — when omitted it's soft-derived from the
- *   session root. See {@link ProductAccountRef.publicKey}.
+ *   `[adapter.appId, 0]`. Optional — when omitted it's fetched and derived.
+ *   See {@link ProductAccountRef.publicKey}.
  */
 export function createSessionSigner(
     session: UserSession,
     adapter: TerminalAdapter,
     publicKey?: Uint8Array,
-): PolkadotSigner {
-    return buildSessionSigner(session, { productId: adapter.appId, derivationIndex: 0, publicKey });
+    options?: SessionSignerOptions,
+): Promise<PolkadotSigner> {
+    return buildSessionSigner(
+        session,
+        { productId: adapter.appId, derivationIndex: 0, publicKey },
+        { appId: adapter.appId, ...options },
+    );
 }
 
 /**
@@ -397,25 +363,41 @@ export function createSessionSigner(
 export function createSessionSignerForAccount(
     session: UserSession,
     ref: ProductAccountRef,
-): PolkadotSigner {
-    return buildSessionSigner(session, ref);
+    options?: SessionSignerOptions,
+): Promise<PolkadotSigner> {
+    return buildSessionSigner(session, ref, options);
 }
 
 if (import.meta.vitest) {
     const pid = (productId: string, derivationIndex: number) =>
         toProductAccountId({ productId, derivationIndex });
 
-    const { describe, test, expect, vi } = import.meta.vitest;
+    const { describe, test, expect, vi, beforeEach } = import.meta.vitest;
     const { ok, err } = await import("neverthrow");
     const { seedToAccount } = await import("@parity/product-sdk-keys");
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { clearProductSubtreeMemo } = await import("./subtree-cache.js");
 
-    // A real sr25519 root public key — the derivation runs actual ristretto255
-    // point math, so a fixture root must be a valid curve point, not arbitrary
-    // bytes. Derived once from a fixed dev seed.
+    // Soft derivation runs ristretto255 point math and rejects arbitrary bytes.
     const DEV_ROOT_PUBLIC_KEY = seedToAccount(
         "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
         "",
     ).publicKey;
+    const DEV_SUBTREE_PUBLIC_KEY = seedToAccount(
+        "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
+        "//product//test-app",
+    ).publicKey;
+
+    let storageDir: string;
+    beforeEach(() => {
+        clearProductSubtreeMemo();
+        storageDir = mkdtempSync(join(tmpdir(), "signer-test-"));
+        return () => rmSync(storageDir, { recursive: true, force: true });
+    });
+
+    const cache = () => ({ storageDir });
 
     /**
      * Build a minimal `UserSession`-shaped stub. `signPayload`, `signRaw`, and
@@ -427,17 +409,23 @@ if (import.meta.vitest) {
         signRaw?: (req: unknown) => Promise<unknown>;
         createTransaction?: (req: unknown) => Promise<unknown>;
         accountIdBytes?: number[];
-        /** Root account the product key is soft-derived from when publicKey is
-         * omitted. Defaults to a valid 32-byte key; pass `null` to simulate a
-         * stale session that predates the `rootAccountId` field. */
         rootAccountId?: number[] | null;
+        /** Pass `null` to simulate a wallet that refuses the subtree request. */
+        subtreePublicKey?: Uint8Array | null;
+        id?: string;
     }): UserSession {
         const accountIdBytes = opts.accountIdBytes ?? new Array(32).fill(0).map((_, i) => i);
         const rootAccountId =
             opts.rootAccountId === undefined ? Array.from(DEV_ROOT_PUBLIC_KEY) : opts.rootAccountId;
+        const subtree =
+            opts.subtreePublicKey === undefined ? DEV_SUBTREE_PUBLIC_KEY : opts.subtreePublicKey;
         return {
+            id: opts.id ?? `session-${Math.random()}`,
             remoteAccount: { accountId: accountIdBytes },
             ...(rootAccountId === null ? {} : { rootAccountId: new Uint8Array(rootAccountId) }),
+            getProductSubtree: vi.fn(async () =>
+                subtree === null ? err(new Error("wallet refused")) : ok(subtree),
+            ),
             signPayload: vi.fn(
                 opts.signPayload ??
                     (async () => {
@@ -477,42 +465,49 @@ if (import.meta.vitest) {
     }
 
     describe("createSessionSigner", () => {
-        test("self-derives the product key from the session root when none is passed", () => {
-            // No explicit publicKey → derive from rootAccountId, NOT the selected
-            // account. The derived key must equal deriveProductAccountPublicKey
-            // and must differ from remoteAccount.accountId (the old buggy fallback).
+        test("derives the product key from the fetched subtree key", async () => {
             const walletBytes = Array.from({ length: 32 }, (_, i) => i);
-            const signer = createSessionSigner(
-                makeSession({
-                    accountIdBytes: walletBytes,
-                    rootAccountId: Array.from(DEV_ROOT_PUBLIC_KEY),
-                }),
+            const session = makeSession({ accountIdBytes: walletBytes });
+            const signer = await createSessionSigner(
+                session,
                 fakeAdapter("test-app"),
+                undefined,
+                cache(),
             );
-            const expected = deriveProductAccountPublicKey(DEV_ROOT_PUBLIC_KEY, "test-app", 0);
+
+            const expected = deriveProductAccountPublicKey(DEV_SUBTREE_PUBLIC_KEY, {
+                tag: "Index",
+                value: 0,
+            });
             expect(signer.publicKey).toEqual(expected);
+            // The two keys the old code wrongly used in this slot.
             expect(signer.publicKey).not.toEqual(new Uint8Array(walletBytes));
+            expect(signer.publicKey).not.toEqual(DEV_ROOT_PUBLIC_KEY);
         });
 
-        test("throws on a stale session with no root account key", () => {
-            expect(() =>
-                createSessionSigner(makeSession({ rootAccountId: null }), fakeAdapter("test-app")),
-            ).toThrow(INCOMPLETE_SESSION_MESSAGE);
+        test("throws rather than signing when the wallet refuses the subtree", async () => {
+            await expect(
+                createSessionSigner(
+                    makeSession({ subtreePublicKey: null }),
+                    fakeAdapter("test-app"),
+                    undefined,
+                    cache(),
+                ),
+            ).rejects.toThrow(/wallet refused/);
         });
 
-        test("uses the host-supplied product-account public key when provided", () => {
-            // The product account's key differs from the wallet's selected
-            // account (`remoteAccount.accountId`). PAPI must stamp the *product*
-            // key into the extrinsic, so the explicit key must win.
+        test("uses the host-supplied product-account public key when provided", async () => {
             const walletBytes = Array.from({ length: 32 }, (_, i) => i);
             const productKey = new Uint8Array(32).fill(0xab);
-            const signer = createSessionSigner(
-                makeSession({ accountIdBytes: walletBytes }),
+            const session = makeSession({ accountIdBytes: walletBytes });
+            const signer = await createSessionSigner(
+                session,
                 fakeAdapter("test-app"),
                 productKey,
+                cache(),
             );
             expect(signer.publicKey).toEqual(productKey);
-            expect(signer.publicKey).not.toEqual(new Uint8Array(walletBytes));
+            expect(session.getProductSubtree).not.toHaveBeenCalled();
         });
 
         test("signBytes routes through session.signRaw with the Bytes tag", async () => {
@@ -524,7 +519,12 @@ if (import.meta.vitest) {
                     return ok({ signature: sig });
                 },
             });
-            const signer = createSessionSigner(session, fakeAdapter("test-app"));
+            const signer = await createSessionSigner(
+                session,
+                fakeAdapter("test-app"),
+                undefined,
+                cache(),
+            );
 
             const out = await signer.signBytes(new Uint8Array([1, 2, 3]));
             expect(out).toEqual(sig);
@@ -549,7 +549,12 @@ if (import.meta.vitest) {
             const session = makeSession({
                 signRaw: async () => ok({ signature: new Uint8Array([1]) }),
             });
-            const signer = createSessionSigner(session, fakeAdapter("test-app"));
+            const signer = await createSessionSigner(
+                session,
+                fakeAdapter("test-app"),
+                undefined,
+                cache(),
+            );
 
             await signer.signBytes(new Uint8Array([1, 2, 3]));
 
@@ -565,7 +570,12 @@ if (import.meta.vitest) {
             const session = makeSession({
                 signRaw: async () => err({ message: "user declined" }),
             });
-            const signer = createSessionSigner(session, fakeAdapter("test-app"));
+            const signer = await createSessionSigner(
+                session,
+                fakeAdapter("test-app"),
+                undefined,
+                cache(),
+            );
 
             await expect(signer.signBytes(new Uint8Array([1]))).rejects.toThrow(
                 "Mobile signing rejected: user declined",
@@ -575,65 +585,73 @@ if (import.meta.vitest) {
 
     describe("buildCreateTransactionRequest — tx payload (the AsPgas fix)", () => {
         // Asserts the wire shape handed to the wallet. The full PAPI signTx →
-        // metadata decode → SSO round-trip is exercised by the manual smoke
+        // SSO round-trip is exercised by the manual smoke
         // test in `manual-tests/qr-pair-and-sign.mjs` since CI cannot drive
         // a real phone.
 
-        test("prefers V4 (tx-ext version 0) on a dual V4/V5 runtime", () => {
-            expect(selectTxExtVersion([4, 5])).toBe(0);
-        });
-
-        test("uses the V5 selector when the runtime offers no V4", () => {
-            expect(selectTxExtVersion([5])).toBe(5);
-        });
-
-        test("maps a V4-only runtime to the wire sentinel", () => {
-            expect(selectTxExtVersion([4])).toBe(0);
-        });
-
-        test("prefers V5 over a format it does not know", () => {
-            // max(formats) would send 6, which no host accepts.
-            expect(selectTxExtVersion([5, 6])).toBe(5);
-        });
-
-        test("rejects a runtime offering neither format 4 nor 5", () => {
-            expect(() => selectTxExtVersion([6])).toThrow(/no extrinsic format 4 or 5/i);
-        });
-
-        test("rejects metadata with no extrinsic version", () => {
-            expect(() => selectTxExtVersion([])).toThrow("No extrinsic version found in metadata");
-        });
-
-        test("txExtVersionFromMetadata reads the format list out of every tracked chain's metadata", async () => {
-            const { readFileSync, readdirSync } = await import("node:fs");
-            const { join } = await import("node:path");
-            // Not new URL(): without treeshake the literal reaches dist, and bundlers resolve it.
-            const dir = join(import.meta.dirname, "..", "..", "descriptors", ".papi", "metadata");
-            const blobs = readdirSync(dir).filter((name) => name.endsWith(".scale"));
-
-            expect(blobs.length, "raise when a chain is added").toBeGreaterThanOrEqual(11);
-            // Every deployed runtime still offers format 4, so V4 wins. Fails the day one drops it.
-            for (const name of blobs) {
-                const metadata = new Uint8Array(readFileSync(join(dir, name)));
-                expect(txExtVersionFromMetadata(metadata), name).toBe(0);
-            }
-        });
-
         const checkGenesis = ext("CheckGenesis", [], [0x11, 0x22, 0x33]);
 
-        test("wraps the payload as v1 with signer, callData, and txExtVersion", () => {
-            const callData = new Uint8Array([0xca, 0x11]);
-            const req = buildCreateTransactionRequest(
-                pid("my-app", 3),
-                callData,
-                { CheckGenesis: checkGenesis },
-                5,
-            );
-            expect(req.payload.tag).toBe("v1");
-            expect(req.payload.value.signer).toEqual(pid("my-app", 3));
-            expect(req.payload.value.callData).toEqual(callData);
-            expect(req.payload.value.txExtVersion).toBe(5);
-        });
+        test.each([
+            { account: "default", txExtVersion: undefined },
+            { account: "default", txExtVersion: 1 },
+            { account: "explicit", txExtVersion: undefined },
+            { account: "explicit", txExtVersion: 1 },
+        ])(
+            "$account signer forwards txExtVersion $txExtVersion and extension bytes",
+            async ({ account, txExtVersion }) => {
+                const signed = new Uint8Array([0xab, 0xcd]);
+                const session = makeSession({ createTransaction: async () => ok(signed) });
+                const publicKey = new Uint8Array(32).fill(0xab);
+                const options = { ...cache(), txExtVersion };
+                const signer =
+                    account === "default"
+                        ? await createSessionSigner(
+                              session,
+                              fakeAdapter("my-app"),
+                              publicKey,
+                              options,
+                          )
+                        : await createSessionSignerForAccount(
+                              session,
+                              { productId: "other-app", derivationIndex: 3, publicKey },
+                              options,
+                          );
+                const callData = new Uint8Array([0xca, 0x11]);
+                const result = await signer.signTx(
+                    callData,
+                    {
+                        CheckGenesis: checkGenesis,
+                        AsPgas: ext("AsPgas", [0xde, 0xad], [0xbe, 0xef]),
+                    },
+                    new Uint8Array(),
+                    0,
+                );
+                expect(session.createTransaction).toHaveBeenCalledExactlyOnceWith({
+                    payload: {
+                        tag: "v1",
+                        value: {
+                            signer: account === "default" ? pid("my-app", 0) : pid("other-app", 3),
+                            genesisHash: "0x112233",
+                            callData,
+                            extensions: [
+                                {
+                                    id: "CheckGenesis",
+                                    extra: new Uint8Array(),
+                                    additionalSigned: new Uint8Array([0x11, 0x22, 0x33]),
+                                },
+                                {
+                                    id: "AsPgas",
+                                    extra: new Uint8Array([0xde, 0xad]),
+                                    additionalSigned: new Uint8Array([0xbe, 0xef]),
+                                },
+                            ],
+                            txExtVersion: txExtVersion ?? 0,
+                        },
+                    },
+                });
+                expect(result).toBe(signed);
+            },
+        );
 
         test("takes the genesis hash from CheckGenesis.additionalSigned", () => {
             const req = buildCreateTransactionRequest(
@@ -885,10 +903,11 @@ if (import.meta.vitest) {
                 },
             });
 
-            const signer = createSessionSignerForAccount(session, {
-                productId: "my-app",
-                derivationIndex: 7,
-            });
+            const signer = await createSessionSignerForAccount(
+                session,
+                { productId: "my-app", derivationIndex: 7 },
+                cache(),
+            );
             await signer.signBytes(new Uint8Array([10, 20, 30]));
 
             expect(captured).toHaveLength(1);
@@ -910,10 +929,11 @@ if (import.meta.vitest) {
                 },
             });
 
-            const signer = createSessionSignerForAccount(session, {
-                productId: "external-product",
-                derivationIndex: 0,
-            });
+            const signer = await createSessionSignerForAccount(
+                session,
+                { productId: "external-product", derivationIndex: 0 },
+                cache(),
+            );
             await signer.signBytes(new Uint8Array([1]));
 
             const req = captured[0] as {

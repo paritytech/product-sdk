@@ -11,7 +11,6 @@ Create an app, connect the host wallet, and read from storage.
 import { createApp } from "@parity/product-sdk";
 
 const app = await createApp({
-  name: "my-app",
   logLevel: "info",
 });
 
@@ -27,7 +26,13 @@ const lastVisit = await app.localStorage.get("lastVisit");
 console.log("Last visit:", lastVisit);
 ```
 
-`createApp` must run inside a compatible host (Polkadot Desktop, Polkadot Mobile, a web host like [dot.li](https://dot.li), or [`@parity/host-api-test-sdk`](https://github.com/paritytech/host-api-test-sdk) for local development). Outside a host it throws `Host storage unavailable`.
+Configuration is optional: `await createApp()` uses the defaults. Wallet accounts
+use the full product ID supplied by the host. The app name and local-storage
+prefix omit its final domain suffix: `my-app.dot` uses `my-app`, preserving
+existing storage under that name. `app.getAppInfo().name` reports the app name.
+Local development IDs such as `localhost:3000` stay unchanged.
+
+The `name` option is deprecated, ignored, and emits a warning when supplied.
 
 ## What to read next
 

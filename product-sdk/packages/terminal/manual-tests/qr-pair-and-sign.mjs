@@ -158,7 +158,7 @@ try {
             ok(`session.id = ${sessions[0].id}`);
 
             step("Sign a test message via the loaded session (approve on phone)");
-            const signer = createSessionSigner(sessions[0], adapter);
+            const signer = await createSessionSigner(sessions[0], adapter);
             info(`Signer publicKey: 0x${Buffer.from(signer.publicKey).toString("hex")}`);
             await rl.question("    > Press ENTER when ready, then approve on your phone... ");
             try {
@@ -225,7 +225,7 @@ try {
             ok(`waitForSessions returned ${sessions.length} session(s)`);
 
             step("Construct signer and verify publicKey shape");
-            const signer = createSessionSigner(sessions[0], adapter);
+            const signer = await createSessionSigner(sessions[0], adapter);
             if (signer.publicKey?.length === 32) {
                 ok(`signer.publicKey is 32 bytes (Sr25519)`);
                 info(`publicKey: 0x${Buffer.from(signer.publicKey).toString("hex")}`);

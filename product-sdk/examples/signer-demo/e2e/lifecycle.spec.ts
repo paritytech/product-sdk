@@ -38,7 +38,7 @@ test.describe("@parity/product-sdk-signer — disconnect + reconnect", () => {
         await expect(frame.locator('[data-testid="btn-sign-raw"]')).toBeEnabled();
 
         // Most importantly: the sign flow still works after the round-trip.
-        // If reconnect leaked a stale provider reference, signRaw would fail.
+        // A stale provider reference leaked by reconnect would fail signRaw here.
         await testHost.clearSigningLog();
         await frame.locator('[data-testid="raw-input"]').fill("post-reconnect");
         await frame.locator('[data-testid="btn-sign-raw"]').click();
@@ -46,6 +46,8 @@ test.describe("@parity/product-sdk-signer — disconnect + reconnect", () => {
             /^0x[0-9a-f]+$/i,
             { timeout: 30_000 },
         );
+
+        // Corroborate that the sign hit the host, not a local path.
         const log = await testHost.getSigningLog();
         expect(log).toHaveLength(1);
         expect(log[0].type).toBe("raw");

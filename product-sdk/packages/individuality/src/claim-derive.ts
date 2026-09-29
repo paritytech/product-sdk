@@ -123,6 +123,7 @@ if (import.meta.vitest) {
         streak: { tag: "Attended", count: 3 },
         attendanceHistory: 0xff,
         reachedPersonhood: true,
+        hasEverReachedPersonhood: true,
         recognition: "Recognized",
         lastAttendedGame: 41,
         ...overrides,
