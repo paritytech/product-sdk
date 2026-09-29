@@ -15,9 +15,8 @@
  * `truApi.signing.createTransaction` (product) /
  * `createTransactionWithLegacyAccount` (legacy). `signTx` sends the configured
  * `txExtVersion` (default `0`) and maps signed extensions to the host's wire
- * shape; `signBytes` calls `signing.signRaw(WithLegacyAccount)`. No PJS
- * bridge is involved, so opaque signed extensions (e.g. Paseo Next's `AsPgas`)
- * survive end-to-end.
+ * shape; `signBytes` calls `signing.signRaw(WithLegacyAccount)`.
+ * Opaque signed extensions (e.g. Paseo Next's `AsPgas`) survive end-to-end.
  *
  * Every one of those raw-signing paths `<Bytes>`-wraps the payload before the
  * key touches it. A runtime that verifies a bare-byte ownership proof — today
