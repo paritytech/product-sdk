@@ -18,7 +18,7 @@
  * option. Not modeled: the rest of the PAPI `chain` JSON-RPC surface behind
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
  * selection — the `system` domain's `info`, and the
- * `chat` / `coinPayment` / `entropy` / `locale` / `notifications` / `payment` /
+ * `chat` / `coinPayment` / `contacts` / `entropy` / `locale` / `notifications` / `payment` /
  * `permissions` / `pocket` / `renderer` / `resourceAllocation` / `theme` /
  * `worker` domains. Touching an unmodeled domain throws a descriptive error
  * rather than failing with `undefined is not a function`.
@@ -337,6 +337,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         }),
         chat: notModeled("chat"),
         coinPayment: notModeled("coinPayment"),
+        contacts: notModeled("contacts"),
         entropy: notModeled("entropy"),
         locale: notModeled("locale"),
         notifications: notModeled("notifications"),
