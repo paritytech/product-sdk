@@ -337,6 +337,18 @@ export function createHostPapiProvider(
         const hostError = (id: JsonRpcRequest["id"]) => (error: unknown) =>
             sendJsonRpcError(id, JSON_RPC_INTERNAL_ERROR, formatHostError(error));
 
+        /**
+         * Hands a host call that rejects to its error arm.
+         *
+         * truapi rejects a call on a timeout, a closed transport or an abort instead
+         * of resolving it to an `Err`, and a rejection runs neither arm of `.match`.
+         * Left alone, the request is never settled, so papi waits on it for good and
+         * a watch that waits on that query stops emitting.
+         */
+        function onRejection(matched: unknown, err: (error: unknown) => void): void {
+            Promise.resolve(matched).catch(err);
+        }
+
         function handleMessage(message: JsonRpcRequest): void {
             const { id, method } = message;
             // chainHead/chainSpec/transaction JSON-RPC params are positional arrays.
@@ -416,20 +428,26 @@ export function createHostPapiProvider(
                 }
                 case "chainHead_v1_header": {
                     const [followSubscriptionId, hash] = params as [string, HexString];
-                    chain
-                        .getHeadHeader({ genesisHash, followSubscriptionId, hash })
-                        .match(
-                            (response) => sendJsonRpcResponse(id, response.header ?? null),
-                            hostError(id),
-                        );
+                    onRejection(
+                        chain
+                            .getHeadHeader({ genesisHash, followSubscriptionId, hash })
+                            .match(
+                                (response) => sendJsonRpcResponse(id, response.header ?? null),
+                                hostError(id),
+                            ),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainHead_v1_body": {
                     const [followSubscriptionId, hash] = params as [string, HexString];
                     const bodyStart = startOperationRequest(id, followSubscriptionId);
-                    chain
-                        .getHeadBody({ genesisHash, followSubscriptionId, hash })
-                        .match(bodyStart.ok, bodyStart.err);
+                    onRejection(
+                        chain
+                            .getHeadBody({ genesisHash, followSubscriptionId, hash })
+                            .match(bodyStart.ok, bodyStart.err),
+                        bodyStart.err,
+                    );
                     break;
                 }
                 case "chainHead_v1_storage": {
@@ -444,20 +462,23 @@ export function createHostPapiProvider(
                         queryType: convertStorageType(item.type),
                     }));
                     const storageStart = startOperationRequest(id, followSubscriptionId);
-                    chain
-                        .getHeadStorage({
-                            genesisHash,
-                            followSubscriptionId,
-                            hash,
-                            items: queryItems,
-                            // PAPI passes `null` for an absent child trie, but the
-                            // truapi codec encodes the optional `childTrie` field as
-                            // `Option<Hex>` — it treats `undefined` as None yet runs
-                            // the inner Hex codec on `null`, which throws
-                            // (`null.startsWith`). Coerce `null` → `undefined`.
-                            childTrie: childTrie ?? undefined,
-                        })
-                        .match(storageStart.ok, storageStart.err);
+                    onRejection(
+                        chain
+                            .getHeadStorage({
+                                genesisHash,
+                                followSubscriptionId,
+                                hash,
+                                items: queryItems,
+                                // PAPI passes `null` for an absent child trie, but the
+                                // truapi codec encodes the optional `childTrie` field as
+                                // `Option<Hex>` — it treats `undefined` as None yet runs
+                                // the inner Hex codec on `null`, which throws
+                                // (`null.startsWith`). Coerce `null` → `undefined`.
+                                childTrie: childTrie ?? undefined,
+                            })
+                            .match(storageStart.ok, storageStart.err),
+                        storageStart.err,
+                    );
                     break;
                 }
                 case "chainHead_v1_call": {
@@ -468,15 +489,18 @@ export function createHostPapiProvider(
                         HexString,
                     ];
                     const callStart = startOperationRequest(id, followSubscriptionId);
-                    chain
-                        .callHead({
-                            genesisHash,
-                            followSubscriptionId,
-                            hash,
-                            function: fn,
-                            callParameters,
-                        })
-                        .match(callStart.ok, callStart.err);
+                    onRejection(
+                        chain
+                            .callHead({
+                                genesisHash,
+                                followSubscriptionId,
+                                hash,
+                                function: fn,
+                                callParameters,
+                            })
+                            .match(callStart.ok, callStart.err),
+                        callStart.err,
+                    );
                     break;
                 }
                 case "chainHead_v1_unpin": {
@@ -485,71 +509,97 @@ export function createHostPapiProvider(
                         HexString | HexString[],
                     ];
                     const hashes = Array.isArray(hashOrHashes) ? hashOrHashes : [hashOrHashes];
-                    chain
-                        .unpinHead({ genesisHash, followSubscriptionId, hashes })
-                        .match(() => sendJsonRpcResponse(id, null), hostError(id));
+                    onRejection(
+                        chain
+                            .unpinHead({ genesisHash, followSubscriptionId, hashes })
+                            .match(() => sendJsonRpcResponse(id, null), hostError(id)),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainHead_v1_continue": {
                     const [followSubscriptionId, operationId] = params as [string, string];
-                    chain
-                        .continueHead({ genesisHash, followSubscriptionId, operationId })
-                        .match(() => sendJsonRpcResponse(id, null), hostError(id));
+                    onRejection(
+                        chain
+                            .continueHead({ genesisHash, followSubscriptionId, operationId })
+                            .match(() => sendJsonRpcResponse(id, null), hostError(id)),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainHead_v1_stopOperation": {
                     const [followSubscriptionId, operationId] = params as [string, string];
-                    chain
-                        .stopHeadOperation({ genesisHash, followSubscriptionId, operationId })
-                        .match(() => {
-                            followOperations.get(followSubscriptionId)?.delete(operationId);
-                            sendJsonRpcResponse(id, null);
-                        }, hostError(id));
+                    onRejection(
+                        chain
+                            .stopHeadOperation({ genesisHash, followSubscriptionId, operationId })
+                            .match(() => {
+                                followOperations.get(followSubscriptionId)?.delete(operationId);
+                                sendJsonRpcResponse(id, null);
+                            }, hostError(id)),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainSpec_v1_genesisHash": {
-                    chain
-                        .getSpecGenesisHash({ genesisHash })
-                        .match(
-                            (response) => sendJsonRpcResponse(id, response.genesisHash),
-                            hostError(id),
-                        );
+                    onRejection(
+                        chain
+                            .getSpecGenesisHash({ genesisHash })
+                            .match(
+                                (response) => sendJsonRpcResponse(id, response.genesisHash),
+                                hostError(id),
+                            ),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainSpec_v1_chainName": {
-                    chain
-                        .getSpecChainName({ genesisHash })
-                        .match(
-                            (response) => sendJsonRpcResponse(id, response.chainName),
-                            hostError(id),
-                        );
+                    onRejection(
+                        chain
+                            .getSpecChainName({ genesisHash })
+                            .match(
+                                (response) => sendJsonRpcResponse(id, response.chainName),
+                                hostError(id),
+                            ),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainSpec_v1_properties": {
-                    chain.getSpecProperties({ genesisHash }).match((response) => {
-                        try {
-                            sendJsonRpcResponse(id, JSON.parse(response.properties));
-                        } catch {
-                            sendJsonRpcResponse(id, response.properties);
-                        }
-                    }, hostError(id));
+                    onRejection(
+                        chain.getSpecProperties({ genesisHash }).match((response) => {
+                            try {
+                                sendJsonRpcResponse(id, JSON.parse(response.properties));
+                            } catch {
+                                sendJsonRpcResponse(id, response.properties);
+                            }
+                        }, hostError(id)),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "transaction_v1_broadcast": {
                     const [transaction] = params as [HexString];
-                    chain.broadcastTransaction({ genesisHash, transaction }).match((response) => {
-                        const operationId = response.operationId ?? null;
-                        if (operationId !== null) activeBroadcasts.add(operationId);
-                        sendJsonRpcResponse(id, operationId);
-                    }, hostError(id));
+                    onRejection(
+                        chain
+                            .broadcastTransaction({ genesisHash, transaction })
+                            .match((response) => {
+                                const operationId = response.operationId ?? null;
+                                if (operationId !== null) activeBroadcasts.add(operationId);
+                                sendJsonRpcResponse(id, operationId);
+                            }, hostError(id)),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "transaction_v1_stop": {
                     const [operationId] = params as [string];
                     activeBroadcasts.delete(operationId);
-                    chain
-                        .stopTransaction({ genesisHash, operationId })
-                        .match(() => sendJsonRpcResponse(id, null), hostError(id));
+                    onRejection(
+                        chain
+                            .stopTransaction({ genesisHash, operationId })
+                            .match(() => sendJsonRpcResponse(id, null), hostError(id)),
+                        hostError(id),
+                    );
                     break;
                 }
                 default:
@@ -588,8 +638,11 @@ export function createHostPapiProvider(
                 pendingOperationStarts.clear();
                 for (const operationId of activeBroadcasts) {
                     // Fire-and-forget: the transport may already be torn down.
-                    chain.stopTransaction({ genesisHash, operationId }).match(
-                        () => {},
+                    onRejection(
+                        chain.stopTransaction({ genesisHash, operationId }).match(
+                            () => {},
+                            () => {},
+                        ),
                         () => {},
                     );
                 }
@@ -610,6 +663,8 @@ if (import.meta.vitest) {
         responses?: Record<string, unknown>;
         /** Methods named here resolve to their `.match` error arm carrying the given value. */
         errors?: Record<string, unknown>;
+        /** Methods named here reject, the way truapi rejects a call that timed out. */
+        rejections?: Record<string, unknown>;
         /** Capture selected successful matches so tests can resolve them after follow events. */
         deferMatch?: (method: string, resolve: () => unknown) => boolean;
         /** Unsubscribe spy used by the follow subscription (defaults to a fresh `vi.fn()`). */
@@ -631,6 +686,8 @@ if (import.meta.vitest) {
             opts.onCall?.(name, args);
             const errors = opts.errors ?? {};
             if (name in errors) return errMatch(errors[name]);
+            const rejections = opts.rejections ?? {};
+            if (name in rejections) return { match: () => Promise.reject(rejections[name]) };
             return {
                 match: (ok: (value: unknown) => unknown, _err: (error: unknown) => unknown) => {
                     const resolve = () => ok(response);
@@ -1048,6 +1105,44 @@ if (import.meta.vitest) {
             id: 4,
             error: { code: -32603, message: "no such block" },
         });
+    });
+
+    test("a host call that rejects still answers papi, so a timed-out query cannot stall it", async () => {
+        const timedOut = new Error("TrUAPI request host:9 (wire 3, 3) timed out after 120000ms");
+        const client = makeFakeClient({
+            rejections: { getHeadStorage: timedOut, unpinHead: timedOut, getHeadHeader: timedOut },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        messages.length = 0;
+
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_storage",
+            params: ["p:41", "0xhash", [{ key: "0x01", type: "value" }], null],
+        });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "chainHead_v1_unpin",
+            params: ["p:41", ["0xhash"]],
+        });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 4,
+            method: "chainHead_v1_header",
+            params: ["p:41", "0xhash"],
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const error = { code: -32603, message: timedOut.message };
+        expect(messages).toEqual([
+            { jsonrpc: "2.0", id: 2, error },
+            { jsonrpc: "2.0", id: 3, error },
+            { jsonrpc: "2.0", id: 4, error },
+        ]);
     });
 
     test("disconnect unsubscribes active follows and stops active broadcasts", () => {
