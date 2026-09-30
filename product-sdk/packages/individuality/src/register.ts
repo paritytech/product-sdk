@@ -464,6 +464,7 @@ if (import.meta.vitest) {
                             hash: `0x${"aa".repeat(32)}`,
                             number: 42,
                         }),
+                        getBestBlocks: async () => [{ hash: `0x${"aa".repeat(32)}`, number: 42 }],
                     },
                 },
                 individuality: {

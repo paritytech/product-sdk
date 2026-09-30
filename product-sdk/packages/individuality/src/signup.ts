@@ -148,9 +148,9 @@ export interface ReadGameSignUpRequirementOptions {
     /** Unix **seconds**; defaults to the device clock. */
     now?: number;
     /**
-     * The block to read at. Omit it for the latest finalized block. `"best"` reads
-     * the newest best block, which follows a best-block watch without lagging
-     * finality but can still be retracted, and needs a client with `getBestBlocks`.
+     * The block to read at, as PAPI's `at`: `"finalized"`, the default, `"best"`
+     * to follow a best-block watch without waiting for finality, or a snapshot
+     * another read already pinned.
      */
     at?: BlockAt;
     signal?: AbortSignal;
@@ -505,9 +505,9 @@ export interface ReadSignUpFundsOptions {
      */
     tx?: FeeEstimable;
     /**
-     * The block to read at. Omit it for the latest finalized block. `"best"` reads
-     * the newest best block, which follows a best-block watch without lagging
-     * finality but can still be retracted, and needs a client with `getBestBlocks`.
+     * The block to read at, as PAPI's `at`: `"finalized"`, the default, `"best"`
+     * to follow a best-block watch without waiting for finality, or a snapshot
+     * another read already pinned.
      */
     at?: BlockAt;
     signal?: AbortSignal;
@@ -718,22 +718,13 @@ if (import.meta.vitest) {
             expect(value.eventIds[0]).not.toBe(value.eventIds[1]);
         });
 
-        test("reads at the best block when asked", async () => {
+        test("reads at the block it is given", async () => {
             const { chain } = fakeChain();
-            const best = { hash: `0x${"bb".repeat(32)}`, number: 43 };
-            const atBest = {
-                ...chain,
-                raw: {
-                    individuality: {
-                        ...chain.raw.individuality,
-                        getBestBlocks: async () => [best],
-                    },
-                },
-            };
+            const given = { blockHash: `0x${"bb".repeat(32)}`, blockNumber: 43 };
             const value = unwrapOk(
-                await readGameSignUpRequirement(atBest, { registrant, now: 1_000, at: "best" }),
+                await readGameSignUpRequirement(chain, { registrant, now: 1_000, at: given }),
             );
-            expect(value.at).toEqual({ blockHash: best.hash, blockNumber: best.number });
+            expect(value.at).toBe(given);
         });
 
         test("a recognized player may sign up but not enter the draws", async () => {
@@ -1076,6 +1067,7 @@ if (import.meta.vitest) {
                 raw: {
                     individuality: {
                         getFinalizedBlock: async () => BLOCK,
+                        getBestBlocks: async () => [BLOCK],
                         getChainSpecData: async () => {
                             if (overrides.failOn === "spec") throw new Error("spec unreachable");
                             return {
@@ -1115,13 +1107,12 @@ if (import.meta.vitest) {
             });
         });
 
-        test("reads at the best block when asked", async () => {
+        test("reads every entry at the block it is given", async () => {
             const { chain, calls } = fundsChain();
-            const best = { hash: `0x${"bb".repeat(32)}`, number: 43 };
-            chain.raw.individuality.getBestBlocks = async () => [best];
-            const funds = unwrapOk(await readSignUpFunds(chain, { account: ACCOUNT, at: "best" }));
-            expect(funds.at).toEqual({ blockHash: best.hash, blockNumber: best.number });
-            expect(calls.map((call) => call.at)).toEqual([best.hash, best.hash]);
+            const given = { blockHash: `0x${"bb".repeat(32)}`, blockNumber: 43 };
+            const funds = unwrapOk(await readSignUpFunds(chain, { account: ACCOUNT, at: given }));
+            expect(funds.at).toBe(given);
+            expect(calls.map((call) => call.at)).toEqual([given.blockHash, given.blockHash]);
         });
 
         test("reads every entry at the pinned block, and estimates the fee for the account", async () => {

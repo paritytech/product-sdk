@@ -200,6 +200,8 @@ export type {
     CollectionDetail,
     CollectionItem,
     CollectionItemsResult,
+    BlockAt,
+    BlockSnapshot,
     FinalizedSnapshot,
     ImageRef,
     ItemSelection,

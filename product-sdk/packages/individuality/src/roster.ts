@@ -434,7 +434,12 @@ if (import.meta.vitest) {
                     },
                 },
             },
-            raw: { individuality: { getFinalizedBlock: async () => BLOCK } },
+            raw: {
+                individuality: {
+                    getFinalizedBlock: async () => BLOCK,
+                    getBestBlocks: async () => [BLOCK],
+                },
+            },
         };
         return { chain, calls };
     }

@@ -105,9 +105,9 @@ export interface ReadAirdropDrawOptions {
      */
     registrant?: AirdropRegistrant;
     /**
-     * The block to read at. Omit it for the latest finalized block. `"best"` reads
-     * the newest best block, which follows a best-block watch without lagging
-     * finality but can still be retracted, and needs a client with `getBestBlocks`.
+     * The block to read at, as PAPI's `at`: `"finalized"`, the default, `"best"`
+     * to follow a best-block watch without waiting for finality, or a snapshot
+     * another read already pinned.
      */
     at?: BlockAt;
     /**
@@ -430,6 +430,7 @@ if (import.meta.vitest) {
                         boom("block");
                         return BLOCK;
                     },
+                    getBestBlocks: async () => [BLOCK],
                 },
             },
         };
@@ -462,27 +463,18 @@ if (import.meta.vitest) {
             expect(new Set(calls.map((call) => call.at))).toEqual(new Set([BLOCK.hash]));
         });
 
-        test("reads every entry at the best block when asked", async () => {
+        test("reads every entry at the block it is given", async () => {
             const { chain, calls } = fakeChain({ event: rawEvent(), entropy: ENTROPY });
-            const best = { hash: `0x${"bb".repeat(32)}`, number: 43 };
-            const atBest = {
-                ...chain,
-                raw: {
-                    individuality: {
-                        ...chain.raw.individuality,
-                        getBestBlocks: async () => [best],
-                    },
-                },
-            };
+            const given = { blockHash: `0x${"bb".repeat(32)}`, blockNumber: 43 };
             const draw = unwrapOk(
-                await readAirdropDraw(atBest, {
+                await readAirdropDraw(chain, {
                     eventId: EVENT_ID,
                     registrant: { tag: "Account", accountAddress: ALICE },
-                    at: "best",
+                    at: given,
                 }),
             );
-            expect(draw.at).toEqual({ blockHash: best.hash, blockNumber: best.number });
-            expect(new Set(calls.map((call) => call.at))).toEqual(new Set([best.hash]));
+            expect(draw.at).toBe(given);
+            expect(new Set(calls.map((call) => call.at))).toEqual(new Set([given.blockHash]));
         });
 
         test("addresses every read with the event id it was given", async () => {

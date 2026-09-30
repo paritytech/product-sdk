@@ -462,6 +462,9 @@ if (import.meta.vitest) {
                         getFinalizedBlock: async () => {
                             throw new Error("node down");
                         },
+                        getBestBlocks: async () => {
+                            throw new Error("node down");
+                        },
                     },
                 },
             } as AirdropChain & ClaimChain;

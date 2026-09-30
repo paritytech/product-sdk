@@ -4,11 +4,20 @@
  * The shapes these reads return, and the raw storage shapes they are built from.
  */
 
-/** The finalized block every value in one result was read at. */
-export interface FinalizedSnapshot {
+/** A block a read was pinned to. */
+export interface BlockSnapshot {
     blockHash: string;
     blockNumber: number;
 }
+
+/** The block every value in one result was read at, the latest finalized one unless the caller passed one. */
+export type FinalizedSnapshot = BlockSnapshot;
+
+/**
+ * The block a read addresses, as PAPI's `at` does: `"finalized"`, the default,
+ * `"best"`, or a snapshot another read already pinned.
+ */
+export type BlockAt = "finalized" | "best" | BlockSnapshot;
 
 /**
  * What every paged read here accepts besides its own window: the block to read

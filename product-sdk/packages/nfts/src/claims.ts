@@ -17,9 +17,10 @@
  * silently loses old credits is worse than one that says why it cannot claim them.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { pinBlock, pinFinalized, readAt, type NftsChain, type NftsCreditsChain } from "./chain.js";
+import { pinAt, pinBlock, readAt, type NftsChain, type NftsCreditsChain } from "./chain.js";
 import { matchChainEntryError, ProductNftsError } from "./errors.js";
 import type {
+    BlockAt,
     Claimant,
     Claim,
     ClaimsResult,
@@ -36,12 +37,11 @@ export interface GetClaimsOptions {
     /** Join a block another Asset Hub read already pinned. */
     at?: FinalizedSnapshot;
     /**
-     * The People block to read the awards at. Omit it for the latest finalized
-     * block. `"best"` reads the newest best block, so an award in a block a
-     * best-block watch just saw is already there, and needs a client with
-     * `getBestBlocks`.
+     * The People block to read the awards at, as PAPI's `at`: `"finalized"`, the
+     * default, `"best"` to see an award a best-block watch just saw, or a
+     * snapshot another People read already pinned.
      */
-    individualityAt?: FinalizedSnapshot | "best";
+    individualityAt?: BlockAt;
     /** Forwarded into every underlying pull, so an aborted caller stops the batch. */
     signal?: AbortSignal;
 }
@@ -168,7 +168,7 @@ export async function getClaims(
     try {
         const { claimant, signal } = options;
         const [people, assetHub] = await Promise.all([
-            pinFinalized(chain.raw.individuality, signal, options.individualityAt),
+            pinAt(chain.raw.individuality, signal, options.individualityAt),
             pinBlock(chain, signal, options.at),
         ]);
         const peopleAt = readAt(people, signal);
@@ -370,7 +370,10 @@ if (import.meta.vitest) {
                 },
             },
             raw: {
-                individuality: { getFinalizedBlock: async () => PEOPLE },
+                individuality: {
+                    getFinalizedBlock: async () => PEOPLE,
+                    getBestBlocks: async () => [PEOPLE],
+                },
                 assetHub: { getFinalizedBlock: async () => ASSET_HUB },
             },
         } as unknown as NftsChain & NftsCreditsChain;
@@ -413,20 +416,19 @@ if (import.meta.vitest) {
         test("reads the People awards at the best block when asked", async () => {
             const { chain } = fakeChain({ blocks: undefined });
             const best = { hash: `0x${"bb".repeat(32)}`, number: 99 };
-            (
-                chain.raw.individuality as { getBestBlocks?: () => Promise<(typeof best)[]> }
-            ).getBestBlocks = async () => [best];
+            chain.raw.individuality.getBestBlocks = async () => [best];
             const result = await getClaims(chain, { claimant, individualityAt: "best" });
-            expect(result.ok && result.value.at).toEqual({
-                individuality: { blockHash: best.hash, blockNumber: best.number },
-                assetHub: { blockHash: ASSET_HUB.hash, blockNumber: ASSET_HUB.number },
+            expect(result.ok && result.value.at.individuality).toEqual({
+                blockHash: best.hash,
+                blockNumber: best.number,
             });
         });
 
-        test("refuses a best People read on a client that cannot make it", async () => {
+        test("reads the People awards at the block it is given", async () => {
             const { chain } = fakeChain({ blocks: undefined });
-            const result = await getClaims(chain, { claimant, individualityAt: "best" });
-            expect(!result.ok && result.error.message).toMatch(/cannot read the best block/);
+            const given = { blockHash: `0x${"bb".repeat(32)}`, blockNumber: 99 };
+            const result = await getClaims(chain, { claimant, individualityAt: given });
+            expect(result.ok && result.value.at.individuality).toBe(given);
         });
 
         test("a rooted block whose root reached Asset Hub is claimable, and claimed once spent", async () => {
