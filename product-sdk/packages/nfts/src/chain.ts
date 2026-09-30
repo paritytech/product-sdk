@@ -250,9 +250,7 @@ export interface NftsChain {
         };
     };
     raw: {
-        assetHub: {
-            getFinalizedBlock(): Promise<{ hash: string; number: number }>;
-        };
+        assetHub: BlockSource;
     };
 }
 
@@ -337,65 +335,58 @@ export interface NftsCreditsChain {
         };
     };
     raw: {
-        individuality: {
-            getFinalizedBlock(): Promise<{ hash: string; number: number }>;
-            getBestBlocks(): Promise<{ hash: string; number: number }[]>;
-        };
+        individuality: BlockSource;
     };
 }
 
 /**
- * Pin the block a read addresses.
+ * Where a read gets its block: the part of PAPI's `PolkadotClient` the reads use,
+ * so a `PolkadotClient` fits as it is.
+ */
+export interface BlockSource {
+    getFinalizedBlock(): Promise<{ hash: string; number: number }>;
+    getBestBlocks(): Promise<{ hash: string; number: number }[]>;
+}
+
+/**
+ * Pin the Asset Hub block a read addresses.
  *
  * Every value in one result comes from the same block: a catalogue read pulls
  * item definitions and two metadata layers separately, and reading them a
  * block apart could return a catalogue the chain was never in: an item whose
  * definition is gone but whose metadata is not, or the reverse.
  *
- * The abort check lives here because `getFinalizedBlock` takes no options and so
- * cannot carry a signal itself. Without it an already-cancelled read would
- * still cost a round trip.
- *
- * Pass `given` to address a block a caller already has. Two reads pin their own
- * blocks by default, which is right for two unrelated questions and wrong for
- * one question asked in pages: a paged walk over its own snapshots is not a
+ * Pass a snapshot to address a block a caller already has. Two reads pin their
+ * own blocks by default, which is right for two unrelated questions and wrong
+ * for one question asked in pages: a paged walk over its own snapshots is not a
  * walk of any single chain state.
  */
 export async function pinBlock(
     chain: NftsChain,
     signal: AbortSignal | undefined,
-    given?: FinalizedSnapshot,
+    at?: BlockAt,
 ): Promise<FinalizedSnapshot> {
-    return pinFinalized(chain.raw.assetHub, signal, given);
+    return pinAt(chain.raw.assetHub, signal, at);
 }
 
-/** The pin itself, for whichever chain a read addresses. */
-export async function pinFinalized(
-    raw: { getFinalizedBlock(): Promise<{ hash: string; number: number }> },
+/**
+ * The pin itself, for whichever chain a read addresses.
+ *
+ * The abort check lives here because the raw client takes no options and so
+ * cannot carry a signal itself. Without it an already-cancelled read would
+ * still cost a round trip.
+ */
+export async function pinAt(
+    raw: BlockSource,
     signal: AbortSignal | undefined,
-    given?: FinalizedSnapshot,
+    at: BlockAt = "finalized",
 ): Promise<FinalizedSnapshot> {
     signal?.throwIfAborted();
     // A caller that already has a snapshot is joining it rather than opening a
     // new one: several reads, or several pages of one read, addressing a single
     // block. It costs no round trip, and the abort check above still applies.
-    if (given !== undefined) return given;
-    const block = await raw.getFinalizedBlock();
-    return { blockHash: block.hash, blockNumber: block.number };
-}
-
-/** The pin for a chain whose client can also name its best block. */
-export async function pinAt(
-    raw: {
-        getFinalizedBlock(): Promise<{ hash: string; number: number }>;
-        getBestBlocks(): Promise<{ hash: string; number: number }[]>;
-    },
-    signal: AbortSignal | undefined,
-    at: BlockAt = "finalized",
-): Promise<FinalizedSnapshot> {
-    if (at !== "best") return pinFinalized(raw, signal, at === "finalized" ? undefined : at);
-    signal?.throwIfAborted();
-    const [block] = await raw.getBestBlocks();
+    if (typeof at === "object") return at;
+    const block = at === "best" ? (await raw.getBestBlocks())[0] : await raw.getFinalizedBlock();
     if (block === undefined) throw new ProductNftsError("the chain client reported no best block");
     return { blockHash: block.hash, blockNumber: block.number };
 }
@@ -408,6 +399,7 @@ if (import.meta.vitest) {
     const { describe, expect, test } = import.meta.vitest;
 
     const BLOCK = { hash: `0x${"55".repeat(32)}`, number: 77 };
+    const BEST = { hash: `0x${"77".repeat(32)}`, number: 79 };
 
     function fakeChain() {
         let fetches = 0;
@@ -417,6 +409,10 @@ if (import.meta.vitest) {
                     getFinalizedBlock: async () => {
                         fetches += 1;
                         return BLOCK;
+                    },
+                    getBestBlocks: async () => {
+                        fetches += 1;
+                        return [BEST, BLOCK];
                     },
                 },
             },
@@ -430,6 +426,13 @@ if (import.meta.vitest) {
             expect(await pinBlock(chain, undefined)).toEqual({
                 blockHash: BLOCK.hash,
                 blockNumber: BLOCK.number,
+            });
+        });
+
+        test("pins the newest best block when asked for best", async () => {
+            expect(await pinBlock(fakeChain().chain, undefined, "best")).toEqual({
+                blockHash: BEST.hash,
+                blockNumber: BEST.number,
             });
         });
 

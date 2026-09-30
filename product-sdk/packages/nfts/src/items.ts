@@ -428,6 +428,10 @@ if (import.meta.vitest) {
                         blocks += 1;
                         return BLOCK;
                     },
+                    getBestBlocks: async () => {
+                        blocks += 1;
+                        return [BLOCK];
+                    },
                 },
             },
         } as unknown as NftsChain;
@@ -629,7 +633,12 @@ if (import.meta.vitest) {
                         },
                     },
                 },
-                raw: { assetHub: { getFinalizedBlock: async () => BLOCK } },
+                raw: {
+                    assetHub: {
+                        getFinalizedBlock: async () => BLOCK,
+                        getBestBlocks: async () => [BLOCK],
+                    },
+                },
             } as unknown as NftsChain;
 
             const result = await getCollectionItems(chain, 0, { limit: 100 });
@@ -657,7 +666,12 @@ if (import.meta.vitest) {
                         },
                     },
                 },
-                raw: { assetHub: { getFinalizedBlock: async () => BLOCK } },
+                raw: {
+                    assetHub: {
+                        getFinalizedBlock: async () => BLOCK,
+                        getBestBlocks: async () => [BLOCK],
+                    },
+                },
             } as unknown as NftsChain;
 
             const result = await getCollectionItems(chain, 0, { limit: 100 });
@@ -711,7 +725,12 @@ if (import.meta.vitest) {
                         },
                     },
                 },
-                raw: { assetHub: { getFinalizedBlock: async () => BLOCK } },
+                raw: {
+                    assetHub: {
+                        getFinalizedBlock: async () => BLOCK,
+                        getBestBlocks: async () => [BLOCK],
+                    },
+                },
             } as unknown as NftsChain;
 
             const result = await getCollectionItems(chain, 0, { limit: 100 });

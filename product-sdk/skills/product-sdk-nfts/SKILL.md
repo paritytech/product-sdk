@@ -104,8 +104,8 @@ while (fromId !== null) {
 
 **Pass `at` when you page.** Without it every page pins its own finalized block, so the walk is not
 a walk of any single chain state. `itemCount` can move under you and a collection deleted
-mid-walk vanishes. `at` takes a `FinalizedSnapshot` straight from another result and costs no round
-trip. Every read in this package accepts it, so a catalogue read can also address the block the
+mid-walk vanishes. `at` takes a `BlockSnapshot` straight from another result and costs no round
+trip. It also takes `"best"`, as PAPI's `at` does, to read the newest best block. Every read in this package accepts it, so a catalogue read can also address the block the
 listing came from. The node must still have the block pinned, so reuse a recent snapshot rather
 than a stale one.
 
@@ -206,8 +206,8 @@ stops the whole batch. No deadline is applied for you.
 ## What You Must Hand In
 
 A **chain client**, not a typed API. `NftsChain` asks for six storage entries *and*
-`raw.assetHub.getFinalizedBlock()`, because each read pins one finalized block before it touches
-storage.
+`raw.assetHub`, a `BlockSource` with `getFinalizedBlock()` and `getBestBlocks()`, because each read
+pins one block before it touches storage. A PAPI `PolkadotClient` fits as it is.
 
 ```typescript
 // Either of these satisfies NftsChain whole:

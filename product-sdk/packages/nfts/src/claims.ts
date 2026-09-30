@@ -34,8 +34,8 @@ import type {
 export interface GetClaimsOptions {
     /** Whose credits. Accounts and person aliases are keyed apart on chain. */
     claimant: Claimant;
-    /** Join a block another Asset Hub read already pinned. */
-    at?: FinalizedSnapshot;
+    /** The Asset Hub block to read at, as {@link PinnedReadOptions.at}. */
+    at?: BlockAt;
     /**
      * The People block to read the awards at, as PAPI's `at`: `"finalized"`, the
      * default, `"best"` to see an award a best-block watch just saw, or a
@@ -374,7 +374,10 @@ if (import.meta.vitest) {
                     getFinalizedBlock: async () => PEOPLE,
                     getBestBlocks: async () => [PEOPLE],
                 },
-                assetHub: { getFinalizedBlock: async () => ASSET_HUB },
+                assetHub: {
+                    getFinalizedBlock: async () => ASSET_HUB,
+                    getBestBlocks: async () => [ASSET_HUB],
+                },
             },
         } as unknown as NftsChain & NftsCreditsChain;
         return { chain, calls };
