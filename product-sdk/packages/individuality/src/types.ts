@@ -74,11 +74,21 @@ export type PersonhoodState =
      */
     | { tag: "Suspended" };
 
-/** The finalized block every read in a result was pinned to. */
-export interface FinalizedSnapshot {
+/** A block a read was pinned to. */
+export interface BlockSnapshot {
     blockHash: string;
     blockNumber: number;
 }
+
+/** The block a read pinned itself, which is the latest finalized one unless the caller passed `at`. */
+export type FinalizedSnapshot = BlockSnapshot;
+
+/**
+ * The block a read addresses, as PAPI's `at` does: `"finalized"`, the default,
+ * `"best"`, or a snapshot another read already pinned, so several reads share
+ * one block.
+ */
+export type BlockAt = "finalized" | "best" | BlockSnapshot;
 
 /**
  * The absence-grace policy currently in force, decoded from

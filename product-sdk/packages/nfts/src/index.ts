@@ -170,7 +170,7 @@ export { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, SCAN_BUDGET_FACTOR } from "./paging
 
 // The chain contract both reads take: the storage entries and the raw client
 // they pin with, structural so no genesis hash is pinned to read a catalogue.
-export type { Entry, NftsChain, NftsCreditsChain } from "./chain.js";
+export type { BlockSource, Entry, NftsChain, NftsCreditsChain } from "./chain.js";
 
 // `NftsChainEntryError` is the one worth narrowing on: it means the client
 // cannot read an entry this package needs, which no retry will fix.
@@ -200,6 +200,8 @@ export type {
     CollectionDetail,
     CollectionItem,
     CollectionItemsResult,
+    BlockAt,
+    BlockSnapshot,
     FinalizedSnapshot,
     ImageRef,
     ItemSelection,

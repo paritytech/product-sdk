@@ -20,15 +20,21 @@ import { toItemSelection } from "./collections.js";
 import { collectionBag, decodeBag, readTypedKeys } from "./items.js";
 import { imageRefFrom } from "./metadata.js";
 import { isValidId } from "./paging.js";
-import type { FinalizedSnapshot, MintPreview, MintPreviewResult, RawMintOutcome } from "./types.js";
+import type {
+    BlockAt,
+    FinalizedSnapshot,
+    MintPreview,
+    MintPreviewResult,
+    RawMintOutcome,
+} from "./types.js";
 
 export interface PreviewClaimOptions {
     /** The credit hash, `0x` prefixed, as `getClaims` reports it. */
     credit: string;
     /** The collections to preview into, from `getClaimableCollections`. */
     collections: number[];
-    /** Join a block another read already pinned. */
-    at?: FinalizedSnapshot;
+    /** The Asset Hub block to read at, as {@link PinnedReadOptions.at}. */
+    at?: BlockAt;
     /** Forwarded into every underlying pull, so an aborted caller stops the batch. */
     signal?: AbortSignal;
 }
@@ -230,6 +236,10 @@ if (import.meta.vitest) {
                     getFinalizedBlock: async () => {
                         blocks += 1;
                         return BLOCK;
+                    },
+                    getBestBlocks: async () => {
+                        blocks += 1;
+                        return [BLOCK];
                     },
                 },
             },

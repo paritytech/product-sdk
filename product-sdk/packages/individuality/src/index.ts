@@ -76,6 +76,8 @@
 // The seven-state union, its wrappers, and the pinned-block coordinates.
 export type {
     AbsenceGracePolicy,
+    BlockAt,
+    BlockSnapshot,
     FinalizedSnapshot,
     PersonhoodInputs,
     PersonhoodMetrics,
@@ -267,7 +269,7 @@ export type {
 // For callers holding their own PAPI client: build the chain shape without
 // `@parity/product-sdk-chain-client`.
 export { fromPapi } from "./chain.js";
-export type { FinalizedBlockSource, PapiIndividualityChain } from "./chain.js";
+export type { BlockSource, FinalizedBlockSource, PapiIndividualityChain } from "./chain.js";
 
 // Signing up for the game, and entering its prize draws in the same call. The
 // requirement read comes first because the event ids depend on the game index and

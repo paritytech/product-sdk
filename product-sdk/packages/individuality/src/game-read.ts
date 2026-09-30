@@ -363,6 +363,7 @@ if (import.meta.vitest) {
                         boom("block");
                         return BLOCK;
                     },
+                    getBestBlocks: async () => [BLOCK],
                 },
             },
         };

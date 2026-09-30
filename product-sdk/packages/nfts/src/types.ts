@@ -4,11 +4,20 @@
  * The shapes these reads return, and the raw storage shapes they are built from.
  */
 
-/** The finalized block every value in one result was read at. */
-export interface FinalizedSnapshot {
+/** A block a read was pinned to. */
+export interface BlockSnapshot {
     blockHash: string;
     blockNumber: number;
 }
+
+/** The block every value in one result was read at, the latest finalized one unless the caller passed one. */
+export type FinalizedSnapshot = BlockSnapshot;
+
+/**
+ * The block a read addresses, as PAPI's `at` does: `"finalized"`, the default,
+ * `"best"`, or a snapshot another read already pinned.
+ */
+export type BlockAt = "finalized" | "best" | BlockSnapshot;
 
 /**
  * What every paged read here accepts besides its own window: the block to read
@@ -16,11 +25,11 @@ export interface FinalizedSnapshot {
  */
 export interface PinnedReadOptions {
     /**
-     * Address a block a previous read already pinned, instead of pinning a new
-     * one.
+     * The block to read at, as PAPI's `at`: `"finalized"`, the default, `"best"`,
+     * or a block a previous read already pinned.
      *
-     * Pass a `FinalizedSnapshot` straight from the `at` of another result. Without it
-     * every call pins its own finalized block, which is right for unrelated
+     * Pass a snapshot straight from the `at` of another result. Without one
+     * every call pins its own block, which is right for unrelated
      * questions and wrong for one question asked in pages: a walk over its own
      * snapshots is not a walk of any single chain state. It is also how two reads
      * are made to agree, the registry and the full list at one block.
@@ -30,7 +39,7 @@ export interface PinnedReadOptions {
      * drop `at`, read again from the last `nextId`, and continue on the new
      * snapshot. The examples on each read show the shape.
      */
-    at?: FinalizedSnapshot;
+    at?: BlockAt;
     /**
      * Forwarded into every underlying pull, so an aborted caller stops the whole
      * batch. No deadline is applied here, that belongs to the caller.

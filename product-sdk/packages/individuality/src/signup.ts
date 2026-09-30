@@ -54,7 +54,7 @@ import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex } from "@parity/product-sdk-utils";
 import { gameAirdropEventIds } from "./airdrop-ids.js";
 import type { AirdropRegistrant } from "./airdrop-types.js";
-import type { FinalizedSnapshot, PersonhoodParticipant } from "./types.js";
+import type { BlockAt, FinalizedSnapshot, PersonhoodParticipant } from "./types.js";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
@@ -147,6 +147,12 @@ export interface ReadGameSignUpRequirementOptions {
     keyType?: "sr25519" | "ed25519" | "ecdsa";
     /** Unix **seconds**; defaults to the device clock. */
     now?: number;
+    /**
+     * The block to read at, as PAPI's `at`: `"finalized"`, the default, `"best"`
+     * to follow a best-block watch without waiting for finality, or a snapshot
+     * another read already pinned.
+     */
+    at?: BlockAt;
     signal?: AbortSignal;
 }
 
@@ -159,7 +165,7 @@ export async function readGameSignUpRequirement(
     options: ReadGameSignUpRequirementOptions,
 ): Promise<Result<GameSignUpRequirement, ProductIndividualityError>> {
     try {
-        return ok((await runSignUpRequirementRead(chain, options)).requirement);
+        return ok((await runSignUpRequirementRead(chain, options, options.at)).requirement);
     } catch (cause) {
         return err(normalizeError(cause, ProductIndividualityError));
     }
@@ -174,7 +180,7 @@ export async function readGameSignUpRequirement(
 export async function runSignUpRequirementRead(
     chain: GameChain & SignUpChain,
     options: ReadGameSignUpRequirementOptions,
-    pinnedAt?: FinalizedSnapshot,
+    pinnedAt?: BlockAt,
 ): Promise<{ requirement: GameSignUpRequirement; player: { registered: boolean } | undefined }> {
     const { registrant, signal } = options;
     const snapshot = await pinBlock(chain, signal, pinnedAt);
@@ -498,6 +504,12 @@ export interface ReadSignUpFundsOptions {
      * the same as real ones, so the funds can be checked before any is minted.
      */
     tx?: FeeEstimable;
+    /**
+     * The block to read at, as PAPI's `at`: `"finalized"`, the default, `"best"`
+     * to follow a best-block watch without waiting for finality, or a snapshot
+     * another read already pinned.
+     */
+    at?: BlockAt;
     signal?: AbortSignal;
 }
 
@@ -545,7 +557,7 @@ export async function readSignUpFunds(
     try {
         const { account, tx, signal } = options;
         const query = chain.individuality.query;
-        const snapshot = await pinBlock(chain, signal);
+        const snapshot = await pinBlock(chain, signal, options.at);
         const at = readAt(snapshot, signal);
 
         const [deposit, info, estimatedFee, spec] = await Promise.all([
@@ -704,6 +716,15 @@ if (import.meta.vitest) {
             // Ids come from the same block's index and count, and differ only in
             // the airdrop-index byte.
             expect(value.eventIds[0]).not.toBe(value.eventIds[1]);
+        });
+
+        test("reads at the block it is given", async () => {
+            const { chain } = fakeChain();
+            const given = { blockHash: `0x${"bb".repeat(32)}`, blockNumber: 43 };
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, { registrant, now: 1_000, at: given }),
+            );
+            expect(value.at).toBe(given);
         });
 
         test("a recognized player may sign up but not enter the draws", async () => {
@@ -1046,6 +1067,7 @@ if (import.meta.vitest) {
                 raw: {
                     individuality: {
                         getFinalizedBlock: async () => BLOCK,
+                        getBestBlocks: async () => [BLOCK],
                         getChainSpecData: async () => {
                             if (overrides.failOn === "spec") throw new Error("spec unreachable");
                             return {
@@ -1083,6 +1105,14 @@ if (import.meta.vitest) {
                 decimals: 10,
                 symbol: "PAS",
             });
+        });
+
+        test("reads every entry at the block it is given", async () => {
+            const { chain, calls } = fundsChain();
+            const given = { blockHash: `0x${"bb".repeat(32)}`, blockNumber: 43 };
+            const funds = unwrapOk(await readSignUpFunds(chain, { account: ACCOUNT, at: given }));
+            expect(funds.at).toBe(given);
+            expect(calls.map((call) => call.at)).toEqual([given.blockHash, given.blockHash]);
         });
 
         test("reads every entry at the pinned block, and estimates the fee for the account", async () => {

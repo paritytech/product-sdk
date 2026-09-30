@@ -566,6 +566,10 @@ if (import.meta.vitest) {
                         blocks += 1;
                         return BLOCK;
                     },
+                    getBestBlocks: async () => {
+                        blocks += 1;
+                        return [BLOCK];
+                    },
                 },
             },
         } as unknown as NftsChain;
@@ -739,7 +743,12 @@ if (import.meta.vitest) {
                         },
                     },
                 },
-                raw: { assetHub: { getFinalizedBlock: async () => BLOCK } },
+                raw: {
+                    assetHub: {
+                        getFinalizedBlock: async () => BLOCK,
+                        getBestBlocks: async () => [BLOCK],
+                    },
+                },
             } as unknown as NftsChain;
 
             const result = await getClaimableCollections(chain);
@@ -1452,7 +1461,12 @@ if (import.meta.vitest) {
                         NftClaims: { CollectionMinters: { getValues: async () => [] } },
                     },
                 },
-                raw: { assetHub: { getFinalizedBlock: async () => BLOCK } },
+                raw: {
+                    assetHub: {
+                        getFinalizedBlock: async () => BLOCK,
+                        getBestBlocks: async () => [BLOCK],
+                    },
+                },
             } as unknown as NftsChain;
 
             const result = await getCollections(chain);
