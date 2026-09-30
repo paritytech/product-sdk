@@ -1,32 +1,33 @@
 {
-  "name": "@parity/product-sdk-monorepo",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Monorepo for @parity/product-sdk packages",
-  "scripts": {
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
-    "test:e2e": "pnpm --workspace-concurrency=1 --no-bail --filter \"@parity/product-sdk-*-demo\" test:e2e",
-    "lint": "pnpm -r lint",
-    "clean": "pnpm -r clean",
-    "format": "biome format --write .",
-    "format:check": "biome format .",
-    "lint:biome": "biome lint .",
-    "check": "biome check .",
-    "bench": "node scripts/bench-bundle.mjs measure --out bundle-size.json --md bundle-size.md",
-    "bench:update": "node scripts/bench-bundle.mjs measure --out bundle-size.json --md bundle-size.md",
-    "bench:compare": "node scripts/bench-bundle.mjs compare --base bundle-size.base.json --head bundle-size.json --md bundle-size.diff.md --strict"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@changesets/cli": "^2.28.1",
-    "esbuild": "^0.28.1",
-    "tsup": "catalog:",
-    "typescript": "^5.7.0"
-  },
-  "engines": {
-    "node": ">=20",
-    "pnpm": ">=9"
-  }
+    "name": "@parity/product-sdk-monorepo",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Monorepo for @parity/product-sdk packages",
+    "scripts": {
+        "build": "pnpm -r build",
+        "test": "pnpm -r test",
+        "typecheck": "pnpm -r typecheck",
+        "test:e2e": "pnpm --workspace-concurrency=1 --no-bail --filter \"@parity/product-sdk-*-demo\" test:e2e",
+        "lint": "pnpm -r lint",
+        "clean": "pnpm -r clean",
+        "format": "biome format --write .",
+        "format:check": "biome format .",
+        "lint:biome": "biome lint .",
+        "check": "biome check .",
+        "bench": "node scripts/bench-bundle.mjs measure --out bundle-size.json --md bundle-size.md",
+        "bench:update": "node scripts/bench-bundle.mjs measure --out bundle-size.json --md bundle-size.md",
+        "bench:compare": "node scripts/bench-bundle.mjs compare --base bundle-size.base.json --head bundle-size.json --md bundle-size.diff.md --strict"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^1.9.4",
+        "@changesets/cli": "^2.28.1",
+        "esbuild": "^0.28.1",
+        "tsup": "catalog:",
+        "typescript": "^5.7.0",
+        "@polkadot-api/substrate-bindings": "catalog:"
+    },
+    "engines": {
+        "node": ">=20",
+        "pnpm": ">=9"
+    }
 }
