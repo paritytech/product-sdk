@@ -3,6 +3,7 @@
 // @ts-expect-error Untyped
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+import { validateFace } from "@parity/product-sdk-renderer";
 import { describe, expect, it, vi } from "vitest";
 import { act, useState } from "react";
 
@@ -261,5 +262,64 @@ describe("createRenderer", () => {
             tag: "String",
             value: { text: "10" },
         });
+    });
+});
+
+/**
+ * A tree that breaks the protocol draws as a blank surface with nothing saying
+ * why, so this check exists to name the problem while the product is being
+ * written. It stays off by default because the package is published and a
+ * consumer's console must not fill with output they never asked for.
+ */
+describe("createRenderer validation", () => {
+    it("reports a protocol issue, with its path, when validation is on", async () => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const { subscribeActions } = makeActionBus();
+
+        const renderer = createRenderer({
+            onRender: vi.fn(() => {}),
+            subscribeActions,
+            validate: validateFace,
+        });
+        await act(async () => {
+            renderer.mount(<Text padding={16.5}>Hello</Text>);
+        });
+
+        const reported = consoleError.mock.calls.map((call) => call.join(" ")).join("\n");
+        expect(reported).toContain("size-not-integer");
+        expect(reported).toContain("value.modifiers[0].value.top");
+
+        consoleError.mockRestore();
+    });
+
+    it("says nothing about the same tree when validation is off", async () => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const { subscribeActions } = makeActionBus();
+
+        const renderer = createRenderer({ onRender: vi.fn(() => {}), subscribeActions });
+        await act(async () => {
+            renderer.mount(<Text padding={16.5}>Hello</Text>);
+        });
+
+        expect(consoleError).not.toHaveBeenCalled();
+
+        consoleError.mockRestore();
+    });
+
+    // Throwing here would abort a React commit half-applied, leaving the tree
+    // the host is showing and the tree React thinks it rendered out of step.
+    it("still hands the tree to onRender when validation finds a problem", async () => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const onRender = vi.fn((_node: unknown) => {});
+        const { subscribeActions } = makeActionBus();
+
+        const renderer = createRenderer({ onRender, subscribeActions, validate: validateFace });
+        await act(async () => {
+            renderer.mount(<Text padding={16.5}>Hello</Text>);
+        });
+
+        expect(onRender).toHaveBeenCalledTimes(1);
+
+        consoleError.mockRestore();
     });
 });

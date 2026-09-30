@@ -18,7 +18,8 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-keys` | Hierarchical key derivation, session keys, and sr25519 product-account derivation |
 | `@parity/product-sdk-local-storage` | Key-value local storage with automatic host/browser backend detection |
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
-| `@parity/product-sdk-renderer` | Build and validate renderer trees for Pocket card faces and rendered chat bodies |
+| `@parity/product-sdk-renderer` | Check a renderer tree against the protocol before it reaches a device |
+| `@parity/product-sdk-react-renderer` | Author those trees in JSX, for a product already using React |
 | `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
 | `@parity/product-sdk-crypto` | Cryptographic primitives — encryption, key derivation, NaCl |
 | `@parity/product-sdk-descriptors` | PAPI-generated chain descriptors for Polkadot ecosystem |

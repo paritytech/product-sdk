@@ -8,61 +8,19 @@
  * the host's own theme. A product names structure, never markup, colours or
  * URLs.
  *
- * Two halves. The builders construct that vocabulary with the compiler
- * checking the names and shapes. {@link validateFace} checks a finished tree
- * against the protocol, so a face is wrong at build time rather than blank on
- * a phone.
+ * This package is the protocol as data, plus a checker. {@link validateFace}
+ * holds a finished tree against the vocabulary, so a face is wrong at build
+ * time rather than blank on a phone, and {@link NODE_SCHEMA} lets anything that
+ * builds trees hold its own coverage against the protocol.
  *
- * Nothing here is specific to Pocket, and nothing here talks to a host.
+ * To write a face, reach for `@parity/product-sdk-react-renderer`, which
+ * authors one in JSX. Nothing here is specific to Pocket, and nothing here
+ * talks to a host.
  *
  * @packageDocumentation
  */
-export {
-    nil,
-    str,
-    text,
-    column,
-    row,
-    box,
-    spacer,
-    button,
-    textField,
-    image,
-    effect,
-} from "./nodes.js";
-export type {
-    BoxOptions,
-    ButtonOptions,
-    ColumnOptions,
-    ImageOptions,
-    NodeOptions,
-    RowOptions,
-    SpacerOptions,
-    TextFieldOptions,
-    TextOptions,
-} from "./nodes.js";
-
-export {
-    archive,
-    background,
-    blendingMode,
-    border,
-    bulletin,
-    circle,
-    fillHeight,
-    fillWidth,
-    height,
-    margin,
-    marginEach,
-    minHeight,
-    minWidth,
-    opacity,
-    padding,
-    paddingEach,
-    rounded,
-    square,
-    width,
-} from "./modifiers.js";
+export { MODIFIER_SCHEMA, NODE_SCHEMA } from "./schema.js";
+export type { Field, FieldKind, NodeSchema } from "./schema.js";
 
 export { assertFaceValid, FaceValidationError, validateFace } from "./validate.js";
 export type { FaceIssue, FaceIssueCode, FaceVerdict, ValidateFaceOptions } from "./validate.js";

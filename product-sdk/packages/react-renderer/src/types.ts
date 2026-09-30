@@ -3,12 +3,16 @@
 import type {
     Arrangement,
     Background as BackgroundStyle,
+    BlendingMode,
     BorderStyle,
     ButtonVariant,
     ColorToken,
     ContentAlignment,
     Dimensions,
+    Effect,
     HorizontalAlignment,
+    ImageFit,
+    ImageSource,
     Shape,
     Size,
     TypographyStyle,
@@ -18,12 +22,16 @@ import type {
 export type {
     Arrangement,
     BackgroundStyle,
+    BlendingMode,
     BorderStyle,
     ButtonVariant,
     ColorToken,
     ContentAlignment,
     Dimensions,
+    Effect,
     HorizontalAlignment,
+    ImageFit,
+    ImageSource,
     Shape,
     Size,
     TypographyStyle,
@@ -48,6 +56,9 @@ export interface BaseWidgetProps {
     minHeight?: Size;
     fillMaxWidth?: boolean;
     fillMaxHeight?: boolean;
+    /** 0 is fully transparent, 255 fully opaque. */
+    opacity?: number;
+    blendingMode?: BlendingMode;
 }
 
 export interface BoxProps extends BaseWidgetProps {
@@ -76,7 +87,13 @@ export interface ButtonProps extends BaseWidgetProps {
     variant?: ButtonVariant;
     enabled?: boolean;
     loading?: boolean;
-    onClick(): void;
+    /**
+     * Run when the button is pressed.
+     *
+     * Optional, because a face drawn where nothing is listening should name no
+     * action at all. Leave it out and no `clickAction` is emitted.
+     */
+    onClick?(): void;
 }
 
 export interface TextFieldProps extends BaseWidgetProps {
@@ -84,5 +101,17 @@ export interface TextFieldProps extends BaseWidgetProps {
     placeholder?: string;
     label?: string;
     enabled?: boolean;
-    onValueChange(value: string): void;
+    /** Run on every change. Leave it out and no `valueChangeAction` is emitted. */
+    onValueChange?(value: string): void;
+}
+
+export interface ImageProps extends BaseWidgetProps {
+    source: ImageSource;
+    /** Defaults to `Fill`. */
+    fit?: ImageFit;
+}
+
+/** The one widget the protocol gives no modifiers, hence no {@link BaseWidgetProps}. */
+export interface EffectProps {
+    effect: Effect;
 }

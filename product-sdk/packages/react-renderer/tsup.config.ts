@@ -15,5 +15,11 @@ export default defineConfig({
     },
     // Runtime dependencies stay external so consumers resolve their own copies
     // (react in particular must never be bundled twice).
-    external: ["@parity/truapi", "react", "react/jsx-runtime", "react-reconciler"],
+    external: [
+        "@parity/product-sdk-renderer",
+        "@parity/truapi",
+        "react",
+        "react/jsx-runtime",
+        "react-reconciler",
+    ],
 });

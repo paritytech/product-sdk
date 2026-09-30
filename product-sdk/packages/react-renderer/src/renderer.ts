@@ -1,5 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { RendererNode } from "@parity/truapi";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
@@ -13,15 +14,64 @@ function onError(error: Error): void {
     console.error("[product-sdk-react-renderer]", error);
 }
 
+/**
+ * Reports what the protocol forbids, and what it allows and no product means,
+ * before the tree reaches the host.
+ *
+ * Deliberately never throws. This runs inside the reconciler's commit, where
+ * an exception leaves React with a half-applied tree it cannot recover from,
+ * and an unreadable card is a far smaller problem than a stuck renderer.
+ */
+/** What a checker has to report back. `validateFace`'s verdict satisfies it. */
+export interface FaceCheck {
+    errors: readonly { code: string; path: string; message: string }[];
+    warnings: readonly { code: string; path: string; message: string }[];
+}
+
+/**
+ * Checks a face before it reaches the host.
+ *
+ * Injected rather than imported so the checker is absent from a bundle that
+ * never asks for one. An eager import cannot be shaken out, because the
+ * reference sits in this module either way, and a worker bundle is a single
+ * file with no code splitting to hide it behind.
+ *
+ * Pass `validateFace` from `@parity/product-sdk-renderer`, or wrap it to fix a
+ * host: `(face) => validateFace(face, { host: androidLimits })`.
+ */
+export type FaceChecker = (face: RendererNode) => FaceCheck;
+
+function reportIssues(check: FaceCheck): void {
+    for (const issue of [...check.errors, ...check.warnings]) {
+        console.error(
+            `[product-sdk-react-renderer] ${issue.code} at ${issue.path || "<root>"}: ${issue.message}`,
+        );
+    }
+}
+
 type RendererParams = {
     onRender: RenderCallback;
     subscribeActions: SubscribeAction;
+    /**
+     * Check every tree against the renderer protocol and report what is wrong.
+     * Off by default: this package is published, and turning a check on under
+     * a consumer would fill a console they never asked to have written to.
+     */
+    validate?: FaceChecker;
 };
 
-export function createRenderer({ onRender, subscribeActions }: RendererParams) {
+export function createRenderer({ onRender, subscribeActions, validate }: RendererParams) {
     let unmounted = false;
 
-    const container: Container = { onRender, children: [] };
+    const render: RenderCallback =
+        validate === undefined
+            ? onRender
+            : (node) => {
+                  reportIssues(validate(node));
+                  onRender(node);
+              };
+
+    const container: Container = { onRender: render, children: [] };
     const fiberRoot = reconciler.createContainer(
         container,
         0, // LegacyRoot (the tag alone isn't synchronous in react-reconciler
