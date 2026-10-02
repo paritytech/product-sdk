@@ -1203,6 +1203,55 @@ if (import.meta.vitest) {
         expect(f.stops()).toBe(0);
     });
 
+    /** Fake timers, plus the callbacks they were given: a callback can then run after its clearTimeout. */
+    function captureTimerCallbacks() {
+        vi.useFakeTimers();
+        const spy = vi.spyOn(globalThis, "setTimeout");
+        return {
+            callbacks: () => spy.mock.calls.map(([callback]) => callback as () => void),
+            restore: () => spy.mockRestore(),
+        };
+    }
+
+    test("a synthetic-stop callback already queued when unfollow cleared it emits nothing", () => {
+        const timers = captureTimerCallbacks();
+        const f = interruptibleFollows();
+        const { subscription, observer } = f.follow();
+        observer.complete();
+        const [queued] = timers.callbacks();
+        expect(queued).toBeDefined();
+        f.unfollow(subscription);
+        expect(vi.getTimerCount()).toBe(0);
+        // clearTimeout cannot recall a callback the event loop already queued: run it anyway.
+        queued!();
+        observer.complete();
+        expect(f.stops()).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+        timers.restore();
+    });
+
+    test("synthetic-stop callbacks already queued when disconnect cleared them emit nothing", () => {
+        const timers = captureTimerCallbacks();
+        const f = interruptibleFollows();
+        const first = f.follow();
+        first.observer.complete();
+        const second = f.follow();
+        second.observer.complete();
+        const queued = timers.callbacks();
+        expect(queued).toHaveLength(2);
+        f.conn.disconnect();
+        expect(vi.getTimerCount()).toBe(0);
+        for (const callback of queued) callback();
+        first.observer.complete();
+        second.observer.complete();
+        f.follow();
+        // No stop event, and no new host follow subscription.
+        expect(f.stops()).toBe(0);
+        expect(f.observers).toHaveLength(2);
+        expect(vi.getTimerCount()).toBe(0);
+        timers.restore();
+    });
+
     test("a host error becomes a JSON-RPC -32603 with the formatted reason", () => {
         const client = makeFakeClient({ errors: { getHeadHeader: { reason: "no such block" } } });
         const provider = createHostPapiProvider(client, "0xfeed");
