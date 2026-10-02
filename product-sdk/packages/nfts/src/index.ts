@@ -22,9 +22,14 @@
  * there is no "give me everything", because nothing bounds how many collections
  * exist or how many items a collection holds. The only ceilings the pallet has
  * are index-space exhaustion, and the indices are `u32`. Follow `nextId` to
- * walk the whole of anything, in bounded pieces. The positional reads,
- * `previewClaim` and `getInstanceDisplays`, are bounded by their input instead:
- * they answer exactly the list they were given, in its order.
+ * walk the whole of anything, in bounded pieces.
+ *
+ * The positional reads, `previewClaim` and `getInstanceDisplays`, are bounded
+ * by their input instead: they answer exactly the list they were given, in its
+ * order. `getInstanceDisplays` caps that list at
+ * {@link MAX_INSTANCES_PER_READ} and refuses above it rather than paging,
+ * because the list is the caller's own and a cursor would page someone over
+ * their own input.
  *
  * One vocabulary across all three reads: `limit` and `fromId` in, `idCeiling` and
  * `nextId` out, so a single pager works against any of them.
@@ -181,8 +186,13 @@ export type { PreviewClaimOptions } from "./preview.js";
 
 // The display metadata of minted NFTs by instance id, positional like
 // `previewClaim`. A missing instance is `NotFound` on the ok channel; an
-// existing one with no metadata is `Found` with an empty bag.
-export { getInstanceDisplay, getInstanceDisplays, METADATA_BATCH_LIMIT } from "./instances.js";
+// existing one with no metadata is `Found` with an empty bag. Capped rather
+// than paged, because the list of instances is the caller's own.
+export {
+    getInstanceDisplay,
+    getInstanceDisplays,
+    MAX_INSTANCES_PER_READ,
+} from "./instances.js";
 
 // The bytes an image reference names, and only when they hash to it. No chain
 // read: the source is the caller's, the check is this package's.

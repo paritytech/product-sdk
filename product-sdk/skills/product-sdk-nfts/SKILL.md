@@ -405,9 +405,12 @@ Things that differ from the catalogue reads, each for a reason:
   so one hop and no bytes beyond what you asked about. The three are `null` **together**, and
   only when the item definition is gone from under a live instance. That is a real chain state,
   not "not fetched" — the opposite of how `null` reads on `CollectionItem.attributes`.
-- **Not paged, chunked.** The input list is the bound. Chunks of `METADATA_BATCH_LIMIT` (128, the
-  live runtime's cap) go out in parallel, and a deployment configured lower reports its cap in the
-  refusal, which the read re-chunks to once.
+- **Capped, not paged.** At most `MAX_INSTANCES_PER_READ` (128) instances per call, refused above
+  that. Every other read here walks a space the chain sizes, so it hands back a cursor; this one
+  answers a list you already hold, so a cursor would page you over your own input. Split the list
+  instead. The cap is this package's contract, not a reading of the chain — it coincides with the
+  live runtime's `metadata_batch` cap, which is why a full read is one runtime call there, but a
+  deployment configured lower just reports its cap and the read re-chunks to it.
 
 `getInstanceDisplay(chain, instance, options?)` is the same read for one id, for a detail view.
 Looping it over a shelf forfeits the batching; pass the list.
@@ -445,5 +448,7 @@ this read is not blocked on the purse primitive below.
 11. **Reading an empty `attributes` bag from `getInstanceDisplays` as "no such instance".** A
     claim-minted instance carries no metadata and is still `Found`; the miss signal is the
     `NotFound` tag.
-12. **Looping `getInstanceDisplay` over a shelf.** One call with the list is one runtime operation
-    per 128 instances; the loop is one per instance.
+12. **Looping `getInstanceDisplay` over a shelf.** One call with the list is a single runtime
+    operation for up to 128 instances; the loop is one per instance.
+13. **Expecting `getInstanceDisplays` to page a list over 128.** It refuses rather than
+    truncating or handing back a cursor. Slice the list yourself — it is yours.

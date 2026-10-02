@@ -18,12 +18,17 @@
  * claim-minted instance carries no metadata at all on the live chain and is
  * still `Found`, with `null` typed fields and an empty bag.
  *
- * The batch is chunked below the runtime's query cap, 128 on live
- * `next-asset-hub-paseo`, because `metadata_batch` refuses an oversized batch
- * outright rather than truncating. A deployment configured lower reports its
- * cap in the refusal, and the read re-chunks to it once before giving up, so a
- * shelf of hundreds of purses costs a handful of runtime calls and no caller
- * ever learns the constant.
+ * At most {@link MAX_INSTANCES_PER_READ} instances per call. The read is not
+ * paged and does not need to be: every other read here walks a space the chain
+ * sizes, while this one answers a list the caller already holds, so a cursor
+ * would page someone over their own input. Above the cap it refuses and says
+ * to split.
+ *
+ * On a deployment whose `metadata_batch` cap is at least that, which is the
+ * live one, a full read is a single runtime call. `metadata_batch` refuses an
+ * oversized batch outright rather than truncating, so a deployment configured
+ * lower reports its cap in the refusal and the read re-chunks to it once
+ * before giving up.
  *
  * Then one `ItemDefs` read, keyed by the `(collection, item)` pairs the batch
  * resolved and deduplicated, fills in `transferability`, `supply` and
@@ -50,27 +55,39 @@ import type {
 } from "./types.js";
 
 /**
- * Queries per `metadata_batch` call, matching the cap configured on live
- * `next-asset-hub-paseo`.
+ * The most instances one read answers for, and the size of a chunk.
  *
- * The runtime refuses an oversized batch outright (`TooLarge`, carrying the
- * cap it would have accepted) rather than truncating, so the read chunks below
- * this and re-chunks once to a smaller reported cap. Exported for the same
- * reason {@link MAX_PAGE_LIMIT} is: so a caller sizing its own batches can
- * name the constant instead of rediscovering it.
+ * **This read is not paged, and this is why it does not need to be.** Every
+ * other read here walks a space the chain decides the size of, so it hands
+ * back a cursor. The instances are the caller's own list, so a cursor would
+ * page someone over their own input; a cap and a refusal say the same thing
+ * without the ceremony. Over the cap, split the list.
+ *
+ * 128 is this package's contract, not a reading of the chain. It coincides
+ * with the batch cap live `next-asset-hub-paseo` configures for
+ * `metadata_batch`, which is why a full read is one runtime call there — but
+ * that cap is deployment configuration and this number must not be made to
+ * track it. A deployment that allows fewer refuses with `TooLarge` carrying
+ * its own cap, and the read re-chunks to that; a deployment that allows more
+ * changes nothing here.
+ *
+ * Deliberately near {@link DEFAULT_PAGE_LIMIT} rather than
+ * {@link MAX_PAGE_LIMIT}: a shelf is tens of NFTs, and a cap is a minor
+ * change to raise and a breaking one to lower.
  */
-export const METADATA_BATCH_LIMIT = 128;
+export const MAX_INSTANCES_PER_READ = 128;
 
 const U64_CEILING = 1n << 64n;
 
 /**
  * The display metadata of many minted instances, in the order asked.
  *
- * One pinned block, one runtime call per {@link METADATA_BATCH_LIMIT}
- * instances with the chunks in parallel, then one keyed `ItemDefs` read for
- * the definitions behind them. An empty list is an empty answer and no round
- * trip past the pin. Duplicate ids are answered per position, not
- * deduplicated.
+ * At most {@link MAX_INSTANCES_PER_READ} instances, refused above that rather
+ * than paged: the list is the caller's, so splitting it is the caller's to do.
+ * One pinned block, one `metadata_batch` call, then one keyed `ItemDefs` read
+ * for the definitions behind whatever resolved. An empty list is an empty
+ * answer and no round trip past the pin. Duplicate ids are answered per
+ * position, not deduplicated.
  *
  * @example
  * ```ts
@@ -92,6 +109,13 @@ export async function getInstanceDisplays(
     options: PinnedReadOptions = {},
 ): Promise<Result<InstanceDisplaysResult, ProductNftsError>> {
     try {
+        if (instances.length > MAX_INSTANCES_PER_READ) {
+            return err(
+                new ProductNftsError(
+                    `getInstanceDisplays answers at most ${MAX_INSTANCES_PER_READ} instances per call, asked for ${instances.length}. Split the list; this read is not paged because the list is yours to page.`,
+                ),
+            );
+        }
         for (const instance of instances) {
             if (instance < 0n || instance >= U64_CEILING) {
                 return err(new NftsIdError(instance, "u64"));
@@ -146,7 +170,7 @@ async function readBatched(
     chain: NftsInstancesChain,
     instances: bigint[],
     at: ReadAt,
-    limit: number = METADATA_BATCH_LIMIT,
+    limit: number = MAX_INSTANCES_PER_READ,
 ): Promise<RawMetadataLayers[]> {
     const chunks: bigint[][] = [];
     for (let i = 0; i < instances.length; i += limit) {
@@ -583,27 +607,39 @@ if (import.meta.vitest) {
             expect(display?.tag === "Found" && display.attributes.__proto__).toBe("polluted");
         });
 
-        test("chunks below the batch limit and reassembles in order", async () => {
+        test("a full list is one call, answered in order", async () => {
             const state: Record<string, RawMetadataLayers> = {};
-            const ids = Array.from({ length: 300 }, (_, i) => BigInt(i));
+            const ids = Array.from({ length: MAX_INSTANCES_PER_READ }, (_, i) => BigInt(i));
             for (const id of ids) {
                 state[id.toString()] = found(
                     { instance: [pair("name", `#${id}`)] },
-                    {
-                        instance: id,
-                        collection: 0,
-                        item: 0,
-                    },
+                    { instance: id, collection: 0, item: 0 },
                 );
             }
             const { chain, batches } = fakeChain(answerByInstance(state));
             const result = await getInstanceDisplays(chain, ids);
             expect(result.ok).toBe(true);
             if (!result.ok) return;
-            expect(batches.map((b) => b.length)).toEqual([128, 128, 44]);
+            // The cap is the chunk size, so a maxed-out read never splits.
+            expect(batches.map((b) => b.length)).toEqual([MAX_INSTANCES_PER_READ]);
             expect(result.value.displays.map((d) => (d.tag === "Found" ? d.name : null))).toEqual(
                 ids.map((id) => `#${id}`),
             );
+        });
+
+        test("one instance over the cap is refused before the pin", async () => {
+            const { chain, batches, blocks } = fakeChain(answerByInstance({}));
+            const ids = Array.from({ length: MAX_INSTANCES_PER_READ + 1 }, (_, i) => BigInt(i));
+            const result = await getInstanceDisplays(chain, ids);
+            expect(result.ok).toBe(false);
+            if (result.ok) return;
+            // Not an NftsIdError: every id here can address chain state, there
+            // are just too many of them.
+            expect(result.error).toBeInstanceOf(ProductNftsError);
+            expect(result.error).not.toBeInstanceOf(NftsIdError);
+            expect(result.error.message).toContain(String(MAX_INSTANCES_PER_READ));
+            expect(blocks()).toBe(0);
+            expect(batches).toEqual([]);
         });
 
         test("a TooLarge naming a smaller cap re-chunks to it", async () => {
