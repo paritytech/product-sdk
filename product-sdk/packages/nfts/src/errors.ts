@@ -61,18 +61,22 @@ export class NftsDecodeError extends ProductNftsError {
  * Collection ids and item indices are `u32`, and the PAPI codec truncates
  * rather than rejecting, so an unchecked `NaN` or `1.5` would read a real
  * collection and report it under the id the caller asked for. Refusing is the
- * only answer that cannot be mistaken for a catalogue.
+ * only answer that cannot be mistaken for a catalogue. Instance ids are `u64`
+ * and already integers as `bigint`s, but the range hazard is the same, so an
+ * out-of-range one is refused through the same class.
  *
  * The message carries the value because it is caller input, not chain content.
  * The rule on {@link NftsDecodeError} is about author-supplied metadata.
  */
 export class NftsIdError extends ProductNftsError {
     /** The value that could not address anything. */
-    readonly id: number;
+    readonly id: number | bigint;
 
-    constructor(id: number, options?: ErrorOptions) {
+    constructor(id: number | bigint, space: "u32" | "u64" = "u32", options?: ErrorOptions) {
         super(
-            `Collection id ${id} is not a u32. Ids and item indices are whole numbers from 0 to 2^32 - 1.`,
+            space === "u32"
+                ? `Collection id ${id} is not a u32. Ids and item indices are whole numbers from 0 to 2^32 - 1.`
+                : `Instance id ${id} is not a u64. Instance ids are whole numbers from 0 to 2^64 - 1.`,
             options,
         );
         this.name = "NftsIdError";

@@ -376,6 +376,85 @@ export type CollectionItemsResult =
       }
     | { tag: "NotFound"; at: FinalizedSnapshot; id: number };
 
+/**
+ * The display metadata of one minted NFT, or a clean miss.
+ *
+ * An instance nobody minted, or one already burned, is not a failure: the
+ * runtime was asked and answered that there is nothing under that id, and the
+ * answer travels inside the `ok` payload. The signal is `metadata_batch`
+ * declining to resolve the query, not an empty bag — a freshly claim-minted
+ * instance carries no metadata at all on the live chain, and it is still
+ * `Found`. That distinction is the reason this is a tagged shape rather than a
+ * bag that is empty two different ways.
+ */
+export type InstanceDisplay =
+    | {
+          tag: "Found";
+          /** The instance id asked about. */
+          instance: bigint;
+          /** The collection the instance was minted from, as the runtime resolved it. */
+          collection: number;
+          /** The item definition the instance was minted from, within its collection. */
+          item: number;
+          /**
+           * Whether this instance can be sent on, from its item definition.
+           *
+           * A `Soulbound` one stays with its first owner, so a UI offering to
+           * send it is offering a transaction the runtime will reject. Read
+           * always rather than behind an option, unlike
+           * {@link CollectionItem.attributes}: the key is the
+           * `(collection, item)` the instance already resolved to, so it costs
+           * one serial hop and no bytes beyond the instances asked about.
+           *
+           * `null` means the item definition is **gone** from the chain while
+           * the instance survives — a real state, not "not fetched". The three
+           * definition-backed fields are `null` together.
+           */
+          transferability: Transferability | null;
+          /** Instances the definition may ever mint, or `null` when it is gone. */
+          supply: number | null;
+          /** Instances currently alive, which is `supply` less those burned, or `null`. */
+          liveSupply: number | null;
+          /** The `name` metadata, most specific layer winning, or `null` when no layer sets one. */
+          name: string | null;
+          /** The `image` metadata, read both ways, or `null`. See {@link CollectionItem.imageRef}. */
+          imageRef: ImageRef | null;
+          /** The `rarity` metadata, most specific layer winning, or `null` when unset. */
+          rarity: string | null;
+          /**
+           * Every metadata key across all three layers, the most specific layer
+           * winning per key: instance over item over collection, mirroring the
+           * pallet's own `instance_metadata_of`.
+           *
+           * Always present, unlike {@link CollectionItem.attributes}, and empty
+           * when the instance genuinely carries no metadata. The asymmetry is
+           * honest: a catalogue page pays a prefix scan for the open bag, so it
+           * is opt-in there, while `metadata_batch` returns whole layers whether
+           * or not anyone wants them, so withholding them here would save
+           * nothing.
+           *
+           * The schema is open and the values are decoded text-or-hex; the notes
+           * on {@link CollectionItem.attributes} apply unchanged. Deployment
+           * conventions beyond `name`, `image` and `rarity` — an identity
+           * `hash`, a `manifest` CID — live in this bag for the caller to lift.
+           */
+          attributes: Record<string, string>;
+      }
+    | { tag: "NotFound"; instance: bigint };
+
+/** What one `getInstanceDisplays` call returns. */
+export interface InstanceDisplaysResult {
+    at: FinalizedSnapshot;
+    /** One per instance asked for, in the order asked. */
+    displays: InstanceDisplay[];
+}
+
+/** What one `getInstanceDisplay` call returns. */
+export interface InstanceDisplayResult {
+    at: FinalizedSnapshot;
+    display: InstanceDisplay;
+}
+
 /** `Scarcity.Collections`, narrowed to the fields these reads use. */
 export interface RawCollection {
     owner: string;
@@ -420,4 +499,49 @@ export type RawBytes = Uint8Array | { asBytes(): Uint8Array };
 /** `Scarcity.CollectionMetadata` / `ItemMetadata` / `InstanceMetadata`. */
 export interface RawMetadataEntry {
     value: RawBytes;
+}
+
+/**
+ * One `ScarcityApi.metadata_batch` query: a minted instance, an item
+ * definition, or a bare collection.
+ *
+ * `getInstanceDisplays` only ever sends `Instance` queries; the other two
+ * variants are typed because the runtime takes them, so a future read of
+ * pre-mint metadata composes on the same entry rather than growing a second
+ * contract.
+ */
+export type RawMetadataQuery =
+    | { type: "Instance"; value: bigint }
+    | { type: "Item"; value: { collection: number; item: number } }
+    | { type: "Collection"; value: number };
+
+/**
+ * What `metadata_batch` resolved one query to, when its target exists.
+ *
+ * For an `Instance` query this is where the instance → (collection, item)
+ * mapping comes back: the runtime walks it to assemble the layers anyway, so
+ * the caller is told rather than left to re-derive it from owner-keyed storage.
+ */
+export type RawMetadataTarget =
+    | { type: "Instance"; value: { instance: bigint; collection: number; item: number } }
+    | { type: "Item"; value: { collection: number; item: number } }
+    | { type: "Collection"; value: number };
+
+/**
+ * One `metadata_batch` answer, positionally matched to its query.
+ *
+ * `resolved` is absent exactly when the target does not exist at the block
+ * asked: the runtime cannot name the collection and item of an instance nobody
+ * minted. The layers of a missing target are empty, but empty layers alone do
+ * not mean missing — a claim-minted instance has a `resolved` and no metadata.
+ *
+ * Each layer is `[key, value]` byte pairs. For an `Instance` query all three
+ * layers arrive; for an `Item` query the `instance` layer is empty, and for a
+ * `Collection` query the `item` layer is too.
+ */
+export interface RawMetadataLayers {
+    resolved?: RawMetadataTarget | undefined;
+    collection: RawBytes[][];
+    item: RawBytes[][];
+    instance: RawBytes[][];
 }

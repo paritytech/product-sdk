@@ -3,9 +3,9 @@
 /**
  * Entry point for the @parity/product-sdk-nfts E2E demo.
  *
- * All three reads are pure catalogue, so there is no signer here: they need a
- * chain client and nothing else. The client comes from the host over the
- * container chain API, the same path the other demos take.
+ * Every read here is a read, so there is no signer: they need a chain client
+ * and nothing else. The client comes from the host over the container chain
+ * API, the same path the other demos take.
  *
  * Flow inside the host-api-test-sdk test host:
  *   1. createChainClient({ chains: { assetHub } }) connects via the host
@@ -16,6 +16,10 @@
  *   4. getCollectionItems(chain, id) -> the catalogue of that collection
  *   5. getCollectionItems(chain, MISSING_COLLECTION) -> `NotFound` on the ok
  *      channel, which is the part of the contract worth seeing in a UI
+ *   5b. getInstanceDisplays(chain, [...PROBE_INSTANCES, MISSING_INSTANCE]) ->
+ *      minted NFTs by instance id rather than a catalogue, each `Found` or
+ *      `NotFound` on its own, with the (collection, item) the runtime resolved
+ *      and the transferability that decides whether a send may be offered
  *   6. getClaims(chain, { claimant }) -> every credit one account holds, read
  *      across the People chain and Asset Hub at one pinned block each
  *   7. previewClaim(chain, { credit, collections }) -> what that credit would
@@ -39,6 +43,7 @@ import {
     getClaimableCollections,
     getCollectionItems,
     getClaims,
+    getInstanceDisplays,
     getVerifiedArtwork,
     gatewaySource,
     previewClaim,
@@ -72,6 +77,13 @@ const $itemSupply = getEl<HTMLSpanElement>("item-supply");
 const $itemImageHex = getEl<HTMLSpanElement>("item-image-hex");
 const $itemImageText = getEl<HTMLSpanElement>("item-image-text");
 const $missingTag = getEl<HTMLSpanElement>("missing-tag");
+const $instancesAsked = getEl<HTMLSpanElement>("instances-asked");
+const $instancesFound = getEl<HTMLSpanElement>("instances-found");
+const $instancesTargets = getEl<HTMLSpanElement>("instances-targets");
+const $instanceName = getEl<HTMLSpanElement>("instance-name");
+const $instanceTransferability = getEl<HTMLSpanElement>("instance-transferability");
+const $instanceAttributes = getEl<HTMLSpanElement>("instance-attributes");
+const $instanceMissingTag = getEl<HTMLSpanElement>("instance-missing-tag");
 const $creditsBlock = getEl<HTMLSpanElement>("credits-block");
 const $creditsCount = getEl<HTMLSpanElement>("credits-count");
 const $creditsStates = getEl<HTMLSpanElement>("credits-states");
@@ -88,6 +100,19 @@ function log(msg: string, level: Parameters<typeof appendLog>[2] = "info"): void
 
 /** No `Scarcity.Collections` record can exist at u32 max, so this is always a miss. */
 const MISSING_COLLECTION = 4_294_967_295;
+
+/**
+ * Instance ids to probe, and one that cannot exist.
+ *
+ * The demo has no purses and no owner, which is the honest situation for this
+ * read: where ids come from is the caller's business, and the package does not
+ * enumerate them. Instances are allocated from zero and never reused, so the
+ * low ids are the ones a live chain is most likely to have minted; each is
+ * reported `Found` or `NotFound` on its own. u64 max cannot have been
+ * allocated, so it pins the miss case whatever the chain holds.
+ */
+const PROBE_INSTANCES = [0n, 1n, 2n];
+const MISSING_INSTANCE = 18_446_744_073_709_551_615n;
 
 let chain: ChainClient<{
     assetHub: typeof paseo_asset_hub;
@@ -306,6 +331,56 @@ async function readPreview(collections: number[], credit: string): Promise<void>
     log(`previewClaim: ${previews.length} outcomes for ${credit.slice(0, 10)}…`, "ok");
 }
 
+/**
+ * Minted NFTs by instance id, the one read here that is not about a catalogue.
+ *
+ * Positional: one answer per id asked, in order, each `Found` or `NotFound`.
+ * The pair worth seeing in a UI is the last two fields: a `Found` instance
+ * whose `attributes` bag is empty is a real minted NFT that carries no
+ * metadata, which is every claim-minted one today, and that is a different
+ * statement from the `NotFound` that u64 max returns.
+ */
+async function readInstances(): Promise<void> {
+    if (!chain) return;
+    const asked = [...PROBE_INSTANCES, MISSING_INSTANCE];
+    $instancesAsked.textContent = asked.map((i) => i.toString()).join(",");
+
+    const result = await getInstanceDisplays(chain, asked);
+    if (!result.ok) {
+        $instancesFound.textContent = "error";
+        log(`getInstanceDisplays failed: ${describeError(result.error)}`, "err");
+        return;
+    }
+
+    const { at, displays } = result.value;
+    const found = displays.filter((d) => d.tag === "Found");
+    $instancesFound.textContent = `${found.length} of ${displays.length}`;
+    $instancesTargets.textContent =
+        found.map((d) => `${d.instance}→${d.collection}/${d.item}`).join(", ") || "(none)";
+    // The last answer is MISSING_INSTANCE, and it is a success value.
+    $instanceMissingTag.textContent = displays[displays.length - 1]?.tag ?? "-";
+
+    const first = found[0];
+    if (first === undefined) {
+        $instanceName.textContent = "(no instance minted at these ids)";
+        log(`getInstanceDisplays: nothing minted at ${asked.length - 1} probed ids`, "info");
+        return;
+    }
+    $instanceName.textContent = first.name ?? "(unnamed)";
+    // Null here means the item definition is gone from under a live instance,
+    // not that the read skipped it.
+    $instanceTransferability.textContent = first.transferability ?? "(definition gone)";
+    // Always filled, unlike a catalogue page: all three layers merged.
+    $instanceAttributes.textContent = Object.keys(first.attributes).join(",") || "(none)";
+
+    log(
+        `getInstanceDisplays: ${found.length} found at #${at.blockNumber}, ` +
+            `first is ${first.name ?? "unnamed"} from collection ${first.collection} ` +
+            `item ${first.item} (${first.transferability ?? "definition gone"})`,
+        "ok",
+    );
+}
+
 async function read(): Promise<void> {
     if (!chain) return;
     $btnRefresh.disabled = true;
@@ -340,6 +415,8 @@ async function read(): Promise<void> {
         // The miss is a success value, and reading it is the only way to see that.
         const missing = await getCollectionItems(chain, MISSING_COLLECTION, { limit: 1 });
         $missingTag.textContent = missing.ok ? missing.value.tag : "error";
+
+        await readInstances();
 
         const credit = (await readCredits()) ?? FALLBACK_CREDIT;
         await readPreview(
@@ -385,12 +462,14 @@ declare global {
             getCollections: typeof getCollections;
             getCollectionItems: typeof getCollectionItems;
             getClaims: typeof getClaims;
+            getInstanceDisplays: typeof getInstanceDisplays;
             previewClaim: typeof previewClaim;
             readonly chain: ChainClient<{
                 assetHub: typeof paseo_asset_hub;
                 individuality: typeof paseo_individuality;
             }> | null;
             MISSING_COLLECTION: number;
+            MISSING_INSTANCE: bigint;
         };
     }
 }
@@ -400,11 +479,13 @@ window.__NFTS__ = {
     getCollections,
     getCollectionItems,
     getClaims,
+    getInstanceDisplays,
     previewClaim,
     get chain() {
         return chain;
     },
     MISSING_COLLECTION,
+    MISSING_INSTANCE,
 };
 
 init().catch((err) => log(`Unhandled init error: ${(err as Error).message}`, "err"));
