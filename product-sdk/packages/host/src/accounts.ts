@@ -24,7 +24,7 @@
  * provider also exposes the deprecated `signRawUnwatermarkedDeprecated` pair,
  * which signs the bytes exactly as given. Reach for those two only when a
  * runtime check leaves no alternative; they are temporary on the host side too
- * (paritytech/host-rust-core#612).
+ * (paritytech/trinity-user-agents#612).
  *
  * @module
  */
@@ -385,7 +385,7 @@ export interface AccountsProvider {
     /**
      * @deprecated Temporary — signs `data` with NO `<Bytes>` watermark so a
      * People-chain runtime that verifies a raw-byte proof accepts it
-     * (paritytech/host-rust-core#612). Removed once the runtime accepts
+     * (paritytech/trinity-user-agents#612). Removed once the runtime accepts
      * watermarked proofs. Hosts show a stronger warning for this call.
      */
     signRawUnwatermarkedDeprecated(account: ProductAccount, data: Uint8Array): Promise<Uint8Array>;
