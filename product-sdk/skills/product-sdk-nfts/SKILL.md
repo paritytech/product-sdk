@@ -9,13 +9,16 @@ description: >
   schema and the two readings of ImageRef, why a missing collection is a success value rather than
   an error, getClaims across the People chain and Asset Hub with the four states a credit can be
   in, previewClaim and why it is the item a claim will produce, getVerifiedArtwork and why bytes
-  are withheld unless they hash to the reference, and the purse-scoped reads that do not exist yet.
+  are withheld unless they hash to the reference, getInstanceDisplays for the display metadata of
+  minted NFTs by instance id with Found/NotFound per instance, and the purse-scoped reads that do
+  not exist yet.
 ---
 
 # Product SDK NFTs
 
-`@parity/product-sdk-nfts` reads the Scarcity catalogue on Asset Hub. Three functions, all pure
-reads, none needing an identity, a purse or a second chain. Also available as
+`@parity/product-sdk-nfts` reads the Scarcity catalogue on Asset Hub. Three catalogue functions,
+all pure reads, none needing an identity, a purse or a second chain — plus `getInstanceDisplays`
+for minted NFTs by instance id (see "Minted Instances" below). Also available as
 `@parity/product-sdk/nfts`, the same code re-exported from `@parity/product-sdk`.
 
 - `getClaimableCollections(chain, options?)` reads the collections registered to accept claims. Powers a
@@ -240,6 +243,10 @@ six, **including the ones its own code never reads**. An app resolving display m
 `ScarcityApi.metadata_batch` typically carries none of the three metadata/`ItemDefs` entries, so
 this bites on the first call.
 
+`getInstanceDisplays` touches two, `api.ScarcityApi.metadata_batch` and `query.Scarcity.ItemDefs`
+(the second shared with the catalogue reads); `previewClaim` adds `api.NftClaimsApi.preview_mints`,
+and `getClaims` its own set (see the package doc). Whitelist per read you call.
+
 The symptom is the PAPI `Incompatible runtime entry Storage(Scarcity.CollectionMetadata)`, which
 reads like descriptor drift and is not. These reads report it as `NftsChainEntryError`, which names
 the entry in its message, carries it on `error.entry` for programmatic handling, and keeps PAPI's
@@ -258,8 +265,9 @@ Two follow-ons that cost real time:
 
 `Scarcity` stores metadata as untyped `Vec<u8>` keys to `Vec<u8>` values in three layers, each overriding the
 last for the same key. A catalogue read merges the first two, collection defaults underneath and the
-item overrides on top. `InstanceMetadata` is deliberately not consulted: it keys on an instance
-id, so it describes a minted NFT rather than a catalogue entry.
+item overrides on top. `InstanceMetadata` is deliberately not consulted by the catalogue reads: it
+keys on an instance id, so it describes a minted NFT rather than a catalogue entry — that layer
+belongs to `getInstanceDisplays`, which merges all three.
 
 Nothing in the runtime declares the keys or their types.
 
@@ -355,12 +363,76 @@ hash to the digest the reference names. Where the bytes come from is the caller'
 `Verified` with the bytes, `Missing`, `Mismatch` with the bytes withheld, and `Unreadable` when the
 reference decodes to no address or names a multihash other than blake2b-256 or sha2-256.
 
+## Minted Instances
+
+`getInstanceDisplays(chain, instances, options?)` reads the display metadata of minted NFTs by
+instance id — what somebody *holds*, where the catalogue reads describe what a collection
+*defines*. It is positional like `previewClaim`: `displays[i]` answers `instances[i]`. The chain
+contract is its own, `NftsInstancesChain` — `ScarcityApi.metadata_batch` plus `Scarcity.ItemDefs`,
+and the raw client; a `getChainAPI` client satisfies it whole.
+
+```typescript
+const result = await getInstanceDisplays(chain, [1n, 2n, 404n]);
+if (result.ok) {
+    for (const display of result.value.displays) {
+        if (display.tag === "NotFound") continue;    // burned, or never minted
+        // instance, collection, item, transferability, supply, liveSupply,
+        // name | null, collectionName | null, rarity | null, imageRef | null, attributes
+        const title = display.name ?? display.collectionName ?? `Instance ${display.instance}`;
+        console.log(title, display.collection, display.item);
+        if (display.transferability === "Transferable") offerSend(display);
+    }
+}
+```
+
+Things that differ from the catalogue reads, each for a reason:
+
+- **Per-instance `Found` / `NotFound`.** An instance nobody minted, or one already burned, is a
+  `NotFound` display on the `ok` channel. The signal is the runtime declining to resolve the query,
+  **not** an empty bag: a freshly claim-minted instance carries no metadata at all on the live
+  chain and is still `Found`, with `null` typed fields and an empty `attributes`.
+- **`collection` and `item` come back resolved.** The runtime reports which (collection, item) each
+  instance was minted from, so a shelf can group by collection, or join `getCollectionItems`,
+  without a second lookup.
+- **`attributes` is always filled, all three layers merged** (instance over item over collection,
+  the pallet's own precedence). No `attributes: true` flag: `metadata_batch` returns whole layers
+  whether or not anyone wants them, so withholding the bag would save nothing. Deployment
+  conventions beyond `name` / `image` / `rarity` — an identity `hash`, a `manifest` CID — are in
+  the bag for you to lift.
+- **`name` is the instance's own, and `collectionName` is separate.** Unlike `CollectionItem.name`,
+  this read does not inherit the collection's `name` into the item's. Inheriting is right for
+  `image` and `rarity`, where the collection sets a default for its items, and wrong for `name`,
+  where the collection layer holds the name of a *different thing*. A deployment that names its
+  collection and titles items by `archetype` would otherwise see every item called "Hearth". The
+  merged `attributes` bag still carries both, so nothing is hidden.
+- **`transferability`, `supply` and `liveSupply` come from the item definition**, which is not
+  metadata, so a second keyed `ItemDefs` read fills them. Also not optional, and for a sharper
+  reason than the bag: whether an instance is `Soulbound` decides whether your UI may offer to
+  send it, and the keys are the `(collection, item)` the instance already resolved to — deduped,
+  so one hop and no bytes beyond what you asked about. The three are `null` **together**, and
+  only when the item definition is gone from under a live instance. That is a real chain state,
+  not "not fetched" — the opposite of how `null` reads on `CollectionItem.attributes`.
+- **Capped, not paged.** At most `MAX_INSTANCES_PER_READ` (128) instances per call, refused above
+  that. Every other read here walks a space the chain sizes, so it hands back a cursor; this one
+  answers a list you already hold, so a cursor would page you over your own input. Split the list
+  instead. The cap is this package's contract, not a reading of the chain — it coincides with the
+  live runtime's `metadata_batch` cap, which is why a full read is one runtime call there, but a
+  deployment configured lower just reports its cap and the read re-chunks to it.
+
+`getInstanceDisplay(chain, instance, options?)` is the same read for one id, for a detail view.
+Looping it over a shelf forfeits the batching; pass the list.
+
+Instance ids are `u64` **bigints**, as PAPI returns them. Where ids come from is the caller's
+business — a transfer record, an indexer, a purse walk the app does itself — which is exactly why
+this read is not blocked on the purse primitive below.
+
 ## Not Built Yet
 
 - **Nothing purse-scoped.** `getOwnedNfts`, `getNextEmptyPurse` and `findPurseHolding` need a purse
   primitive shared across apps, which the wallet does not expose. App-scoped product-account
   derivation is not a substitute: it is keyed by `productId`, so nothing derived under it can be
-  shared between two apps.
+  shared between two apps. `getInstanceDisplays` already answers the display half of an owned read;
+  once a purse primitive can enumerate what is held, the owned read composes on it.
 
 ## Common Mistakes
 
@@ -380,3 +452,10 @@ reference decodes to no address or names a multihash other than blake2b-256 or s
    are `null` when it does not, which signals an inconsistency rather than an empty collection.
 9. **Parsing `attributes` values as numbers** without handling text that is not numeric.
 10. **Expecting `rarity` or `name` to be set.** Most collections on a live deployment set neither.
+11. **Reading an empty `attributes` bag from `getInstanceDisplays` as "no such instance".** A
+    claim-minted instance carries no metadata and is still `Found`; the miss signal is the
+    `NotFound` tag.
+12. **Looping `getInstanceDisplay` over a shelf.** One call with the list is a single runtime
+    operation for up to 128 instances; the loop is one per instance.
+13. **Expecting `getInstanceDisplays` to page a list over 128.** It refuses rather than
+    truncating or handing back a cursor. Slice the list yourself — it is yours.

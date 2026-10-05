@@ -16,6 +16,7 @@ import { fillByIdWindow, isValidId, pageBounds } from "./paging.js";
 import {
     matchChainEntryError,
     NftsChainEntryError,
+    NftsDecodeError,
     NftsIdError,
     ProductNftsError,
 } from "./errors.js";
@@ -35,7 +36,27 @@ import type {
     RawItemDef,
     RawMetadataEntry,
     ReadAt,
+    Transferability,
 } from "./types.js";
+
+/**
+ * The `transferability` variant of an item definition, refusing one this
+ * package does not know.
+ *
+ * A variant added to the runtime later would otherwise reach a caller as a
+ * string the `Transferability` union says cannot occur, and the field that
+ * decides whether a UI may offer a send is the wrong one to guess at. The one
+ * decoder for the one storage field: `getCollectionItems` and
+ * `getInstanceDisplays` read the same `ItemDefs` entry and must refuse the
+ * same way.
+ */
+export function toTransferability(def: RawItemDef): Transferability {
+    const type = def.transferability?.type;
+    if (type !== "Transferable" && type !== "Soulbound") {
+        throw new NftsDecodeError("an item definition carries an unknown transferability");
+    }
+    return type;
+}
 
 /**
  * Group `ItemMetadata` rows by item index, keeping the raw bytes.
@@ -245,7 +266,7 @@ export async function getCollectionItems(
                 index,
                 supply: def.supply,
                 liveSupply: def.live_supply,
-                transferability: def.transferability.type,
+                transferability: toTransferability(def),
                 name: decoded.name ?? decodedDefaults.name ?? null,
                 imageRef: imageRefFrom([defaultBag, raw]),
                 rarity: decoded.rarity ?? decodedDefaults.rarity ?? null,
@@ -1036,6 +1057,33 @@ if (import.meta.vitest) {
                 "Soulbound",
                 "Transferable",
             ]);
+        });
+
+        test("an unknown transferability variant is an error, not a guess", async () => {
+            // The same refusal `getInstanceDisplays` makes, through the same
+            // decoder: a variant added to the runtime later must not reach a
+            // caller as a string the union says cannot occur.
+            const { chain } = fakeChain({
+                record: { owner: "alice", item_count: 1, next_item_index: 1 },
+                defs: [
+                    [
+                        0,
+                        {
+                            supply: 1,
+                            live_supply: 1,
+                            // The runtime can widen the variant set under a
+                            // package built against today's descriptors.
+                            transferability: {
+                                type: "Escrowed",
+                            } as unknown as RawItemDef["transferability"],
+                        },
+                    ],
+                ],
+            });
+            const result = await getCollectionItems(chain, 0);
+            expect(result.ok).toBe(false);
+            if (result.ok) return;
+            expect(result.error).toBeInstanceOf(NftsDecodeError);
         });
     });
 

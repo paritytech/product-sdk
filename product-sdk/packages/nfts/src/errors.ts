@@ -61,18 +61,27 @@ export class NftsDecodeError extends ProductNftsError {
  * Collection ids and item indices are `u32`, and the PAPI codec truncates
  * rather than rejecting, so an unchecked `NaN` or `1.5` would read a real
  * collection and report it under the id the caller asked for. Refusing is the
- * only answer that cannot be mistaken for a catalogue.
+ * only answer that cannot be mistaken for a catalogue. Instance ids are `u64`
+ * and already integers as `bigint`s, but the range hazard is the same, so an
+ * out-of-range one is refused through the same class.
+ *
+ * Which space the id missed follows from its type — collection ids and item
+ * indices are `number`, instance ids are `bigint` — so the constructor keeps
+ * the `(id, options?)` shape and cannot be handed a space that contradicts
+ * the value.
  *
  * The message carries the value because it is caller input, not chain content.
  * The rule on {@link NftsDecodeError} is about author-supplied metadata.
  */
 export class NftsIdError extends ProductNftsError {
     /** The value that could not address anything. */
-    readonly id: number;
+    readonly id: number | bigint;
 
-    constructor(id: number, options?: ErrorOptions) {
+    constructor(id: number | bigint, options?: ErrorOptions) {
         super(
-            `Collection id ${id} is not a u32. Ids and item indices are whole numbers from 0 to 2^32 - 1.`,
+            typeof id === "bigint"
+                ? `Instance id ${id} is not a u64. Instance ids are whole numbers from 0 to 2^64 - 1.`
+                : `Collection id ${id} is not a u32. Ids and item indices are whole numbers from 0 to 2^32 - 1.`,
             options,
         );
         this.name = "NftsIdError";
@@ -169,6 +178,18 @@ if (import.meta.vitest) {
         test("carries a cause when given one", () => {
             const cause = new Error("underlying");
             expect(new NftsDecodeError("boom", { cause }).cause).toBe(cause);
+        });
+
+        test("NftsIdError derives the id space from the value's type", () => {
+            // A bigint is an instance id and a number a collection id or item
+            // index, by the signatures of every read, so the message cannot be
+            // made to contradict the value — and `options` stays the second
+            // parameter, the shape every error here shares.
+            const cause = new Error("underlying");
+            const instance = new NftsIdError(1n << 64n, { cause });
+            expect(instance.message).toContain("u64");
+            expect(instance.cause).toBe(cause);
+            expect(new NftsIdError(Number.NaN).message).toContain("u32");
         });
     });
 

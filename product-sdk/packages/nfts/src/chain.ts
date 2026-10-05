@@ -74,6 +74,8 @@ import type {
     RawCollection,
     RawItemDef,
     RawMetadataEntry,
+    RawMetadataLayers,
+    RawMetadataQuery,
 } from "./types.js";
 import type {
     Claimant,
@@ -246,6 +248,92 @@ export interface NftsChain {
                     queries: Array<{ credit: string; collection: number }>,
                     options: ReadAt,
                 ): Promise<RuntimeResult<RawMintOutcome[]>>;
+            };
+        };
+    };
+    raw: {
+        assetHub: BlockSource;
+    };
+}
+
+/**
+ * The two entries a display read of minted instances needs, beside the raw
+ * client it pins a block with.
+ *
+ * Separate from {@link NftsChain} for the same reason {@link NftsCreditsChain}
+ * is: a read should never ask for a surface it does not touch. An app that
+ * prunes its descriptors to the catalogue entries can keep calling the
+ * catalogue reads; only `getInstanceDisplays` demands the runtime API.
+ *
+ * This is the second runtime API in the package, and the bar it had to clear
+ * is written on the first (`preview_mints`, in the index doc): no storage
+ * equivalent. Storage *can* answer an instance's metadata, but not reasonably.
+ * `InstanceMetadata` keys on the instance id, while the item and collection
+ * layers key on `(collection, item)` — and the only storage path from an
+ * instance to its item runs through two serial owner-keyed hops,
+ * `Scarcity.Instances` (instance → owner) then `Scarcity.NftsByOwner`
+ * (owner → NFT record), before three metadata reads can even be addressed.
+ * `metadata_batch` is the pallet's own answer: one runtime call takes a batch
+ * of targets and returns, positionally, every metadata pair of all three
+ * layers plus the resolved (collection, item) of each target. One operation
+ * for a whole shelf, against five per instance with two of them serial.
+ *
+ * The call refuses an oversized batch outright — `TooLarge`, carrying the cap
+ * it would have accepted — rather than truncating. On live
+ * `next-asset-hub-paseo` the cap is 128 queries; the read chunks below it and
+ * takes the runtime's word when a deployment configures less.
+ *
+ * `ItemDefs` is the second entry, and it is read always rather than behind an
+ * option because its cost is bounded by the question asked. Whether an
+ * instance is soulbound, and how many of its item exist, live on the item
+ * definition rather than in metadata, so `metadata_batch` cannot answer them.
+ * The keys are the `(collection, item)` pairs `metadata_batch` just resolved,
+ * deduplicated — every instance of one definition shares a key — so this costs
+ * one serial hop and bytes under its own input. A different trade from
+ * `attributes` on a catalogue page, whose prefix scan costs bytes proportional
+ * to the whole collection and so is opt-in there.
+ *
+ * Matched by hand on 2026-10-01 against the same pinned descriptors as
+ * {@link NftsChain}:
+ *
+ * ```
+ * ScarcityApi.metadata_batch(queries) -> Result<Vec<{ resolved?, collection, item, instance }>, TooLarge { max }>
+ * Scarcity.ItemDefs   map (u32, u32)  -> { supply, live_supply, transferability }
+ * ```
+ */
+export interface NftsInstancesChain {
+    assetHub: {
+        query: {
+            Scarcity: {
+                /**
+                 * The definitions behind a set of instances, by exact
+                 * `(collection, item)` key.
+                 *
+                 * The same entry and the same call shape a catalogue page
+                 * uses; only the keys differ, coming from what
+                 * `metadata_batch` resolved rather than from an index window.
+                 */
+                ItemDefs: {
+                    getValues(
+                        keys: Array<[number, number]>,
+                        options: ReadAt,
+                    ): Promise<Array<RawItemDef | undefined>>;
+                };
+            };
+        };
+        apis: {
+            ScarcityApi: {
+                /**
+                 * All metadata of a batch of targets, answered positionally:
+                 * `out[i]` answers `queries[i]`, and a target that does not
+                 * exist answers with no `resolved` rather than an error.
+                 */
+                metadata_batch(
+                    queries: RawMetadataQuery[],
+                    options: ReadAt,
+                ): Promise<
+                    RuntimeResult<RawMetadataLayers[], { type: "TooLarge"; value: { max: number } }>
+                >;
             };
         };
     };
