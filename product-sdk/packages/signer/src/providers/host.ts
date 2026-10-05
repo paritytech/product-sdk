@@ -1023,9 +1023,9 @@ const MAX_DESCRIBED_BYTES = 64;
  * A value as it reads in an error message: a primitive via `String`, an object as
  * JSON with bigints as decimal strings, byte arrays as hex (the first
  * {@link MAX_DESCRIBED_BYTES}, then the length) and a nested `Error` as its name,
- * message and cause, whose properties `JSON.stringify` would otherwise drop. An
- * object met twice prints as "[seen]", which also cuts cycles; output past
- * {@link MAX_DESCRIBED_CHARS} is elided.
+ * message, own fields (an RPC error's `code` or `data`) and cause. An object met
+ * a second time prints as "[repeated]", whether it is shared or a cycle, which
+ * keeps the walk linear; output past {@link MAX_DESCRIBED_CHARS} is elided.
  */
 function describeValue(value: unknown): string {
     if (value === null || typeof value !== "object") return String(value);
@@ -1040,22 +1040,29 @@ function describeValue(value: unknown): string {
                 );
                 return `0x${shown.join("")}${v.length > MAX_DESCRIBED_BYTES ? `…(${v.length} B)` : ""}`;
             }
-            if (v !== null && typeof v === "object") {
-                if (seen.has(v)) return "[seen]";
-                seen.add(v);
-            }
-            if (v instanceof Error) {
-                return v.cause === undefined
-                    ? { name: v.name, message: v.message }
-                    : { name: v.name, message: v.message, cause: v.cause };
-            }
-            return v;
+            if (v === null || typeof v !== "object") return v;
+            if (seen.has(v)) return "[repeated]";
+            seen.add(v);
+            return v instanceof Error ? errorFields(v) : v;
         });
     } catch {
         return String(value);
     }
     if (json === undefined) return String(value);
     return json.length > MAX_DESCRIBED_CHARS ? `${json.slice(0, MAX_DESCRIBED_CHARS)}…` : json;
+}
+
+/**
+ * An `Error` as {@link describeValue} serializes it: name and message, its own
+ * enumerable fields, then cause. `JSON.stringify` alone keeps only the own
+ * enumerable fields, since `message` and `cause` are not enumerable and `name`
+ * is usually inherited.
+ */
+function errorFields(error: Error): Record<string, unknown> {
+    const fields: Record<string, unknown> = { name: error.name, message: error.message };
+    Object.assign(fields, error);
+    if (error.cause !== undefined) fields.cause = error.cause;
+    return fields;
 }
 
 if (import.meta.vitest) {
@@ -2253,7 +2260,14 @@ if (import.meta.vitest) {
             const payload: Record<string, unknown> = { n: 1n, b: new Uint8Array([1, 2]) };
             payload.self = payload;
             expect(formatError({ tag: "v1", value: payload })).toBe(
-                'v1 ({"n":"1","b":"0x0102","self":"[seen]"})',
+                'v1 ({"n":"1","b":"0x0102","self":"[repeated]"})',
+            );
+        });
+
+        test("prints a shared object once, then as repeated", () => {
+            const shared = { k: 1 };
+            expect(formatError({ tag: "v1", value: { a: shared, b: shared } })).toBe(
+                'v1 ({"a":{"k":1},"b":"[repeated]"})',
             );
         });
 
@@ -2275,6 +2289,17 @@ if (import.meta.vitest) {
             };
             expect(formatError({ tag: "v1", value: payload })).toBe(
                 'v1 ({"stage":"derive","cause":{"name":"Error","message":"no root key","cause":{"code":3}}})',
+            );
+        });
+
+        test("keeps the own fields of an Error nested in a payload, ahead of its cause", () => {
+            // Cause last: a long one would otherwise push `code` past the cut.
+            const rpcError = Object.assign(new Error("rate limited", { cause: { retry: true } }), {
+                code: -32005,
+                data: { retryAfter: 2 },
+            });
+            expect(formatError({ tag: "v1", value: { error: rpcError } })).toBe(
+                'v1 ({"error":{"name":"Error","message":"rate limited","code":-32005,"data":{"retryAfter":2},"cause":{"retry":true}}})',
             );
         });
     });
