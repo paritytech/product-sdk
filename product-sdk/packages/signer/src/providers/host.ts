@@ -980,7 +980,7 @@ function formatError(error: unknown): string {
     if (!("tag" in e)) {
         if (typeof e.reason === "string") return e.reason;
         if (typeof e.message === "string") return e.message;
-        return String(error);
+        return describeValue(error);
     }
 
     const outerTag = String(e.tag);
@@ -1000,13 +1000,69 @@ function formatError(error: unknown): string {
         if ("tag" in innerObj) {
             return `${outerTag} → ${formatError(inner)}`;
         }
+        // Inner is a GenericError-shaped payload, e.g. `Unknown: { reason }`.
+        if (typeof innerObj.reason === "string") {
+            return `${outerTag} → ${innerObj.reason}`;
+        }
     }
 
-    // Inner is a primitive or absent — fall back to the outer tag alone.
+    // Inner is any other value: show it, serialized when it is an object, so a
+    // payload does not collapse to "[object Object]".
     if (inner !== undefined) {
-        return `${outerTag} (${String(inner)})`;
+        return `${outerTag} (${describeValue(inner)})`;
     }
     return outerTag;
+}
+
+/** Longest serialized payload {@link describeValue} returns before eliding the rest. */
+const MAX_DESCRIBED_CHARS = 500;
+/** Bytes of a byte array {@link describeValue} shows before giving only its length. */
+const MAX_DESCRIBED_BYTES = 64;
+
+/**
+ * A value as it reads in an error message: a primitive via `String`, an object as
+ * JSON with bigints as decimal strings, byte arrays as hex (the first
+ * {@link MAX_DESCRIBED_BYTES}, then the length) and a nested `Error` as its name,
+ * message, own fields (an RPC error's `code` or `data`) and cause. An object met
+ * a second time prints as "[repeated]", whether it is shared or a cycle, which
+ * keeps the walk linear; output past {@link MAX_DESCRIBED_CHARS} is elided.
+ */
+function describeValue(value: unknown): string {
+    if (value === null || typeof value !== "object") return String(value);
+    const seen = new WeakSet<object>();
+    let json: string | undefined;
+    try {
+        json = JSON.stringify(value, (_key, v: unknown) => {
+            if (typeof v === "bigint") return v.toString();
+            if (v instanceof Uint8Array) {
+                const shown = Array.from(v.subarray(0, MAX_DESCRIBED_BYTES), (b) =>
+                    b.toString(16).padStart(2, "0"),
+                );
+                return `0x${shown.join("")}${v.length > MAX_DESCRIBED_BYTES ? `…(${v.length} B)` : ""}`;
+            }
+            if (v === null || typeof v !== "object") return v;
+            if (seen.has(v)) return "[repeated]";
+            seen.add(v);
+            return v instanceof Error ? errorFields(v) : v;
+        });
+    } catch {
+        return String(value);
+    }
+    if (json === undefined) return String(value);
+    return json.length > MAX_DESCRIBED_CHARS ? `${json.slice(0, MAX_DESCRIBED_CHARS)}…` : json;
+}
+
+/**
+ * An `Error` as {@link describeValue} serializes it: name and message, its own
+ * enumerable fields, then cause. `JSON.stringify` alone keeps only the own
+ * enumerable fields, since `message` and `cause` are not enumerable and `name`
+ * is usually inherited.
+ */
+function errorFields(error: Error): Record<string, unknown> {
+    const fields: Record<string, unknown> = { name: error.name, message: error.message };
+    Object.assign(fields, error);
+    if (error.cause !== undefined) fields.cause = error.cause;
+    return fields;
 }
 
 if (import.meta.vitest) {
@@ -2176,6 +2232,75 @@ if (import.meta.vitest) {
 
         test("formats a primitive inner value alongside the tag", () => {
             expect(formatError({ tag: "v1", value: "code-42" })).toBe("v1 (code-42)");
+        });
+
+        test("serializes an object payload instead of printing [object Object]", () => {
+            // The nesting of a product-account rejection that logged as
+            // "Domain → V1 → Unknown ([object Object])"; the payload itself is illustrative.
+            const wrapped = {
+                tag: "Domain",
+                value: { tag: "V1", value: { tag: "Unknown", value: { code: 7, detail: "x" } } },
+            };
+            expect(formatError(wrapped)).toBe('Domain → V1 → Unknown ({"code":7,"detail":"x"})');
+        });
+
+        test("surfaces a reason payload under a tag", () => {
+            const wrapped = {
+                tag: "V1",
+                value: { tag: "Unknown", value: { reason: "no account" } },
+            };
+            expect(formatError(wrapped)).toBe("V1 → Unknown → no account");
+        });
+
+        test("serializes a tagless object without reason or message", () => {
+            expect(formatError({ code: 3 })).toBe('{"code":3}');
+        });
+
+        test("renders bigints and bytes in a payload, and cuts cycles", () => {
+            const payload: Record<string, unknown> = { n: 1n, b: new Uint8Array([1, 2]) };
+            payload.self = payload;
+            expect(formatError({ tag: "v1", value: payload })).toBe(
+                'v1 ({"n":"1","b":"0x0102","self":"[repeated]"})',
+            );
+        });
+
+        test("prints a shared object once, then as repeated", () => {
+            const shared = { k: 1 };
+            expect(formatError({ tag: "v1", value: { a: shared, b: shared } })).toBe(
+                'v1 ({"a":{"k":1},"b":"[repeated]"})',
+            );
+        });
+
+        test("elides a long payload", () => {
+            const out = formatError({ tag: "v1", value: { s: "a".repeat(2000) } });
+            expect(out).toBe(`v1 ({"s":"${"a".repeat(494)}…)`);
+        });
+
+        test("shows only the head of a long byte array, so later fields survive", () => {
+            const bytes = new Uint8Array(1000).fill(0xab);
+            const out = formatError({ tag: "v1", value: { blob: bytes, reason_code: 9 } });
+            expect(out).toBe(`v1 ({"blob":"0x${"ab".repeat(64)}…(1000 B)","reason_code":9})`);
+        });
+
+        test("keeps the message of an Error nested in a payload", () => {
+            const payload = {
+                stage: "derive",
+                cause: new Error("no root key", { cause: { code: 3 } }),
+            };
+            expect(formatError({ tag: "v1", value: payload })).toBe(
+                'v1 ({"stage":"derive","cause":{"name":"Error","message":"no root key","cause":{"code":3}}})',
+            );
+        });
+
+        test("keeps the own fields of an Error nested in a payload, ahead of its cause", () => {
+            // Cause last: a long one would otherwise push `code` past the cut.
+            const rpcError = Object.assign(new Error("rate limited", { cause: { retry: true } }), {
+                code: -32005,
+                data: { retryAfter: 2 },
+            });
+            expect(formatError({ tag: "v1", value: { error: rpcError } })).toBe(
+                'v1 ({"error":{"name":"Error","message":"rate limited","code":-32005,"data":{"retryAfter":2},"cause":{"retry":true}}})',
+            );
         });
     });
 
