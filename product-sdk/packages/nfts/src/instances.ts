@@ -160,10 +160,10 @@ export async function getInstanceDisplay(
  *
  * Chunks go out in parallel: each is one runtime operation, and a shelf's
  * worth of instances is a few of them. A `TooLarge` refusal naming a cap below
- * the one used re-runs the whole batch at the runtime's number, once — the
- * second attempt is at the cap the runtime itself reported, so a second
- * refusal is the runtime disagreeing with itself and surfaces as the error it
- * is.
+ * the one used re-chunks only the instances that refusal covered, at the
+ * runtime's number, once — the chunks that already answered are kept, and the
+ * second attempt is at the cap the runtime itself reported, so a second refusal
+ * is the runtime disagreeing with itself and surfaces as the error it is.
  */
 async function readBatched(
     chain: NftsInstancesChain,
@@ -186,11 +186,15 @@ async function readBatched(
     );
     const answers: RawMetadataLayers[] = [];
     for (const [index, result] of results.entries()) {
+        const chunk = chunks[index] ?? [];
         if (!result.success) {
             const refusal = result.value;
             const max = refusal.value?.max;
             if (!retried && typeof max === "number" && max > 0 && max < limit) {
-                return readBatched(chain, instances, at, max, true);
+                // Re-chunk only this refused chunk at the runtime's cap; the
+                // chunks that answered keep their results.
+                answers.push(...(await readBatched(chain, chunk, at, max, true)));
+                continue;
             }
             // The variant and the numbers are runtime-reported, not
             // author-supplied, so naming them is safe and the difference
@@ -198,10 +202,10 @@ async function readBatched(
             const reported = typeof max === "number" ? max : "unreported";
             const after = retried ? " after already re-chunking to the cap it reported" : "";
             throw new ProductNftsError(
-                `metadata_batch refused a chunk of ${chunks[index]?.length ?? 0} as too large (${refusal.type}, runtime max ${reported})${after}`,
+                `metadata_batch refused a chunk of ${chunk.length} as too large (${refusal.type}, runtime max ${reported})${after}`,
             );
         }
-        if (result.value.length !== chunks[index]?.length) {
+        if (result.value.length !== chunk.length) {
             throw new NftsDecodeError("metadata_batch answered a different number of queries");
         }
         answers.push(...result.value);
@@ -744,7 +748,7 @@ if (import.meta.vitest) {
         test("a second TooLarge refusal is an error, not another re-run", async () => {
             // The retry already runs at the cap the runtime itself reported, so
             // a runtime whose cap keeps shrinking is disagreeing with itself —
-            // re-chunking again would silently re-ask everything per shrink.
+            // re-chunking again would silently re-ask a chunk per shrink.
             let cap = 4;
             const { chain, batches } = fakeChain(() => {
                 const refusal = {

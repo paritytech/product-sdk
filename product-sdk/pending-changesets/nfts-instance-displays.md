@@ -47,4 +47,8 @@ widened from `number` to `number | bigint`. The constructor shape is unchanged
 variant this package does not know with an `NftsDecodeError`, instead of
 passing the unknown string through a field typed as the `Transferability`
 union. It is the same refusal `getInstanceDisplays` makes, through the one
-shared decoder.
+shared decoder. This is a behavior change for consumers: the two variants the
+runtime has today still read as before, but a future third variant now fails
+the read on the `err` channel where it previously reached callers as an
+untyped string, so a consumer wanting to tolerate an unknown variant must
+handle the `NftsDecodeError`.
