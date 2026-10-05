@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * RFC-0022 product-account public-key derivation, matching
- * `host_logic/product_account.rs` in host-rust-core.
+ * `host_logic/product_account.rs` in trinity-user-agents.
  *
  * A product account sits at `//product//{productId}/{derivationIndex}`. The two
  * `//product//{productId}` junctions are hard, which is the security boundary
