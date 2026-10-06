@@ -281,7 +281,18 @@ export interface CollectionItem {
     liveSupply: number;
     /** Whether a minted instance can be sent on. A `Soulbound` one stays with its first owner. */
     transferability: Transferability;
-    /** The `name` metadata of the item, or `null` when neither it nor its collection sets one. */
+    /**
+     * The `name` metadata of the item, or `null` when neither it nor its
+     * collection sets one.
+     *
+     * **Inherits the collection's `name` when the item sets none**, which
+     * conflates the item's name with the name of the collection itself — a
+     * catalogue whose items are titled by another key reports every item under
+     * the collection's name. {@link InstanceDisplay.name} separates the two
+     * (see the note there) and is the shape this field should grow into; until
+     * then, a join across the two reads will see `item.name` set where
+     * `display.name` is `null` for the same item, by design.
+     */
     name: string | null;
     /**
      * The `image` metadata of the item, or `null` when neither it nor its collection
@@ -376,6 +387,115 @@ export type CollectionItemsResult =
       }
     | { tag: "NotFound"; at: FinalizedSnapshot; id: number };
 
+/**
+ * The display metadata of one minted NFT, or a clean miss.
+ *
+ * An instance nobody minted, or one already burned, is not a failure: the
+ * runtime was asked and answered that there is nothing under that id, and the
+ * answer travels inside the `ok` payload. The signal is `metadata_batch`
+ * declining to resolve the query, not an empty bag — a freshly claim-minted
+ * instance carries no metadata at all on the live chain, and it is still
+ * `Found`. That distinction is the reason this is a tagged shape rather than a
+ * bag that is empty two different ways.
+ */
+export type InstanceDisplay =
+    | {
+          tag: "Found";
+          /** The instance id asked about. */
+          instance: bigint;
+          /** The collection the instance was minted from, as the runtime resolved it. */
+          collection: number;
+          /** The item definition the instance was minted from, within its collection. */
+          item: number;
+          /**
+           * Whether this instance can be sent on, from its item definition.
+           *
+           * A `Soulbound` one stays with its first owner, so a UI offering to
+           * send it is offering a transaction the runtime will reject. Read
+           * always rather than behind an option, unlike
+           * {@link CollectionItem.attributes}: the key is the
+           * `(collection, item)` the instance already resolved to, so it costs
+           * one serial hop and no bytes beyond the instances asked about.
+           *
+           * `null` means the item definition is **gone** from the chain while
+           * the instance survives — a real state, not "not fetched". The three
+           * definition-backed fields are `null` together.
+           */
+          transferability: Transferability | null;
+          /** Instances the definition may ever mint, or `null` when it is gone. */
+          supply: number | null;
+          /** Instances currently alive, which is `supply` less those burned, or `null`. */
+          liveSupply: number | null;
+          /**
+           * The instance's own `name` metadata — its instance layer, else its
+           * item layer — or `null` when neither sets one.
+           *
+           * **Deliberately does not inherit the collection's `name`**, which
+           * is reported separately as {@link InstanceDisplay.collectionName}.
+           * Inheritance is right for `image` and `rarity`, where the
+           * collection sets a default for its items, and wrong for `name`,
+           * where the collection layer holds the name of a *different thing*:
+           * the collection itself. A deployment can and does set a collection
+           * `name` while titling items by `archetype`, and a merged `name`
+           * reports "Hearth" for an item called "Greek Coffee".
+           *
+           * So the common title expression is explicit about which it wants:
+           *
+           * ```ts
+           * const title = display.name ?? display.collectionName ?? "Untitled";
+           * ```
+           *
+           * Note this differs from {@link CollectionItem.name}, which merges
+           * the two. That read shipped first and conflates them; this one is
+           * the shape both should have.
+           */
+          name: string | null;
+          /**
+           * The `name` metadata of the collection this instance belongs to, or
+           * `null` when the collection sets none.
+           *
+           * The collection's own name, never the item's. See
+           * {@link InstanceDisplay.name} for why the two are separate.
+           */
+          collectionName: string | null;
+          /** The `image` metadata, read both ways, or `null`. See {@link CollectionItem.imageRef}. */
+          imageRef: ImageRef | null;
+          /** The `rarity` metadata, most specific layer winning, or `null` when unset. */
+          rarity: string | null;
+          /**
+           * Every metadata key across all three layers, the most specific layer
+           * winning per key: instance over item over collection, mirroring the
+           * pallet's own `instance_metadata_of`.
+           *
+           * Always present, unlike {@link CollectionItem.attributes}, and empty
+           * when the instance genuinely carries no metadata. The asymmetry is
+           * honest: a catalogue page pays a prefix scan for the open bag, so it
+           * is opt-in there, while `metadata_batch` returns whole layers whether
+           * or not anyone wants them, so withholding them here would save
+           * nothing.
+           *
+           * The schema is open and the values are decoded text-or-hex; the notes
+           * on {@link CollectionItem.attributes} apply unchanged. Deployment
+           * conventions beyond `name`, `image` and `rarity` — an identity
+           * `hash`, a `manifest` CID — live in this bag for the caller to lift.
+           */
+          attributes: Record<string, string>;
+      }
+    | { tag: "NotFound"; instance: bigint };
+
+/** What one `getInstanceDisplays` call returns. */
+export interface InstanceDisplaysResult {
+    at: FinalizedSnapshot;
+    /** One per instance asked for, in the order asked. */
+    displays: InstanceDisplay[];
+}
+
+/** What one `getInstanceDisplay` call returns. */
+export interface InstanceDisplayResult {
+    at: FinalizedSnapshot;
+    display: InstanceDisplay;
+}
+
 /** `Scarcity.Collections`, narrowed to the fields these reads use. */
 export interface RawCollection {
     owner: string;
@@ -420,4 +540,49 @@ export type RawBytes = Uint8Array | { asBytes(): Uint8Array };
 /** `Scarcity.CollectionMetadata` / `ItemMetadata` / `InstanceMetadata`. */
 export interface RawMetadataEntry {
     value: RawBytes;
+}
+
+/**
+ * One `ScarcityApi.metadata_batch` query: a minted instance, an item
+ * definition, or a bare collection.
+ *
+ * `getInstanceDisplays` only ever sends `Instance` queries; the other two
+ * variants are typed because the runtime takes them, so a future read of
+ * pre-mint metadata composes on the same entry rather than growing a second
+ * contract.
+ */
+export type RawMetadataQuery =
+    | { type: "Instance"; value: bigint }
+    | { type: "Item"; value: { collection: number; item: number } }
+    | { type: "Collection"; value: number };
+
+/**
+ * What `metadata_batch` resolved one query to, when its target exists.
+ *
+ * For an `Instance` query this is where the instance → (collection, item)
+ * mapping comes back: the runtime walks it to assemble the layers anyway, so
+ * the caller is told rather than left to re-derive it from owner-keyed storage.
+ */
+export type RawMetadataTarget =
+    | { type: "Instance"; value: { instance: bigint; collection: number; item: number } }
+    | { type: "Item"; value: { collection: number; item: number } }
+    | { type: "Collection"; value: number };
+
+/**
+ * One `metadata_batch` answer, positionally matched to its query.
+ *
+ * `resolved` is absent exactly when the target does not exist at the block
+ * asked: the runtime cannot name the collection and item of an instance nobody
+ * minted. The layers of a missing target are empty, but empty layers alone do
+ * not mean missing — a claim-minted instance has a `resolved` and no metadata.
+ *
+ * Each layer is `[key, value]` byte pairs. For an `Instance` query all three
+ * layers arrive; for an `Item` query the `instance` layer is empty, and for a
+ * `Collection` query the `item` layer is too.
+ */
+export interface RawMetadataLayers {
+    resolved?: RawMetadataTarget | undefined;
+    collection: RawBytes[][];
+    item: RawBytes[][];
+    instance: RawBytes[][];
 }
