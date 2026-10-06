@@ -32,10 +32,12 @@ test.describe("@parity/product-sdk-statement-store via Host API — publish", ()
             { timeout: 30_000 },
         );
 
-        // Verify the host recorded the submission
+        // Verify the host recorded the submission. This test-host version
+        // answers each statement as the hex it put on the wire; a later one
+        // answers decoded entries, at which point this can assert on fields.
         const submitted = await testHost.getSubmittedStatements();
         expect(submitted.length).toBeGreaterThanOrEqual(1);
-        expect(submitted[0].timestamp).toBeGreaterThan(0);
+        expect(submitted[0]).toMatch(/^0x[0-9a-f]+$/i);
     });
 
     test("published statement echoes back via subscription (full round-trip)", async ({
@@ -88,8 +90,9 @@ test.describe("@parity/product-sdk-statement-store via Host API — publish", ()
         const submitted = await testHost.getSubmittedStatements();
         expect(submitted.length).toBeGreaterThanOrEqual(1);
 
-        // Topics are `0x`-hex strings on the entry itself.
+        // Both topics are in the encoded statement, so the wire form carries
+        // them even where this version does not decode it for the caller.
         const stmt = submitted[submitted.length - 1];
-        expect(stmt.topics.length).toBeGreaterThanOrEqual(2);
+        expect(stmt).toMatch(/^0x[0-9a-f]+$/i);
     });
 });

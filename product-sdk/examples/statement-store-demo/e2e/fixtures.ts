@@ -17,19 +17,19 @@ export const test = base.extend<{ testHost: TestHost }>(
         productUrl: PRODUCT_URL,
         productId: "statement-store-demo.dot",
         accounts: ["alice", "bob", "charlie", "dave"],
-        // The statement store flows over the people chain, so proxy to the
-        // real one. Genesis is declared because the product checks it.
-        mock: {
-            chainProxies: [
-                { rpcUrl: "wss://paseo-people-next-system-rpc.polkadot.io" },
-            ],
-        },
-        runtimeConfig: {
-            people: {
+        // The statement store flows over the people chain. Declared through
+        // `networks` with a `-people` id so the host knows the chain's role:
+        // that is what lets it serve the store in-page rather than refusing
+        // what a real one would.
+        networks: [
+            {
+                id: "paseo-people",
+                name: "Paseo People",
                 genesisHash:
                     "0x4a2b5b737de1da59e209b0000a876ec2fa20035dc34fd292a848da32d255ad48",
+                rpcUrl: "wss://paseo-people-next-system-rpc.polkadot.io",
             },
-        },
+        ],
     }),
 );
 export { expect } from "@playwright/test";
