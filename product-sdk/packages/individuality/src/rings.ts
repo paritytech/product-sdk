@@ -357,6 +357,7 @@ if (import.meta.vitest) {
                         onPin?.();
                         return Promise.resolve(BLOCK);
                     },
+                    getBestBlocks: () => Promise.resolve([BLOCK]),
                 },
             },
             individuality: {

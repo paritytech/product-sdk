@@ -12,7 +12,7 @@
  * @module
  */
 
-import type { HostPushNotificationRequest, NotificationId, TrUApiClient } from "@parity/truapi";
+import type { HostPushNotificationRequest, TrUApiClient } from "@parity/truapi";
 
 import { getClient } from "./transport.js";
 import { unwrapHostResult } from "./truapi.js";
@@ -31,9 +31,11 @@ export type { HostPushNotificationError as PushNotificationError } from "@parity
 
 /**
  * Host-assigned id for a scheduled notification — pass to
- * {@link NotificationManager.cancel}. Re-exported from `@parity/truapi`.
+ * {@link NotificationManager.cancel}. truapi 0.23 dropped the `NotificationId`
+ * alias and uses the underlying `number` inline; kept here as a named alias so
+ * this package's public surface is unchanged.
  */
-export type { NotificationId };
+export type NotificationId = number;
 
 /**
  * Push payload: `text`, an optional `deeplink`, and an optional `scheduledAt`

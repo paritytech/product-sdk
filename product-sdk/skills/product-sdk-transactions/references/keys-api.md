@@ -149,7 +149,7 @@ function seedToAccount(
 
 ## deriveProductAccountPublicKey
 
-RFC-0022 product-account public-key derivation, matching `host_logic/product_account.rs` in host-rust-core and both mobile hosts.
+RFC-0022 product-account public-key derivation, matching `host_logic/product_account.rs` in trinity-user-agents and both mobile hosts.
 
 ```ts
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";

@@ -14,8 +14,6 @@
  */
 
 import type {
-    Balance,
-    CoinPaymentPurseId,
     HexString,
     HostPaymentBalanceSubscribeItem,
     HostPaymentStatusSubscribeItem,
@@ -38,14 +36,10 @@ import type { HostSubscription } from "./types.js";
 export interface PaymentManager {
     subscribeBalance(
         callback: (balance: HostPaymentBalanceSubscribeItem) => void,
-        purse?: CoinPaymentPurseId,
+        purse?: number,
     ): HostSubscription;
-    topUp(amount: Balance, source: PaymentTopUpSource, into?: CoinPaymentPurseId): Promise<void>;
-    requestPayment(
-        amount: Balance,
-        destination: HexString,
-        from?: CoinPaymentPurseId,
-    ): Promise<{ id: string }>;
+    topUp(amount: bigint, source: PaymentTopUpSource, into?: number): Promise<void>;
+    requestPayment(amount: bigint, destination: HexString, from?: number): Promise<{ id: string }>;
     subscribePaymentStatus(
         paymentId: string,
         callback: (status: HostPaymentStatusSubscribeItem) => void,

@@ -14,7 +14,7 @@ export {
     sessionRootPublicKey,
     INCOMPLETE_SESSION_MESSAGE,
 } from "./signer.js";
-export type { ProductAccountRef } from "./signer.js";
+export type { ProductAccountRef, SessionSignerOptions } from "./signer.js";
 // Exported so a consumer can warm the cache before going offline.
 export { getProductSubtreePublicKey } from "./subtree-cache.js";
 export type { ProductSubtreeOptions } from "./subtree-cache.js";
@@ -56,6 +56,12 @@ export type {
 
 // Session helpers
 export { waitForSessions } from "./sessions.js";
+
+// Entropy derivation (RFC-0007). Client-side product-entropy derivation from a
+// paired session, at parity with `@parity/product-sdk-host`'s `deriveEntropy`
+// (same bytes for the same wallet + product + key) but computed locally — no
+// host round-trip — since the session already carries `rootEntropySource`.
+export { deriveEntropy } from "./entropy.js";
 
 // QR Encoding
 export { renderQrCode } from "./qr-encode.js";

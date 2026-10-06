@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-renderer",
-    "version": "0.2.0",
-    "description": "Build and validate renderer trees for Polkadot product surfaces — Pocket card faces and rendered chat bodies",
+    "version": "0.4.0",
+    "description": "Check a renderer tree against the Polkadot product renderer protocol, and the protocol's vocabulary as data",
     "type": "module",
     "sideEffects": false,
     "main": "./dist/index.js",

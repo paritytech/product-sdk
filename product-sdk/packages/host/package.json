@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-host",
-    "version": "0.22.0",
+    "version": "0.24.0",
     "description": "Host container detection and storage access for Polkadot Desktop and Mobile environments",
     "type": "module",
     "sideEffects": false,
@@ -30,9 +30,9 @@
         "@parity/result": "workspace:*",
         "@parity/truapi": "catalog:",
         "@polkadot-api/json-rpc-provider": "catalog:",
-        "@polkadot-api/substrate-bindings": "catalog:",
         "neverthrow": "^8.2.0",
-        "polkadot-api": "catalog:"
+        "polkadot-api": "catalog:",
+        "@novasamatech/host-api-wrapper": "0.9.2"
     },
     "devDependencies": {
         "tsup": "catalog:",

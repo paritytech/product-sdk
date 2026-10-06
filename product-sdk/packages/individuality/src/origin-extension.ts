@@ -39,6 +39,16 @@ export const RESTRICT_ORIGINS_ENABLED = true;
 /** `Disabled`: no signature slot, so the origin stays `None`. */
 export const VERIFY_SIGNATURE_DISABLED = { type: "Disabled", value: undefined };
 
+/**
+ * The extensions a fee estimate passes to PAPI. PAPI cannot fill
+ * `VerifyMultiSignature`, which the host fills with the account signature when it
+ * signs, so the estimate signs the extrinsic the classic way with the extension
+ * `Disabled`. The length differs by a few bytes at most.
+ */
+export const FEE_ESTIMATE_EXTENSIONS = {
+    [VERIFY_SIGNATURE]: { value: VERIFY_SIGNATURE_DISABLED },
+};
+
 /** Metadata identifier of the nonce extension. */
 export const CHECK_NONCE = "CheckNonce";
 

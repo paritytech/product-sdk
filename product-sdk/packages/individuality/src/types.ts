@@ -74,11 +74,21 @@ export type PersonhoodState =
      */
     | { tag: "Suspended" };
 
-/** The finalized block every read in a result was pinned to. */
-export interface FinalizedSnapshot {
+/** A block a read was pinned to. */
+export interface BlockSnapshot {
     blockHash: string;
     blockNumber: number;
 }
+
+/** The block a read pinned itself, which is the latest finalized one unless the caller passed `at`. */
+export type FinalizedSnapshot = BlockSnapshot;
+
+/**
+ * The block a read addresses, as PAPI's `at` does: `"finalized"`, the default,
+ * `"best"`, or a snapshot another read already pinned, so several reads share
+ * one block.
+ */
+export type BlockAt = "finalized" | "best" | BlockSnapshot;
 
 /**
  * The absence-grace policy currently in force, decoded from
@@ -104,6 +114,8 @@ export interface PersonhoodParticipant {
     streak: { tag: "Attended" | "Absent"; count: number };
     attendanceHistory: number;
     reachedPersonhood: boolean;
+    /** Stays true once personhood was reached, after the score falls back below the threshold. */
+    hasEverReachedPersonhood: boolean;
     recognition: "ExternallyRecognized" | "NotRecognized" | "Suspended" | "Recognized";
     lastAttendedGame: number | null;
 }
@@ -175,6 +187,8 @@ export type PersonhoodResult =
      * @param alias - the contextual alias from `People.AccountToAlias`, or
      *   `null` when the account has none.
      * @param metrics - the numbers the state was derived from, in every state.
+     * @param participant - the decoded `Score.Participants` record the state was
+     *   derived from, or `null` when the account has none.
      */
     | {
           tag: "Resolved";
@@ -183,4 +197,5 @@ export type PersonhoodResult =
           alias: string | null;
           state: PersonhoodState;
           metrics: PersonhoodMetrics;
+          participant: PersonhoodParticipant | null;
       };

@@ -1,5 +1,30 @@
 # @parity/product-sdk-chain-client
 
+## 0.12.9
+
+### Patch Changes
+
+- Updated dependencies [df6b2c0]
+- Updated dependencies [df6b2c0]
+- Updated dependencies [df6b2c0]
+  - @parity/product-sdk-host@0.24.0
+
+## 0.12.8
+
+### Patch Changes
+
+- 41d7ee8: Correct the `createChainClient` and package-level JSDoc, which said both entry points take or bundle RPC endpoints. Neither does: `ChainClientConfig` accepts only `chains`, and the host resolves each connection from the descriptor's genesis hash. Also list `previewnet` among the live preset environments.
+- Updated dependencies [41d7ee8]
+- Updated dependencies [41d7ee8]
+  - @parity/product-sdk-descriptors@0.13.0
+
+## 0.12.7
+
+### Patch Changes
+
+- Updated dependencies [206f791]
+  - @parity/product-sdk-host@0.23.0
+
 ## 0.12.6
 
 ### Patch Changes

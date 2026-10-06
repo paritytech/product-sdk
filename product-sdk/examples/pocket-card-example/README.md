@@ -20,10 +20,12 @@ It bundles the worker to a single `dist/worker.js`. Then it asserts that bundle 
 
 | File | What it is |
 |---|---|
-| `src/face.ts` | the face, built with `@parity/product-sdk-renderer` |
-| `src/worker.ts` | the worker entry, drawing through `getPocketManager()` |
-| `src/write-faces.ts` | writes and checks the approval sheet faces, and checks the manifest agrees |
-| `src/face.test.ts` | every state of the card draws with no errors and no warnings |
+| `src/face.tsx` | the face, authored in JSX with `@parity/product-sdk-react-renderer` |
+| `src/worker.tsx` | the worker entry, drawing through `getPocketManager()` |
+| `src/render.ts` | mounts a face once and hands back the tree it produced |
+| `src/write-faces.tsx` | writes and checks the approval sheet faces, and checks the manifest agrees |
+| `src/face.test.tsx` | every state of the card draws, and fits android as the text that ships |
+| `src/worker.test.tsx` | the stamps survive the card leaving the screen and coming back |
 | `scripts/check-bundle.mjs` | the bundle is ASCII only |
 | `manifest/worker.json` | what the product publishes so the host knows the card exists |
 
@@ -34,8 +36,9 @@ string literals and identifiers but copies comments through verbatim, and `@pari
 puts three em dashes into this worker. `--legal-comments=none` does not help, because they are ordinary
 comments. `--minify` drops them, and `scripts/check-bundle.mjs` proves the result.
 
-**The cleanup you return is what stops your timer.** The host calls it when the card leaves the screen.
-Without it the timer outlives the card and keeps sending faces into a render nobody is watching.
+**The card's state cannot live in the drawn tree.** `drawPocketCard` mounts a fresh tree every time the
+host puts the card on screen and unmounts it when the card leaves, so a `useState` inside the card resets
+on every tab switch. `src/worker.tsx` holds the stamps at module scope and subscribes the tree to them.
 
 **A face gets large quickly.** Each of these is about 12 KB, and almost all of it is the ten stamp boxes,
 because the vocabulary has no progress bar. The cap is 256 KB on the android host, so ten boxes is fine

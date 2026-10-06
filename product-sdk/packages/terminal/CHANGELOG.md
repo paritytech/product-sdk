@@ -1,5 +1,24 @@
 # @parity/product-sdk-terminal
 
+## 0.11.0
+
+### Minor Changes
+
+- df6b2c0: Host and terminal signer factories accept an optional `txExtVersion`, defaulting to `0`. It names the transaction extension version used to encode the supplied extensions; the host or paired wallet chooses V4 or V5 from it and the runtime metadata. Setting another version forwards it unchanged without re-encoding the extension bytes.
+
+### Patch Changes
+
+- Updated dependencies [df6b2c0]
+  - @parity/product-sdk-signer@0.16.0
+  - @parity/product-sdk-keys@0.4.2
+
+## 0.10.1
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.15.1
+- @parity/product-sdk-keys@0.4.1
+
 ## 0.10.0
 
 ### Minor Changes

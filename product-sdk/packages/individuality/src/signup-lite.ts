@@ -54,6 +54,7 @@ import { bytesToHex } from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
 import type { GameChain } from "./game-read.js";
 import { pinBlock, readAt, type ReadAt } from "./pinned.js";
+import type { BlockAt } from "./types.js";
 import {
     ringCollectionId,
     runScoreContextRead,
@@ -192,6 +193,12 @@ export interface ReadLiteSignUpRequirementOptions {
     now?: number;
     /** Required when the chain publishes no suffix, and wins when it does. */
     tld?: string;
+    /**
+     * The block to read at, as PAPI's `at`: `"finalized"`, the default, `"best"`
+     * to follow a best-block watch without waiting for finality, or a snapshot
+     * another read already pinned.
+     */
+    at?: BlockAt;
     signal?: AbortSignal;
 }
 
@@ -255,7 +262,7 @@ export async function readLiteSignUpRequirement(
             );
         }
 
-        const snapshot = await pinBlock(chain, signal);
+        const snapshot = await pinBlock(chain, signal, options.at);
         const at = readAt(snapshot, signal);
         const query = chain.individuality.query;
 
@@ -615,6 +622,15 @@ if (import.meta.vitest) {
             expect(value.eventIds).toHaveLength(2);
         });
 
+        test("reads at the block it is given", async () => {
+            const { chain } = fakeChain({ binding: BOUND, invited: ACCOUNT });
+            const given = { blockHash: `0x${"bb".repeat(32)}`, blockNumber: 43 };
+            const value = unwrapOk(
+                await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000, at: given }),
+            );
+            expect(value.at).toBe(given);
+        });
+
         test("no invite pin yet is the first sign-up, not a blocker", async () => {
             // `LiteInvites[alias]` is written by the sign-up itself, so its
             // absence is exactly the state a fresh lite person is in.
@@ -890,6 +906,7 @@ if (import.meta.vitest) {
                     streak: { type: "Attended", value: 1 },
                     attendance_history: 1,
                     reached_personhood: true,
+                    has_ever_reached_personhood: true,
                     recognition: { type: "Recognized", value: `0x${"cc".repeat(32)}` },
                     last_attended_game: 6,
                 },

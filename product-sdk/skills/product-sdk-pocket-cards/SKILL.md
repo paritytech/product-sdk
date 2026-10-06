@@ -1,12 +1,13 @@
 ---
 name: product-sdk-pocket-cards
 description: >
-  Build, check and draw a Pocket card face in product-sdk.
-  Use when: adding a card to the Polkadot app's Pocket tab, writing or debugging a RendererNode tree,
-  a card draws blank or is refused, wiring a worker that answers renderer.onRender, or writing the
-  static preview face the approval sheet shows.
-  Covers @parity/product-sdk-renderer (face builders, validateFace, host limits) and
-  @parity/product-sdk-host (getPocketManager, drawing, actions, card list, removal).
+  Author, check and draw a Pocket card face in product-sdk.
+  Use when: adding a card to the Polkadot app's Pocket tab, writing a card face in JSX, turning a
+  component into a RendererNode, a card draws blank or is refused, wiring a worker that draws a live
+  card, or writing the static preview face the approval sheet shows.
+  Covers @parity/product-sdk-react-renderer (JSX components, createRenderer, drawPocketCard),
+  @parity/product-sdk-renderer (validateFace, assertFaceValid, host limits) and
+  @parity/product-sdk-host (getPocketManager, card list, removal).
 ---
 
 # Pocket cards
@@ -16,8 +17,9 @@ in its **worker** manifest and answers the host whenever a card is on screen.
 
 | Package | Import | Purpose |
 |---------|--------|---------|
-| renderer | `@parity/product-sdk-renderer` | build a face, check it before it reaches a device |
-| host | `@parity/product-sdk-host` | draw the card, hear presses, list and remove cards |
+| react-renderer | `@parity/product-sdk-react-renderer` | write the face in JSX, and draw it |
+| renderer | `@parity/product-sdk-renderer` | check it before it reaches a device |
+| host | `@parity/product-sdk-host` | reach the Pocket manager, list and remove cards |
 
 Worked example: `examples/pocket-card-example/`.
 
@@ -45,64 +47,138 @@ Worked example: `examples/pocket-card-example/`.
 **The `id` in the manifest must match the id the worker draws.** Get it wrong and the card silently keeps
 its static preview face, with nothing on the device saying why.
 
-## Build a face
+## Write a face
 
-```ts
-import {
-    background, button, column, fillWidth, padding, rounded, row, text,
-} from "@parity/product-sdk-renderer";
+Faces are authored in JSX. `@parity/product-sdk-renderer` has no builder functions, so anything that calls
+`column(...)` or `text(...)` is written against an API that no longer exists.
 
-// A face is built from state rather than stored, because a card redraws.
-const loyaltyFace = (stamps: number) =>
-    column(
-        [
-            row([text("Loyalty", { style: "TitleMediumRegular", color: "FgPrimary" })], {
-                modifiers: [fillWidth()],
-                horizontalArrangement: "SpaceBetween",
-            }),
-            text(`${stamps} of 10 stamps`, { style: "BodySmallRegular", color: "FgSecondary" }),
-            button("Stamp", { clickAction: "stamp", variant: "Primary" }),
-        ],
-        { modifiers: [fillWidth(), padding(20), background("BgSurfaceContainer", rounded(20))] },
+```tsx
+import { Button, Column, Row, Text } from "@parity/product-sdk-react-renderer";
+
+interface LoyaltyFaceProps {
+    stamps: number;
+    goal: number;
+    onStamp?(): void;
+}
+
+export function LoyaltyFace({ stamps, goal, onStamp }: LoyaltyFaceProps) {
+    return (
+        <Column
+            fillMaxWidth
+            padding={20}
+            background={{ color: "BgSurfaceContainer", shape: { tag: "Rounded", value: 20 } }}
+            verticalArrangement="SpaceBetween"
+        >
+            <Row fillMaxWidth horizontalArrangement="SpaceBetween">
+                <Text style="TitleMediumRegular" color="FgPrimary">Loyalty</Text>
+                <Text style="BodySmallRegular" color="FgSecondary">{`${stamps} of ${goal}`}</Text>
+            </Row>
+            <Button text="Stamp" variant="Primary" onClick={onStamp ?? (() => {})} />
+        </Column>
     );
+}
 ```
 
+The components are `Box`, `Button`, `Column`, `Effect`, `Image`, `Row`, `Spacer`, `Text` and `TextField`.
+Modifiers are plain props on any of them except `Effect`: `padding`, `margin`, `background`, `border`,
+`width`, `height`, `minWidth`, `minHeight`, `fillMaxWidth`, `fillMaxHeight`, `opacity`, `blendingMode`.
+
 The vocabulary is small and closed: 11 node types, 12 modifiers, **9 semantic colour tokens**, 5
-typography presets, one effect. There are no literal colours and no gradients. Images come from a Bulletin
-CID or a path inside your archive, never a URL.
+typography presets, one effect. No literal colours, no gradients. Images come from a Bulletin CID or a
+path inside your archive, never a URL.
+
+**A press is `onClick`, not an action id.** react-renderer mints the id behind `onClick` and routes the
+press back to that handler, so you never name one and never match on one. The same goes for `onValueChange`
+on a `TextField`.
+
+**Gaps in a row: prefer a margin over interleaved `Spacer` nodes, and name all four edges.** Interleaving
+spacers needs a keyed fragment per item, which React warns about, and it doubles the node count. A margin
+is the better shape, but `Dimensions` is a shorthand that fills `bottom` from `top` and `start` from `end`,
+so `margin={{ top: 0, end: 4 }}` is **not** a gap on the end edge alone. `start` defaults to `end`, giving
+4 on both horizontal edges: the space between two neighbours becomes 8, and the first item is indented by
+4. Write every edge you mean:
+
+```tsx
+<Box margin={{ top: 0, end: gapAfterThisOne, bottom: 0, start: 0 }} />
+```
+
+## Turn a face into a tree
+
+A component is not a `RendererNode`. To check one, or to write it to a preview file, mount it once and keep
+the tree it produced. There is no helper for this in the packages, so products write a small one:
+
+```tsx
+import { createRenderer } from "@parity/product-sdk-react-renderer";
+import type { RendererNode } from "@parity/product-sdk-renderer";
+import type { ReactNode } from "react";
+
+export function renderOnce(element: ReactNode): RendererNode {
+    const frames: RendererNode[] = [];
+    const renderer = createRenderer({
+        onRender: (node) => frames.push(node),
+        subscribeActions: () => () => {},
+    });
+
+    renderer.mount(element);
+    const mounted = frames.at(-1);
+    renderer.unmount();
+
+    if (mounted === undefined) throw new Error("the face produced no frame");
+    return mounted;
+}
+```
+
+**Read the last frame before unmounting.** `unmount()` emits a `Nil` face. Read after it and you get an
+empty tree that validates clean and tells you nothing.
+
+`createRenderer` and `drawPocketCard` both take a `validate` checker, which runs over every tree they
+produce and reports what is wrong to the console:
+
+```tsx
+import { validateFace } from "@parity/product-sdk-renderer";
+
+drawPocketCard(pocket, "loyalty", <LoyaltyCard />, { validate: validateFace });
+```
+
+You pass the checker rather than a flag, so a bundle that never asks for one does not carry it. It never
+throws, because this runs inside React's commit where an exception leaves a tree half applied. Treat it as
+a development aid. The real gate is a build step.
 
 ## Check it before it reaches a device
 
-```ts
-import { validateFace, assertFaceValid, androidLimits } from "@parity/product-sdk-renderer";
+```tsx
+import { androidLimits, assertFaceValid, validateFace } from "@parity/product-sdk-renderer";
 
-const face = loyaltyFace(6);
-
-const verdict = validateFace(face);
+const verdict = validateFace(renderOnce(<LoyaltyFace stamps={6} goal={10} />));
 verdict.errors;    // the protocol forbids these, no host can draw them
 verdict.warnings;  // legal, and probably not what you meant
 ```
 
 Each issue carries a `path` such as `.value.children[2].value.props.style`, so it names the place and not
-just the problem.
+just the problem, and a `code` such as `"unknown-enum"`, which is what a test should match on.
 
 `assertFaceValid(face, { host: androidLimits })` throws instead, which is what a build step wants. Name
 the host. Without it a breach of that host's depth, size or byte bounds is only a warning, so a build step
 calling `assertFaceValid(face)` alone will happily ship a face the device then refuses.
+
+Check **every state the card can be in**, not just the one the preview shows. A state that only appears
+after ten stamps is exactly the one nobody checks by hand.
 
 ## The traps
 
 These are the ones that cost real time:
 
 - **`Padding` and `Margin` need `top` and `end`.** They are a shorthand where `bottom` defaults to `top`
-  and `start` to `end`. Omitting `end` is a missing field, not a default. The builder's
-  `padding(vertical, horizontal)` makes this unreachable, so use it rather than writing `Dimensions`.
+  and `start` to `end`. Omitting `end` is a missing field, not a default. In JSX, `padding={20}` covers
+  every edge, so reach for the bare number unless the edges genuinely differ, and name all four when they
+  do.
 - **Sizes are non-negative whole numbers.** `16.5` is refused, not rounded.
 - **Enum names are PascalCase.** `FgPrimary`, `TitleMediumRegular`. A wrong one is refused.
 - **A misspelled prop is ignored, not refused.** `colour` for `color` does nothing at all. `validateFace`
-  warns about it; nothing else will tell you.
-- **A `Text` draws nothing without a `String` child.** The builder's `text()` adds it for you.
-- **A `Button` with no `clickAction` is inert.** It draws and reports nothing when pressed.
+  warns about it, and nothing else will tell you.
+- **A `Text` draws nothing without a `String` child.** In JSX its children become one.
+- **A `Button` with no `clickAction` is inert.** It draws and reports nothing when pressed. In JSX that
+  means a `Button` with no `onClick`.
 - **A `Box` with no children is fine.** It is how you draw a filled rectangle, which is what progress
   marks have to be, since the vocabulary has no progress bar.
 
@@ -122,63 +198,79 @@ particular renderer. Name a host when you are about to ship to it.
 
 ## Draw the card
 
-```ts
+`drawPocketCard` is the whole loop. It registers the card, mounts your tree onto the sink the host opened,
+routes every press back to the `onClick` that asked for it, and unmounts when the card leaves the screen.
+
+```tsx
 import { getPocketManager } from "@parity/product-sdk-host";
+import { drawPocketCard } from "@parity/product-sdk-react-renderer";
+import { useState } from "react";
 
-const pocket = await getPocketManager();   // null outside a host container
+function LoyaltyCard() {
+    const [stamps, setStamps] = useState(0);
 
-let stamps = 0;
+    return (
+        <LoyaltyFace
+            stamps={stamps}
+            goal={10}
+            onStamp={() => setStamps((count) => count + 1)}
+        />
+    );
+}
 
-// Keep the sink the render was opened with. It is the only way to draw again,
-// and an action handler has no other way to change the card.
-let repaint: (() => void) | null = null;
+const pocket = await getPocketManager();  // null outside a host container
 
-pocket?.drawCard("loyalty", (send) => {
-    repaint = () => send(loyaltyFace(stamps));
-    repaint();
-    return () => {
-        repaint = null;                     // the host calls this when the card leaves
-    };
-});
-
-pocket?.subscribeCardAction("loyalty", (action) => {
-    if (action.actionId !== "stamp") return;
-    stamps += 1;
-    repaint?.();                            // nothing changes on screen without this
-});
-
-pocket?.subscribeCards((cards) => console.log(cards.map((card) => card.cardId)));
-await pocket?.removeCard("loyalty");        // rejects on a card the host placed itself
+if (pocket !== null) {
+    drawPocketCard(pocket, "loyalty", <LoyaltyCard />);
+}
 ```
 
-**The render stays open while the card is on screen.** Call `send` as often as you like. That is the whole
-difference between a card and a picture.
+**The card is a component with state.** A press calls `setState` and React streams the next face through
+the sink the host already opened. There is no repaint closure to keep, no action id to match on, and no
+cleanup to remember. That is the whole difference between a card and a picture.
 
-**Return the cleanup.** It is what stops your timer. Without it the timer outlives the card.
+`drawPocketCard` returns a registration with `unsubscribe()`, for giving the card up while the worker keeps
+running. The host tears the tree down on its own when the card leaves the screen, and mounts a fresh one if
+the card comes back.
 
-**`subscribeCardAction` is the only way back from a card.** A face is a one way stream, and a press arrives
-as the `clickAction` id you named in the tree.
+The rest of the Pocket manager is plain host API:
 
-One registration serves every card, so calling `drawCard` twice is safe and the cards do not interfere.
+```ts
+pocket.subscribeCards((cards) => console.log(cards.map((card) => card.cardId)));
+await pocket.removeCard("loyalty");  // rejects on a card the host placed itself
+```
+
+Drawing the same card twice replaces the handler rather than stacking one, and different cards never
+interfere, so one worker can draw as many as its manifest declares.
 
 ## The preview face, and the worker bundle
 
-Generate the preview from the same module the worker renders from, and check it as you write it:
+Generate the preview from the same module the worker renders from, so the approval sheet and the live card
+cannot disagree. Check each face as you write it:
 
-```ts
-const json = `${JSON.stringify(loyaltyFace(6), null, 2)}\n`;
-assertFaceValid(json, { host: androidLimits });   // the text is what the host measures
+```tsx
+const json = `${JSON.stringify(renderOnce(<LoyaltyFace stamps={6} goal={10} />), null, 2)}\n`;
+
+// The host measures the text it reads. Indented JSON is about three times the
+// compact form the tree alone would measure, so check the string, not the tree.
+assertFaceValid(json, { host: androidLimits });
+
 writeFileSync(path, json);
 ```
 
+**Bundle with `--jsx=automatic`.** Faces are JSX, so the entry is a `.tsx` file and esbuild needs to be told
+how to compile it. Without the flag the bundle fails outright.
+
 **Minify the worker bundle.** The host reads worker JS as Latin-1. esbuild keeps string literals and
 identifiers ASCII but copies comments through verbatim, and `@parity/truapi`'s JSDoc alone carries em
-dashes into the output. `--legal-comments=none` does not help. `--minify` does, and it is worth asserting
-the result:
+dashes into the output. `--legal-comments=none` does not help, because they are ordinary comments.
+`--minify` does, and it is worth asserting the result afterwards:
 
 ```bash
-esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --target=es2022 --minify
+esbuild src/worker.tsx --bundle --outfile=dist/worker.js --format=esm --target=es2022 --minify --jsx=automatic
 ```
+
+Keep every string in a face ASCII for the same reason.
 
 ## Trying it on a device
 
