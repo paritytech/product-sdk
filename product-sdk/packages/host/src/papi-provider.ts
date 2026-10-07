@@ -50,6 +50,7 @@ import { createLogger } from "@parity/product-sdk-logger";
 
 import { formatHostError } from "./errors.js";
 import { subscribeWithInterrupt, type TransportSubscription } from "./transport.js";
+import { matchHostResult } from "./truapi.js";
 
 const log = createLogger("host:papi");
 
@@ -337,18 +338,6 @@ export function createHostPapiProvider(
         const hostError = (id: JsonRpcRequest["id"]) => (error: unknown) =>
             sendJsonRpcError(id, JSON_RPC_INTERNAL_ERROR, formatHostError(error));
 
-        /**
-         * Hands a host call that rejects to its error arm.
-         *
-         * truapi rejects a call on a timeout, a closed transport or an abort instead
-         * of resolving it to an `Err`, and a rejection runs neither arm of `.match`.
-         * Left alone, the request is never settled, so papi waits on it for good and
-         * a watch that waits on that query stops emitting.
-         */
-        function onRejection(matched: unknown, err: (error: unknown) => void): void {
-            Promise.resolve(matched).catch(err);
-        }
-
         function handleMessage(message: JsonRpcRequest): void {
             const { id, method } = message;
             // chainHead/chainSpec/transaction JSON-RPC params are positional arrays.
@@ -428,13 +417,10 @@ export function createHostPapiProvider(
                 }
                 case "chainHead_v1_header": {
                     const [followSubscriptionId, hash] = params as [string, HexString];
-                    onRejection(
-                        chain
-                            .getHeadHeader({ genesisHash, followSubscriptionId, hash })
-                            .match(
-                                (response) => sendJsonRpcResponse(id, response.header ?? null),
-                                hostError(id),
-                            ),
+                    matchHostResult(
+                        chain.getHeadHeader({ genesisHash, followSubscriptionId, hash }),
+                        method,
+                        (response) => sendJsonRpcResponse(id, response.header ?? null),
                         hostError(id),
                     );
                     break;
@@ -442,10 +428,10 @@ export function createHostPapiProvider(
                 case "chainHead_v1_body": {
                     const [followSubscriptionId, hash] = params as [string, HexString];
                     const bodyStart = startOperationRequest(id, followSubscriptionId);
-                    onRejection(
-                        chain
-                            .getHeadBody({ genesisHash, followSubscriptionId, hash })
-                            .match(bodyStart.ok, bodyStart.err),
+                    matchHostResult(
+                        chain.getHeadBody({ genesisHash, followSubscriptionId, hash }),
+                        method,
+                        bodyStart.ok,
                         bodyStart.err,
                     );
                     break;
@@ -462,21 +448,21 @@ export function createHostPapiProvider(
                         queryType: convertStorageType(item.type),
                     }));
                     const storageStart = startOperationRequest(id, followSubscriptionId);
-                    onRejection(
-                        chain
-                            .getHeadStorage({
-                                genesisHash,
-                                followSubscriptionId,
-                                hash,
-                                items: queryItems,
-                                // PAPI passes `null` for an absent child trie, but the
-                                // truapi codec encodes the optional `childTrie` field as
-                                // `Option<Hex>` — it treats `undefined` as None yet runs
-                                // the inner Hex codec on `null`, which throws
-                                // (`null.startsWith`). Coerce `null` → `undefined`.
-                                childTrie: childTrie ?? undefined,
-                            })
-                            .match(storageStart.ok, storageStart.err),
+                    matchHostResult(
+                        chain.getHeadStorage({
+                            genesisHash,
+                            followSubscriptionId,
+                            hash,
+                            items: queryItems,
+                            // PAPI passes `null` for an absent child trie, but the
+                            // truapi codec encodes the optional `childTrie` field as
+                            // `Option<Hex>` — it treats `undefined` as None yet runs
+                            // the inner Hex codec on `null`, which throws
+                            // (`null.startsWith`). Coerce `null` → `undefined`.
+                            childTrie: childTrie ?? undefined,
+                        }),
+                        method,
+                        storageStart.ok,
                         storageStart.err,
                     );
                     break;
@@ -489,16 +475,16 @@ export function createHostPapiProvider(
                         HexString,
                     ];
                     const callStart = startOperationRequest(id, followSubscriptionId);
-                    onRejection(
-                        chain
-                            .callHead({
-                                genesisHash,
-                                followSubscriptionId,
-                                hash,
-                                function: fn,
-                                callParameters,
-                            })
-                            .match(callStart.ok, callStart.err),
+                    matchHostResult(
+                        chain.callHead({
+                            genesisHash,
+                            followSubscriptionId,
+                            hash,
+                            function: fn,
+                            callParameters,
+                        }),
+                        method,
+                        callStart.ok,
                         callStart.err,
                     );
                     break;
@@ -509,84 +495,80 @@ export function createHostPapiProvider(
                         HexString | HexString[],
                     ];
                     const hashes = Array.isArray(hashOrHashes) ? hashOrHashes : [hashOrHashes];
-                    onRejection(
-                        chain
-                            .unpinHead({ genesisHash, followSubscriptionId, hashes })
-                            .match(() => sendJsonRpcResponse(id, null), hostError(id)),
+                    matchHostResult(
+                        chain.unpinHead({ genesisHash, followSubscriptionId, hashes }),
+                        method,
+                        () => sendJsonRpcResponse(id, null),
                         hostError(id),
                     );
                     break;
                 }
                 case "chainHead_v1_continue": {
                     const [followSubscriptionId, operationId] = params as [string, string];
-                    onRejection(
-                        chain
-                            .continueHead({ genesisHash, followSubscriptionId, operationId })
-                            .match(() => sendJsonRpcResponse(id, null), hostError(id)),
+                    matchHostResult(
+                        chain.continueHead({ genesisHash, followSubscriptionId, operationId }),
+                        method,
+                        () => sendJsonRpcResponse(id, null),
                         hostError(id),
                     );
                     break;
                 }
                 case "chainHead_v1_stopOperation": {
                     const [followSubscriptionId, operationId] = params as [string, string];
-                    onRejection(
-                        chain
-                            .stopHeadOperation({ genesisHash, followSubscriptionId, operationId })
-                            .match(() => {
-                                followOperations.get(followSubscriptionId)?.delete(operationId);
-                                sendJsonRpcResponse(id, null);
-                            }, hostError(id)),
+                    matchHostResult(
+                        chain.stopHeadOperation({ genesisHash, followSubscriptionId, operationId }),
+                        method,
+                        () => {
+                            followOperations.get(followSubscriptionId)?.delete(operationId);
+                            sendJsonRpcResponse(id, null);
+                        },
                         hostError(id),
                     );
                     break;
                 }
                 case "chainSpec_v1_genesisHash": {
-                    onRejection(
-                        chain
-                            .getSpecGenesisHash({ genesisHash })
-                            .match(
-                                (response) => sendJsonRpcResponse(id, response.genesisHash),
-                                hostError(id),
-                            ),
+                    matchHostResult(
+                        chain.getSpecGenesisHash({ genesisHash }),
+                        method,
+                        (response) => sendJsonRpcResponse(id, response.genesisHash),
                         hostError(id),
                     );
                     break;
                 }
                 case "chainSpec_v1_chainName": {
-                    onRejection(
-                        chain
-                            .getSpecChainName({ genesisHash })
-                            .match(
-                                (response) => sendJsonRpcResponse(id, response.chainName),
-                                hostError(id),
-                            ),
+                    matchHostResult(
+                        chain.getSpecChainName({ genesisHash }),
+                        method,
+                        (response) => sendJsonRpcResponse(id, response.chainName),
                         hostError(id),
                     );
                     break;
                 }
                 case "chainSpec_v1_properties": {
-                    onRejection(
-                        chain.getSpecProperties({ genesisHash }).match((response) => {
+                    matchHostResult(
+                        chain.getSpecProperties({ genesisHash }),
+                        method,
+                        (response) => {
                             try {
                                 sendJsonRpcResponse(id, JSON.parse(response.properties));
                             } catch {
                                 sendJsonRpcResponse(id, response.properties);
                             }
-                        }, hostError(id)),
+                        },
                         hostError(id),
                     );
                     break;
                 }
                 case "transaction_v1_broadcast": {
                     const [transaction] = params as [HexString];
-                    onRejection(
-                        chain
-                            .broadcastTransaction({ genesisHash, transaction })
-                            .match((response) => {
-                                const operationId = response.operationId ?? null;
-                                if (operationId !== null) activeBroadcasts.add(operationId);
-                                sendJsonRpcResponse(id, operationId);
-                            }, hostError(id)),
+                    matchHostResult(
+                        chain.broadcastTransaction({ genesisHash, transaction }),
+                        method,
+                        (response) => {
+                            const operationId = response.operationId ?? null;
+                            if (operationId !== null) activeBroadcasts.add(operationId);
+                            sendJsonRpcResponse(id, operationId);
+                        },
                         hostError(id),
                     );
                     break;
@@ -594,10 +576,10 @@ export function createHostPapiProvider(
                 case "transaction_v1_stop": {
                     const [operationId] = params as [string];
                     activeBroadcasts.delete(operationId);
-                    onRejection(
-                        chain
-                            .stopTransaction({ genesisHash, operationId })
-                            .match(() => sendJsonRpcResponse(id, null), hostError(id)),
+                    matchHostResult(
+                        chain.stopTransaction({ genesisHash, operationId }),
+                        method,
+                        () => sendJsonRpcResponse(id, null),
                         hostError(id),
                     );
                     break;
@@ -638,11 +620,10 @@ export function createHostPapiProvider(
                 pendingOperationStarts.clear();
                 for (const operationId of activeBroadcasts) {
                     // Fire-and-forget: the transport may already be torn down.
-                    onRejection(
-                        chain.stopTransaction({ genesisHash, operationId }).match(
-                            () => {},
-                            () => {},
-                        ),
+                    matchHostResult(
+                        chain.stopTransaction({ genesisHash, operationId }),
+                        "transaction_v1_stop",
+                        () => {},
                         () => {},
                     );
                 }
@@ -1107,7 +1088,7 @@ if (import.meta.vitest) {
         });
     });
 
-    test("a host call that rejects still answers papi, so a timed-out query cannot stall it", async () => {
+    test("a host call that rejects still answers PAPI once, so a timed-out query cannot stall it", async () => {
         const timedOut = new Error("TrUAPI request host:9 (wire 3, 3) timed out after 120000ms");
         const client = makeFakeClient({
             rejections: { getHeadStorage: timedOut, unpinHead: timedOut, getHeadHeader: timedOut },
@@ -1137,7 +1118,7 @@ if (import.meta.vitest) {
         });
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        const error = { code: -32603, message: timedOut.message };
+        const error = { code: -32603, message: expect.stringContaining(timedOut.message) };
         expect(messages).toEqual([
             { jsonrpc: "2.0", id: 2, error },
             { jsonrpc: "2.0", id: 3, error },
