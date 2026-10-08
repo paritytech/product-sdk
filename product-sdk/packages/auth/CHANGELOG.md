@@ -1,5 +1,12 @@
 # @parity/product-sdk-auth
 
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [133451f]
+  - @parity/product-sdk-terminal@0.12.0
+
 ## 0.4.3
 
 ### Patch Changes

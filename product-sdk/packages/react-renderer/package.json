@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-react-renderer",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "React renderer for TrUAPI custom chat messages: maps a React component tree to CustomRendererNode widget trees",
     "type": "module",
     "main": "./dist/index.js",

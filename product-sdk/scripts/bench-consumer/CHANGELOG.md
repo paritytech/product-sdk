@@ -1,5 +1,21 @@
 # @parity/product-sdk-bench-consumer
 
+## 0.0.42
+
+### Patch Changes
+
+- Updated dependencies [133451f]
+- Updated dependencies [133451f]
+- Updated dependencies [133451f]
+- Updated dependencies [133451f]
+- Updated dependencies [133451f]
+- Updated dependencies [133451f]
+  - @parity/product-sdk@0.35.0
+  - @parity/product-sdk-signer@0.16.2
+  - @parity/product-sdk-statement-store@0.6.16
+  - @parity/product-sdk-terminal@0.12.0
+  - @parity/product-sdk-contracts@0.10.14
+
 ## 0.0.41
 
 ### Patch Changes
