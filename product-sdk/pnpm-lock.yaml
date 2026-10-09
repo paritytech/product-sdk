@@ -12,6 +12,9 @@ catalogs:
     '@parity/truapi':
       specifier: ^0.24.0
       version: 0.24.0
+    '@parity/truapi-host':
+      specifier: ^0.24.0
+      version: 0.24.0
     '@playwright/test':
       specifier: ^1.60.0
       version: 1.60.0
@@ -58,6 +61,9 @@ importers:
       '@changesets/cli':
         specifier: ^2.28.1
         version: 2.31.0(@types/node@25.9.1)
+      '@polkadot-api/substrate-bindings':
+        specifier: 'catalog:'
+        version: 0.20.3
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
@@ -89,6 +95,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -120,6 +129,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -151,6 +163,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -173,6 +188,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -201,6 +219,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -298,6 +319,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -320,6 +344,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -345,6 +372,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -379,6 +409,9 @@ importers:
       '@parity/host-api-test-sdk':
         specifier: 'catalog:'
         version: 0.16.0(@playwright/test@1.60.0)
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.60.0
@@ -1833,6 +1866,17 @@ packages:
       '@playwright/test': '>=1.0.0'
     peerDependenciesMeta:
       '@playwright/test':
+        optional: true
+
+  '@parity/truapi-host@0.24.0':
+    resolution: {integrity: sha512-z1q4DwqVR+UdxD3uptnGW+tfNfdPOuBSZ/NuNY8iTYK8jrpidp8x9j/Srr4iDss0u+1vjkSGMcrkxW9mIF76sw==}
+    peerDependencies:
+      '@playwright/test': '>=1.40'
+      esbuild: '>=0.20'
+    peerDependenciesMeta:
+      '@playwright/test':
+        optional: true
+      esbuild:
         optional: true
 
   '@parity/truapi@0.23.0':
@@ -4242,6 +4286,15 @@ snapshots:
       '@parity/truapi': 0.23.0
     optionalDependencies:
       '@playwright/test': 1.60.0
+
+  '@parity/truapi-host@0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)':
+    dependencies:
+      '@noble/hashes': 2.2.0
+      '@parity/truapi': 0.24.0
+      neverthrow: 8.2.0
+    optionalDependencies:
+      '@playwright/test': 1.60.0
+      esbuild: 0.28.1
 
   '@parity/truapi@0.23.0':
     dependencies:

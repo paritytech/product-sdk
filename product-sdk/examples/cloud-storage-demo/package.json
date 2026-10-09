@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "private": true,
     "type": "module",
-    "description": "E2E demo app for @parity/product-sdk-cloud-storage — exercises CloudStorageClient upload and query via the Host API preimage path",
+    "description": "E2E demo app for @parity/product-sdk-cloud-storage \u2014 exercises CloudStorageClient upload and query via the Host API preimage path",
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
@@ -23,6 +23,7 @@
         "@parity/host-api-test-sdk": "catalog:",
         "@playwright/test": "catalog:",
         "typescript": "catalog:",
-        "vite": "catalog:"
+        "vite": "catalog:",
+        "@parity/truapi-host": "catalog:"
     }
 }

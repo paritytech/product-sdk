@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "private": true,
     "type": "module",
-    "description": "E2E demo app for @parity/product-sdk-keys — exercises SessionKeyManager lifecycle and key derivation via host-backed storage",
+    "description": "E2E demo app for @parity/product-sdk-keys \u2014 exercises SessionKeyManager lifecycle and key derivation via host-backed storage",
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
@@ -22,6 +22,7 @@
         "@parity/host-api-test-sdk": "catalog:",
         "@playwright/test": "catalog:",
         "typescript": "catalog:",
-        "vite": "catalog:"
+        "vite": "catalog:",
+        "@parity/truapi-host": "catalog:"
     }
 }

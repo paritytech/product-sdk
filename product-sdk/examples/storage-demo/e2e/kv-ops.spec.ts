@@ -116,7 +116,11 @@ test.describe("@parity/product-sdk-local-storage via Host API — LocalKvStore o
             { timeout: 30_000 },
         );
 
-        const value = await testHost.getProductStorageValue("e2e-host-check");
-        expect(value).toBe("routed");
+        // Verify the value reached host storage, read through the control
+        // surface rather than the host's own localStorage: the key namespacing
+        // is the host's business, not this test's.
+        const stored = await testHost.findProductStorage("e2e-host-check");
+        expect(stored).toBeDefined();
+        expect(new TextDecoder().decode(stored!)).toBe("routed");
     });
 });

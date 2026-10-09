@@ -41,16 +41,14 @@ test.describe("@parity/product-sdk-signer — testHost.switchAccount", () => {
         ).slice(transitionCountBefore);
         expect(rowsAfterSwitch).toContain("connected → connecting");
 
-        // The fixture pins "signer-demo.dot" to bob, so this comparison alone
-        // would pass even against a no-op switchAccount(). The gate above is
-        // what rules that out.
-        // TODO(test-sdk-switch-account): proving the address *would* change for
-        // a product that isn't dapp-scoped needs an unpinned fixture.
+        // Nothing pins a product to a chosen account any more, so the switch
+        // reaches the product: a stable address here would mean the host never
+        // applied it.
         const afterAddress = await frame
             .locator('[data-testid="selected-address"]')
             .textContent();
         expect(afterAddress).toBeTruthy();
-        expect(afterAddress).toEqual(beforeAddress);
+        expect(afterAddress).not.toEqual(beforeAddress);
 
         await expect(frame.locator('[data-testid="connection-status"]')).toHaveText("connected");
     });

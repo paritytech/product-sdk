@@ -10,7 +10,7 @@ import { waitForAppReady } from "./helpers";
  *   - hostLocalStorage.writeString() / readString()
  *   - hostLocalStorage.writeJSON() / readJSON()
  *   - hostLocalStorage.clear()
- *   - Host-side storage verification (reads via getProductStorageValue())
+ *   - Host-side storage verification (reads via findProductStorage())
  *
  * Host API surface tested:
  *   - product-sdk hostLocalStorage.writeString(key, value)
@@ -115,7 +115,11 @@ test.describe("@parity/product-sdk-host via Host API — localStorage operations
             { timeout: 30_000 },
         );
 
-        const value = await testHost.getProductStorageValue("e2e-verify");
-        expect(value).toBe("host-check");
+        // Verify the value reached host storage, read through the control
+        // surface rather than the host's own localStorage: the key namespacing
+        // is the host's business, not this test's.
+        const stored = await testHost.findProductStorage("e2e-verify");
+        expect(stored).toBeDefined();
+        expect(new TextDecoder().decode(stored!)).toBe("host-check");
     });
 });

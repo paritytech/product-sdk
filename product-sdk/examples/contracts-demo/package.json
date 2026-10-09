@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "private": true,
     "type": "module",
-    "description": "E2E demo for @parity/product-sdk-contracts — exercises ContractManager query/tx via the Host API path",
+    "description": "E2E demo for @parity/product-sdk-contracts \u2014 exercises ContractManager query/tx via the Host API path",
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
@@ -23,6 +23,7 @@
         "@parity/host-api-test-sdk": "catalog:",
         "@playwright/test": "catalog:",
         "typescript": "catalog:",
-        "vite": "catalog:"
+        "vite": "catalog:",
+        "@parity/truapi-host": "catalog:"
     }
 }
