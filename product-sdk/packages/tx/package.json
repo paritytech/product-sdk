@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-tx",
-    "version": "0.4.12",
+    "version": "0.4.13",
     "description": "Transaction submission, lifecycle watching, and dev signers for Polkadot chains",
     "type": "module",
     "sideEffects": false,
