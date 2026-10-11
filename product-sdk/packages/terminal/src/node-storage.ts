@@ -73,7 +73,7 @@ export function createNodeStorageAdapter(appId: string, storageDir?: string): St
                     // Missing files are expected (a missing key reads as null);
                     // log at debug so consumers can opt in to seeing reads when
                     // diagnosing "why isn't my session loading".
-                    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+                    if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") {
                         log.warn("storage read failed", { key, error: e });
                     } else {
                         log.debug("storage read miss", { key });
