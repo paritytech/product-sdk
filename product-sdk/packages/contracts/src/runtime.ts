@@ -204,6 +204,13 @@ export function createContractRuntime(
  * Use this on every production code path that calls a contract's `.tx()` or
  * `.query()` against a live chain.
  *
+ * @param client - a connected `PolkadotClient`.
+ * @param descriptor - the descriptor for the **same** chain `client` is
+ *   connected to. This pairing is the caller's responsibility: the descriptor
+ *   is only known at a type level, so a descriptor for a different chain cannot
+ *   be caught here and surfaces later as a cryptic call failure. Pass the
+ *   descriptor whose genesis matches the client's chain.
+ *
  * @example
  * ```ts
  * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
@@ -218,6 +225,11 @@ export function createContractRuntimeFromClient<TDescriptor>(
     options?: ContractRuntimeOptions,
 ): ContractRuntime {
     const defaultAt: ContractDryRunAt = options?.at ?? "best";
+    // `descriptor` is a caller-supplied type-only token; PAPI gives us no
+    // runtime handle to assert it matches `client`'s chain, so the pairing is a
+    // documented precondition (see @param) rather than something checked here.
+    // The cast is unavoidable: the generic descriptor is narrowed to PAPI's
+    // `getTypedApi` parameter, then to the Revive-shaped API this runtime needs.
     const typed = client.getTypedApi(
         descriptor as Parameters<PolkadotClient["getTypedApi"]>[0],
     ) as unknown as ReviveTypedApi;
