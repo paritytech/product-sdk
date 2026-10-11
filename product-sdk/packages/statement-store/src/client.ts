@@ -385,8 +385,15 @@ export class StatementStoreClient {
             // Extract signer from proof if present
             let signerHex: string | undefined;
             if (stmt.proof) {
-                const proofValue = stmt.proof.value as Record<string, unknown>;
-                if ("signer" in proofValue && typeof proofValue.signer === "string") {
+                // Guard object-ness before the `in` check: `"signer" in x`
+                // throws a TypeError if the proof value is ever a primitive.
+                const proofValue: unknown = stmt.proof.value;
+                if (
+                    typeof proofValue === "object" &&
+                    proofValue !== null &&
+                    "signer" in proofValue &&
+                    typeof proofValue.signer === "string"
+                ) {
                     signerHex = proofValue.signer;
                 }
             }
