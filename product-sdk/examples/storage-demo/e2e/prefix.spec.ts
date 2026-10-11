@@ -44,6 +44,8 @@ test.describe("@parity/product-sdk-local-storage via Host API — prefix namespa
         const stored = await testHost.findProductStorage("demo:mykey");
         expect(stored).toBeDefined();
         expect(new TextDecoder().decode(stored!)).toBe("prefixed-val");
+        // The bare key is absent, which is what proves the prefix was applied.
+        expect(await testHost.findProductStorage("mykey")).toBeUndefined();
     });
 
     test("prefixed and unprefixed stores don't collide", async ({ testHost }) => {

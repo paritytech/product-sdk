@@ -18,7 +18,6 @@
         "@parity/product-sdk-local-storage": "workspace:*"
     },
     "devDependencies": {
-        "@parity/host-api-test-sdk": "catalog:",
         "@playwright/test": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",

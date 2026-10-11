@@ -14,11 +14,11 @@ test.describe("@parity/product-sdk-signer — onConnect lifecycle hook", () => {
         // selectAccount / state mutations.
         await expect(status).toContainText("fired (1×)", { timeout: 30_000 });
 
-        // Asserting the answered-and-denied outcome needs the host to withhold
-        // AutoSigning, which `setWithheldResources` serves. That is merged in
-        // truapi but not in a published version yet, so this run allocates and
-        // the outcome is `Allocated`. Restore the `Rejected` assertion once the
-        // fixture can withhold.
+        // TODO(truapi-migration) #235: asserting the answered-and-denied outcome
+        // needs the host to withhold AutoSigning, which `setWithheldResources`
+        // serves. That is merged in truapi but not in a published version yet,
+        // so this run allocates and the outcome is `Allocated`. Restore the
+        // `Rejected` assertion once the fixture can withhold.
         const result = frame.locator('[data-testid="onconnect-result"]');
         await expect(result).toHaveText(/outcomes: (Rejected|Allocated)/, { timeout: 10_000 });
 
