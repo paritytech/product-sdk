@@ -416,6 +416,9 @@ importers:
       '@parity/product-sdk-keys':
         specifier: workspace:*
         version: link:../keys
+      '@parity/product-sdk-logger':
+        specifier: workspace:*
+        version: link:../logger
       '@parity/product-sdk-terminal':
         specifier: workspace:*
         version: link:../terminal
