@@ -62,7 +62,7 @@ interface SessionAddresses {
 interface SessionHandle {
   address: string;
   addresses: SessionAddresses;
-  signer: PolkadotSigner;
+  signer: CommonSignerTxCreator;
   userSession: UserSession;
   destroy(): void;                 // REQUIRED — tears down the adapter WebSocket
 }
@@ -85,7 +85,7 @@ interface SignerOptions { suri?: string }        // takes priority over the sess
 type SignerSource = "dev" | "session";
 
 interface ResolvedSigner {
-  signer: PolkadotSigner;
+  signer: CommonSignerTxCreator;
   address: string;
   source: SignerSource;
   userSession?: UserSession;       // QR/mobile only (undefined for dev signers)
@@ -126,7 +126,7 @@ type OnExistingAllowancePolicy;      // re-export from terminal
 ### Session-signer primitives (re-exported from `@parity/product-sdk-terminal`)
 
 ```ts
-createSessionSigner(session, ref: ProductAccountRef, options?): Promise<PolkadotSigner>;
+createSessionSigner(session, ref: ProductAccountRef, options?): Promise<CommonSignerTxCreator>;
 deriveProductPublicKey(session, ref: ProductAccountRef, options?): Promise<Uint8Array>;
 getProductSubtreePublicKey(session, productId, options?): Promise<Uint8Array>;
 sessionRootPublicKey(session: UserSession): Uint8Array;  // the wallet's root, NOT a product account

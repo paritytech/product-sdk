@@ -351,7 +351,7 @@ import {
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
 // `accounts.signVrf` takes the account first and returns a Result, so it needs
-// this adapter. `txSigner` is the ordinary PolkadotSigner, not the same object.
+// this adapter. `txSigner` is the ordinary transaction creator, not the same object.
 const vrfSigner = {
   signVrf: (label, items) =>
     accounts.signVrf(account, label, items).match(
@@ -501,7 +501,7 @@ Composing this with other reads? Use `runScoreContextRead(chain, options, snapsh
 
 ## Acting As a Person (Write)
 
-`withAsPerson` wraps a signer so the call dispatches under a person origin. It returns a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx` and nothing about `submitAndWatch` changes.
+`withAsPerson` wraps a signer so the call dispatches under a person origin. It returns a `CommonSignerTxCreator`, so submission stays with `@parity/product-sdk-tx` and nothing about `submitAndWatch` changes.
 
 ```ts
 import { submitAndWatch } from "@parity/product-sdk-tx";
@@ -521,7 +521,7 @@ const result = await submitAndWatch(
 
 > **THE PROOF MESSAGE IS NOT YOURS TO CHOOSE.** It is blake2-256 of the *call implication*: the pipeline version, the call data, and every extension after `AsPerson`, which includes the nonce, the era and the tip. `withAsPerson` computes it and hands it to your `createProof` callback. A proof over anything else fails on chain as a bad proof.
 
-> **THIS ONE THROWS, IT DOES NOT RETURN A `Result`.** Unlike the read half, failures surface as a thrown `AsPersonError`, because they happen inside `PolkadotSigner.signTx` where there is no `Result` channel. `submitAndWatch` catches it and gives you back an `err`.
+> **THIS ONE THROWS, IT DOES NOT RETURN A `Result`.** Unlike the read half, failures surface as a thrown `AsPersonError`, because they happen inside a PAPI 3 `TxCreator` where there is no `Result` channel. `submitAndWatch` catches it and gives you back an `err`.
 
 ### Which variant
 
@@ -561,7 +561,7 @@ const signer = withAsPerson(innerSigner, {
 
 ### If you are building the extension yourself
 
-`withAsPerson`, `withLiteAlias` and `withScoreParticipant` are the public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. All three share the ordered `signTx` body through the internal `withOriginExtension`, so a fourth would extend that rather than copy it.
+`withAsPerson`, `withLiteAlias` and `withScoreParticipant` are the public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. All three share the ordered creator body through the internal `withOriginExtension`, so a fourth would extend that rather than copy it.
 
 Two things to know either way, because they are the traps that cost the most time here:
 
@@ -741,7 +741,7 @@ A `Suspended` participant resumes with `register(None)`, which this package does
 9. **Reading the six values at different blocks** if you roll your own read — the threshold and grace ratio are session-updated, so an unpinned batch can mix eras and look valid.
 10. **Hand-building `AsPerson` and forgetting `RestrictOrigins`** — every call fails `Invalid.Call` before dispatch, and nothing in the error points at the extension you missed.
 11. **Choosing the proof message yourself** — it must be the implication hash, which depends on the nonce, era and tip. `withAsPerson` passes it to your callback; anything else is a bad proof.
-12. **Expecting `withAsPerson` to return a `Result`** — it returns a `PolkadotSigner` and throws `AsPersonError` from `signTx`. Wrap it in `submitAndWatch` and read the `err` channel.
+12. **Expecting `withAsPerson` to return a `Result`** — it returns a `CommonSignerTxCreator` and throws `AsPersonError` when the transaction is created. Wrap it in `submitAndWatch` and read the `err` channel.
 13. **Returning the host's `Result` straight out of `createProof`** — the callback must resolve to the proof object itself, so unwrap it first. Resolving with a `Result`, with `undefined`, or with a partial object throws `AsPersonError` and nothing is signed.
 14. **Reaching for `AliasWithProof` to bind an alias before paseo upgrades** — the chain fixes the allowed contexts as constants until `specVersion 1000035`, so it answers `Invalid.Call` however correct the bytes are.
 15. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `Custom(172)` (`StaleAlias`), and `AliasWithAccountRevised` is the variant that fixes it. `readLiteSignUpRequirement` reads the ring root and reports it as the `StaleAlias` blocker.

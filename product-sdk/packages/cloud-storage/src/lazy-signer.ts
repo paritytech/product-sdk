@@ -1,59 +1,54 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 /**
- * Build a `PolkadotSigner` whose underlying signer is resolved on every call.
+ * Build a transaction creator whose underlying signer is resolved on every call.
  *
- * `AsyncBulletinClient` takes a fixed `PolkadotSigner` at construction, but
- * apps often build the Cloud Storage client before any account is selected. This
- * wrapper defers signer resolution: each call to `signTx` / `signBytes`
- * invokes `getSigner()` and forwards to the result. If the getter returns
- * `null`, calls throw with a clear message.
+ * `AsyncBulletinClient` takes a fixed signer at construction, but apps often
+ * build the Cloud Storage client before any account is selected. This wrapper
+ * defers resolution: each transaction and each `signBytes` call invokes
+ * `getSigner()` and forwards to the result. If the getter returns `null`, the
+ * call rejects with a clear message.
  *
- * The `publicKey` field is *also* resolved lazily — accessing it before a
- * signer is available throws. This means callers that read `publicKey`
- * eagerly will fail fast with the same error rather than seeing a stale
- * key from a previously-selected account.
- *
- * Account changes between calls are picked up automatically: each sign
- * resolves the current signer.
+ * The `publicKey` field is also resolved lazily, so reading it before a signer
+ * is available throws rather than returning a stale key from an account that
+ * was selected earlier.
  */
 export function createLazySigner(
-    getSigner: () => PolkadotSigner | null,
-    onMissing = "No signer available — connect a wallet and select an account first.",
-): PolkadotSigner {
-    const resolve = (): PolkadotSigner => {
+    getSigner: () => CommonSignerTxCreator | null,
+    onMissing = "No signer available. Connect a wallet and select an account first.",
+): CommonSignerTxCreator {
+    const resolve = (): CommonSignerTxCreator => {
         const inner = getSigner();
         if (!inner) throw new Error(onMissing);
         return inner;
     };
 
-    // `async` on the methods is deliberate: it converts a "no signer" throw
-    // from `resolve()` into a rejected Promise. PolkadotSigner.signTx /
-    // signBytes are typed as returning Promises, and consumers expect a
-    // rejection rather than a synchronous escape on the failure path.
-    const lazy: PolkadotSigner = {
-        get publicKey() {
-            return resolve().publicKey;
+    // `async` turns a missing signer into a rejected promise, which is the
+    // failure channel PAPI and bulletin-sdk read, instead of a synchronous throw.
+    const create = async (...args: Parameters<CommonSignerTxCreator>) => resolve()(...args);
+    return Object.defineProperties(create, {
+        publicKey: { get: () => resolve().publicKey, enumerable: true },
+        signBytes: {
+            value: async (data: Uint8Array) => resolve().signBytes(data),
+            enumerable: true,
         },
-        signTx: async (...args: Parameters<PolkadotSigner["signTx"]>) => resolve().signTx(...args),
-        signBytes: async (...args: Parameters<PolkadotSigner["signBytes"]>) =>
-            resolve().signBytes(...args),
-    };
-    return lazy;
+    }) as CommonSignerTxCreator;
 }
 
 if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
-    function makeMockSigner(label: string): PolkadotSigner {
-        return {
+    function makeMockSigner(label: string): CommonSignerTxCreator {
+        return Object.assign(vi.fn().mockResolvedValue("0x01"), {
             publicKey: new TextEncoder().encode(label),
-            signTx: vi.fn().mockResolvedValue(new Uint8Array([1])),
             signBytes: vi.fn().mockResolvedValue(new Uint8Array([2])),
-        };
+        }) as unknown as CommonSignerTxCreator;
     }
+
+    type CreatorArgs = Parameters<CommonSignerTxCreator>;
+    const args = [{ callData: "0xaabb" }, {}, {}, false] as unknown as CreatorArgs;
 
     describe("createLazySigner", () => {
         test("publicKey throws when getter returns null", () => {
@@ -67,28 +62,17 @@ if (import.meta.vitest) {
             expect(lazy.publicKey).toBe(inner.publicKey);
         });
 
-        test("signTx throws when getter returns null", async () => {
+        test("creating a transaction rejects when getter returns null", async () => {
             const lazy = createLazySigner(() => null);
-            await expect(lazy.signTx(new Uint8Array(), {}, new Uint8Array(), 0)).rejects.toThrow(
-                "No signer available",
-            );
+            await expect(lazy(...args)).rejects.toThrow("No signer available");
         });
 
-        test("signTx forwards to current signer", async () => {
+        test("creating a transaction forwards to the current signer", async () => {
             const inner = makeMockSigner("alice");
             const lazy = createLazySigner(() => inner);
-            const callData = new Uint8Array([0xaa, 0xbb]);
-            const signedExtensions = {};
-            const metadata = new Uint8Array([0xcc]);
-            const atBlock = 42;
-            const result = await lazy.signTx(callData, signedExtensions, metadata, atBlock);
-            expect(inner.signTx).toHaveBeenCalledWith(
-                callData,
-                signedExtensions,
-                metadata,
-                atBlock,
-            );
-            expect(result).toEqual(new Uint8Array([1]));
+            const result = await lazy(...args);
+            expect(inner).toHaveBeenCalledWith(...args);
+            expect(result).toBe("0x01");
         });
 
         test("signBytes forwards to current signer", async () => {
@@ -100,7 +84,7 @@ if (import.meta.vitest) {
         });
 
         test("picks up account changes between calls", () => {
-            let active: PolkadotSigner | null = makeMockSigner("first");
+            let active: CommonSignerTxCreator | null = makeMockSigner("first");
             const lazy = createLazySigner(() => active);
             expect(lazy.publicKey).toEqual(new TextEncoder().encode("first"));
             active = makeMockSigner("second");

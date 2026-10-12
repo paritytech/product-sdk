@@ -9,14 +9,14 @@ Submit a transaction and watch its lifecycle through signing, broadcasting, bloc
 ```ts
 function submitAndWatch(
   tx: SubmittableTransaction,
-  signer: PolkadotSigner,
+  signer: CommonSignerTxCreator,
   options?: SubmitOptions,
 ): Promise<Result<TxResult, TxError>>
 ```
 
 **Parameters:**
-- `tx` - A transaction object with `signSubmitAndWatch`. Works with raw PAPI transactions and Ink SDK `AsyncTransaction` wrappers.
-- `signer` - The `PolkadotSigner` to use.
+- `tx` - A transaction object with `createSubmitAndWatch`. Works with raw PAPI 3 transactions and Ink SDK `AsyncTransaction` wrappers.
+- `signer` - The `CommonSignerTxCreator` to use.
 - `options` - Optional `SubmitOptions`.
 
 **Returns:** `ok(TxResult)` on success. On failure, `err(TxError)` where the error is one of:
@@ -43,7 +43,7 @@ Batch multiple transactions into a single Substrate Utility batch.
 function batchSubmitAndWatch(
   calls: BatchableCall[],
   api: BatchApi,
-  signer: PolkadotSigner,
+  signer: CommonSignerTxCreator,
   options?: BatchSubmitOptions,
 ): Promise<Result<TxResult, TxError>>
 ```
@@ -51,7 +51,7 @@ function batchSubmitAndWatch(
 **Parameters:**
 - `calls` - Array of transactions or raw decoded calls.
 - `api` - A typed API with `tx.Utility.batch_all/batch/force_batch`.
-- `signer` - The `PolkadotSigner` to use.
+- `signer` - The `CommonSignerTxCreator` to use.
 - `options` - Optional `BatchSubmitOptions`.
 
 **Returns:** `ok(TxResult)` on success; `err(TxError)` on failure (e.g. `TxBatchError`, `TxDispatchError`, `TxTimeoutError`, `TxSigningRejectedError`).
@@ -60,10 +60,10 @@ function batchSubmitAndWatch(
 
 ### createDevSigner
 
-Create a `PolkadotSigner` for a standard Substrate dev account.
+Create a `CommonSignerTxCreator` for a standard Substrate dev account.
 
 ```ts
-function createDevSigner(name: DevAccountName): PolkadotSigner
+function createDevSigner(name: DevAccountName): CommonSignerTxCreator
 ```
 
 **Parameters:**
@@ -121,7 +121,7 @@ Ensure an account's SS58 address is mapped to its H160 EVM address on-chain.
 ```ts
 function ensureAccountMapped(
   address: string,
-  signer: PolkadotSigner,
+  signer: CommonSignerTxCreator,
   checker: MappingChecker,
   api: ReviveApi,
   options?: EnsureAccountMappedOptions,

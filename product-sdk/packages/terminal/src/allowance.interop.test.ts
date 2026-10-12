@@ -135,7 +135,7 @@ describe("allowance helpers — interop with the real host-papp AllowanceService
         await rm(storageDir, { recursive: true, force: true });
     });
 
-    test("getBulletinSigner returns a PolkadotSigner whose pubkey matches the cached slot account", async () => {
+    test("getBulletinSigner returns a transaction creator whose pubkey matches the cached slot account", async () => {
         const { sessionId } = await createTestSession({
             appId: APP_ID,
             storageDir,
@@ -177,7 +177,7 @@ describe("allowance helpers — interop with the real host-papp AllowanceService
         // The convenience defaulted sessionId to the only paired session,
         // host-papp's AllowanceService hit the cache, decoded our seeded
         // entry, derived a signer over the slot key. publicKey on the
-        // returned PolkadotSigner must equal the slot-account public key
+        // returned transaction creator must equal the slot-account public key
         // derived from our fakeSlotSecret — proves the cache reached
         // the signer without re-deriving from a wallet round-trip.
         const expectedPubKey = deriveSlotAccountPublicKey(fakeSlotSecret);

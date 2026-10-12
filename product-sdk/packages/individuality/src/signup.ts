@@ -72,7 +72,9 @@
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex, concatBytes, hexToBytes } from "@parity/product-sdk-utils";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { AccountId } from "polkadot-api";
+import { getFakeTxCreator } from "polkadot-api/tx-creator";
 import { gameAirdropEventIds } from "./airdrop-ids.js";
 import type { AirdropRegistrant } from "./airdrop-types.js";
 import type { BlockAt, FinalizedSnapshot, PersonhoodParticipant } from "./types.js";
@@ -82,7 +84,7 @@ import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
 import { playerKey, type PlayerKey } from "./player-key.js";
-import { FEE_ESTIMATE_EXTENSIONS, type RingVRFProof } from "./origin-extension.js";
+import type { RingVRFProof } from "./origin-extension.js";
 import { airdropVrfTranscript, type VrfTranscriptItem } from "./signup-vrf.js";
 import type {
     AccountVrfSignature,
@@ -732,12 +734,9 @@ function sizedSignaturePart(bytes: Uint8Array, length: number, what: string): Ui
     return bytes;
 }
 
-/** A built transaction whose fee can be estimated, as every PAPI transaction can. */
+/** A built transaction whose fee can be estimated, as every PAPI 3 transaction can. */
 export interface FeeEstimable {
-    getEstimatedFees(
-        from: string,
-        options: { nonce: number; customSignedExtensions: Record<string, { value: unknown }> },
-    ): Promise<bigint>;
+    getEstimatedFees(creator: CommonSignerTxCreator, options: { nonce: number }): Promise<bigint>;
 }
 
 /**
@@ -838,13 +837,10 @@ export async function readSignUpFunds(
             query.Game.PlayDepositAmount.getValue(at),
             query.System.Account.getValue(account, at),
             // A fixed nonce saves the nonce lookup PAPI runs before estimating, and
-            // moves the length by a few bytes at most.
-            tx === undefined
-                ? null
-                : tx.getEstimatedFees(account, {
-                      nonce: 0,
-                      customSignedExtensions: FEE_ESTIMATE_EXTENSIONS,
-                  }),
+            // moves the length by a few bytes at most. The fake creator prices the
+            // call as a plain signed transaction from `account`, which is a few
+            // bytes shorter than the person-origin one and never prompts anyone.
+            tx === undefined ? null : tx.getEstimatedFees(getFakeTxCreator(account), { nonce: 0 }),
             chain.raw.individuality.getChainSpecData(),
         ]);
         const token = tokenProperties(spec.properties);
@@ -1669,10 +1665,13 @@ if (import.meta.vitest) {
         }
 
         const feeTx = (fee: bigint) => {
-            const estimates: Array<{ from: string; options: unknown }> = [];
+            const estimates: Array<{ from: Uint8Array; options: unknown }> = [];
             const tx: FeeEstimable = {
-                getEstimatedFees: async (from, options) => {
-                    estimates.push({ from, options });
+                getEstimatedFees: async (creator, options) => {
+                    estimates.push({
+                        from: (creator as unknown as { publicKey: Uint8Array }).publicKey,
+                        options,
+                    });
                     return fee;
                 },
             };
@@ -1708,19 +1707,7 @@ if (import.meta.vitest) {
                 { entry: "PlayDepositAmount", at: BLOCK.hash },
                 { entry: `Account:${ACCOUNT}`, at: BLOCK.hash },
             ]);
-            expect(estimates).toEqual([
-                {
-                    from: ACCOUNT,
-                    options: {
-                        nonce: 0,
-                        // Without it PAPI refuses with "Missing VerifyMultiSignature
-                        // signed extension", measured against paseo on 2026-09-25.
-                        customSignedExtensions: {
-                            VerifyMultiSignature: { value: { type: "Disabled", value: undefined } },
-                        },
-                    },
-                },
-            ]);
+            expect(estimates).toEqual([{ from: AccountId().enc(ACCOUNT), options: { nonce: 0 } }]);
         });
 
         test("has no fee without a transaction to estimate", async () => {

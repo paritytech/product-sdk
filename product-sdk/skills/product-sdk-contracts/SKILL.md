@@ -310,7 +310,7 @@ The typed-API factory `createContractRuntime(typedApi, { at })` is also exported
 
 2. **Missing signerManager for tx()** — If no signer is available, `tx()` returns `err(ContractSignerMissingError)` (on `result.error`, not thrown). Check `!result.ok` before reading `result.value`.
 
-3. **Wrong signer type** — Contract transactions need a `PolkadotSigner`. Don't confuse with `StatementSignerWithKey` (for statement-store).
+3. **Wrong signer type** — Contract transactions need a `CommonSignerTxCreator`. Don't confuse with `StatementSignerWithKey` (for statement-store).
 
 4. **Adding a spurious `await`** — `ContractManager.fromClient()` and `createContractFromClient()` are **synchronous**; don't `await` them. Only the live-resolution factories `ContractManager.fromLive()` / `fromLiveClient()` (and `withLiveContractAddresses()`) return Promises.
 

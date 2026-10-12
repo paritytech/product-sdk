@@ -8,7 +8,7 @@
  * further down the same pipeline, and built on the same machinery: the reasons
  * this wraps a signer rather than the submitter, and the reasons the value
  * cannot be chosen at the call site, are in `as-person-signer.ts` and apply
- * here verbatim. So does the order inside `signTx`, which both signers get from
+ * here verbatim. So does the order inside the creator, which both signers get from
  * `withOriginExtension`. Both lite origins are restricted entities, metered
  * against an allowance rather than a fee, so the `RestrictOrigins` slot that
  * step writes is what keeps the chain from rejecting them outright.
@@ -42,7 +42,7 @@
  * produces are byte-identical to the hand encoder that ran the two-transaction
  * flow live on previewnet (spec 1000036, individuality v0.12.1).
  */
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import {
     PEOPLE_LITE_AUTH,
@@ -190,9 +190,12 @@ async function buildValue(
  * @param signer - the signer to wrap, e.g. from
  *   `AccountsProvider.getProductAccountSigner`.
  * @param info - which lite-person origin to use, and where the proof comes from.
- * @returns a `PolkadotSigner` usable anywhere the original was.
+ * @returns a transaction creator usable anywhere the original was.
  */
-export function withLiteAlias(signer: PolkadotSigner, info: LiteAliasInfo): PolkadotSigner {
+export function withLiteAlias(
+    signer: CommonSignerTxCreator,
+    info: LiteAliasInfo,
+): CommonSignerTxCreator {
     return withOriginExtension<PeopleLiteAuthValue>(signer, {
         identifier: PEOPLE_LITE_AUTH,
         unsigned: info.tag === "AliasWithProof",
@@ -205,6 +208,7 @@ export function withLiteAlias(signer: PolkadotSigner, info: LiteAliasInfo): Polk
 if (import.meta.vitest) {
     const { describe, expect, test, vi } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
+    const { signTx, spyCreator } = await import("./creator-harness.js");
     const { readExtensionPipeline } = await import("./as-person-codec.js");
     const { CHECK_NONCE } = await import("./origin-extension.js");
 
@@ -259,31 +263,15 @@ if (import.meta.vitest) {
 
     /** An inner signer that records exactly what it was handed. */
     function spySigner() {
-        const calls: {
-            callData: Uint8Array;
-            extensions: PapiSignedExtensions;
-            atBlockNumber: number;
-            hasher?: (data: Uint8Array) => Uint8Array;
-        }[] = [];
-        const signer: PolkadotSigner = {
-            publicKey: PUBLIC_KEY,
-            signBytes: vi.fn(async () => Uint8Array.from([0xff])),
-            signTx: async (callData, extensions, _metadata, atBlockNumber, hasher) => {
-                calls.push({ callData, extensions, atBlockNumber, hasher });
-                return Uint8Array.from([0xde, 0xad]);
-            },
-        };
-        return { signer, calls };
+        return spyCreator(
+            PUBLIC_KEY,
+            vi.fn(async () => Uint8Array.from([0xff])),
+        );
     }
 
     const sign = async (info: LiteAliasInfo, extensions = papiExtensions()) => {
         const { signer, calls } = spySigner();
-        const result = await withLiteAlias(signer, info).signTx(
-            CALL_DATA,
-            extensions,
-            METADATA,
-            123,
-        );
+        const result = await signTx(withLiteAlias(signer, info), CALL_DATA, extensions, METADATA);
         return { result, calls, seen: calls[0].extensions };
     };
 
@@ -352,24 +340,21 @@ if (import.meta.vitest) {
             expect(Object.keys(seen)).toEqual(declared);
         });
 
-        test("passes callData, block number and hasher through untouched", async () => {
+        test("passes the call data through and names the pipeline version", async () => {
             const { signer, calls } = spySigner();
-            const hasher = (data: Uint8Array) => data;
-            await withLiteAlias(signer, { tag: "AliasWithAccount" }).signTx(
+            await signTx(
+                withLiteAlias(signer, { tag: "AliasWithAccount" }),
                 CALL_DATA,
                 papiExtensions(),
                 METADATA,
-                456,
-                hasher,
             );
-            expect(calls[0].callData).toBe(CALL_DATA);
-            expect(calls[0].atBlockNumber).toBe(456);
-            expect(calls[0].hasher).toBe(hasher);
+            expect(calls[0].callData).toEqual(CALL_DATA);
+            expect(calls[0].txExtVersion).toBe(PIPELINE.version);
         });
 
         test("returns whatever the inner signer returned", async () => {
             const { result } = await sign({ tag: "AliasWithAccount" });
-            expect(hex(result)).toBe("0xdead");
+            expect(result).toBe("0xdead");
         });
 
         test("passes publicKey and signBytes straight through", async () => {
@@ -417,13 +402,21 @@ if (import.meta.vitest) {
             expect(VERIFY_SIGNATURE in seen).toBe(false);
         });
 
-        test("throws when CheckNonce is missing", async () => {
+        test("fills the nonce before building the value when the payload has none", async () => {
+            // The PAPI 3 nonce enhancer runs inside the wrapper, so the value is
+            // built from the nonce it filled, here the one the caller passed.
             const extensions = Object.fromEntries(
                 Object.entries(papiExtensions()).filter(([key]) => key !== CHECK_NONCE),
             ) as PapiSignedExtensions;
-            await expect(sign({ tag: "AliasWithAccount" }, extensions)).rejects.toThrow(
-                AsPersonError,
+            const { signer, calls } = spySigner();
+            await signTx(
+                withLiteAlias(signer, { tag: "AliasWithAccount" }),
+                CALL_DATA,
+                extensions,
+                METADATA,
+                { nonce: 9 },
             );
+            expect(hex(calls[0].extensions[PEOPLE_LITE_AUTH].value)).toBe("0x010109000000");
         });
     });
 
@@ -482,17 +475,20 @@ if (import.meta.vitest) {
         test("keeps the underlying rejection as the cause, and does not sign", async () => {
             const boom = new Error("host unavailable");
             const { signer, calls } = spySigner();
-            await withLiteAlias(signer, {
-                tag: "AliasWithProof",
-                createProof: async () => {
-                    throw boom;
-                },
-            })
-                .signTx(CALL_DATA, papiExtensions(), METADATA, 1)
-                .then(
-                    () => expect.unreachable("should have thrown"),
-                    (error) => expect((error as Error).cause).toBe(boom),
-                );
+            await signTx(
+                withLiteAlias(signer, {
+                    tag: "AliasWithProof",
+                    createProof: async () => {
+                        throw boom;
+                    },
+                }),
+                CALL_DATA,
+                papiExtensions(),
+                METADATA,
+            ).then(
+                () => expect.unreachable("should have thrown"),
+                (error) => expect((error as Error).cause).toBe(boom),
+            );
             expect(calls).toHaveLength(0);
         });
     });

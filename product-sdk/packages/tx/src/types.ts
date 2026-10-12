@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 /** Transaction lifecycle status for UI callbacks. */
 export type TxStatus = "signing" | "broadcasting" | "in-block" | "finalized" | "error";
@@ -66,10 +66,13 @@ export type DevAccountName = "Alice" | "Bob" | "Charlie" | "Dave" | "Eve" | "Fer
  * resolved transactions.
  */
 export interface SubmittableTransaction {
-    signSubmitAndWatch: (
-        signer: PolkadotSigner,
-        options?: { mortality?: { mortal: boolean; period: number } },
-    ) => {
+    // A method, not a property, and loose option types: PAPI 3 types the options
+    // per chain and per creator, and method parameters are compared bivariantly,
+    // so a transaction from any chain fits one structural type.
+    createSubmitAndWatch(
+        creator: CommonSignerTxCreator,
+        options?: { mortality?: unknown; customSignedExtensions?: unknown },
+    ): {
         subscribe: (handlers: {
             next: (event: TxEvent) => void;
             error: (error: Error) => void;
@@ -131,12 +134,12 @@ export interface BatchApi {
 
 /** PAPI transaction event (discriminated union). */
 export type TxEvent =
-    | { type: "signed"; txHash: string }
+    | { type: "created"; txHash: string }
     | { type: "broadcasted"; txHash: string }
+    | { type: "notInBestBlock"; txHash: string }
     | {
-          type: "txBestBlocksState";
+          type: "inBestBlock";
           txHash: string;
-          found: boolean;
           ok?: boolean;
           events?: unknown[];
           block?: { hash: string; number: number; index: number };

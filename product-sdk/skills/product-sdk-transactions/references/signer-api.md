@@ -57,10 +57,10 @@ Select a **legacy account** (one returned by `connect()`) by SS58 address. Pair 
 #### getSigner (legacy)
 
 ```ts
-getSigner(): PolkadotSigner | null
+getSigner(): CommonSignerTxCreator | null
 ```
 
-Get the `PolkadotSigner` for the currently selected **legacy** account. Same PJS routing constraint as `selectAccount` — not safe on chains with unknown signed extensions.
+Get the `CommonSignerTxCreator` for the currently selected **legacy** account. Same PJS routing constraint as `selectAccount` — not safe on chains with unknown signed extensions.
 
 #### signRaw
 
@@ -153,7 +153,7 @@ interface SignerAccount {
   publicKey: Uint8Array;
   name: string | null;
   source: ProviderType;
-  getSigner(): PolkadotSigner;
+  getSigner(): CommonSignerTxCreator;
 }
 ```
 

@@ -53,7 +53,7 @@ Synchronous factory. Builds a `ContractRuntime` internally that wires the typed 
 | `descriptor` | `ChainDefinition` | E.g. `paseo_asset_hub` from `@parity/product-sdk-descriptors` |
 | `options.signerManager?` | `SignerManager` | Resolves signer + origin from the logged-in account |
 | `options.defaultOrigin?` | `SS58String` | Static fallback origin for queries |
-| `options.defaultSigner?` | `PolkadotSigner` | Static fallback signer for txs |
+| `options.defaultSigner?` | `CommonSignerTxCreator` | Static fallback signer for txs, a PAPI 3 transaction creator |
 
 ### `manager.getContract(library)`
 

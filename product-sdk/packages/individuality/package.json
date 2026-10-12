@@ -32,7 +32,10 @@
         "@parity/product-sdk-utils": "workspace:*",
         "@parity/result": "workspace:*",
         "@polkadot-api/metadata-builders": "catalog:",
+        "@polkadot-api/signers-common": "catalog:",
         "@polkadot-api/substrate-bindings": "catalog:",
+        "@polkadot-api/tx-creator": "catalog:",
+        "@polkadot-api/utils": "^0.4.0",
         "@scure/sr25519": "^2.2.0",
         "polkadot-api": "catalog:"
     },

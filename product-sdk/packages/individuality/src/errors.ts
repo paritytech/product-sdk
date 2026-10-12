@@ -62,7 +62,7 @@ export class IndividualityDecodeError extends ProductIndividualityError {
  * trip through the chain's own codec.
  *
  * Unlike {@link IndividualityDecodeError} this one is thrown, not returned: it
- * happens inside `PolkadotSigner.signTx`, where the only channel available is
+ * happens inside a PAPI 3 `TxCreator`, where the only channel available is
  * the exception PAPI already surfaces on the transaction's error path.
  *
  * **Never interpolate a proof, a context or an alias into the message.** Those

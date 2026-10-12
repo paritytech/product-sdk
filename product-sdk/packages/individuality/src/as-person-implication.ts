@@ -38,26 +38,27 @@
  */
 import { blake2b256, concatBytes } from "@parity/product-sdk-utils";
 import { str, u8, u32 } from "@polkadot-api/substrate-bindings";
-import type { PolkadotSigner } from "polkadot-api";
 
 import { AS_PERSON, type ExtensionPipeline } from "./as-person-codec.js";
 import { AsPersonError } from "./errors.js";
 
 /**
- * The signed-extensions map PAPI hands to `PolkadotSigner.signTx`, keyed by
- * extension identifier.
+ * Every extension of one transaction as SCALE bytes, keyed by identifier.
  *
- * Derived from `PolkadotSigner` rather than restated, so a PAPI change shows up
- * as a type error here instead of a silent shape mismatch. Same idiom as
- * `packages/terminal/src/signer.ts`.
+ * `value` goes in the extrinsic body and `additionalSigned` is the implicit
+ * data. This is the shape the implication is built from. The wrapping signers
+ * convert the hex extension list of a PAPI 3 payload into it and back.
  */
-export type PapiSignedExtensions = Parameters<PolkadotSigner["signTx"]>[1];
+export type PapiSignedExtensions = Record<
+    string,
+    { identifier: string; value: Uint8Array; additionalSigned: Uint8Array }
+>;
 
 /**
  * Build the implication bytes for the extension named `identifier`.
  *
  * @param pipeline - the chain's extension pipeline, from `readExtensionPipeline`.
- * @param callData - the SCALE-encoded call, as PAPI passes it to `signTx`.
+ * @param callData - the SCALE-encoded call from the PAPI 3 payload.
  * @param extensions - the signed-extensions map, with every slot already holding
  *   its final value. Patch first, then build: see consequence 2 above.
  * @param identifier - which extension's implication to build. Required: a

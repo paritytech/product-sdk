@@ -53,7 +53,7 @@
  * spoofed. Anything that gates value must verify on chain itself.
  *
  * The write half needs no chain client and no submitter of its own. It returns a
- * `PolkadotSigner`, so it composes with `@parity/product-sdk-tx`:
+ * PAPI 3 transaction creator, so it composes with `@parity/product-sdk-tx`:
  *
  * ```ts
  * import { submitAndWatch } from "@parity/product-sdk-tx";
@@ -388,7 +388,7 @@ export type {
 } from "./rings.js";
 
 // The write half: wrap a signer so the call runs under a person origin. Returns
-// a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx`.
+// a PAPI 3 transaction creator, so submission stays with `@parity/product-sdk-tx`.
 export { withAsPerson } from "./as-person-signer.js";
 export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person-signer.js";
 
@@ -457,5 +457,5 @@ export { withScoreParticipant } from "./as-score-participant-signer.js";
 // Errors. `UsernameUnowned` is not one of them — it travels on the success
 // channel as a `PersonhoodResult`. `AsPersonError` is the write half's, and
 // unlike the others it is thrown rather than returned, because it happens inside
-// `PolkadotSigner.signTx` where there is no `Result` channel.
+// a PAPI 3 `TxCreator` where there is no `Result` channel.
 export { AsPersonError, IndividualityDecodeError, ProductIndividualityError } from "./errors.js";

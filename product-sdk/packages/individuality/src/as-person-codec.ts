@@ -55,10 +55,9 @@ export const AS_PERSON = "AsPerson";
  * People runtime 3004000 is where they part: it declares version 0, the plain
  * pipeline a signed V4 extrinsic uses, and version 1, which adds the origin
  * extensions (`AsPerson`, `ScoreAsParticipant`, `PeopleLiteAuth`, …) and is
- * the only one a person-origin call can ride. PAPI 2.x still fills values from
- * `extrinsic.signedExtensions[0]` with the index hard-coded, so the slots that
- * exist only in the encoding version are filled by `withDeclaredDefaults` in
- * `origin-extension.ts` before the implication is built.
+ * the only one a person-origin call can ride. The wrapping signers in
+ * `origin-extension.ts` put this version on the PAPI 3 payload, so the host is
+ * told the version the implication was built for rather than inferring one.
  */
 function encodingPipelineVersion(declared: number[]): number {
     if (declared.length === 0) {
@@ -104,17 +103,16 @@ export interface ExtensionPipeline {
 /**
  * Read the transaction-extension pipeline out of a raw metadata blob.
  *
- * @param metadata - the raw metadata bytes, as PAPI hands them to
- *   `PolkadotSigner.signTx`.
+ * @param metadata - the raw metadata bytes, as carried in a PAPI 3 `TxPayloadV1`.
  * @throws {AsPersonError} when the chain declares no pipeline at all.
  */
 export function readExtensionPipeline(metadata: Uint8Array): ExtensionPipeline {
     const unified = unifyMetadata(decAnyMetadata(metadata));
     const version = encodingPipelineVersion(
-        Object.keys(unified.extrinsic.signedExtensions).map(Number),
+        Object.keys(unified.extrinsic.extensionsByVersion).map(Number),
     );
 
-    const extensions: ExtensionSlot[] = unified.extrinsic.signedExtensions[version].map(
+    const extensions: ExtensionSlot[] = unified.extrinsic.extensionsByVersion[version].map(
         (entry) => ({
             identifier: entry.identifier,
             type: entry.type,
@@ -404,10 +402,10 @@ if (import.meta.vitest) {
             // The reason version 0 would be the wrong pick: a person-origin call
             // cannot ride it. Read straight off the blob, not via the reader.
             const unified = unifyMetadata(decAnyMetadata(PASEO));
-            const plain = unified.extrinsic.signedExtensions[0].map((e) => e.identifier);
+            const plain = unified.extrinsic.extensionsByVersion[0].map((e) => e.identifier);
             expect(plain).not.toContain(AS_PERSON);
             expect(plain).toContain("CheckNonce");
-            expect(Object.keys(unified.extrinsic.signedExtensions)).toEqual(["0", "1"]);
+            expect(Object.keys(unified.extrinsic.extensionsByVersion)).toEqual(["0", "1"]);
         });
 
         test("finds AsPerson at its declared position", () => {

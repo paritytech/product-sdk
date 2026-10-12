@@ -15,6 +15,10 @@
         "./testing": {
             "import": "./dist/testing.js",
             "types": "./dist/testing.d.ts"
+        },
+        "./tx-creator": {
+            "import": "./dist/tx-creator.js",
+            "types": "./dist/tx-creator.d.ts"
         }
     },
     "files": ["dist", "src"],
@@ -30,9 +34,12 @@
         "@parity/result": "workspace:*",
         "@parity/truapi": "catalog:",
         "@polkadot-api/json-rpc-provider": "catalog:",
+        "@polkadot-api/signers-common": "catalog:",
+        "@polkadot-api/substrate-bindings": "catalog:",
+        "@polkadot-api/tx-creator": "catalog:",
         "neverthrow": "^8.2.0",
         "polkadot-api": "catalog:",
-        "@novasamatech/host-api-wrapper": "0.9.2"
+        "@novasamatech/host-api-wrapper": "0.12.0"
     },
     "devDependencies": {
         "tsup": "catalog:",
