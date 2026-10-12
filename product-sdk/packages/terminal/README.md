@@ -384,7 +384,6 @@ Sessions are persisted to `~/.polkadot-apps/` and survive across restarts. The S
 
 - `@novasamatech/host-papp` -- Polkadot host-product SDK (auth, attestation, signing)
 - `@novasamatech/statement-store` -- statement store client and session management
-- `@novasamatech/storage-adapter` -- storage interface
 - `@polkadot-api/ws-provider` -- WebSocket JSON-RPC provider
 - `neverthrow` -- Result type for error handling
 - `qrcode` -- QR code generation

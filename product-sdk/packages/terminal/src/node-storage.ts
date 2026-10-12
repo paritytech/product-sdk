@@ -3,13 +3,12 @@
 /**
  * File-based StorageAdapter for Node.js environments.
  *
- * Implements the @novasamatech/storage-adapter interface using JSON files
+ * Implements host-papp's storage interface using JSON files
  * in ~/.polkadot-apps/. Node.js doesn't have localStorage, so this
  * provides persistent storage for the SDK's session and secret data.
  */
-import type { StorageAdapter } from "@novasamatech/storage-adapter";
 import { createLogger } from "@parity/product-sdk-logger";
-import { fromPromise } from "neverthrow";
+import { fromPromise, type ResultAsync } from "neverthrow";
 import { join } from "node:path";
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -27,6 +26,19 @@ const DEFAULT_STORAGE_DIR = join(homedir(), ".polkadot-apps");
 export function sanitizeKey(appId: string, key: string): string {
     return `${appId}_${key}`.replace(/[^a-zA-Z0-9_.-]/g, "_");
 }
+
+/**
+ * Key/value storage contract that `@novasamatech/host-papp`'s `createPappAdapter`
+ * accepts as `storage`. Declared locally (structurally identical to
+ * `@novasamatech/storage-adapter`'s `StorageAdapter`) so terminal does not
+ * depend on that package directly.
+ */
+export type StorageAdapter = {
+    write(key: string, value: string): ResultAsync<void, Error>;
+    read(key: string): ResultAsync<string | null, Error>;
+    clear(key: string): ResultAsync<void, Error>;
+    subscribe(key: string, callback: (value: string | null) => unknown): VoidFunction;
+};
 
 function toError(e: unknown): Error {
     return e instanceof Error ? e : new Error(String(e));
