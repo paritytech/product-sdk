@@ -124,7 +124,7 @@ const subSigner = await createSessionSignerForAccount(session, {
 });
 ```
 
-Both factories accept `SessionSignerOptions`, extending `ProductSubtreeOptions` with optional `txExtVersion` (default `0`). For example, pass `{ txExtVersion: 1 }` as the final `options` argument. The extension bytes supplied to `signTx` must match that version. PAPI 2.1.6's standard transaction builder encodes version `0`; this option does not change its encoder.
+Both factories accept `SessionSignerOptions`, extending `ProductSubtreeOptions` with optional `txExtVersion`. It defaults to the lowest pipeline version the chain metadata declares that holds every supplied extension, which is `0` on a chain with one pipeline. To force a version, pass `{ txExtVersion: 1 }` as the final `options` argument. The extension bytes supplied to `signTx` must match that version. PAPI 2.1.6's standard transaction builder encodes version `0`; this option does not change its encoder.
 
 > **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
 

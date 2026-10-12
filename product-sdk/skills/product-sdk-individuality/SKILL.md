@@ -506,6 +506,8 @@ const result = await submitAndWatch(
 
 > **THE PROOF MESSAGE IS NOT YOURS TO CHOOSE.** It is blake2-256 of the *call implication*: the pipeline version, the call data, and every extension after `AsPerson`, which includes the nonce, the era and the tip. `withAsPerson` computes it and hands it to your `createProof` callback. A proof over anything else fails on chain as a bad proof.
 
+> **A CHAIN MAY DECLARE TWO EXTENSION PIPELINES, AND THE WRAPPER PICKS ONE.** People runtime 3004000 declares version 0 without any person extension and version 1 with all of them. The wrapper reads the version that declares its extension, fills the slots PAPI did not know as `None`, and the host signer sends the matching `txExtVersion` on its own. Nothing changes at the call site. Do not pass `{ txExtVersion: 0 }` to the signer you wrap, because that would tell the host to build a version 0 extrinsic out of version 1 extensions.
+
 > **THIS ONE THROWS, IT DOES NOT RETURN A `Result`.** Unlike the read half, failures surface as a thrown `AsPersonError`, because they happen inside `PolkadotSigner.signTx` where there is no `Result` channel. `submitAndWatch` catches it and gives you back an `err`.
 
 ### Which variant

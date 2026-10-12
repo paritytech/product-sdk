@@ -197,6 +197,7 @@ export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): Polkad
 if (import.meta.vitest) {
     const { describe, expect, test, vi } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
+    const { withTwoPipelines } = await import("./two-pipeline-metadata.js");
 
     /**
      * Local hex formatter, deliberately not the one the code under test uses.
@@ -644,6 +645,66 @@ if (import.meta.vitest) {
         test("leaves VerifyMultiSignature absent, because the origin must be signed", async () => {
             const { seen } = await sign(info());
             expect(VERIFY_SIGNATURE in seen).toBe(false);
+        });
+    });
+
+    describe("on a chain declaring the person extensions on pipeline version 1", () => {
+        // The People runtime 3004000 layout. PAPI 2.x fills version 0 only, so
+        // the map it hands over holds the plain account slots and nothing else.
+        const TWO_PIPELINES = withTwoPipelines(METADATA);
+        const FULL = readExtensionPipeline(TWO_PIPELINES, AS_PERSON);
+        const PLAIN = readExtensionPipeline(TWO_PIPELINES, CHECK_NONCE);
+
+        const versionZeroExtensions = () =>
+            Object.fromEntries(
+                Object.entries(papiExtensions()).filter(([key]) =>
+                    PLAIN.extensions.some((slot) => slot.identifier === key),
+                ),
+            ) as PapiSignedExtensions;
+
+        const signTwoPipelines = async (info: AsPersonInfo) => {
+            const { signer, calls } = spySigner();
+            await withAsPerson(signer, info).signTx(
+                CALL_DATA,
+                versionZeroExtensions(),
+                TWO_PIPELINES,
+                123,
+            );
+            return calls[0].extensions;
+        };
+
+        test("hands the inner signer every version 1 slot, in declared order", async () => {
+            const seen = await signTwoPipelines({ tag: "AliasWithAccount" });
+            expect(Object.keys(seen)).toEqual(
+                FULL.extensions
+                    .map((slot) => slot.identifier)
+                    .filter((identifier) => identifier !== VERIFY_SIGNATURE),
+            );
+        });
+
+        test("fills the origin extensions PAPI did not know as None", async () => {
+            const seen = await signTwoPipelines({ tag: "AliasWithAccount" });
+            for (const identifier of ["AsProofOfInkParticipant", "GameAsInvited", "HonourAuth"]) {
+                expect(hex(seen[identifier].value)).toBe("0x00");
+            }
+            expect(hex(seen.UnitTransactionExtension.value)).toBe("0x");
+            expect(hex(seen[RESTRICT_ORIGINS].value)).toBe("0x01");
+            expect(hex(seen[AS_PERSON].value)).toBe("0x010007000000");
+        });
+
+        test("hashes the proof over the version 1 pipeline", async () => {
+            let seenMessage: Uint8Array | undefined;
+            const seen = await signTwoPipelines({
+                tag: "AliasWithProof",
+                createProof: async (message) => {
+                    seenMessage = message;
+                    return RING_PROOF;
+                },
+            });
+
+            expect(buildImplication(FULL, CALL_DATA, seen, AS_PERSON)[0]).toBe(1);
+            expect(seenMessage).toEqual(implicationMessage(FULL, CALL_DATA, seen, AS_PERSON));
+            expect(hex(seen[VERIFY_SIGNATURE].value)).toBe("0x00");
         });
     });
 }

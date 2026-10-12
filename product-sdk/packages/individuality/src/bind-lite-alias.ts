@@ -340,7 +340,7 @@ export async function buildLiteAliasBindTx(
         valid_at_block: validAtBlock,
     }).getEncodedData();
 
-    const pipeline = readExtensionPipeline(metadata);
+    const pipeline = readExtensionPipeline(metadata, PEOPLE_LITE_AUTH);
     // All three pinned blobs declare [4,5], checked 2026-09-03.
     if (!pipeline.supportedVersions.includes(5)) {
         throw new AsPersonError("chain does not accept version 5 extrinsics");
@@ -535,6 +535,14 @@ if (import.meta.vitest) {
         test("encodes the pinned V5 general extrinsic byte for byte", async () => {
             const { transaction } = await build(fakeChain().chain);
             expect(hex(transaction)).toBe(EXPECTED_EXTRINSIC);
+        });
+
+        test("opens with extension version 1 when the chain carries PeopleLiteAuth there", async () => {
+            // People runtime 3004000: the plain account pipeline is version 0 and
+            // the lite-auth one is version 1. Same slots, so only that byte moves.
+            const { withTwoPipelines } = await import("./two-pipeline-metadata.js");
+            const { transaction } = await build(fakeChain(withTwoPipelines(PREVIEWNET)).chain);
+            expect(hex(transaction)).toBe(`0x05014501${EXPECTED_EXTRINSIC.slice(10)}`);
         });
 
         test("previewnet and paseo agree on the encoding", async () => {

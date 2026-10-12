@@ -78,6 +78,7 @@ export type { HostErrorPayload } from "./errors.js";
 
 // Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
 export { getAccountsProvider, findRingVrfKeyHandle } from "./accounts.js";
+export { resolveTxExtVersion } from "./tx-ext-version.js";
 export type {
     AccountsProvider,
     WithDecodeError,

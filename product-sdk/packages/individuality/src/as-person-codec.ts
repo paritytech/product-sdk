@@ -24,7 +24,10 @@
  *    explicitly further down.
  * 3. **The extension pipeline differs between chains that both have `AsPerson`.**
  *    Paseo declares 22 extensions, the devnet 23. Nothing may assume a count, a
- *    position, or that a given extension exists at all.
+ *    position, or that a given extension exists at all. A chain may also declare
+ *    several pipeline versions, and People runtime 3004000 carries the person
+ *    extensions on version 1 only, so the version is chosen by the extension the
+ *    caller fills. See {@link readExtensionPipeline}.
  *
  * The pipeline reader is deliberately not `AsPerson`-specific: every
  * origin-modifying extension on this chain is bound the same way, so
@@ -38,16 +41,6 @@ import { AsPersonError } from "./errors.js";
 
 /** Metadata identifier of the extension this module encodes. */
 export const AS_PERSON = "AsPerson";
-
-/**
- * The only transaction-extension pipeline version this package can work with.
- *
- * Not a preference. PAPI's `getSignExtensionsCreator` reads
- * `extrinsic.signedExtensions[0]` with the index hard-coded, so version 0 is the
- * only one it can ever fill values for. Reading a different version here while
- * PAPI fills version 0 would hash a payload the node never recomputes.
- */
-const SUPPORTED_PIPELINE_VERSION = 0;
 
 /** One extension as the metadata declares it. */
 export interface ExtensionSlot {
@@ -69,7 +62,7 @@ export type TypeCodec = [(value: any) => Uint8Array, (bytes: Uint8Array) => any]
  * signing attempt and share it between the encoder and the implication builder.
  */
 export interface ExtensionPipeline {
-    /** The version byte that opens the signed implication. Always 0, see above. */
+    /** The pipeline version, which opens the signed implication and the V5 preamble. */
     version: number;
     /** Every declared extension, in the order the chain encodes them. */
     extensions: ExtensionSlot[];
@@ -86,33 +79,36 @@ export interface ExtensionPipeline {
 /**
  * Read the transaction-extension pipeline out of a raw metadata blob.
  *
+ * A chain that declares one pipeline version gets that version. A chain that
+ * declares several gets the lowest one whose pipeline declares `identifier`,
+ * because the version byte and the slot list both have to match the pipeline
+ * the extension actually travels in. People runtime 3004000 declares version 0
+ * without any person extension and version 1 with all of them.
+ *
+ * PAPI 2.x fills only version 0, so on such a chain the slots it does not know
+ * arrive missing. `withOriginExtension` fills them before hashing.
+ *
  * @param metadata - the raw metadata bytes, as PAPI hands them to
  *   `PolkadotSigner.signTx`.
- * @throws {AsPersonError} when the chain declares a pipeline version this
- *   package cannot work with. See {@link SUPPORTED_PIPELINE_VERSION}.
+ * @param identifier - the extension the caller is about to fill. Required to
+ *   choose between several declared versions.
+ * @throws {AsPersonError} when the chain declares several versions and none of
+ *   them declares `identifier`, or no `identifier` was given.
  */
-export function readExtensionPipeline(metadata: Uint8Array): ExtensionPipeline {
+export function readExtensionPipeline(
+    metadata: Uint8Array,
+    identifier?: string,
+): ExtensionPipeline {
     const unified = unifyMetadata(decAnyMetadata(metadata));
-    const declared = Object.keys(unified.extrinsic.signedExtensions).map(Number);
+    const version = choosePipelineVersion(unified.extrinsic.signedExtensions, identifier);
 
-    // Fail loudly rather than guess. A chain declaring more than one version
-    // nominates one for encoding, and this package cannot see which: the choice
-    // lives in the node's own encoder. Guessing would produce a wrong first byte
-    // in every signed implication, which reaches the caller as an opaque bad
-    // proof with nothing local to read.
-    if (declared.length !== 1 || declared[0] !== SUPPORTED_PIPELINE_VERSION) {
-        throw new AsPersonError(
-            "chain declares a transaction-extension pipeline version this package cannot encode",
-        );
-    }
-
-    const extensions: ExtensionSlot[] = unified.extrinsic.signedExtensions[
-        SUPPORTED_PIPELINE_VERSION
-    ].map((entry) => ({
-        identifier: entry.identifier,
-        type: entry.type,
-        implicit: entry.additionalSigned,
-    }));
+    const extensions: ExtensionSlot[] = unified.extrinsic.signedExtensions[version].map(
+        (entry) => ({
+            identifier: entry.identifier,
+            type: entry.type,
+            implicit: entry.additionalSigned,
+        }),
+    );
 
     const builder = getDynamicBuilder(getLookupFn(unified));
 
@@ -127,13 +123,37 @@ export function readExtensionPipeline(metadata: Uint8Array): ExtensionPipeline {
     }
 
     return {
-        version: SUPPORTED_PIPELINE_VERSION,
+        version,
         extensions,
         supportedVersions: [...unified.extrinsic.version],
         codec: (typeId) => builder.buildDefinition(typeId) as TypeCodec,
         indexOf,
         slot: (identifier) => extensions[indexOf(identifier)],
     };
+}
+
+/** The lowest declared version, among several, whose pipeline declares `identifier`. */
+function choosePipelineVersion(
+    declared: Record<number, Array<{ identifier: string }>>,
+    identifier: string | undefined,
+): number {
+    const versions = Object.keys(declared)
+        .map(Number)
+        .sort((a, b) => a - b);
+    if (versions.length === 1) return versions[0];
+
+    if (identifier === undefined) {
+        throw new AsPersonError(
+            "chain declares several transaction-extension pipeline versions and no extension was named to choose one",
+        );
+    }
+    const version = versions.find((candidate) =>
+        declared[candidate].some((entry) => entry.identifier === identifier),
+    );
+    if (version === undefined) {
+        throw new AsPersonError(`chain does not declare the ${identifier} extension`);
+    }
+    return version;
 }
 
 /**
@@ -353,6 +373,7 @@ export function decodeCheckNonce(pipeline: ExtensionPipeline, encoded: Uint8Arra
 if (import.meta.vitest) {
     const { describe, expect, test } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
+    const { withTwoPipelines } = await import("./two-pipeline-metadata.js");
 
     // The real deployed blobs, not hand-built fixtures. A descriptor
     // regeneration that moves the extension or changes a field list fails these
@@ -370,6 +391,9 @@ if (import.meta.vitest) {
     // Asset Hub has RestrictOrigins but no AsPerson, so it is a real negative
     // case rather than a synthesized one.
     const ASSET_HUB = blob("paseo_asset_hub");
+    // Paseo rewritten to the 3004000 layout: plain account slots on version 0,
+    // every slot on version 1.
+    const TWO_PIPELINES = withTwoPipelines(PASEO);
 
     /**
      * Local hex formatter, deliberately not the `bytesToHex` the code above uses.
@@ -424,6 +448,39 @@ if (import.meta.vitest) {
         test("throws a named error for an extension the chain does not declare", () => {
             const pipeline = readExtensionPipeline(ASSET_HUB);
             expect(() => pipeline.indexOf(AS_PERSON)).toThrow(AsPersonError);
+            expect(() => pipeline.indexOf(AS_PERSON)).toThrow(/does not declare the AsPerson/);
+        });
+
+        test("picks the version that declares the person extensions when there are two", () => {
+            for (const identifier of [AS_PERSON, "PeopleLiteAuth", "ScoreAsParticipant"]) {
+                const pipeline = readExtensionPipeline(TWO_PIPELINES, identifier);
+                expect(pipeline.version).toBe(1);
+                expect(pipeline.extensions).toHaveLength(22);
+                expect(pipeline.indexOf(AS_PERSON)).toBe(2);
+            }
+        });
+
+        test("picks the lowest version that declares the extension", () => {
+            const pipeline = readExtensionPipeline(TWO_PIPELINES, "CheckNonce");
+            expect(pipeline.version).toBe(0);
+            expect(pipeline.extensions.map((slot) => slot.identifier)).not.toContain(AS_PERSON);
+        });
+
+        test("refuses to guess between two versions without an extension to look for", () => {
+            expect(() => readExtensionPipeline(TWO_PIPELINES)).toThrow(AsPersonError);
+            expect(() => readExtensionPipeline(TWO_PIPELINES)).toThrow(/several/);
+        });
+
+        test("names the extension no declared version carries", () => {
+            expect(() => readExtensionPipeline(TWO_PIPELINES, "AsNobody")).toThrow(
+                /does not declare the AsNobody extension/,
+            );
+        });
+
+        test("a single declared version is used whatever extension is named", () => {
+            // The miss surfaces later, from indexOf, exactly as before.
+            const pipeline = readExtensionPipeline(ASSET_HUB, AS_PERSON);
+            expect(pipeline.version).toBe(0);
             expect(() => pipeline.indexOf(AS_PERSON)).toThrow(/does not declare the AsPerson/);
         });
 

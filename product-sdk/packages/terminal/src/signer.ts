@@ -42,6 +42,7 @@
  */
 import type { UserSession } from "@novasamatech/host-papp";
 import { NoAllowanceError } from "@novasamatech/statement-store";
+import { resolveTxExtVersion } from "@parity/product-sdk-host/tx-ext-version";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 import { AllowanceExpiredError } from "@parity/product-sdk-signer/errors";
 import { toHex } from "@polkadot-api/utils";
@@ -123,7 +124,12 @@ export interface ProductAccountRef {
 }
 
 export interface SessionSignerOptions extends ProductSubtreeOptions {
-    /** Extension version of the supplied signTx bytes. Defaults to 0; does not change encoding. */
+    /**
+     * Extension version of the supplied signTx bytes. Does not change encoding.
+     *
+     * Defaults to the lowest pipeline version the chain metadata declares that
+     * holds every supplied extension, which is 0 on a chain with one pipeline.
+     */
     txExtVersion?: number;
 }
 
@@ -221,16 +227,16 @@ async function requestSignedTransaction(
 function makeTxSignTx(
     session: UserSession,
     productAccountId: ProductAccountId,
-    txExtVersion: number,
+    txExtVersion: number | undefined,
 ): PolkadotSigner["signTx"] {
-    return async (callData, signedExtensions) =>
+    return async (callData, signedExtensions, metadata) =>
         requestSignedTransaction(
             session,
             buildCreateTransactionRequest(
                 productAccountId,
                 callData,
                 signedExtensions,
-                txExtVersion,
+                txExtVersion ?? resolveTxExtVersion(metadata, signedExtensions),
             ),
         );
 }
@@ -316,7 +322,7 @@ async function buildSessionSigner(
         // Transaction signing → host-papp `createTransaction`: the wallet builds
         // and signs the extrinsic, so it can show a decoded tx (no `<Bytes>`
         // envelope) and unknown signed extensions (e.g. `AsPgas`) survive.
-        signTx: makeTxSignTx(session, productAccountId, options?.txExtVersion ?? 0),
+        signTx: makeTxSignTx(session, productAccountId, options?.txExtVersion),
         // Arbitrary-byte signing keeps the `Bytes` tag so the wallet applies the
         // `<Bytes>...</Bytes>` anti-phishing envelope exactly once on its side
         // (correct for non-extrinsic user data).
@@ -652,6 +658,52 @@ if (import.meta.vitest) {
                 expect(result).toBe(signed);
             },
         );
+
+        test("defaults txExtVersion to the pipeline the extensions belong to", async () => {
+            // People runtime 3004000 carries AsPerson on pipeline version 1 only.
+            // The fixture lives in the host package next to the resolver. A literal
+            // specifier would pull that file into this package's declaration build.
+            const { readFileSync } = await import("node:fs");
+            const fixture = "../../host/src/two-pipeline-metadata.js";
+            const { withTwoPipelines } = (await import(/* @vite-ignore */ fixture)) as {
+                withTwoPipelines: (blob: Uint8Array) => Uint8Array;
+            };
+            const metadata = withTwoPipelines(
+                new Uint8Array(
+                    readFileSync(
+                        new URL(
+                            "../../descriptors/.papi/metadata/paseo_individuality.scale",
+                            import.meta.url,
+                        ),
+                    ),
+                ),
+            );
+            const session = makeSession({ createTransaction: async () => ok(new Uint8Array()) });
+            const signer = await createSessionSigner(
+                session,
+                fakeAdapter("my-app"),
+                new Uint8Array(32).fill(0xab),
+                cache(),
+            );
+            const sentVersion = () =>
+                vi.mocked(session.createTransaction).mock.lastCall?.[0].payload.value.txExtVersion;
+
+            await signer.signTx(
+                new Uint8Array([0xca, 0x11]),
+                { CheckGenesis: checkGenesis, AsPerson: ext("AsPerson", [0x00], []) },
+                metadata,
+                0,
+            );
+            expect(sentVersion()).toBe(1);
+
+            await signer.signTx(
+                new Uint8Array([0xca, 0x11]),
+                { CheckGenesis: checkGenesis },
+                metadata,
+                0,
+            );
+            expect(sentVersion()).toBe(0);
+        });
 
         test("takes the genesis hash from CheckGenesis.additionalSigned", () => {
             const req = buildCreateTransactionRequest(

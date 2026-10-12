@@ -127,6 +127,51 @@ export function withSlot(
     ) as PapiSignedExtensions;
 }
 
+/**
+ * Fill every declared slot PAPI left out, the way PAPI fills an extension it has
+ * no default for.
+ *
+ * PAPI 2.x builds its map from pipeline version 0 only. On a chain whose person
+ * extensions live on a later version, every slot that version adds arrives
+ * missing, and the implication cannot be hashed without them. Each one gets the
+ * encoding of `undefined`, which is `None` for an `Option` extension and nothing
+ * for a unit one. That is what PAPI itself produces for these slots on a chain
+ * that declares a single pipeline, so both layouts sign the same bytes.
+ *
+ * `VerifyMultiSignature` stays absent because the host fills it when it signs,
+ * and `except` stays absent because the caller sets it last.
+ *
+ * @throws {AsPersonError} naming the slot when its type has no `undefined` value.
+ */
+export function fillDeclaredSlots(
+    pipeline: ExtensionPipeline,
+    extensions: PapiSignedExtensions,
+    except: string,
+): PapiSignedExtensions {
+    let filled = extensions;
+    for (const slot of pipeline.extensions) {
+        if (
+            slot.identifier in filled ||
+            slot.identifier === VERIFY_SIGNATURE ||
+            slot.identifier === except
+        ) {
+            continue;
+        }
+        let value: Uint8Array;
+        try {
+            value = encodeChecked(pipeline.codec(slot.type), undefined);
+        } catch (cause) {
+            // Extension identifiers are protocol metadata, safe to name.
+            throw new AsPersonError(
+                `signed extension ${slot.identifier} is missing and has no default value`,
+                { cause },
+            );
+        }
+        filled = withSlot(pipeline, filled, slot.identifier, value);
+    }
+    return filled;
+}
+
 /** Read the account nonce out of the slot PAPI already filled. */
 export function nonceFrom(pipeline: ExtensionPipeline, extensions: PapiSignedExtensions): number {
     const supplied = extensions[CHECK_NONCE];
@@ -184,11 +229,13 @@ export async function requestProof(
  * pipeline. One reader per wrapped signer, not module level, so two wrapped
  * signers on two chains cannot share an entry.
  */
-export function cachedPipelineReader(): (metadata: Uint8Array) => ExtensionPipeline {
+export function cachedPipelineReader(
+    identifier: string,
+): (metadata: Uint8Array) => ExtensionPipeline {
     let cached: { metadata: Uint8Array; pipeline: ExtensionPipeline } | undefined;
     return (metadata) => {
         if (cached?.metadata !== metadata) {
-            cached = { metadata, pipeline: readExtensionPipeline(metadata) };
+            cached = { metadata, pipeline: readExtensionPipeline(metadata, identifier) };
         }
         return cached.pipeline;
     };
@@ -220,7 +267,7 @@ export function withOriginExtension<Value>(
     signer: PolkadotSigner,
     spec: OriginExtensionSpec<Value>,
 ): PolkadotSigner {
-    const pipelineFor = cachedPipelineReader();
+    const pipelineFor = cachedPipelineReader(spec.identifier);
 
     return {
         publicKey: signer.publicKey,
@@ -252,6 +299,10 @@ export function withOriginExtension<Value>(
                     ),
                 );
             }
+
+            // After RestrictOrigins: its type is a bool, and `undefined` does not
+            // survive the round trip the fill checks, so it must already be set.
+            extensions = fillDeclaredSlots(pipeline, extensions, spec.identifier);
 
             const value = await spec.buildValue(pipeline, callData, extensions, signer.publicKey);
 
@@ -332,6 +383,42 @@ if (import.meta.vitest) {
         });
     });
 
+    describe("fillDeclaredSlots", () => {
+        test("leaves a map PAPI filled from a single pipeline untouched", () => {
+            const before = papiExtensions();
+            expect(fillDeclaredSlots(PIPELINE, before, "AsPerson")).toEqual(before);
+        });
+
+        test("fills a missing Option slot with None and keeps the declared order", () => {
+            const before = Object.fromEntries(
+                Object.entries(papiExtensions()).filter(([key]) => key !== "GameAsInvited"),
+            ) as PapiSignedExtensions;
+            const filled = fillDeclaredSlots(PIPELINE, before, "AsPerson");
+            expect(filled.GameAsInvited.value).toEqual(Uint8Array.from([0x00]));
+            expect(Object.keys(filled)).toEqual(Object.keys(papiExtensions()));
+        });
+
+        test("never fills VerifyMultiSignature or the excepted slot", () => {
+            const before = Object.fromEntries(
+                Object.entries(papiExtensions()).filter(([key]) => key !== "AsPerson"),
+            ) as PapiSignedExtensions;
+            const filled = fillDeclaredSlots(PIPELINE, before, "AsPerson");
+            expect(filled).not.toHaveProperty("AsPerson");
+            expect(filled).not.toHaveProperty(VERIFY_SIGNATURE);
+        });
+
+        test("names a missing slot whose type has no undefined value", () => {
+            // RestrictOrigins is a bool, which is why withOriginExtension sets it
+            // before filling.
+            const before = Object.fromEntries(
+                Object.entries(papiExtensions()).filter(([key]) => key !== RESTRICT_ORIGINS),
+            ) as PapiSignedExtensions;
+            expect(() => fillDeclaredSlots(PIPELINE, before, "AsPerson")).toThrow(
+                /RestrictOrigins is missing and has no default value/,
+            );
+        });
+    });
+
     describe("nonceFrom", () => {
         test("reads back the compact nonce PAPI put in the body", () => {
             const nonceBytes = PIPELINE.codec(PIPELINE.slot(CHECK_NONCE).type)[0](300);
@@ -349,7 +436,7 @@ if (import.meta.vitest) {
 
     describe("cachedPipelineReader", () => {
         test("decodes a blob once and re-decodes on a new array", () => {
-            const read = cachedPipelineReader();
+            const read = cachedPipelineReader("AsPerson");
             const first = read(METADATA);
             expect(read(METADATA)).toBe(first);
             // A different array means a different runtime, so the cache must miss.

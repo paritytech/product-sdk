@@ -39,6 +39,7 @@
         "@novasamatech/host-papp": "0.10.0",
         "@novasamatech/statement-store": "0.10.0",
         "@novasamatech/storage-adapter": "0.10.0",
+        "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
