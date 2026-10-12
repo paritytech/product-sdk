@@ -4,9 +4,9 @@ name: "product-sdk: Dev publish"
 # can integrate against in-flight SDK work without waiting for a release wave.
 #
 # It is modelled on bulletin-deploy, which publishes the same way: a version
-# like `0.0.0-dev.312.0` is "the 0th dev cut of PR 312", carried on the `dev`
-# tag so `npm install`, which resolves `@latest`, can never pick it up by
-# accident.
+# like `1.5.0-dev.312.0` is "the 0th dev cut of PR 312, heading for 1.5.0",
+# carried on the `dev` tag so `npm install`, which resolves `@latest`, can
+# never pick it up by accident.
 #
 # There are two ways in, because GitHub only exposes `workflow_dispatch` for
 # workflows that already live on the default branch:
@@ -38,7 +38,7 @@ on:
     workflow_dispatch:
         inputs:
             pr:
-                description: "PR number this cut comes from, for example 312. The version becomes 0.0.0-dev.<pr>.<iteration>."
+                description: "PR number this cut comes from, for example 312. The version becomes <next>-dev.<pr>.<iteration>, as in 1.5.0-dev.312.0."
                 type: string
                 required: true
             iteration:
@@ -160,11 +160,14 @@ jobs:
                     echo "$(jq -r '.name' "$manifest") $(jq -r '.version' "$manifest")"
                   done > "$RUNNER_TEMP/versions-before.txt"
 
-            # `--snapshot` bypasses the normal version bump and stamps every
-            # affected package with a prerelease built from the tag. The
-            # template is pinned to `{tag}` alone so the version is reproducible
-            # from the inputs. The default appends a timestamp, which would make
-            # the same PR and iteration publish two different versions.
+            # `--snapshot` stamps every affected package with a prerelease
+            # built from the tag. `snapshot.useCalculatedVersion` in
+            # .changeset/config.json bases it on the version the changesets
+            # would release, so a cut sorts just below that release instead of
+            # reading as 0.0.0. The template is pinned to `{tag}` alone so the
+            # version is reproducible from the inputs. The default appends a
+            # timestamp, which would make the same PR and iteration publish two
+            # different versions.
             - name: Version as a snapshot
               env:
                   PR: ${{ steps.cut.outputs.pr }}
