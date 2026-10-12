@@ -1,16 +1,15 @@
 # Product SDK
 
-> The following is a prototype, reference implementation, and proof-of-concept. This open source code is provided for research, experimentation, and developer education only. This code has not been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete features. Use at your own risk.
+TypeScript SDK for building applications on Polkadot, with typed APIs for chain interaction, transactions, signing, contracts, storage, identity, and host environments.
 
-Monorepo for the `@parity/product-sdk` family of packages and tooling.
+> The following is a prototype, reference implementation, and proof-of-concept. This open source code is provided for research, experimentation, and developer education only. This code has not been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete features. Use at your own risk.
 
 ## Documentation
 
-Full documentation is published at **[paritytech.github.io/product-sdk](https://paritytech.github.io/product-sdk/)**.
+- [Start building with Product SDK](https://docs.polkadot.com/apps/product-sdk/)
+- [API reference](https://paritytech.github.io/product-sdk/)
 
-## product-sdk
-
-TypeScript SDK for building products in the Polkadot ecosystem. Provides typed APIs for chain interactions, transaction signing, key management, and storage across Polkadot Desktop, Mobile, and browser environments.
+This repository contains the `@parity/product-sdk` family of packages and tooling.
 
 | Package | Description |
 |---------|-------------|
@@ -22,10 +21,12 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-cloud-storage` | Upload and retrieve data via Cloud Storage (currently backed by the Polkadot Bulletin Chain) |
 | `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |
 | `@parity/product-sdk-individuality` | Read a person's personhood state, usernames, and the game and its prize draws, sign up for a game, and dispatch calls under a person origin |
+| `@parity/product-sdk-nfts` | Read Scarcity collections and item catalogues, the claims a player holds, what a claim reveals, and verified artwork |
 | `@parity/product-sdk-keys` | Hierarchical key derivation, session keys, and sr25519 product-account derivation |
 | `@parity/product-sdk-local-storage` | Key-value local storage with automatic host/browser backend detection |
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
-| `@parity/product-sdk-renderer` | Build and validate renderer trees for Pocket card faces and rendered chat bodies |
+| `@parity/product-sdk-renderer` | Check a renderer tree against the protocol before it reaches a device |
+| `@parity/product-sdk-react-renderer` | Author those trees in JSX, for a product already using React |
 | `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
 | `@parity/product-sdk-crypto` | Cryptographic primitives — encryption, key derivation, NaCl |
 | `@parity/product-sdk-descriptors` | PAPI-generated chain descriptors for Polkadot ecosystem |
@@ -67,7 +68,9 @@ Or open a new Claude Code session and ask "build me a Polkadot app" — the `pro
 | `product-sdk-contracts` | Smart contract calls on Asset Hub (PolkaVM/Solidity) |
 | `product-sdk-cloud-storage` | CID-based upload/retrieve via Cloud Storage |
 | `product-sdk-statement-store` | Publish/subscribe on the Polkadot Statement Store |
-| `product-sdk-individuality` | Personhood / membership state reads, the account to username read, the game and its prize draws, game sign-up, and the AsPerson extension |
+| `product-sdk-individuality` | Personhood / membership state reads, the account to username read, the game and its prize draws, the account and lite sign-up paths, the two-transaction lite bind flow, full-personhood registration, ring-VRF proof contexts and ring locations, and the person, lite-alias and score-participant origin extensions |
+| `product-sdk-nfts` | Scarcity collections and item catalogues, the claims a player holds with the proof a mint spends, what a claim reveals through `previewClaim`, and verified artwork |
+| `product-sdk-pocket-cards` | Pocket cards: building a face, checking it, and drawing it from a worker |
 | `product-sdk-utilities` | Addresses, crypto, encoding, token formatting, logging |
 | `migrating-to-product-sdk` | Porting an existing codebase from legacy stacks |
 

@@ -23,18 +23,25 @@
  * `tsc` checks each entry a read touches against it.
  */
 
-/** The one raw-client method the pinned reads use. Structural, so `PolkadotClient` fits. */
-export interface FinalizedBlockSource {
+/**
+ * Where a pinned read gets its block: the part of PAPI's `PolkadotClient` the
+ * reads use, so a `PolkadotClient` fits as it is.
+ */
+export interface BlockSource {
     getFinalizedBlock(): Promise<{ hash: string; number: number }>;
+    getBestBlocks(): Promise<{ hash: string; number: number }[]>;
 }
 
+/** @deprecated Renamed {@link BlockSource}, which a read given `at: "best"` also needs. */
+export type FinalizedBlockSource = BlockSource;
+
 /** What {@link fromPapi} returns, with the typed API preserved. */
-export interface PapiIndividualityChain<Api, Client = FinalizedBlockSource> {
+export interface PapiIndividualityChain<Api, Client = BlockSource> {
     individuality: Api;
     raw: { individuality: Client };
 }
 
-export function fromPapi<Api, Client extends FinalizedBlockSource>(
+export function fromPapi<Api, Client extends BlockSource>(
     client: Client,
     api: Api,
 ): PapiIndividualityChain<Api, Client> {
@@ -46,7 +53,7 @@ if (import.meta.vitest) {
 
     test("fromPapi places the api and client where the reads look for them", async () => {
         const block = { hash: "0x01", number: 7 };
-        const client = { getFinalizedBlock: async () => block };
+        const client = { getFinalizedBlock: async () => block, getBestBlocks: async () => [block] };
         const api = { query: {} };
         const chain = fromPapi(client, api);
         expect(chain.individuality).toBe(api);

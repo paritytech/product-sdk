@@ -32,9 +32,10 @@ export interface RawPhaseDurations {
     player_process: number;
 }
 
-/** The raw `GameState` enum. Its payloads are not read — see {@link GamePhase}. */
+/** The raw `GameState` enum. Only the player count is read from its payload. */
 export interface RawGameState {
     type: string;
+    value?: unknown;
 }
 
 /** The raw `Game.Game` value, narrowed to the fields the domain carries. */
@@ -87,6 +88,18 @@ function gamePhase(type: string): GamePhase {
         return type as GamePhase;
     }
     throw new IndividualityDecodeError("unknown game state variant");
+}
+
+/**
+ * `Reporting` carries the count on the state and `Shuffle` and `PlayerProcess` on
+ * the step inside it, and only the steps that come after the roster is settled.
+ */
+function rosterPlayerCount(state: RawGameState): number | null {
+    const value = state.value as
+        | { player_count?: unknown; step?: { value?: { player_count?: unknown } } }
+        | undefined;
+    const count = value?.player_count ?? value?.step?.value?.player_count;
+    return typeof count === "number" ? count : null;
 }
 
 /** Clamp to `u32`, matching the runtime's saturating arithmetic. */
@@ -155,6 +168,7 @@ export function toCurrentGame(raw: RawGameInfo): CurrentGame {
         reportingEnds: raw.report_ends,
         maxGroupSize: raw.max_group_size,
         rounds: raw.rounds,
+        playerCount: rosterPlayerCount(raw.state),
         pendingAttendance: raw.pending_attendance,
         airdropsScheduled: raw.airdrops_scheduled,
     };
@@ -311,6 +325,7 @@ if (import.meta.vitest) {
                 reportingEnds: PLAY_TIME + 1_800,
                 maxGroupSize: 5,
                 rounds: 3,
+                playerCount: null,
                 pendingAttendance: 0,
                 airdropsScheduled: 2,
             });
@@ -347,15 +362,52 @@ if (import.meta.vitest) {
             expect(toCurrentGame(raw).nextDeadline).toBe(1_000);
         });
 
-        test("ignores the state payload entirely", () => {
+        test("ignores the cursors in the state payload", () => {
             // Payloads are offchain-worker bookkeeping. A step cursor changing
             // must not change the decoded game.
-            const withPayload = rawGame({
-                state: { type: "Reporting", player_count: 9 } as RawGameState,
-            });
-            expect(toCurrentGame(withPayload)).toEqual(
-                toCurrentGame(rawGame({ state: { type: "Reporting" } })),
-            );
+            const cursor = (next_player_index: number) =>
+                rawGame({
+                    state: {
+                        type: "Shuffle",
+                        value: {
+                            step: {
+                                type: "Step2Retrieve",
+                                value: { next_player_index, phase: { type: "Recognized" } },
+                            },
+                        },
+                    },
+                });
+            expect(toCurrentGame(cursor(3))).toEqual(toCurrentGame(cursor(4)));
+            expect(toCurrentGame(cursor(3)).playerCount).toBeNull();
+        });
+
+        test.each([
+            ["Reporting", { player_count: 9 }],
+            [
+                "Shuffle",
+                {
+                    step: {
+                        type: "Step3ComputeWeights",
+                        value: { player_count: 9, recognized_count: 2 },
+                    },
+                },
+            ],
+            ["Shuffle", { step: { type: "Step4AwaitSession", value: { player_count: 9 } } }],
+            [
+                "PlayerProcess",
+                { step: { type: "Step1ProcessPlayers", value: { player_count: 9 } } },
+            ],
+        ])("reads the player count off %s once the roster is settled", (type, value) => {
+            expect(toCurrentGame(rawGame({ state: { type, value } })).playerCount).toBe(9);
+        });
+
+        test.each([
+            ["Registration", { next_player_index: 9 }],
+            ["Shuffle", { step: { type: "Step1Insert", value: {} } }],
+            ["PlayerProcess", { step: { type: "Step2ClearIndices", value: undefined } }],
+            ["Cancelling", { step: { type: "Step1DrainShuffle", value: undefined } }],
+        ])("has no player count in %s, where there is no roster", (type, value) => {
+            expect(toCurrentGame(rawGame({ state: { type, value } })).playerCount).toBeNull();
         });
 
         test("throws on an unknown state variant", () => {

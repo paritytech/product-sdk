@@ -349,6 +349,7 @@ async function runRead(
             policy,
         }),
         metrics,
+        participant,
     };
 }
 
@@ -372,6 +373,7 @@ if (import.meta.vitest) {
         streak: { type: "Attended", value: 4 },
         attendance_history: 0xff,
         reached_personhood: true,
+        has_ever_reached_personhood: true,
         recognition: { type: "Recognized", value: 5n },
         last_attended_game: 42,
         ...overrides,
@@ -531,12 +533,14 @@ if (import.meta.vitest) {
                     score: 7,
                     recognition: { type: "NotRecognized" },
                     reached_personhood: false,
+                    has_ever_reached_personhood: false,
                 }),
                 alias: { ca: { alias: ALIAS } },
                 personParticipant: raw({
                     score: 99,
                     recognition: { type: "NotRecognized" },
                     reached_personhood: false,
+                    has_ever_reached_personhood: false,
                 }),
             });
             const result = await readPersonhoodState(chain, { username: "alice.dot" });
@@ -777,6 +781,31 @@ if (import.meta.vitest) {
             });
         });
 
+        test("carries the decoded record the state was derived from", async () => {
+            const { chain } = fakeChain({
+                owner: ALICE,
+                accountParticipant: raw({ last_attended_game: 99, reached_personhood: false }),
+            });
+            const result = unwrapOk(await readPersonhoodState(chain, { username: "alice.dot" }));
+            if (result.tag !== "Resolved") throw new Error("expected Resolved");
+            expect(result.participant).toEqual({
+                score: 7,
+                streak: { tag: "Attended", count: 4 },
+                attendanceHistory: 0xff,
+                reachedPersonhood: false,
+                hasEverReachedPersonhood: true,
+                recognition: "Recognized",
+                lastAttendedGame: 99,
+            });
+        });
+
+        test("carries a null record when the account has none", async () => {
+            const { chain } = fakeChain({ owner: ALICE });
+            const result = unwrapOk(await readPersonhoodState(chain, { username: "alice.dot" }));
+            if (result.tag !== "Resolved") throw new Error("expected Resolved");
+            expect(result.participant).toBeNull();
+        });
+
         test("metrics.misses counts the window now; Caution.misses projects one more absence", async () => {
             // 0b11001111: two absences inside the window today. Shifting one
             // more in leaves three, which is what the policy is evaluated
@@ -835,6 +864,7 @@ if (import.meta.vitest) {
                         score: 4,
                         recognition: { type: "NotRecognized" },
                         reached_personhood: false,
+                        has_ever_reached_personhood: false,
                     }),
                 }).chain,
                 { username: "alice.dot" },

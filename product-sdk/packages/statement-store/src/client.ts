@@ -70,8 +70,9 @@ export class StatementStoreClient {
     private destroyed = false;
 
     /**
-     * Track seen statements by channel hex to avoid re-delivering the same statement.
-     * Maps channel hex (or data hash) to the expiry value.
+     * Track seen statements to avoid re-delivering the same statement.
+     * Maps (signer, channel hex or data hash) to the expiry value: one slot per author, as the
+     * store keeps them.
      */
     private seen = new Map<string, bigint>();
 
@@ -333,16 +334,30 @@ export class StatementStoreClient {
         this.pruneSeenMap();
 
         const parsed = this.parseStatement<unknown>(stmt);
-        if (!parsed) return false;
+        if (!parsed) {
+            log.debug("Statement dropped: undecodable", { channel: stmt.channel });
+            return false;
+        }
 
-        // Deduplication key: channel hex (if present) or blake2b hash of data
-        const dedupeKey =
+        // Deduplication key: (signer, channel), or (signer, blake2b hash of data) without a
+        // channel. The store's last-write-wins slot is per (account, channel), so two accounts
+        // legitimately hold one statement each on the same channel; keying on the channel alone
+        // collapsed every author into one slot and silently discarded all but the highest-expiry
+        // statement on it.
+        const channelKey =
             parsed.channelHex ?? (parsed.raw.data ? toHex(blake2b256(parsed.raw.data)) : "");
+        const dedupeKey = `${parsed.signerHex ?? ""}|${channelKey}`;
 
         const existingExpiry = this.seen.get(dedupeKey);
         const newExpiry = parsed.expiry ?? 0n;
 
         if (existingExpiry !== undefined && newExpiry <= existingExpiry) {
+            log.debug("Statement deduped", {
+                channelHex: parsed.channelHex,
+                signerHex: parsed.signerHex,
+                existingExpiry,
+                newExpiry,
+            });
             return false;
         }
 
@@ -395,4 +410,65 @@ export class StatementStoreClient {
         if (topic2Name) topics.push(createTopic(topic2Name));
         return serializeTopicFilter({ matchAll: topics });
     }
+}
+
+if (import.meta.vitest) {
+    const { describe, test, expect } = import.meta.vitest;
+    const { createFakeStatementTransport } = await import("./testing.js");
+
+    const APP = "dedupe-app";
+    // Expiries must be in the future: pruneSeenMap() evicts past-dated entries before the
+    // dedupe check, so toy values would show every statement delivered whatever the key.
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const later = createExpiry(nowSecs + 7 * 24 * 3600);
+    const earlier = createExpiry(nowSecs + 7 * 24 * 3600 - 60);
+
+    /** A statement as the wire carries it: one channel, an explicit signer, an explicit expiry. */
+    const wire = (signer: `0x${string}`, expiry: bigint, who: string): Statement => ({
+        topics: [topicToHex(createTopic(APP))],
+        channel: topicToHex(createChannel("shared")),
+        expiry,
+        data: encodeData({ who }),
+        proof: { tag: "Sr25519", value: { signature: "0x00", signer } },
+    });
+
+    async function deliveredFrom(...statements: Statement[]): Promise<string[]> {
+        const transport = createFakeStatementTransport();
+        const client = new StatementStoreClient({ appName: APP, transport });
+        await client.connect({ mode: "host" });
+        const seen: string[] = [];
+        client.subscribe<{ who: string }>((s) => seen.push(s.data.who));
+        for (const statement of statements) transport.inject(statement);
+        client.destroy();
+        return seen;
+    }
+
+    describe("StatementStoreClient dedupe", () => {
+        test("keeps one slot per (signer, channel): two accounts on one channel are both delivered, whatever arrives first", async () => {
+            // The store keeps one statement per (account, channel); the later-published account
+            // holds the higher expiry, and the earlier account's statement arriving after it was
+            // dropped when the key was the channel alone.
+            const seen = await deliveredFrom(
+                wire("0xaaaa", later, "alice"),
+                wire("0xbbbb", earlier, "bob"),
+            );
+            expect(seen).toEqual(["alice", "bob"]);
+        });
+
+        test("still replaces within one account: an older statement on the same channel is not delivered", async () => {
+            const seen = await deliveredFrom(
+                wire("0xaaaa", later, "alice-new"),
+                wire("0xaaaa", earlier, "alice-old"),
+            );
+            expect(seen).toEqual(["alice-new"]);
+        });
+
+        test("two accounts with the same expiry on one channel are both delivered", async () => {
+            const seen = await deliveredFrom(
+                wire("0xaaaa", later, "alice"),
+                wire("0xbbbb", later, "bob"),
+            );
+            expect(seen).toEqual(["alice", "bob"]);
+        });
+    });
 }

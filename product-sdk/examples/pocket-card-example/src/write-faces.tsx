@@ -15,7 +15,8 @@ import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 
 import { androidLimits, assertFaceValid } from "@parity/product-sdk-renderer";
 
-import { CARD_ID, loyaltyFace, PREVIEW_STATES } from "./face.js";
+import { CARD_ID, LoyaltyFace, PREVIEW_STATES } from "./face.js";
+import { renderOnce } from "./render.js";
 
 interface WorkerManifest {
     entrypoint: string;
@@ -42,12 +43,12 @@ function checkManifestAgrees(): void {
 
     for (const card of cards) {
         if (card.id !== CARD_ID) {
-            problems.push(`the manifest declares card '${card.id}', but face.ts names '${CARD_ID}'`);
+            problems.push(`the manifest declares card '${card.id}', but face.tsx names '${CARD_ID}'`);
         }
         const state = card.preview.replace(/^pocket\//, "").replace(/\.json$/, "");
         if (!Object.hasOwn(PREVIEW_STATES, state)) {
             problems.push(
-                `the manifest's preview '${card.preview}' names no state that face.ts writes ` +
+                `the manifest's preview '${card.preview}' names no state that face.tsx writes ` +
                     `(${Object.keys(PREVIEW_STATES).join(", ")})`,
             );
         }
@@ -65,7 +66,8 @@ const outDir = new URL("../dist/pocket/", import.meta.url);
 mkdirSync(outDir, { recursive: true });
 
 for (const [name, state] of Object.entries(PREVIEW_STATES)) {
-    const json = `${JSON.stringify(loyaltyFace(state), null, 2)}\n`;
+    const face = renderOnce(<LoyaltyFace {...state} />);
+    const json = `${JSON.stringify(face, null, 2)}\n`;
 
     // The text is what the host reads and measures, so that is what is checked.
     // Indented JSON is about three times the compact form the tree alone would

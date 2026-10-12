@@ -5,8 +5,8 @@
         "previewnet_individuality": {
             "wsUrl": "wss://previewnet.substrate.dev/people",
             "metadata": "../../.papi/metadata/previewnet_individuality.scale",
-            "genesis": "0xf720c28fe3315e67fa799a616fc59abad47dd257b1a336af6538435844d35218",
-            "codeHash": "0x97d5e78153b239f6f4ac762f4d4e1d3c56c1c2ae19484ecfa395f0d817ded696"
+            "genesis": "0x55e3e689ecfa9d2fffcf7d309b8011956671493982230bfd0420c683542249e9",
+            "codeHash": "0x90d0e268041cf5e4a6d97dbba4d42e63747196b28becf245fd0de946ff843744"
         }
     }
 }

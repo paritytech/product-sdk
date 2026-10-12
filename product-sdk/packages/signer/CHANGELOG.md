@@ -1,5 +1,33 @@
 # @parity/product-sdk-signer
 
+## 0.16.2
+
+### Patch Changes
+
+- 133451f: A host error whose payload is a plain object no longer reads `[object Object]`. `formatError`, which builds the message of every `Host rejected … request` error and the `failed to get product account` log line, now serializes an object payload as JSON (bigints as decimal strings; byte arrays as hex, long ones cut to their first 64 bytes; a nested `Error` with its name, message, cause and own fields such as `code` and `data`; an object met twice as `[repeated]`, which also cuts cycles; elided past 500 characters) and shows a `{ reason }` payload under a tag as its reason. A product-account rejection that logged `Domain → V1 → Unknown ([object Object])` now carries the host's payload.
+
+## 0.16.1
+
+### Patch Changes
+
+- Updated dependencies [a1e1f72]
+  - @parity/product-sdk-host@0.25.0
+  - @parity/product-sdk-keys@0.4.3
+
+## 0.16.0
+
+### Minor Changes
+
+- df6b2c0: Host and terminal signer factories accept an optional `txExtVersion`, defaulting to `0`. It names the transaction extension version used to encode the supplied extensions; the host or paired wallet chooses V4 or V5 from it and the runtime metadata. Setting another version forwards it unchanged without re-encoding the extension bytes.
+
+### Patch Changes
+
+- Updated dependencies [df6b2c0]
+- Updated dependencies [df6b2c0]
+- Updated dependencies [df6b2c0]
+  - @parity/product-sdk-host@0.24.0
+  - @parity/product-sdk-keys@0.4.2
+
 ## 0.15.1
 
 ### Patch Changes

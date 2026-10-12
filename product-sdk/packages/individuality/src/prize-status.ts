@@ -364,6 +364,7 @@ if (import.meta.vitest) {
                         pins += 1;
                         return BLOCK;
                     },
+                    getBestBlocks: async () => [BLOCK],
                 },
             },
         };

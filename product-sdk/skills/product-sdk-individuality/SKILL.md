@@ -165,6 +165,7 @@ type PersonhoodResult =
       alias: string | null;           // contextual People alias, or null
       state: PersonhoodState;
       metrics: PersonhoodMetrics;     // the numbers behind the state, in every state
+      participant: PersonhoodParticipant | null; // the decoded Score.Participants record
     };
 ```
 

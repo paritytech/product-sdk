@@ -76,6 +76,8 @@
 // The seven-state union, its wrappers, and the pinned-block coordinates.
 export type {
     AbsenceGracePolicy,
+    BlockAt,
+    BlockSnapshot,
     FinalizedSnapshot,
     PersonhoodInputs,
     PersonhoodMetrics,
@@ -223,10 +225,51 @@ export { readCurrentGame } from "./game-read.js";
 export type { GameChain, GamePlayersChain, ReadCurrentGameOptions } from "./game-read.js";
 export type { PlayerKey } from "./player-key.js";
 
+// Best-block subscriptions over the same decoders as the pinned reads, for a UI that
+// follows the game live. Each returns its stop function and reports errors to `onError`.
+export { watchCurrentGame, watchParticipant, watchPlayer } from "./watch.js";
+export type {
+    CurrentGameWatchChain,
+    ParticipantWatchChain,
+    PlayerRecord,
+    PlayerWatchChain,
+    WatchAt,
+    WatchedBlock,
+    WatchedValue,
+    WatchErrorHandler,
+    WatchPlayerOptions,
+} from "./watch.js";
+
+// The roster of the running game. It exists from the end of the shuffle until
+// `PlayerProcess` drains it, which is exactly when `CurrentGame.playerCount` is set.
+export {
+    groupSeats,
+    numberOfGroups,
+    readCommunicationIdentifier,
+    readCreditCandidates,
+    readGroupMembers,
+    readPlayerIndices,
+} from "./roster.js";
+export type {
+    CommunicationIdentifierResult,
+    CreditCandidate,
+    CreditCandidatesChain,
+    CreditCandidatesResult,
+    GroupMember,
+    GroupMembersResult,
+    GroupSeat,
+    PlayerIndicesResult,
+    ReadCommunicationIdentifierOptions,
+    ReadCreditCandidatesOptions,
+    ReadGroupMembersOptions,
+    ReadPlayerIndicesOptions,
+    RosterChain,
+} from "./roster.js";
+
 // For callers holding their own PAPI client: build the chain shape without
 // `@parity/product-sdk-chain-client`.
 export { fromPapi } from "./chain.js";
-export type { FinalizedBlockSource, PapiIndividualityChain } from "./chain.js";
+export type { BlockSource, FinalizedBlockSource, PapiIndividualityChain } from "./chain.js";
 
 // Signing up for the game, and entering its prize draws in the same call. The
 // requirement read comes first because the event ids depend on the game index and
@@ -251,13 +294,18 @@ export type { VrfTranscript, VrfTranscriptItem } from "./signup-vrf.js";
 export {
     mintAccountAirdropVrfs,
     readGameSignUpRequirement,
+    readSignUpFunds,
     signUpWithAccountTx,
 } from "./signup.js";
 export type {
     AirdropVrfSigner,
+    FeeEstimable,
     MintAccountAirdropVrfsOptions,
     ReadGameSignUpRequirementOptions,
+    ReadSignUpFundsOptions,
     SignUpChain,
+    SignUpFunds,
+    SignUpFundsChain,
     SignUpWithAccountOptions,
 } from "./signup.js";
 
@@ -282,6 +330,15 @@ export type {
     ConfirmClaimOptions,
     ReadClaimEligibilityOptions,
 } from "./claim.js";
+
+// Reporting on a finished game, and leaving the game. Unsigned, like `claimPrizeTx`.
+// Both take the score participant origin, so wrap the signer in `withScoreParticipant`.
+export { offboardTx, reportTx } from "./report.js";
+export type { RawReportVote, ReportChain, ReportOptions, ReportVote } from "./report.js";
+
+// The hash of one NFT claim credit, derived offline. Reading the claims the chain has
+// awarded belongs to `@parity/product-sdk-nfts`, which carries the proof a mint needs.
+export { creditHash } from "./credits.js";
 
 // Proof contexts, derived offline. Everything a host signs under is
 // `blake2b-256("product/" ++ productId ++ "/" ++ suffix)`, so a product can

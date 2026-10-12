@@ -86,9 +86,8 @@ export interface RawRecognition {
 /**
  * The raw `Score.Participants` value, narrowed to the fields the domain reads.
  *
- * The chain also sends `credit`, `cashed_out` and `has_ever_reached_personhood`.
- * All three are deliberately absent: the first two are game-economy fields with
- * no bearing on membership, and the state machine never reads the third. Extra
+ * The chain also sends `credit` and `cashed_out`. Both are deliberately absent:
+ * they are game-economy fields with no bearing on membership. Extra
  * fields on the actual value are accepted — this is a structural type, not an
  * exhaustive record of the storage entry.
  */
@@ -97,6 +96,7 @@ export interface RawParticipant {
     streak: RawStreak;
     attendance_history: number;
     reached_personhood: boolean;
+    has_ever_reached_personhood: boolean;
     recognition: RawRecognition;
     last_attended_game?: number | undefined;
 }
@@ -147,6 +147,7 @@ export function toPersonhoodParticipant(raw: RawParticipant): PersonhoodParticip
         streak: { tag: streakTag(raw.streak.type), count: raw.streak.value },
         attendanceHistory: raw.attendance_history,
         reachedPersonhood: raw.reached_personhood,
+        hasEverReachedPersonhood: raw.has_ever_reached_personhood,
         recognition: recognitionTag(raw.recognition.type),
         lastAttendedGame: raw.last_attended_game ?? null,
     };
@@ -161,6 +162,7 @@ if (import.meta.vitest) {
         streak: { type: "Attended", value: 3 },
         attendance_history: 0b1101,
         reached_personhood: true,
+        has_ever_reached_personhood: true,
         recognition: { type: "Recognized", value: 5n },
         last_attended_game: 7_777,
         ...overrides,
@@ -226,6 +228,7 @@ if (import.meta.vitest) {
                 streak: { tag: "Attended", count: 3 },
                 attendanceHistory: 0b1101,
                 reachedPersonhood: true,
+                hasEverReachedPersonhood: true,
                 recognition: "Recognized",
                 lastAttendedGame: 7_777,
             });
@@ -257,6 +260,22 @@ if (import.meta.vitest) {
                     expect.objectContaining({ recognition: expected }),
                 );
             }
+        });
+
+        test("maps has_ever_reached_personhood on its own, since it outlives reached_personhood", () => {
+            expect(
+                toPersonhoodParticipant(
+                    rawParticipant({
+                        reached_personhood: false,
+                        has_ever_reached_personhood: true,
+                    }),
+                ),
+            ).toEqual(
+                expect.objectContaining({
+                    reachedPersonhood: false,
+                    hasEverReachedPersonhood: true,
+                }),
+            );
         });
 
         test("maps a missing last_attended_game to null", () => {

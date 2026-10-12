@@ -14,10 +14,12 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-cloud-storage` | Upload and retrieve data via Cloud Storage (currently backed by the Polkadot Bulletin Chain) |
 | `@parity/product-sdk-statement-store` | Publish/subscribe client for the Polkadot Statement Store |
 | `@parity/product-sdk-individuality` | Read a person's personhood state, usernames, and the game and its prize draws, sign up for a game, and dispatch calls under a person origin |
+| `@parity/product-sdk-nfts` | Read Scarcity collections and item catalogues, the claims a player holds, what a claim reveals, and verified artwork |
 | `@parity/product-sdk-keys` | Hierarchical key derivation, session keys, and sr25519 product-account derivation |
 | `@parity/product-sdk-local-storage` | Key-value local storage with automatic host/browser backend detection |
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
-| `@parity/product-sdk-renderer` | Build and validate renderer trees for Pocket card faces and rendered chat bodies |
+| `@parity/product-sdk-renderer` | Check a renderer tree against the protocol before it reaches a device |
+| `@parity/product-sdk-react-renderer` | Author those trees in JSX, for a product already using React |
 | `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
 | `@parity/product-sdk-crypto` | Cryptographic primitives — encryption, key derivation, NaCl |
 | `@parity/product-sdk-descriptors` | PAPI-generated chain descriptors for Polkadot ecosystem |
@@ -52,7 +54,7 @@ pnpm check
 
 ## E2E Testing
 
-The `examples/` directory contains 9 demo apps that exercise the SDK packages via Playwright:
+The `examples/` directory contains 10 demo apps that exercise the SDK packages via Playwright:
 
 | Demo | Tests |
 |------|-------|
@@ -65,6 +67,7 @@ The `examples/` directory contains 9 demo apps that exercise the SDK packages vi
 | `contracts-demo` | Contract queries and submissions |
 | `cloud-storage-demo` | CID computation, upload, query |
 | `statement-store-demo` | Publish/subscribe, channels |
+| `nfts-demo` | Claim registry, collection catalogue, claims, reveal, verified artwork, cancellation |
 
 ```bash
 # Install Playwright browsers (first time)
