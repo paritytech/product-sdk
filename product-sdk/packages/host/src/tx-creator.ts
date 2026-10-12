@@ -9,6 +9,11 @@
  * creator fills the standard extensions with the PAPI enhancers, keeps the ones
  * the chosen pipeline declares, and forwards them with the version unchanged.
  *
+ * A payload that names no version signs on the preferred pipeline when that
+ * carries every extension the caller supplied, and otherwise on the lowest
+ * pipeline that does. On Asset Hub runtime 3004000 that lifts a transaction
+ * carrying `AsPgas` to version 1, because version 0 does not declare it.
+ *
  * A caller that writes its own extensions, such as the person-origin wrappers in
  * `@parity/product-sdk-individuality`, sets `txExtVersion` on the payload, and
  * the host is told that version rather than one guessed from the extension names.
@@ -27,7 +32,11 @@ import {
     withCommonExtensions,
     withNonce,
 } from "@polkadot-api/signers-common";
-import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
+import {
+    type UnifiedMetadata,
+    decAnyMetadata,
+    unifyMetadata,
+} from "@polkadot-api/substrate-bindings";
 import type { TxCreator, TxPayloadV1 } from "@polkadot-api/tx-creator";
 import { getTxCreator, getVerifyMultiSignatureTxCreator } from "polkadot-api/tx-creator";
 
@@ -52,62 +61,150 @@ export interface HostTxRequest {
  * @param publicKey - the account the host signs with, used for the nonce and the mocked signature.
  * @param sendToHost - one host round trip, returning the signed extrinsic as hex.
  * @param signBytes - raw byte signing for the same account.
- * @param defaultTxExtVersion - the version to use when the payload names none.
+ * @param preferredTxExtVersion - the version to sign on when the payload names none and that pipeline carries every supplied extension.
  */
 export function createHostTxCreator(
     publicKey: Uint8Array,
     sendToHost: (request: HostTxRequest) => Promise<`0x${string}`>,
     signBytes: (data: Uint8Array) => Promise<Uint8Array>,
-    defaultTxExtVersion = 0,
+    preferredTxExtVersion = 0,
 ): CommonSignerTxCreator {
     const neverSigns = (): Uint8Array => {
         throw new Error("a mocked transaction must not be signed");
     };
     const mockedV4 = getTxCreator(publicKey, "Sr25519", neverSigns);
     const mockedV5 = getVerifyMultiSignatureTxCreator(publicKey, "Sr25519", neverSigns);
+    const pipelinesOf = cachedPipelines();
 
     const create: TxCreator<[]> = async (payload, opts, bindings, mocked) => {
-        const txExtVersion = payload.txExtVersion ?? defaultTxExtVersion;
+        const txExtVersion = payload.txExtVersion ?? preferredTxExtVersion;
+        const declared = pipelinesOf(payload.context.metadata)[txExtVersion];
+        if (!declared) {
+            throw new Error(
+                `chain declares no transaction-extension pipeline version ${txExtVersion}`,
+            );
+        }
         if (mocked) {
-            const withVersion = { ...payload, txExtVersion };
-            return txExtVersion === 0
-                ? mockedV4(withVersion, opts as never, bindings, true)
-                : mockedV5(
-                      withVersion,
+            // A pipeline without VerifyMultiSignature is authorized by some other
+            // extension, so it is priced as the plain account transaction it would
+            // otherwise be.
+            const signsInPipeline = declared.some(
+                ({ identifier }) => identifier === "VerifyMultiSignature",
+            );
+            return signsInPipeline
+                ? mockedV5(
+                      { ...payload, txExtVersion },
                       { ...opts, extensionVersion: txExtVersion } as never,
                       bindings,
                       true,
-                  );
+                  )
+                : mockedV4({ ...payload, txExtVersion: 0 }, opts as never, bindings, true);
         }
         return sendToHost({
             genesisHash: payload.context.genesisHash as `0x${string}`,
             callData: payload.callData as `0x${string}`,
-            extensions: pipelineExtensions(payload, txExtVersion),
+            extensions: pipelineExtensions(payload, declared),
             txExtVersion,
         });
     };
 
-    return Object.assign(withNonce(publicKey)(withCommonExtensions(create)), {
-        publicKey,
-        signBytes,
-    });
+    const signer = withNonce(publicKey)(withCommonExtensions(create));
+    // The choice reads the payload before the enhancers run, because they fill
+    // a default for every extension any pipeline declares and every version
+    // would then look equally well supplied.
+    const choosing: typeof signer = async (payload, opts, bindings, mocked) =>
+        signer(
+            payload.txExtVersion == null
+                ? {
+                      ...payload,
+                      txExtVersion: chooseVersion(
+                          pipelinesOf(payload.context.metadata),
+                          suppliedExtensionIds(payload, opts),
+                          preferredTxExtVersion,
+                      ),
+                  }
+                : payload,
+            opts,
+            bindings,
+            mocked,
+        );
+
+    return Object.assign(choosing, { publicKey, signBytes });
+}
+
+type Pipelines = UnifiedMetadata["extrinsic"]["extensionsByVersion"];
+
+/** Decode each metadata blob once, since PAPI hands the same one until the runtime upgrades. */
+function cachedPipelines(): (metadata: string) => Pipelines {
+    let cached: { metadata: string; pipelines: Pipelines } | undefined;
+    return (metadata) => {
+        if (cached?.metadata !== metadata) {
+            cached = {
+                metadata,
+                pipelines: unifyMetadata(decAnyMetadata(metadata)).extrinsic.extensionsByVersion,
+            };
+        }
+        return cached.pipelines;
+    };
 }
 
 /**
- * The payload extensions the pipeline at `txExtVersion` declares, in its order.
+ * The extensions the caller wrote, on the payload or as PAPI `customSignedExtensions`.
+ *
+ * A falsy entry is skipped, as the PAPI enhancer that encodes them skips it.
+ */
+function suppliedExtensionIds(payload: TxPayloadV1, opts: unknown): string[] {
+    const custom =
+        (opts as { customSignedExtensions?: Record<string, unknown> } | undefined)
+            ?.customSignedExtensions ?? {};
+    return [
+        ...new Set([
+            ...payload.extensions.map(({ id }) => id),
+            ...Object.keys(custom).filter((id) => custom[id]),
+        ]),
+    ];
+}
+
+/**
+ * The preferred version when its pipeline carries every supplied extension, else the lowest that does.
+ *
+ * Mirrors `withChooseTxVersion` in the PAPI signers. An undeclared preferred
+ * version is returned as is, so signing refuses it by number.
+ */
+function chooseVersion(pipelines: Pipelines, supplied: string[], preferred: number): number {
+    const carriesAll = (version: number) =>
+        supplied.every((id) => pipelines[version].some(({ identifier }) => identifier === id));
+    if (!pipelines[preferred] || carriesAll(preferred)) return preferred;
+    const version = Object.keys(pipelines)
+        .map(Number)
+        .sort((a, b) => a - b)
+        .find(carriesAll);
+    if (version === undefined) {
+        throw new Error(
+            `no transaction-extension pipeline carries every one of ${supplied.join(", ")}`,
+        );
+    }
+    return version;
+}
+
+/**
+ * The payload extensions the chosen pipeline declares, in its order.
  *
  * The PAPI enhancers fill every extension any pipeline declares, so a two-pipeline
  * chain such as People runtime 3004000 hands over slots the chosen version does
  * not carry. `VerifyMultiSignature` stays out unless the payload set it, because
  * the host signs into that slot itself.
  */
-function pipelineExtensions(payload: TxPayloadV1, txExtVersion: number): HostTxExtension[] {
-    const declared = unifyMetadata(decAnyMetadata(payload.context.metadata)).extrinsic
-        .extensionsByVersion[txExtVersion];
-    if (!declared) {
-        throw new Error(`chain declares no transaction-extension pipeline version ${txExtVersion}`);
+function pipelineExtensions(
+    payload: TxPayloadV1,
+    declared: ReadonlyArray<{ identifier: string }>,
+): HostTxExtension[] {
+    // First occurrence wins, as in the PAPI creators, so a custom extension
+    // appended after one the outer wrapper already wrote cannot replace it.
+    const supplied = new Map<string, TxPayloadV1["extensions"][number]>();
+    for (const extension of payload.extensions) {
+        if (!supplied.has(extension.id)) supplied.set(extension.id, extension);
     }
-    const supplied = new Map(payload.extensions.map((extension) => [extension.id, extension]));
     return declared.flatMap(({ identifier }) => {
         const extension = supplied.get(identifier);
         return extension
@@ -125,7 +222,10 @@ function pipelineExtensions(payload: TxPayloadV1, txExtVersion: number): HostTxE
 if (import.meta.vitest) {
     const { describe, expect, test, vi } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
-    const { toHex } = await import("./truapi.js");
+    const { fromHex, toHex } = await import("./truapi.js");
+    const { Blake2256, compactNumber, extrinsicFormat, metadata } = await import(
+        "@polkadot-api/substrate-bindings"
+    );
 
     // People runtime 3004000: version 0 holds the plain account extensions,
     // version 1 adds the person and origin ones.
@@ -140,21 +240,28 @@ if (import.meta.vitest) {
         ),
     );
     const pipelines = unifyMetadata(decAnyMetadata(PEOPLE)).extrinsic.extensionsByVersion;
-    const everyExtension = [...new Set(pipelines[1].map(({ identifier }) => identifier))]
-        .filter((identifier) => identifier !== "VerifyMultiSignature")
-        .map((identifier, index) => ({
-            id: identifier,
-            extra: toHex(new Uint8Array([index])),
-            additionalSigned: "0x",
-        }));
-    const payloadAt = (txExtVersion: number | null): TxPayloadV1 => ({
+    const filledOn = (version: number) =>
+        pipelines[version]
+            .filter(({ identifier }) => identifier !== "VerifyMultiSignature")
+            .map(({ identifier }, index) => ({
+                id: identifier,
+                extra: toHex(new Uint8Array([index])),
+                additionalSigned: "0x",
+            }));
+    const everyExtension = filledOn(1);
+    const plainExtensions = filledOn(0);
+    const payloadAt = (
+        txExtVersion: number | null,
+        extensions: TxPayloadV1["extensions"] = everyExtension,
+        metadata = PEOPLE,
+    ): TxPayloadV1 => ({
         version: 1,
         signer: null,
         callData: "0xca11",
-        extensions: everyExtension,
+        extensions,
         txExtVersion,
         context: {
-            metadata: PEOPLE,
+            metadata,
             token: null,
             bestBlockHeight: 1,
             bestBlockHash: `0x${"11".repeat(32)}`,
@@ -163,7 +270,25 @@ if (import.meta.vitest) {
     });
     const noBindings = {} as Parameters<TxCreator>[2];
 
-    function hostSpy() {
+    // Asset Hub runtime 3004000: version 0 is the plain pipeline, version 1
+    // adds AsPgas and the other origin extensions.
+    const ASSET_HUB = toHex(
+        new Uint8Array(
+            readFileSync(
+                new URL("../../descriptors/.papi/metadata/paseo_asset_hub.scale", import.meta.url),
+            ),
+        ),
+    );
+    const assetHubPlain = unifyMetadata(
+        decAnyMetadata(ASSET_HUB),
+    ).extrinsic.extensionsByVersion[0].map(({ identifier }, index) => ({
+        id: identifier,
+        extra: toHex(new Uint8Array([index])),
+        additionalSigned: "0x",
+    }));
+    const asPgas = { id: "AsPgas", extra: "0x01ab", additionalSigned: "0x" };
+
+    function hostSpy(preferredTxExtVersion?: number) {
         const requests: HostTxRequest[] = [];
         const creator = createHostTxCreator(
             new Uint8Array(32).fill(0xaa),
@@ -172,6 +297,7 @@ if (import.meta.vitest) {
                 return "0xdead";
             },
             async () => new Uint8Array(64),
+            preferredTxExtVersion,
         );
         return { creator, requests };
     }
@@ -179,11 +305,75 @@ if (import.meta.vitest) {
     describe("createHostTxCreator", () => {
         test("a plain transaction signs on pipeline version 0 with only its extensions", async () => {
             const { creator, requests } = hostSpy();
-            await creator(payloadAt(null), {}, noBindings, false);
+            await creator(payloadAt(null, plainExtensions), {}, noBindings, false);
             expect(requests[0].txExtVersion).toBe(0);
             expect(requests[0].extensions.map(({ id }) => id)).toEqual(
                 pipelines[0].map(({ identifier }) => identifier),
             );
+        });
+
+        test("an extension only version 1 declares lifts the transaction to version 1", async () => {
+            const { creator, requests } = hostSpy();
+            await creator(
+                payloadAt(null, [...assetHubPlain, asPgas], ASSET_HUB),
+                {},
+                noBindings,
+                false,
+            );
+            expect(requests[0].txExtVersion).toBe(1);
+            expect(requests[0].extensions).toContainEqual(asPgas);
+        });
+
+        test("an extension passed as PAPI customSignedExtensions counts as supplied", async () => {
+            const { creator, requests } = hostSpy();
+            await creator(
+                payloadAt(null, assetHubPlain, ASSET_HUB),
+                { customSignedExtensions: { AsPgas: { value: undefined } } } as never,
+                noBindings,
+                false,
+            );
+            expect(requests[0].txExtVersion).toBe(1);
+            expect(requests[0].extensions.find(({ id }) => id === "AsPgas")?.extra).toBe("0x00");
+        });
+
+        test("slots the enhancers fill with a default do not lift the version", async () => {
+            // The enhancers fill AsPgas with None, since its type is an Option,
+            // so a choice made after them would always land on version 1.
+            const { creator, requests } = hostSpy();
+            await creator(payloadAt(null, assetHubPlain, ASSET_HUB), {}, noBindings, false);
+            expect(requests[0].txExtVersion).toBe(0);
+            expect(requests[0].extensions.map(({ id }) => id)).not.toContain("AsPgas");
+        });
+
+        test("the preferred version is kept when its pipeline carries every supplied extension", async () => {
+            const { creator, requests } = hostSpy(1);
+            await creator(payloadAt(null, plainExtensions), {}, noBindings, false);
+            expect(requests[0].txExtVersion).toBe(1);
+        });
+
+        test("an extension no pipeline declares is refused before the host is asked", async () => {
+            const { creator, requests } = hostSpy();
+            const unknown = { id: "NotAnExtension", extra: "0x00", additionalSigned: "0x" };
+            await expect(
+                creator(payloadAt(null, [...plainExtensions, unknown]), {}, noBindings, false),
+            ).rejects.toThrow(
+                /no transaction-extension pipeline carries every one of .*NotAnExtension/,
+            );
+            expect(requests).toHaveLength(0);
+        });
+
+        test("a preferred version the chain does not declare is refused by number", async () => {
+            const { creator, requests } = hostSpy(7);
+            await expect(
+                creator(payloadAt(null, plainExtensions), {}, noBindings, false),
+            ).rejects.toThrow(/no transaction-extension pipeline version 7/);
+            expect(requests).toHaveLength(0);
+        });
+
+        test("the version on the payload wins over the extensions supplied", async () => {
+            const { creator, requests } = hostSpy();
+            await creator(payloadAt(1, plainExtensions), {}, noBindings, false);
+            expect(requests[0].txExtVersion).toBe(1);
         });
 
         test("the version on the payload wins and selects that pipeline", async () => {
@@ -213,7 +403,12 @@ if (import.meta.vitest) {
         test("a fee estimate never reaches the host", async () => {
             const { creator, requests } = hostSpy();
             const hasher = vi.fn();
-            const estimate = await creator(payloadAt(null), {}, { hasher } as never, true);
+            const estimate = await creator(
+                payloadAt(null, plainExtensions),
+                {},
+                { hasher } as never,
+                true,
+            );
             expect(requests).toHaveLength(0);
             expect(estimate.startsWith("0x")).toBe(true);
         });
@@ -224,6 +419,78 @@ if (import.meta.vitest) {
                 /no transaction-extension pipeline version 7/,
             );
             expect(requests).toHaveLength(0);
+        });
+
+        test("a fee estimate on a version the chain does not declare is refused the same way", async () => {
+            const { creator, requests } = hostSpy();
+            await expect(creator(payloadAt(7), {}, noBindings, true)).rejects.toThrow(
+                /no transaction-extension pipeline version 7/,
+            );
+            expect(requests).toHaveLength(0);
+        });
+
+        test("a fee estimate on pipeline version 1 is a general transaction built locally", async () => {
+            const { creator, requests } = hostSpy();
+            const hashed: Uint8Array[] = [];
+            const hasher = (data: Uint8Array) => ({
+                subscribe(observer: { next(value: Uint8Array): void; complete(): void }) {
+                    hashed.push(data);
+                    observer.next(Blake2256(data));
+                    observer.complete();
+                    return { unsubscribe() {} };
+                },
+            });
+            const estimate = await creator(payloadAt(1), {}, { hasher } as never, true);
+            expect(requests).toHaveLength(0);
+            const bytes = fromHex(estimate);
+            const body = bytes.slice(bytes.length - compactNumber.dec(bytes));
+            expect(extrinsicFormat.dec(body)).toEqual({ version: 5, type: "general" });
+            // The v5 creator hashes the extension version first.
+            expect(hashed[0]?.[0]).toBe(1);
+        });
+
+        test("a fee estimate on a pipeline without VerifyMultiSignature is priced as a plain account transaction", async () => {
+            const decoded = metadata.dec(PEOPLE);
+            if (decoded.metadata.tag !== "v16") throw new Error("expected v16 metadata");
+            const extrinsic = decoded.metadata.value.extrinsic;
+            const verify = extrinsic.signedExtensions.findIndex(
+                ({ identifier }) => identifier === "VerifyMultiSignature",
+            );
+            extrinsic.signedExtensionsByVersion = extrinsic.signedExtensionsByVersion.map(
+                ([version, indices]) => [
+                    version,
+                    version === 1 ? indices.filter((index) => index !== verify) : indices,
+                ],
+            );
+            const payload = payloadAt(1);
+            const { creator, requests } = hostSpy();
+            const estimate = await creator(
+                {
+                    ...payload,
+                    context: { ...payload.context, metadata: toHex(metadata.enc(decoded)) },
+                },
+                {},
+                noBindings,
+                true,
+            );
+            expect(requests).toHaveLength(0);
+            const bytes = fromHex(estimate);
+            const body = bytes.slice(bytes.length - compactNumber.dec(bytes));
+            expect(extrinsicFormat.dec(body)).toEqual({ version: 4, type: "signed" });
+        });
+
+        test("the first of two entries for one extension is the one the host signs", async () => {
+            const { creator, requests } = hostSpy();
+            const payload = payloadAt(null, plainExtensions);
+            const nonce = payload.extensions.find(({ id }) => id === "CheckNonce");
+            const later = { id: "CheckNonce", extra: "0xffff", additionalSigned: "0x" };
+            await creator(
+                { ...payload, extensions: [...payload.extensions, later] },
+                {},
+                noBindings,
+                false,
+            );
+            expect(requests[0].extensions.find(({ id }) => id === "CheckNonce")).toEqual(nonce);
         });
     });
 }

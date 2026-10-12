@@ -14,7 +14,9 @@
  * `truApi.signing.createTransaction` (product) and
  * `createTransactionWithLegacyAccount` (legacy), through `createHostTxCreator`.
  * `signBytes` calls `signing.signRaw(WithLegacyAccount)`.
- * Opaque signed extensions (e.g. Paseo Next's `AsPgas`) survive end-to-end.
+ * Opaque signed extensions such as `AsPgas` survive end-to-end. The signer
+ * picks a pipeline version that declares them, version 1 for `AsPgas` on
+ * Asset Hub runtime 3004000.
  *
  * Every one of those raw-signing paths `<Bytes>`-wraps the payload before the
  * key touches it. A runtime that verifies a bare-byte ownership proof — today
@@ -140,10 +142,13 @@ export type ProductAccountLookup = Omit<ProductAccountId, "derivationIndex"> & {
 /** Transaction settings for host-backed signers. */
 export interface HostSignerOptions {
     /**
-     * Pipeline version to sign with when the transaction names none. Defaults to 0.
+     * Pipeline version to prefer when the transaction names none. Defaults to 0.
      *
-     * A wrapper that writes its own extensions, such as `withAsPerson`, sets the
-     * version on the transaction itself, and that always wins.
+     * When that pipeline does not declare every extension the caller supplied,
+     * for example in `customSignedExtensions`, the signer uses the lowest version
+     * that does, and refuses a transaction no pipeline can carry. A wrapper that
+     * writes its own extensions, such as `withAsPerson`, sets the version on the
+     * transaction itself, and that always wins.
      */
     txExtVersion?: number;
 }
@@ -1101,8 +1106,8 @@ if (import.meta.vitest) {
         expect(signature).toEqual(fromHex("0xf00d"));
     });
 
-    // A PAPI 3 payload against a real single-pipeline blob, with every declared
-    // extension already filled so no enhancer needs chain bindings.
+    // A PAPI 3 payload against the real Asset Hub blob, with every extension of
+    // pipeline version 0 already filled so no enhancer needs chain bindings.
     const { readFileSync } = await import("node:fs");
     const ASSET_HUB = toHex(
         new Uint8Array(

@@ -221,7 +221,12 @@ function toExtensionMap(
     pipeline: ExtensionPipeline,
     supplied: TxPayloadV1["extensions"],
 ): PapiSignedExtensions {
-    const byId = new Map(supplied.map((extension) => [extension.id, extension]));
+    // First occurrence wins, as in the PAPI creators and the host creator, so
+    // an entry appended after one already written cannot replace it.
+    const byId = new Map<string, TxPayloadV1["extensions"][number]>();
+    for (const extension of supplied) {
+        if (!byId.has(extension.id)) byId.set(extension.id, extension);
+    }
     return Object.fromEntries(
         pipeline.extensions.flatMap(({ identifier }) => {
             const extension = byId.get(identifier);
@@ -491,6 +496,25 @@ if (import.meta.vitest) {
             ];
             expect(Object.keys(seen[2])).toContain("GameAsInvited");
             expect(seen[1]).toEqual(Uint8Array.of(0x33, 0x01, 0xaa));
+        });
+
+        test("the first of two entries for one extension is the one the proof covers", async () => {
+            const { signer } = spySigner();
+            const withSpy = spec(false);
+            const original = payload();
+            const later = { id: CHECK_NONCE, extra: "0xffff", additionalSigned: "0x" };
+            await withOriginExtension(signer, withSpy)(
+                { ...original, extensions: [...original.extensions, later] },
+                {},
+                {} as never,
+                false,
+            );
+            const seen = withSpy.buildValue.mock.calls[0] as unknown as [
+                ExtensionPipeline,
+                Uint8Array,
+                PapiSignedExtensions,
+            ];
+            expect(seen[2][CHECK_NONCE].value).toEqual(Uint8Array.of(0x1c));
         });
 
         test("a fee estimate reaches the inner signer untouched and asks for no proof", async () => {

@@ -36,7 +36,7 @@
  * read applies no registry filter either.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { pinBlock, readAt, type NftsChain } from "./chain.js";
+import { blockHolds, pinBlock, readAt, type NftsChain } from "./chain.js";
 import { fillByIdWindow, pageBounds } from "./paging.js";
 import { matchChainEntryError, NftsDecodeError, ProductNftsError } from "./errors.js";
 import { decodeMetadataValue, NAME_KEY } from "./metadata.js";
@@ -217,9 +217,10 @@ export async function getClaimableCollections(
     chain: NftsChain,
     options: GetClaimableCollectionsOptions = {},
 ): Promise<Result<ClaimableCollectionsResult, ProductNftsError>> {
+    const holds = blockHolds();
     try {
         const { signal } = options;
-        const snapshot = await pinBlock(chain, signal, options.at);
+        const snapshot = await pinBlock(chain, signal, options.at, holds);
         const at = readAt(snapshot, signal);
         const query = chain.assetHub.query;
 
@@ -277,6 +278,8 @@ export async function getClaimableCollections(
         return ok({ at: snapshot, collections, idCeiling, nextId });
     } catch (cause) {
         return err(matchChainEntryError(cause) ?? normalizeError(cause, ProductNftsError));
+    } finally {
+        holds.release();
     }
 }
 
@@ -451,15 +454,18 @@ export async function getCollections(
     chain: NftsChain,
     options: GetCollectionsOptions = {},
 ): Promise<Result<CollectionsResult, ProductNftsError>> {
+    const holds = blockHolds();
     try {
         const { signal } = options;
-        const snapshot = await pinBlock(chain, signal, options.at);
+        const snapshot = await pinBlock(chain, signal, options.at, holds);
         const at = readAt(snapshot, signal);
         const query = chain.assetHub.query;
 
         return ok(await readPage(query, at, snapshot, options));
     } catch (cause) {
         return err(matchChainEntryError(cause) ?? normalizeError(cause, ProductNftsError));
+    } finally {
+        holds.release();
     }
 }
 

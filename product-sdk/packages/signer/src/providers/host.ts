@@ -420,7 +420,8 @@ export class HostProvider implements SignerProvider {
      *
      * Signing routes through the host's `createTransaction` path, so unknown
      * signed extensions (e.g. `AsPgas` on Paseo Next) are forwarded to the host
-     * as opaque bytes for metadata-driven decoding.
+     * as opaque bytes for metadata-driven decoding. The signer picks a pipeline
+     * version that declares them, version 1 for `AsPgas` on Asset Hub runtime 3004000.
      */
     getProductAccountSigner(
         account: ProductAccount,

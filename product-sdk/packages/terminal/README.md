@@ -99,7 +99,7 @@ Whether `error` is the benign teardown noise above (`Client destroyed`, matched 
 
 ### `createSessionSigner(session, adapter, publicKey?, options?): Promise<CommonSignerTxCreator>`
 
-Creates a `CommonSignerTxCreator` backed by a QR-paired mobile wallet session, using the session's **default account** (`derivationIndex: 0`) under the adapter's `appId`. This is the right entry point for ~all CLI flows.
+Creates a `CommonSignerTxCreator` backed by a QR-paired mobile wallet session, using the **default account** of the session (`derivationIndex: 0`) under the adapter's `appId`. This is the right entry point for ~all CLI flows.
 
 Async because the signer needs the product's subtree public key (RFC-0022), which only the paired wallet holds. That is one consent-free round trip the first time a product is seen; afterwards it is served from a cache on disk.
 
@@ -124,7 +124,7 @@ const subSigner = await createSessionSignerForAccount(session, {
 });
 ```
 
-Both factories accept `SessionSignerOptions`, extending `ProductSubtreeOptions` with optional `txExtVersion`. It is the pipeline version to sign with when the transaction names none, and defaults to `0`. A wrapper that writes its own extensions, such as `withAsPerson`, sets the version on the PAPI 3 payload itself, and that version always wins.
+Both factories accept `SessionSignerOptions`, extending `ProductSubtreeOptions` with optional `txExtVersion`. It is the pipeline version to prefer when the transaction names none, and defaults to `0`. When that pipeline does not declare every extension the caller supplied, for example in `customSignedExtensions`, the signer uses the lowest version that does, and refuses a transaction no pipeline can carry. A wrapper that writes its own extensions, such as `withAsPerson`, sets the version on the PAPI 3 payload itself, and that version always wins.
 
 > **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
 
@@ -282,7 +282,7 @@ Read-only cache lookup; no wire round-trip.
 
 ### `createSlotAccountSigner(adapter, resource): Promise<CommonSignerTxCreator | null>`
 
-Build a `CommonSignerTxCreator` from the cached slot key without round-tripping. Returns `null` if nothing's cached (use `ensureSlotAccountSigner` for the round-trip-if-missing flow).
+Build a `CommonSignerTxCreator` from the cached slot key without round-tripping. Returns `null` if nothing is cached (use `ensureSlotAccountSigner` for the round-trip-if-missing flow).
 
 > **Caveats.** `AutoSigning` currently returns `NotAvailable` on both Android and iOS wallets. Slot renewal at expiry depends on [paritytech/individuality#931](https://github.com/paritytech/individuality/pull/931) (open) — first-time allocation works end-to-end today.
 
@@ -359,7 +359,7 @@ const sessions = await waitForSessions(adapter);
 
 After login and attestation, the paired wallet can sign both transactions and raw messages via the statement store. The `CommonSignerTxCreator` returned by `createSessionSigner` routes each path to the right host-papp method:
 
-- **Transactions** (the creator itself, used by `submitAndWatch`, `createSubmitAndWatch`, and contract calls) go through `session.createTransaction`. The signer forwards the account, call data, `txExtVersion`, and every extension's encoded `extra` and `additionalSigned` bytes, including unknown extensions such as `AsPgas`. The wallet decodes the transaction for display and returns the signed extrinsic.
+- **Transactions** (the creator itself, used by `submitAndWatch`, `createSubmitAndWatch`, and contract calls) go through `session.createTransaction`. The signer forwards the account, call data, `txExtVersion`, and the encoded `extra` and `additionalSigned` bytes of every extension, including unknown extensions such as `AsPgas`. The version is one whose pipeline declares every supplied extension, so `AsPgas` on Asset Hub runtime 3004000 goes out on version 1. The wallet decodes the transaction for display and returns the signed extrinsic.
 - **Raw bytes** (`signBytes`) go through `session.signRaw` with the `Bytes` tag. Mobile applies the standard `<Bytes>...</Bytes>` anti-phishing wrap before signing — appropriate for arbitrary data, the same behavior `signRaw` has across all Polkadot wallets.
 
 > **Note on previous bugs.** Versions prior to `0.1.1` routed *all* signing through `signRaw` with no tag distinction, producing `BadProof`-rejected signatures. Versions `0.1.1` through `0.2.x` then used `polkadot-api/pjs-signer`, which threw `PJS does not support this signed-extension: <name>` on any extension outside its eight built-in mappers (notably `AsPgas`). The current path bypasses both pitfalls.

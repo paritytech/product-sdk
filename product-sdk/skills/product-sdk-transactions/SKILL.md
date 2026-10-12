@@ -209,9 +209,10 @@ const result = await manager.connect();
 if (result.ok) {
   // Request a product account — its signer routes through
   // `host_create_transaction` (PR #96), which preserves arbitrary signed
-  // extensions (e.g. `AsPgas` on Paseo Next v2). Required on any chain that
-  // ships signed extensions PJS doesn't know about. The legacy path
-  // (`manager.selectAccount(...)` + `manager.getSigner()`) routes through PJS
+  // extensions (e.g. `AsPgas` on Paseo Next v2), on a pipeline version that
+  // declares them (version 1 for `AsPgas` on Asset Hub runtime 3004000).
+  // Required on any chain that ships signed extensions PJS doesn't know about.
+  // The legacy path (`manager.selectAccount(...)` + `manager.getSigner()`) routes through PJS
   // and throws `PJS does not support this signed-extension: AsPgas` on such
   // chains — use it only when targeting chains with no unknown extensions.
   const productRes = await manager.getProductAccount("my-app.dot", 0);
@@ -394,7 +395,7 @@ The subtree key comes from the wallet because `//product//{productId}` is hard; 
 
 8. **Submitting a person-origin call with a plain signer** (individuality) - a call that must dispatch as a *person* rather than an account needs the `AsPerson` transaction extension, which no plain signer sets. Wrap the signer with `withAsPerson` from `@parity/product-sdk-individuality` and pass it to `submitAndWatch` as usual; see the `product-sdk-individuality` skill. Doing it by hand fails `Invalid.Call` before dispatch for a reason that is not in the error.
 
-9. **Feeding a runtime ownership proof through `signBytes`** (host) - every raw-signing path a `CommonSignerTxCreator` exposes `<Bytes>`-wraps the payload, so a runtime that verifies the bare bytes (People chain's `Resources.register_person` `lite_identity_proof`) rejects the signature with no useful error. `getAccountsProvider()` exposes `signRawUnwatermarkedDeprecated(account, data)` and `signRawUnwatermarkedDeprecatedWithLegacyAccount({ publicKey }, data)`, which sign `data` untouched and return the raw signature bytes. Both are deprecated on the host side too ([trinity-user-agents#612](https://github.com/paritytech/trinity-user-agents/issues/612)), need a host on `@parity/truapi` 0.16.0+, and prompt the user harder because an unwatermarked signature can authorize a transaction — reach for them only when a runtime check leaves no alternative, and stay on `signBytes` everywhere else.
+9. **Feeding a runtime ownership proof through `signBytes`** (host) - every raw-signing path a `CommonSignerTxCreator` exposes `<Bytes>`-wraps the payload, so a runtime that verifies the bare bytes (the `lite_identity_proof` of `Resources.register_person` on the People chain) rejects the signature with no useful error. `getAccountsProvider()` exposes `signRawUnwatermarkedDeprecated(account, data)` and `signRawUnwatermarkedDeprecatedWithLegacyAccount({ publicKey }, data)`, which sign `data` untouched and return the raw signature bytes. Both are deprecated on the host side too ([trinity-user-agents#612](https://github.com/paritytech/trinity-user-agents/issues/612)), need a host on `@parity/truapi` 0.16.0+, and prompt the user harder because an unwatermarked signature can authorize a transaction. Reach for them only when a runtime check leaves no alternative, and stay on `signBytes` everywhere else.
 
 ## Reference Files
 

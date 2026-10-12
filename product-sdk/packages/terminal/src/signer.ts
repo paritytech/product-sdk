@@ -125,10 +125,13 @@ export interface ProductAccountRef {
 
 export interface SessionSignerOptions extends ProductSubtreeOptions {
     /**
-     * Pipeline version to sign with when the transaction names none. Defaults to 0.
+     * Pipeline version to prefer when the transaction names none. Defaults to 0.
      *
-     * A wrapper that writes its own extensions, such as `withAsPerson`, sets the
-     * version on the transaction itself, and that always wins.
+     * When that pipeline does not declare every extension the caller supplied,
+     * for example in `customSignedExtensions`, the signer uses the lowest version
+     * that does, and refuses a transaction no pipeline can carry. A wrapper that
+     * writes its own extensions, such as `withAsPerson`, sets the version on the
+     * transaction itself, and that always wins.
      */
     txExtVersion?: number;
 }
@@ -550,18 +553,21 @@ if (import.meta.vitest) {
             ),
         );
         const pipelines = unifyMetadata(decAnyMetadata(PEOPLE)).extrinsic.extensionsByVersion;
-        const filled = pipelines[1]
-            .filter(({ identifier }) => identifier !== "VerifyMultiSignature")
-            .map(({ identifier }, index) => ({
-                id: identifier,
-                extra: toHex(new Uint8Array([index])),
-                additionalSigned: "0x",
-            }));
-        const payload = {
+        // Each payload carries the extensions of the pipeline it signs on, as a
+        // caller would, so the version the signer chooses from them is that one.
+        const filledOn = (version: number) =>
+            pipelines[version]
+                .filter(({ identifier }) => identifier !== "VerifyMultiSignature")
+                .map(({ identifier }, index) => ({
+                    id: identifier,
+                    extra: toHex(new Uint8Array([index])),
+                    additionalSigned: "0x",
+                }));
+        const payloadOn = (version: number) => ({
             version: 1 as const,
             signer: null,
             callData: "0xca11",
-            extensions: filled,
+            extensions: filledOn(version),
             txExtVersion: null,
             context: {
                 metadata: PEOPLE,
@@ -570,16 +576,13 @@ if (import.meta.vitest) {
                 bestBlockHash: `0x${"11".repeat(32)}`,
                 genesisHash: `0x${"22".repeat(32)}`,
             },
-        };
+        });
         const onPipeline = (version: number) =>
-            pipelines[version]
-                .map(({ identifier }) => filled.find(({ id }) => id === identifier))
-                .filter((extension) => extension !== undefined)
-                .map(({ id, extra, additionalSigned }) => ({
-                    id,
-                    extra: fromHex(extra),
-                    additionalSigned: fromHex(additionalSigned),
-                }));
+            filledOn(version).map(({ id, extra, additionalSigned }) => ({
+                id,
+                extra: fromHex(extra),
+                additionalSigned: fromHex(additionalSigned),
+            }));
 
         test.each([
             { account: "default", txExtVersion: undefined },
@@ -606,6 +609,7 @@ if (import.meta.vitest) {
                               { productId: "other-app", derivationIndex: 3, publicKey },
                               options,
                           );
+                const payload = payloadOn(txExtVersion ?? 0);
                 const result = await signer(payload, {}, {} as never, false);
                 expect(session.createTransaction).toHaveBeenCalledExactlyOnceWith({
                     payload: {
