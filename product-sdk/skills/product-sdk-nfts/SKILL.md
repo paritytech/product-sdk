@@ -3,7 +3,8 @@ name: product-sdk-nfts
 description: >
   Use when reading Scarcity NFT collections or their item catalogues on Asset Hub, which
   collections a claim can mint into, every collection, and what one of them holds. Covers
-  getClaimableCollections, getCollections and getCollectionItems, the one storage map that
+  getClaimableCollections, getCollections and getCollectionItems, getApprovedCollections for
+  the collections apps offer per network, the one storage map that
   separates claimable from merely existing, the chain client they require and why a TypedApi is not
   enough, the descriptor entries they touch and what a pruned whitelist does, the open metadata
   schema and the two readings of ImageRef, why a missing collection is a success value rather than
@@ -178,6 +179,21 @@ The two disagree in one edge case, in opposite directions. A minter entry whose
 `owner` `null`, and **cannot** appear in `getCollections`, which enumerates the records
 themselves. The runtime clears registrations through `pallet_scarcity::OnCollectionDeleted`, so it
 should not arise. It is reported rather than papered over.
+
+## Approved Collections
+
+Any owner can register a collection for claims, so the claim registry is not a list to show players.
+`getApprovedCollections(network)` returns the collections apps offer, as plain ids in display order.
+It is static data shipped with the package: no chain read, no `Result`, nothing that can fail.
+
+```ts
+import { getApprovedCollections } from "@parity/product-sdk-nfts";
+
+const offered = getApprovedCollections("paseo");
+```
+
+A network without a list returns an empty array. For names or item counts, read the collections
+with the reads above and keep the approved ids.
 
 ## Quick Start
 
