@@ -471,8 +471,13 @@ function bytesOfHex(hex: string): Uint8Array {
     return hexToBytes(hex.slice(2));
 }
 
-/** `is_product_name(label) ++ "." ++ tld`, both single lower-case dotNS labels. */
-const PRODUCT_ID_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?\.[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+/**
+ * `is_product_name(label) ++ "." ++ network_suffix`: a single lower-case dotNS
+ * label, then the suffix the chain is configured with, which may itself carry
+ * more than one label. What matters is that the string is the one the chain
+ * hashes; the pattern only rejects what certainly is not.
+ */
+const PRODUCT_ID_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
 /**
  * One People-ring proof per scheduled draw, minted through the host.
@@ -491,6 +496,11 @@ const PRODUCT_ID_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?\.[a-z0-9]([a-z0-9-]*[
  * - **The ring coordinates.** `AirdropVrfs::Alias` carries one `ring_index` and
  *   one `revision` for every proof, so a ring revision moving between two
  *   draws' proofs makes the set unusable. Mint again.
+ *
+ * No retry on a rejected proof request: every refusal a host gives (no grant
+ * for the People key, a declined prompt, a key not in the ring) holds for the
+ * rest of this sign-up, so the caller should sign up without the draws rather
+ * than ask again.
  *
  * @throws nothing; every failure is on the `err` channel, with the host's
  *   rejection as the cause.
@@ -1360,7 +1370,13 @@ if (import.meta.vitest) {
 
         test("rejects a product id the chain would hash differently", async () => {
             const { signer, requests } = fakeSigner();
-            for (const productId of ["DIM2.paseo", "dim2", "dim2.paseo/", "peopl.paseo.extra"]) {
+            for (const productId of [
+                "DIM2.paseo",
+                "dim2",
+                "dim2.paseo/",
+                "dim2..paseo",
+                ".paseo",
+            ]) {
                 const error = unwrapErr(
                     await mintAliasAirdropVrfs(signer, {
                         eventIds: EVENT_IDS,
@@ -1371,6 +1387,27 @@ if (import.meta.vitest) {
                 expect(error).toBeInstanceOf(ProductIndividualityError);
             }
             expect(requests).toHaveLength(0);
+        });
+
+        test("accepts a network suffix of more than one label", async () => {
+            // The chain hashes whatever suffix it is configured with; a host
+            // may run under one with several labels.
+            const { signer, requests } = fakeSigner({
+                contextFor: (eventId) =>
+                    productContext("dim2.next.paseo", {
+                        tag: "Raw",
+                        value: hexToBytes(eventId.slice(2)),
+                    }),
+            });
+            const value = unwrapOk(
+                await mintAliasAirdropVrfs(signer, {
+                    eventIds: EVENT_IDS,
+                    registrant,
+                    productId: "dim2.next.paseo",
+                }),
+            );
+            expect(value.proofs).toHaveLength(2);
+            expect(requests[0].context.productId).toBe("dim2.next.paseo");
         });
 
         test("rejects an event id that is not 32 bytes before asking the host", async () => {
