@@ -344,6 +344,8 @@ Sign-up and draw entry are one extrinsic: `sign_up_with_account` takes `airdrops
 import {
   readGameSignUpRequirement,
   mintAccountAirdropVrfs,
+  mintAliasAirdropVrfs,
+  peopleRing,
   signUpWithAccountTx,
 } from "@parity/product-sdk-individuality";
 import { submitAndWatch } from "@parity/product-sdk-tx";
@@ -362,11 +364,25 @@ const req = await readGameSignUpRequirement(chain, { registrant, keyType: "sr255
 if (!req.ok || !req.value.canSignUp) return;
 
 let airdrops;
-if (req.value.canEnterDraws) {
+if (req.value.canEnterDraws && req.value.variant === "Account") {
   const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
     eventIds: req.value.eventIds,
     publicKey: account.publicKey,
   });
+  if (!vrfs.ok) return;
+  airdrops = vrfs.value;
+} else if (req.value.canEnterDraws) {
+  // Recognized: one People-ring proof per draw, in the game's product context.
+  // The People member key is `(peopl.<tld>, Index 0)`; list it first, keys
+  // register lazily. `productId` is `Game.product_name` under the network tld.
+  const vrfs = await mintAliasAirdropVrfs(
+    (context, message) =>
+      accounts.createRingVRFProof(peopleKey, context, peopleRing(genesis), message).match(
+        (proof) => proof,
+        (cause) => { throw cause },
+      ),
+    { eventIds: req.value.eventIds, registrant, productId: "dim2.paseo" },
+  );
   if (!vrfs.ok) return;
   airdrops = vrfs.value;
 }
@@ -385,11 +401,11 @@ await submitAndWatch(
 
 > **THE VARIANT IS NOT YOURS TO PICK.** The chain reads `Score` recognition and rejects the other with `InvalidAirdropVrfVariantForRecognition`: not recognized takes `Account`, recognized takes `Alias`. `is_recognized()` covers only `Recognized` and `ExternallyRecognized`, so a **`Suspended` player takes the account path**. Recognition is only half the gate: the account arm also destructures the origin, so a **person** who is not recognized satisfies neither arm and cannot enter any draw.
 
-> **A RECOGNIZED PLAYER CANNOT ENTER THE DRAWS AT ALL.** `Alias` needs a ring-VRF proof at `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and hosts only sign at `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, which they compute themselves. That is a chain or host change, not more SDK code. It arrives as the `AliasVrfsUnavailable` blocker, and such a player **can** still sign up with an account, passing no draws.
+> **A RECOGNIZED PLAYER ENTERS WITH PEOPLE-RING PROOFS, AND THE HOST DECIDES WHO MAY MINT THEM.** Since People runtime 3004000 the chain verifies each `Alias` proof in the product context `blake2b_256("product/" ++ product_name ++ "." ++ tld ++ "/" ++ event_id)`, `Game.product_name` being `dim2`, which is exactly what a host mints for `createRingVRFProof(peopleKey, { productId: "dim2.<tld>", suffix: Raw(eventId) }, peopleRing(genesis), message)`. `mintAliasAirdropVrfs` drives that: it signs the registration entry (`1u8 ++ account_id`, or `0u8 ++ alias`), checks the returned context against the one computed offline, and refuses proofs that disagree on `ring_index`/`revision`, since the arm carries one pair for all draws. The People member key belongs to `peopl.<tld>`; a product that is not the personhood product needs that product's manifest grant, and the host refuses a caller without one. No chain read sees that, so there is no blocker for it: the refusal arrives from the mint, on the `err` channel. Spell `productId` lower case, exactly; the chain hashes the raw string. (Before 3004000 the context was a static prefix no host could mint, and `AliasVrfsUnavailable` said so; that tag is gone.)
 
 > **`sign_up_with_alias` STILL CANNOT BE ASSEMBLED.** Its `sig`, the statement-account proof, is a bare `blake2_256` hash, and the signer factories' `signBytes` (`signRaw`) `<Bytes>`-wraps it. `accounts.signRawUnwatermarkedDeprecated(account, data)` and its `…WithLegacyAccount` twin sign the bytes unwrapped — that is the escape hatch People chain's `Resources.register_person` uses, and it needs a host on `@parity/truapi` 0.16.0+ — but `withAsPerson` only gives the origin, and that `sig` argument still has no source here. The example in the write section shows the origin, not a working flow.
 
-The eight reasons a sign-up or its draw entry can be blocked:
+The seven reasons a sign-up or its draw entry can be blocked:
 
 | Tag | Means |
 |---|---|
@@ -397,12 +413,11 @@ The eight reasons a sign-up or its draw entry can be blocked:
 | `NotInRegistration` | The game left its registration phase |
 | `RegistrationEnded` | Past `registrationEnds`, still in the phase: the offchain worker moves phases on its own schedule |
 | `AlreadyRegistered` | `Game.Players[who].registered` is set |
-| `AliasVrfsUnavailable` | Draws only. Recognized, so the chain wants proofs no host can mint |
 | `AccountVrfsNeedAnAccount` | Draws only. A person who is not recognized: the account arm needs an account origin, the alias arm needs recognition, so the chain takes neither |
 | `NoDrawsScheduled` | Draws only. Nothing scheduled, so anything but `None` fails the count check |
-| `NotSr25519` | Draws only, and only if you passed `keyType`. Another scheme cannot mint `Account` VRFs |
+| `NotSr25519` | Draws only, and only if you passed `keyType` and the variant is `Account`. Another scheme cannot mint `Account` VRFs; the `Alias` arm's proofs come from the People key, so the account's scheme does not matter there |
 
-The first four stop the extrinsic; the last four stop only the draw entry. `canSignUp` and `canEnterDraws` are the split.
+The first four stop the extrinsic; the last three stop only the draw entry. `canSignUp` and `canEnterDraws` are the split.
 
 ### Sign-Up Gotchas
 

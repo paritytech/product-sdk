@@ -20,6 +20,7 @@ import type { PolkadotSigner } from "polkadot-api";
 
 import {
     type ExtensionPipeline,
+    type TypeCodec,
     decodeCheckNonce,
     encodeChecked,
     readExtensionPipeline,
@@ -127,6 +128,72 @@ export function withSlot(
     ) as PapiSignedExtensions;
 }
 
+/**
+ * Fill every declared slot PAPI left out with the chain's own default for it.
+ *
+ * PAPI 2.x fills values from `extrinsic.signedExtensions[0]` with the index
+ * hard-coded. Since People runtime 3004000 that is the plain pipeline, and the
+ * origin extensions (`AsPerson`, `ScoreAsParticipant`, `PeopleLiteAuth`, the
+ * `As*` family, `HonourAuth`, `RestrictOrigins`) live only in version 1, the one
+ * the hosts encode and the implication hashes. So they arrive here with no
+ * bytes at all, and `buildImplication` would rightly refuse to hash a slice
+ * with holes in it.
+ *
+ * The rule is PAPI's own for an extension it has no special case for: encode
+ * `undefined`, which is `None` for an `Option` and nothing for a unit, and
+ * leave the slot alone when that does not encode. The one slot that fails is
+ * `VerifyMultiSignature`, whose enum has no default; PAPI drops it too, and
+ * {@link withOriginExtension} sets it explicitly when the origin is unsigned,
+ * or the host fills it when signing. Slots already present are never touched:
+ * PAPI's value for a slot it knows (the nonce, the era, the tip) is the one the
+ * extrinsic will carry.
+ *
+ * Exported for `bind-lite-alias.ts`'s tests; not part of the package surface.
+ */
+/**
+ * PAPI's default for a slot it has no case for: `encode(undefined)`, and the
+ * slot is dropped when that throws. Not {@link encodeChecked}: a `bool` slot
+ * such as `RestrictOrigins` encodes `undefined` as `false`, which does not
+ * round-trip to `undefined` and is exactly the byte PAPI sends for it.
+ */
+function defaultBytes(codec: TypeCodec): Uint8Array {
+    const [encode, decode] = codec;
+    const bytes = encode(undefined);
+    decode(bytes);
+    return bytes;
+}
+
+export function withDeclaredDefaults(
+    pipeline: ExtensionPipeline,
+    extensions: PapiSignedExtensions,
+): PapiSignedExtensions {
+    let next = extensions;
+    for (const slot of pipeline.extensions) {
+        if (slot.identifier in next) continue;
+        let value: Uint8Array;
+        let additionalSigned: Uint8Array;
+        try {
+            value = defaultBytes(pipeline.codec(slot.type));
+            additionalSigned = defaultBytes(pipeline.codec(slot.implicit));
+        } catch {
+            // No default for this slot. Left out, as PAPI leaves it out, for
+            // whoever fills it by name: the wrapper, or the signing host.
+            continue;
+        }
+        next = {
+            ...next,
+            [slot.identifier]: { identifier: slot.identifier, value, additionalSigned },
+        };
+    }
+    if (next === extensions) return extensions;
+    // Declared order, for the same reason `withSlot` keeps it.
+    return Object.fromEntries(
+        pipeline.extensions
+            .filter((declared) => declared.identifier in next)
+            .map((declared) => [declared.identifier, next[declared.identifier]]),
+    ) as PapiSignedExtensions;
+}
+
 /** Read the account nonce out of the slot PAPI already filled. */
 export function nonceFrom(pipeline: ExtensionPipeline, extensions: PapiSignedExtensions): number {
     const supplied = extensions[CHECK_NONCE];
@@ -227,7 +294,9 @@ export function withOriginExtension<Value>(
         signBytes: (data) => signer.signBytes(data),
         async signTx(callData, signedExtensions, metadata, atBlockNumber, hasher) {
             const pipeline = pipelineFor(metadata);
-            let extensions = signedExtensions;
+            // PAPI filled the slots of pipeline version 0; the encoding pipeline
+            // may declare more. Defaults first, so every later step sees them.
+            let extensions = withDeclaredDefaults(pipeline, signedExtensions);
 
             if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
                 extensions = withSlot(
@@ -270,6 +339,8 @@ export function withOriginExtension<Value>(
 if (import.meta.vitest) {
     const { describe, expect, test } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
+    const { unifyMetadata, decAnyMetadata } = await import("@polkadot-api/substrate-bindings");
+    const { buildImplication } = await import("./as-person-implication.js");
 
     const METADATA = new Uint8Array(
         readFileSync(
@@ -329,6 +400,65 @@ if (import.meta.vitest) {
                 Uint8Array.from([0x00]),
             );
             expect(patched[VERIFY_SIGNATURE].additionalSigned).toHaveLength(0);
+        });
+    });
+
+    describe("withDeclaredDefaults", () => {
+        /** The map PAPI 2.x really hands over on 3004000: version 0's slots only. */
+        function versionZeroExtensions(): PapiSignedExtensions {
+            const plain: string[] = unifyMetadata(
+                decAnyMetadata(METADATA),
+            ).extrinsic.signedExtensions[0].map((entry) => entry.identifier);
+            return Object.fromEntries(
+                Object.entries(papiExtensions()).filter(([key]) => plain.includes(key)),
+            ) as PapiSignedExtensions;
+        }
+
+        test("fills the slots version 0 lacks with None or nothing", () => {
+            const before = versionZeroExtensions();
+            expect(before.AsPerson).toBeUndefined();
+            expect(before.RestrictOrigins).toBeUndefined();
+
+            const filled = withDeclaredDefaults(PIPELINE, before);
+            // Option<AsPersonInfo>: None. Both halves encode from the chain's types.
+            expect(filled.AsPerson?.value).toEqual(Uint8Array.from([0x00]));
+            expect(filled.AsPerson?.additionalSigned).toHaveLength(0);
+            // bool: false, the chain's default; the wrapper then sets it to true.
+            expect(filled.RestrictOrigins?.value).toEqual(Uint8Array.from([0x00]));
+            // HonourAuth and the As* family are all Option on this chain.
+            for (const name of ["ScoreAsParticipant", "PeopleLiteAuth", "AsMember", "HonourAuth"]) {
+                expect(filled[name]?.value).toEqual(Uint8Array.from([0x00]));
+            }
+        });
+
+        test("leaves VerifyMultiSignature out, as PAPI does, for the host or the wrapper", () => {
+            const filled = withDeclaredDefaults(PIPELINE, versionZeroExtensions());
+            expect(filled[VERIFY_SIGNATURE]).toBeUndefined();
+        });
+
+        test("never overwrites a slot PAPI filled, and keeps declared order", () => {
+            const before = versionZeroExtensions();
+            const filled = withDeclaredDefaults(PIPELINE, before);
+            expect(filled[CHECK_NONCE]).toBe(before[CHECK_NONCE]);
+            expect(filled.CheckMetadataHash).toBe(before.CheckMetadataHash);
+            const declared = PIPELINE.extensions
+                .map((slot) => slot.identifier)
+                .filter((identifier) => identifier in filled);
+            expect(Object.keys(filled)).toEqual(declared);
+        });
+
+        test("returns the same map when nothing is missing", () => {
+            const complete = papiExtensions();
+            expect(withDeclaredDefaults(PIPELINE, complete)).toBe(complete);
+        });
+
+        test("makes the implication buildable from what PAPI hands over", () => {
+            const before = versionZeroExtensions();
+            expect(() => buildImplication(PIPELINE, Uint8Array.of(1), before, "AsPerson")).toThrow(
+                AsPersonError,
+            );
+            const filled = withDeclaredDefaults(PIPELINE, before);
+            expect(buildImplication(PIPELINE, Uint8Array.of(1), filled, "AsPerson")[0]).toBe(1);
         });
     });
 
