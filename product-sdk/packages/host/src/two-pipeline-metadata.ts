@@ -11,7 +11,7 @@
  */
 import { decAnyMetadata, metadata as metadataCodec } from "@polkadot-api/substrate-bindings";
 
-/** The version 0 pipeline of People runtime 3004000, read off previewnet on 12 Oct 2026. */
+/** The version 0 pipeline of People runtime 3004000, read off previewnet on 2026-10-12. */
 const PLAIN_ACCOUNT_PIPELINE = new Set([
     "AuthorizeCall",
     "CheckNonZeroSender",

@@ -3,7 +3,7 @@
 /**
  * Which transaction-extension pipeline version a set of signed extensions belongs to.
  *
- * The host needs that version to build the extrinsic, and PAPI's `signTx` does
+ * The host needs that version to build the extrinsic, and `signTx` in PAPI does
  * not pass it. A chain that declares one pipeline always answers 0. People
  * runtime 3004000 declares two: version 0 holds the plain account extensions and
  * version 1 adds the person extensions. A transaction carrying `AsPerson` is
@@ -70,8 +70,7 @@ if (import.meta.vitest) {
     const { readFileSync } = await import("node:fs");
     const { withTwoPipelines } = await import("./two-pipeline-metadata.js");
 
-    // A real blob from the descriptors package. This is the one place a host
-    // test reads outside the package.
+    // Host has no descriptors dependency, so the tests read the blob off disk.
     const PASEO = new Uint8Array(
         readFileSync(
             new URL("../../descriptors/.papi/metadata/paseo_individuality.scale", import.meta.url),
@@ -95,6 +94,15 @@ if (import.meta.vitest) {
         test("a transaction carrying AsPerson on a two-pipeline chain is version 1", () => {
             expect(
                 resolveTxExtVersion(TWO_PIPELINES, keys("CheckGenesis", "CheckNonce", "AsPerson")),
+            ).toBe(1);
+        });
+
+        test("a transaction carrying VerifyMultiSignature on a two-pipeline chain is version 1", () => {
+            expect(
+                resolveTxExtVersion(
+                    TWO_PIPELINES,
+                    keys("CheckGenesis", "CheckNonce", "VerifyMultiSignature"),
+                ),
             ).toBe(1);
         });
 

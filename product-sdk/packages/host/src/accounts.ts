@@ -15,7 +15,7 @@
  * `truApi.signing.createTransaction` (product) /
  * `createTransactionWithLegacyAccount` (legacy). `signTx` sends the configured
  * `txExtVersion`, or the pipeline version the extensions belong to, and maps
- * signed extensions to the host's wire shape; `signBytes` calls
+ * signed extensions to the wire shape of the host. `signBytes` calls
  * `signing.signRaw(WithLegacyAccount)`.
  * Opaque signed extensions (e.g. Paseo Next's `AsPgas`) survive end-to-end.
  *

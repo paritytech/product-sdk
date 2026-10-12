@@ -662,7 +662,7 @@ if (import.meta.vitest) {
         test("defaults txExtVersion to the pipeline the extensions belong to", async () => {
             // People runtime 3004000 carries AsPerson on pipeline version 1 only.
             // The fixture lives in the host package next to the resolver. A literal
-            // specifier would pull that file into this package's declaration build.
+            // specifier would pull that file into the declaration build of this package.
             const { readFileSync } = await import("node:fs");
             const fixture = "../../host/src/two-pipeline-metadata.js";
             const { withTwoPipelines } = (await import(/* @vite-ignore */ fixture)) as {

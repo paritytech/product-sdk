@@ -1,6 +1,7 @@
 ---
+"@parity/product-sdk": minor
 "@parity/product-sdk-individuality": patch
-"@parity/product-sdk-host": patch
+"@parity/product-sdk-host": minor
 "@parity/product-sdk-terminal": patch
 ---
 

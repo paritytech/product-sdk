@@ -466,6 +466,26 @@ if (import.meta.vitest) {
             expect(pipeline.extensions.map((slot) => slot.identifier)).not.toContain(AS_PERSON);
         });
 
+        test("the two-pipeline fixture puts the plain account slots on version 0 in chain order", () => {
+            // Paseo lacks CheckMetadataHash, so ten of the eleven 3004000 slots remain.
+            expect(
+                readExtensionPipeline(TWO_PIPELINES, "CheckNonce").extensions.map(
+                    (slot) => slot.identifier,
+                ),
+            ).toEqual([
+                "AuthorizeCall",
+                "CheckNonZeroSender",
+                "CheckSpecVersion",
+                "CheckTxVersion",
+                "CheckGenesis",
+                "CheckMortality",
+                "CheckNonce",
+                "CheckWeight",
+                "ChargeAssetTxPayment",
+                "StorageWeightReclaim",
+            ]);
+        });
+
         test("refuses to guess between two versions without an extension to look for", () => {
             expect(() => readExtensionPipeline(TWO_PIPELINES)).toThrow(AsPersonError);
             expect(() => readExtensionPipeline(TWO_PIPELINES)).toThrow(/several/);
