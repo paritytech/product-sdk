@@ -7,6 +7,7 @@
  * in ~/.polkadot-apps/. Node.js doesn't have localStorage, so this
  * provides persistent storage for the SDK's session and secret data.
  */
+import type { createPappAdapter } from "@novasamatech/host-papp";
 import { createLogger } from "@parity/product-sdk-logger";
 import { fromPromise, type ResultAsync } from "neverthrow";
 import { join } from "node:path";
@@ -131,7 +132,7 @@ export function createNodeStorageAdapter(appId: string, storageDir?: string): St
 }
 
 if (import.meta.vitest) {
-    const { describe, test, expect, beforeEach, afterAll } = import.meta.vitest;
+    const { describe, test, expect, expectTypeOf, beforeEach, afterAll } = import.meta.vitest;
     const { mkdtemp, rm } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const { configure } = await import("@parity/product-sdk-logger");
@@ -258,6 +259,18 @@ if (import.meta.vitest) {
             await store.write("json", JSON.stringify(obj));
             const raw = (await store.read("json"))._unsafeUnwrap();
             expect(JSON.parse(raw!)).toEqual(obj);
+        });
+    });
+
+    describe("StorageAdapter", () => {
+        test("matches what host-papp's createPappAdapter accepts as storage, both ways", () => {
+            // Type-level: the local declaration replaced a direct dependency on
+            // @novasamatech/storage-adapter, so pin it to host-papp's view. An
+            // added optional member or a changed callback type fails typecheck.
+            type PappStorage = NonNullable<
+                NonNullable<Parameters<typeof createPappAdapter>[0]["adapters"]>["storage"]
+            >;
+            expectTypeOf<StorageAdapter>().toEqualTypeOf<PappStorage>();
         });
     });
 
