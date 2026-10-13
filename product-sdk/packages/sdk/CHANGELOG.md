@@ -1,5 +1,63 @@
 # @parity/product-sdk
 
+## 0.36.0
+
+### Minor Changes
+
+- dde3b0d: Re-pin `paseo-individuality` and `previewnet-individuality` to the People runtime now live on both chains (`next-people-paseo` 3004000, code hash `0x69e7126f…7871`). The genesis hashes are unchanged.
+
+  What moved in the pallets products read: `Airdrop.EventInfo` gained `product_name` (so `Airdrop.Events` and `schedule_event` changed shape, with a new `InvalidProductName` error); `Game` gained the `product_name` constant and a `CreditCapacityExhausted` error; `Members` gained `RetiredIdentifiers` and `IdentifierRetired`; `NftCredits` keys awards by `(block, index)` with expiry sweeps and its runtime API arguments are named `tree_block`; the `SkipFeelessPayment` pallet is gone; `AuthorizedAliasersApi` and `TrustedQueryApi` were added. `PeopleLite`, `People`, `Score`, `Coinage` and `PeopleAirdrops` are unchanged in shape.
+
+  The runtime also declares two transaction-extension pipelines now, version 0 (plain, what a signed V4 extrinsic uses) and version 1 (the origin extensions); `@parity/product-sdk-individuality` reads the right one from this release on.
+
+- dde3b0d: Remove the legacy novasama native-chat backend from `getChatManager()`. The `@parity/product-sdk-host` chat path now resolves only through the truapi host; the fallback that loaded `@novasamatech/host-api-wrapper` when running inside the legacy iOS `__container__` WebView is gone, along with the dependency. `getChatManager()` returns `null` on a host with no truapi client instead of bridging to the native backend. Products running under a truapi host are unaffected (that branch was never reached there).
+- dde3b0d: **Person-origin signing follows the pipeline the hosts encode, and the game's prize draws are open to recognized players.** Both are People runtime 3004000.
+
+  The runtime now declares two transaction-extension pipelines: version 0, the plain one a signed V4 extrinsic rides, and version 1, which carries `AsPerson`, `ScoreAsParticipant`, `PeopleLiteAuth` and the rest of the origin extensions. `readExtensionPipeline` used to refuse any blob that declared more than one version, so every `withAsPerson`, `withScoreParticipant`, `withLiteAlias` and `buildLiteAliasBindTx` call threw against the live chains. It now reads the highest declared version, the rule the Rust host core encodes with, and the signer wrappers fill the slots PAPI 2.x leaves out (it only knows version 0) with the chain's own defaults before hashing the implication. The pinned lite-bind extrinsic opens with extension version 1 and carries `CheckMetadataHash`.
+
+  `AirdropVrfs::Alias` is buildable: the chain verifies each draw proof in the product context `product/<product_name>.<tld>/<event_id>` (`Game.product_name` is `dim2`), which is what a host mints for `createRingVRFProof(peopleKey, { productId, suffix: Raw(eventId) }, peopleRing(genesis), message)`. New `mintAliasAirdropVrfs(signer, { eventIds, registrant, productId })` returns `{ proofs, ringIndex, revision }`, signing the registration entry (`1u8 ++ account_id` or `0u8 ++ alias`), checking the returned context against the one derived offline, and refusing proofs that disagree on the ring revision. `signUpWithAccountTx` and `signUpWithLiteInviteTx` take that value in `airdrops` beside the account VRFs.
+
+  Breaking: the `AliasVrfsUnavailable` blocker is gone. A recognized player now reads `canEnterDraws: true` with `variant: "Alias"`; whether the calling product may use the People member key is the host's grant decision and surfaces from the mint, not from the requirement read. `NotSr25519` applies to the `Account` variant only.
+
+- dde3b0d: **Moves the SDK to polkadot-api 3.** Breaking for every caller that signs.
+
+  PAPI 3 replaced the `PolkadotSigner` with a `TxCreator`, which receives one payload holding the call, every transaction extension, the pipeline version those extensions belong to, and the runtime metadata. Every signer the SDK builds or accepts is now a `CommonSignerTxCreator` from `@polkadot-api/signers-common`: `getProductAccountSigner` and `getLegacyAccountSigner` in host, `SignerManager.getSigner`, `seedToAccount` and the key manager in keys, `createDevSigner` in tx, the session, slot-account and allowance signers in terminal, and the signers `resolveSigner` returns in auth. `submitAndWatch`, `batchSubmitAndWatch` and contract calls take it unchanged. A PAPI transaction is now submitted with `createSubmitAndWatch` or `createAndSubmit`, fees are estimated with a creator such as `getFakeTxCreator(address)`, and the transaction events `signed` and `txBestBlocksState` are now `created`, `inBestBlock` and `notInBestBlock`. The `TxEvent` type in tx follows.
+
+  `withAsPerson`, `withLiteAlias` and `withScoreParticipant` now wrap a `TxCreator`. They fill the standard extensions with the PAPI 3 enhancers, write their origin extension, and hand the inner signer the pipeline version that carries it, so the host is told the version the proof was built for instead of inferring one. This replaces the slot filling that worked around PAPI 2 only knowing pipeline version 0. A fee estimate through a wrapper is priced as a plain account transaction and never requests a proof.
+
+  Host exports `createHostTxCreator`, also published as the transport-free subpath `@parity/product-sdk-host/tx-creator`, which terminal uses for the paired-phone signer. The `txExtVersion` signer option is now the version used when the transaction names none.
+
+  Terminal moves to `@novasamatech/host-papp`, `statement-store` and `storage-adapter` 0.12.0, and host to `@novasamatech/host-api-wrapper` 0.12.0, the releases built for PAPI 3. `@novasamatech/statement-store` 0.12.0 still depends on `@novasamatech/sdk-statement` 0.6.0, which pulls a private copy of polkadot-api 2 into the install. The descriptors are regenerated with the PAPI 3 CLI.
+
+  Cloud Storage keeps working with `@parity/bulletin-sdk` 0.3.0 through a shim that maps its `signSubmitAndWatch` onto `createSubmitAndWatch`, to be removed when a PAPI 3 build ships.
+
+  The `paseo-asset-hub` and `previewnet-asset-hub` descriptors follow `next-asset-hub-paseo` 3004000, and `previewnet-asset-hub` takes the new genesis of the reset Previewnet Asset Hub. That runtime drops the `Result` wrapper from `ScarcityApi.metadata_batch` and `NftClaimsApi.preview_mints`, which now return their list directly and reject an oversized batch at decode (128 queries for `metadata_batch`, 32 for `preview_mints` on `next-asset-hub-paseo` 3004000). `NftsChain` and `NftsInstancesChain` follow, so a hand-built chain answers those calls with a bare list. `getInstanceDisplays` no longer re-chunks on a `TooLarge` refusal, and `previewClaim` sends one `preview_mints` call per 32 collections, the bound the runtime enforces.
+
+  Every nfts read now holds the blocks it pins until it settles, through the optional `hodlBlock` that `BlockSource` gains and a PAPI client already has. A finalized block was unpinned as soon as a newer one was finalized, so a read that spanned that moment failed inside a container with "is not pinned", because the host serves no archive methods to fall back to.
+
+- dde3b0d: **Pair with a truapi 0.25.0 host.** `@parity/truapi` moves from `^0.24.0` to `^0.25.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `c130fa60ef495768` to `3c45e49b26c1ab97`, so the schema a product speaks no longer matches a host still on 0.24.0. Every host surface has to move in the same window.
+
+### Patch Changes
+
+- Updated dependencies [dde3b0d]
+- Updated dependencies [dde3b0d]
+- Updated dependencies [dde3b0d]
+- Updated dependencies [dde3b0d]
+- Updated dependencies [dde3b0d]
+  - @parity/product-sdk-host@0.26.0
+  - @parity/product-sdk-individuality@0.9.0
+  - @parity/product-sdk-logger@0.1.2
+  - @parity/product-sdk-address@0.3.0
+  - @parity/product-sdk-chain-client@0.13.0
+  - @parity/product-sdk-cloud-storage@0.13.0
+  - @parity/product-sdk-contracts@0.11.0
+  - @parity/product-sdk-keys@0.5.0
+  - @parity/product-sdk-nfts@0.3.0
+  - @parity/product-sdk-signer@0.17.0
+  - @parity/product-sdk-tx@0.5.0
+  - @parity/product-sdk-renderer@0.7.0
+  - @parity/product-sdk-local-storage@0.3.16
+
 ## 0.35.0
 
 ### Minor Changes

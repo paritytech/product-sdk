@@ -1,9 +1,10 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok, unwrapOk } from "@parity/result";
 import { submitAndWatch, type TxError, type TxStatus, type WaitFor } from "@parity/product-sdk-tx";
-import type { PolkadotSigner } from "polkadot-api";
+
 import { Enum } from "polkadot-api";
 
 import { CloudStorageAuthorizationError, ProductCloudStorageError } from "./errors.js";
@@ -260,7 +261,7 @@ export async function authorizeAccount(
     who: string,
     transactions: number,
     bytes: bigint,
-    signer: PolkadotSigner,
+    signer: CommonSignerTxCreator,
     options: AuthorizeAccountOptions = {},
 ): Promise<Result<{ blockHash: string }, ProductCloudStorageError | TxError>> {
     const { viaSudo = false, waitFor, timeoutMs, onStatus } = options;
@@ -669,20 +670,19 @@ if (import.meta.vitest) {
      *
      * Mirrors the mocking style used in `upload.ts` — we don't mock
      * `submitAndWatch` (the SDK helper) directly. Instead we let it call
-     * through to a fake `signSubmitAndWatch` on the api, which emits the
+     * through to a fake `createSubmitAndWatch` on the api, which emits the
      * lifecycle events `submitAndWatch` listens for.
      */
     function createMockApiForAuthorize(blockHash = "0xblockhash") {
         const fakeTx = {
             decodedCall: { fakeCall: true } as unknown,
-            signSubmitAndWatch: vi.fn().mockReturnValue({
+            createSubmitAndWatch: vi.fn().mockReturnValue({
                 subscribe: (handlers: { next: (e: unknown) => void }) => {
                     queueMicrotask(() => {
-                        handlers.next({ type: "signed", txHash: "0xtxhash" });
+                        handlers.next({ type: "created", txHash: "0xtxhash" });
                         handlers.next({
-                            type: "txBestBlocksState",
+                            type: "inBestBlock",
                             txHash: "0xtxhash",
-                            found: true,
                             ok: true,
                             block: { hash: blockHash, number: 1, index: 0 },
                             events: [],
@@ -708,7 +708,7 @@ if (import.meta.vitest) {
         };
     }
 
-    const mockSigner = {} as PolkadotSigner;
+    const mockSigner = {} as CommonSignerTxCreator;
 
     describe("authorizeAccount", () => {
         test("direct path: calls TransactionStorage.authorize_account with the right params", async () => {
@@ -797,7 +797,7 @@ if (import.meta.vitest) {
                     TransactionStorage: {
                         authorize_account: vi.fn().mockReturnValue({
                             decodedCall: {} as unknown,
-                            signSubmitAndWatch: vi.fn(),
+                            createSubmitAndWatch: vi.fn(),
                         }),
                     },
                     // Sudo intentionally absent — represents production Polkadot/Kusama

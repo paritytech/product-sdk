@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-auth",
-    "version": "0.4.4",
+    "version": "0.5.0",
     "description": "Authentication and session signing for Polkadot CLI apps — QR/mobile sign-in",
     "type": "module",
     "sideEffects": false,
@@ -29,6 +29,7 @@
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-terminal": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
+        "@polkadot-api/signers-common": "catalog:",
         "polkadot-api": "catalog:"
     },
     "devDependencies": {

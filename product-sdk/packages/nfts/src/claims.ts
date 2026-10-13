@@ -17,7 +17,14 @@
  * silently loses old credits is worse than one that says why it cannot claim them.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { pinAt, pinBlock, readAt, type NftsChain, type NftsCreditsChain } from "./chain.js";
+import {
+    blockHolds,
+    pinAt,
+    pinBlock,
+    readAt,
+    type NftsChain,
+    type NftsCreditsChain,
+} from "./chain.js";
 import { matchChainEntryError, ProductNftsError } from "./errors.js";
 import type {
     BlockAt,
@@ -165,11 +172,12 @@ export async function getClaims(
     chain: NftsChain & NftsCreditsChain,
     options: GetClaimsOptions,
 ): Promise<Result<ClaimsResult, ProductNftsError>> {
+    const holds = blockHolds();
     try {
         const { claimant, signal } = options;
         const [people, assetHub] = await Promise.all([
-            pinAt(chain.raw.individuality, signal, options.individualityAt),
-            pinBlock(chain, signal, options.at),
+            pinAt(chain.raw.individuality, signal, options.individualityAt, holds),
+            pinBlock(chain, signal, options.at, holds),
         ]);
         const peopleAt = readAt(people, signal);
         const assetHubAt = readAt(assetHub, signal);
@@ -279,6 +287,8 @@ export async function getClaims(
         return ok({ at: { individuality: people, assetHub }, claims: found });
     } catch (cause) {
         return err(matchChainEntryError(cause) ?? normalizeError(cause, ProductNftsError));
+    } finally {
+        holds.release();
     }
 }
 
@@ -432,6 +442,39 @@ if (import.meta.vitest) {
             const given = { blockHash: `0x${"bb".repeat(32)}`, blockNumber: 99 };
             const result = await getClaims(chain, { claimant, individualityAt: given });
             expect(result.ok && result.value.at.individuality).toBe(given);
+        });
+
+        test("keeps its People block pinned when a newer block is finalized mid-read", async () => {
+            const { chain } = fakeChain({
+                blocks: [10],
+                roots: [root(10)],
+                proofs: { 10: proof([1]) },
+                trees: [10],
+            });
+            // PAPI unpins every older block nobody holds once a newer one is
+            // finalized, and the host has no archive node to fall back to.
+            const pinned = new Set([PEOPLE.hash]);
+            const held = new Map<string, number>();
+            chain.raw.individuality.hodlBlock = (hash) => {
+                held.set(hash, (held.get(hash) ?? 0) + 1);
+                return () => held.set(hash, (held.get(hash) ?? 0) - 1);
+            };
+            const api = chain.individuality.apis.NftCreditsApi;
+            const roots = api.nft_claim_credit_roots;
+            api.nft_claim_credit_roots = async (key, at) => {
+                const answer = await roots(key, at);
+                if (!held.get(PEOPLE.hash)) pinned.delete(PEOPLE.hash);
+                return answer;
+            };
+            const proofs = api.nft_claim_credit_proofs;
+            api.nft_claim_credit_proofs = async (block, key, at) => {
+                if (!pinned.has(at.at)) throw new Error(`Block ${at.at} is not pinned`);
+                return proofs(block, key, at);
+            };
+
+            const result = await getClaims(chain, { claimant });
+            expect(result.ok && result.value.claims.map((c) => c.hash)).toEqual([h(1)]);
+            expect(held.get(PEOPLE.hash)).toBe(0);
         });
 
         test("a rooted block whose root reached Asset Hub is claimable, and claimed once spent", async () => {

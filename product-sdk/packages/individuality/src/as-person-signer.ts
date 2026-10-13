@@ -6,14 +6,14 @@
  * This wraps a signer rather than the submitter, and that is the whole design.
  * The `AsPerson` value cannot be chosen at the call site, because it depends on
  * the nonce and, for the proof variants, on a hash over every other extension in
- * the pipeline. PAPI resolves nonce, mortality, tip, genesis and the runtime
- * versions inside its own `createTx` and only then calls
- * `PolkadotSigner.signTx`. That call is the one place where those values exist
- * and are still patchable, so it is where this belongs.
+ * the pipeline. PAPI 3 hands every transaction to its `TxCreator` as one
+ * payload, and the wrapper fills nonce, mortality, tip, genesis and the runtime
+ * versions there before it patches. That is the one place where those values
+ * exist and are still patchable, so it is where this belongs.
  *
  * The consequence worth knowing: nothing in `@parity/product-sdk-tx` changes.
  * A decorated signer composes with `submitAndWatch`, `batchSubmitAndWatch`, fee
- * estimation and plain `signSubmitAndWatch` for free.
+ * estimation and plain `createSubmitAndWatch` for free.
  *
  * ```ts
  * import { submitAndWatch } from "@parity/product-sdk-tx";
@@ -31,11 +31,11 @@
  * The origin works, the call does not: `sig`, the statement-account proof, is a
  * bare `blake2_256` hash and the host's `signRaw` always `<Bytes>`-wraps it.
  *
- * The order inside `signTx` is `withOriginExtension`'s, in
+ * The order inside the creator is `withOriginExtension`'s, in
  * `origin-extension.ts`. Getting it wrong produces a bad proof with nothing
  * local to read, which is why it lives in one place.
  */
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import {
     AS_PERSON,
@@ -182,9 +182,12 @@ async function buildValue(
  * @param signer - the signer to wrap, e.g. from
  *   `AccountsProvider.getProductAccountSigner`.
  * @param info - which person origin to use, and where the proof comes from.
- * @returns a `PolkadotSigner` usable anywhere the original was.
+ * @returns a transaction creator usable anywhere the original was.
  */
-export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): PolkadotSigner {
+export function withAsPerson(
+    signer: CommonSignerTxCreator,
+    info: AsPersonInfo,
+): CommonSignerTxCreator {
     return withOriginExtension<AsPersonValue>(signer, {
         identifier: AS_PERSON,
         unsigned: info.tag === "AliasWithProof",
@@ -197,6 +200,7 @@ export function withAsPerson(signer: PolkadotSigner, info: AsPersonInfo): Polkad
 if (import.meta.vitest) {
     const { describe, expect, test, vi } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
+    const { signTx, spyCreator } = await import("./creator-harness.js");
 
     /**
      * Local hex formatter, deliberately not the one the code under test uses.
@@ -249,31 +253,15 @@ if (import.meta.vitest) {
 
     /** An inner signer that records exactly what it was handed. */
     function spySigner() {
-        const calls: {
-            callData: Uint8Array;
-            extensions: PapiSignedExtensions;
-            atBlockNumber: number;
-            hasher?: (data: Uint8Array) => Uint8Array;
-        }[] = [];
-        const signer: PolkadotSigner = {
-            publicKey: PUBLIC_KEY,
-            signBytes: vi.fn(async () => Uint8Array.from([0xff])),
-            signTx: async (callData, extensions, _metadata, atBlockNumber, hasher) => {
-                calls.push({ callData, extensions, atBlockNumber, hasher });
-                return Uint8Array.from([0xde, 0xad]);
-            },
-        };
-        return { signer, calls };
+        return spyCreator(
+            PUBLIC_KEY,
+            vi.fn(async () => Uint8Array.from([0xff])),
+        );
     }
 
     const sign = async (info: AsPersonInfo, extensions = papiExtensions()) => {
         const { signer, calls } = spySigner();
-        const result = await withAsPerson(signer, info).signTx(
-            CALL_DATA,
-            extensions,
-            METADATA,
-            123,
-        );
+        const result = await signTx(withAsPerson(signer, info), CALL_DATA, extensions, METADATA);
         return { result, calls, seen: calls[0].extensions };
     };
 
@@ -339,25 +327,21 @@ if (import.meta.vitest) {
             expect(Object.keys(seen)).toEqual(declared);
         });
 
-        test("passes callData, block number and hasher through untouched", async () => {
+        test("passes the call data through and names the pipeline version", async () => {
             const { signer, calls } = spySigner();
-            const hasher = (data: Uint8Array) => data;
-            await withAsPerson(signer, { tag: "AliasWithAccount" }).signTx(
+            await signTx(
+                withAsPerson(signer, { tag: "AliasWithAccount" }),
                 CALL_DATA,
                 papiExtensions(),
                 METADATA,
-                456,
-                hasher,
             );
-            expect(calls[0].callData).toBe(CALL_DATA);
-            expect(calls[0].atBlockNumber).toBe(456);
-            // The fifth argument is optional and easy to drop when delegating.
-            expect(calls[0].hasher).toBe(hasher);
+            expect(calls[0].callData).toEqual(CALL_DATA);
+            expect(calls[0].txExtVersion).toBe(PIPELINE.version);
         });
 
         test("returns whatever the inner signer returned", async () => {
             const { result } = await sign({ tag: "AliasWithAccount" });
-            expect(hex(result)).toBe("0xdead");
+            expect(result).toBe("0xdead");
         });
 
         test("passes publicKey and signBytes straight through", async () => {
@@ -387,17 +371,17 @@ if (import.meta.vitest) {
         });
 
         test("reads the metadata once per signer, not once per signature", async () => {
-            // Decoding the blob is about 7 ms. PAPI hands the same array until the
-            // runtime upgrades, so the pipeline is cached on identity.
+            // Decoding the blob is about 7 ms. PAPI hands the same metadata until
+            // the runtime upgrades, so the pipeline is cached on it.
             const { signer } = spySigner();
             const wrapped = withAsPerson(signer, { tag: "AliasWithAccount" });
 
             const first = process.hrtime.bigint();
-            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 1);
+            await signTx(wrapped, CALL_DATA, papiExtensions(), METADATA);
             const firstMs = Number(process.hrtime.bigint() - first) / 1e6;
 
             const second = process.hrtime.bigint();
-            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 2);
+            await signTx(wrapped, CALL_DATA, papiExtensions(), METADATA);
             const secondMs = Number(process.hrtime.bigint() - second) / 1e6;
 
             // Generous ratio so this is not a flaky timing test: the point is that
@@ -406,12 +390,24 @@ if (import.meta.vitest) {
         });
 
         test("re-reads the metadata when the runtime changes", async () => {
-            // A different array means a different runtime, so the cache must miss.
+            // Different metadata means a different runtime, so the cache must miss
+            // and the second transaction is built against the devnet pipeline.
             const { signer, calls } = spySigner();
             const wrapped = withAsPerson(signer, { tag: "AliasWithAccount" });
-            await wrapped.signTx(CALL_DATA, papiExtensions(), METADATA, 1);
-            await wrapped.signTx(CALL_DATA, papiExtensions(), new Uint8Array(METADATA), 2);
-            expect(calls).toHaveLength(2);
+            const devnet = new Uint8Array(
+                readFileSync(
+                    new URL(
+                        "../../descriptors/.papi/metadata/devnet_individuality.scale",
+                        import.meta.url,
+                    ),
+                ),
+            );
+            await signTx(wrapped, CALL_DATA, papiExtensions(), METADATA);
+            await signTx(wrapped, CALL_DATA, papiExtensions(), devnet);
+            expect(calls.map((call) => call.txExtVersion)).toEqual([
+                PIPELINE.version,
+                readExtensionPipeline(devnet).version,
+            ]);
         });
     });
 
@@ -435,13 +431,21 @@ if (import.meta.vitest) {
             expect(VERIFY_SIGNATURE in seen).toBe(false);
         });
 
-        test("throws when CheckNonce is missing", async () => {
+        test("fills the nonce before building the value when the payload has none", async () => {
+            // The PAPI 3 nonce enhancer runs inside the wrapper, so the value is
+            // built from the nonce it filled, here the one the caller passed.
             const extensions = Object.fromEntries(
                 Object.entries(papiExtensions()).filter(([key]) => key !== CHECK_NONCE),
             ) as PapiSignedExtensions;
-            await expect(sign({ tag: "AliasWithAccount" }, extensions)).rejects.toThrow(
-                AsPersonError,
+            const { signer, calls } = spySigner();
+            await signTx(
+                withAsPerson(signer, { tag: "AliasWithAccount" }),
+                CALL_DATA,
+                extensions,
+                METADATA,
+                { nonce: 9 },
             );
+            expect(hex(calls[0].extensions[AS_PERSON].value)).toBe("0x010009000000");
         });
     });
 
@@ -503,12 +507,15 @@ if (import.meta.vitest) {
 
         test("does not sign when the proof shape is wrong", async () => {
             const { signer, calls } = spySigner();
-            await withAsPerson(signer, {
-                tag: "AliasWithProof",
-                createProof: (async () => undefined) as unknown as CreateRingVRFProof,
-            })
-                .signTx(CALL_DATA, papiExtensions(), METADATA, 1)
-                .catch(() => {});
+            await signTx(
+                withAsPerson(signer, {
+                    tag: "AliasWithProof",
+                    createProof: (async () => undefined) as unknown as CreateRingVRFProof,
+                }),
+                CALL_DATA,
+                papiExtensions(),
+                METADATA,
+            ).catch(() => {});
             expect(calls).toHaveLength(0);
         });
 
@@ -551,14 +558,17 @@ if (import.meta.vitest) {
 
         test("does not sign when the proof fails", async () => {
             const { signer, calls } = spySigner();
-            await withAsPerson(signer, {
-                tag: "AliasWithProof",
-                createProof: async () => {
-                    throw new Error("nope");
-                },
-            })
-                .signTx(CALL_DATA, papiExtensions(), METADATA, 1)
-                .catch(() => {});
+            await signTx(
+                withAsPerson(signer, {
+                    tag: "AliasWithProof",
+                    createProof: async () => {
+                        throw new Error("nope");
+                    },
+                }),
+                CALL_DATA,
+                papiExtensions(),
+                METADATA,
+            ).catch(() => {});
             expect(calls).toHaveLength(0);
         });
 

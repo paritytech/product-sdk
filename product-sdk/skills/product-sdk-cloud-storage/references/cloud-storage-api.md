@@ -185,9 +185,9 @@ Broader chain-client union; `getChainAPI("polkadot" | "kusama")` currently throw
 
 ```ts
 type CreateCloudStorageClientOptions =
-    | { signer: PolkadotSigner; config?: Partial<ClientConfig>; environment: CloudStorageEnvironment }
+    | { signer: CommonSignerTxCreator; config?: Partial<ClientConfig>; environment: CloudStorageEnvironment }
     | {
-        signer: PolkadotSigner;
+        signer: CommonSignerTxCreator;
         config?: Partial<ClientConfig>;
         genesisHash: `0x${string}`;
         descriptor: (typeof CloudStorageNetworks)[CloudStorageEnvironment]["descriptor"];   // PAPI bulletin descriptor

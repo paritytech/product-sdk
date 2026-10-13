@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { DEV_PHRASE } from "@polkadot-labs/hdkd-helpers";
 import { seedToAccount } from "@parity/product-sdk-keys";
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import type { DevAccountName } from "./types.js";
 
 /**
- * Create a PolkadotSigner for a standard Substrate dev account.
+ * Create a PAPI 3 transaction creator for a standard Substrate dev account.
  *
  * Dev accounts use the well-known Substrate dev mnemonic (`DEV_PHRASE`) with
  * Sr25519 key derivation at the path `//{Name}`. These accounts have known
@@ -16,7 +16,7 @@ import type { DevAccountName } from "./types.js";
  * Only for local development, scripts, and testing. Never use in production.
  *
  * @param name - Dev account name ("Alice", "Bob", "Charlie", "Dave", "Eve", or "Ferdie").
- * @returns A PolkadotSigner that can sign transactions.
+ * @returns A transaction creator that signs as the dev account.
  *
  * @example
  * ```ts
@@ -26,7 +26,7 @@ import type { DevAccountName } from "./types.js";
  * const result = await submitAndWatch(tx, alice);
  * ```
  */
-export function createDevSigner(name: DevAccountName): PolkadotSigner {
+export function createDevSigner(name: DevAccountName): CommonSignerTxCreator {
     return seedToAccount(DEV_PHRASE, `//${name}`).signer;
 }
 

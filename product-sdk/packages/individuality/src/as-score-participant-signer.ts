@@ -13,9 +13,9 @@
  * account signature still authenticates the caller and the extension only
  * re-labels the origin.
  *
- * That is why this wraps a signer all the same: the nonce is resolved inside
- * PAPI's `createTx` and exists only in the `signTx` call, where it is read back
- * out of the `CheckNonce` slot PAPI already filled — the same rule as the two
+ * That is why this wraps a signer all the same: the nonce is resolved by the
+ * PAPI 3 enhancers when the transaction is created, and read back out of the
+ * `CheckNonce` slot they filled. That is the same rule as the two
  * sibling signers, and the reason the proposal-stage `withScoreParticipant(
  * signer, nonce)` shape was dropped: a caller-supplied nonce and the one PAPI
  * fetches can disagree, and the chain rejects the disagreement with nothing
@@ -29,7 +29,7 @@
  * await submitAndWatch(tx, withScoreParticipant(accounts.getProductAccountSigner(account)));
  * ```
  */
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import { type ExtensionPipeline, encodeChecked } from "./as-person-codec.js";
 import { nonceFrom, withOriginExtension } from "./origin-extension.js";
@@ -62,9 +62,9 @@ function encodeScoreAsParticipant(pipeline: ExtensionPipeline, nonce: number): U
  *
  * @param signer - the signer to wrap, e.g. from
  *   `AccountsProvider.getProductAccountSigner`.
- * @returns a `PolkadotSigner` usable anywhere the original was.
+ * @returns a transaction creator usable anywhere the original was.
  */
-export function withScoreParticipant(signer: PolkadotSigner): PolkadotSigner {
+export function withScoreParticipant(signer: CommonSignerTxCreator): CommonSignerTxCreator {
     return withOriginExtension<number>(signer, {
         identifier: SCORE_AS_PARTICIPANT,
         unsigned: false,
@@ -77,6 +77,7 @@ export function withScoreParticipant(signer: PolkadotSigner): PolkadotSigner {
 if (import.meta.vitest) {
     const { describe, expect, test, vi } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
+    const { signTx, spyCreator } = await import("./creator-harness.js");
     const { readExtensionPipeline } = await import("./as-person-codec.js");
     const { CHECK_NONCE, VERIFY_SIGNATURE } = await import("./origin-extension.js");
     const { AsPersonError } = await import("./errors.js");
@@ -119,31 +120,15 @@ if (import.meta.vitest) {
 
     /** An inner signer that records exactly what it was handed. */
     function spySigner() {
-        const calls: {
-            callData: Uint8Array;
-            extensions: PapiSignedExtensions;
-            atBlockNumber: number;
-            hasher?: (data: Uint8Array) => Uint8Array;
-        }[] = [];
-        const signer: PolkadotSigner = {
-            publicKey: PUBLIC_KEY,
-            signBytes: vi.fn(async () => Uint8Array.from([0xff])),
-            signTx: async (callData, extensions, _metadata, atBlockNumber, hasher) => {
-                calls.push({ callData, extensions, atBlockNumber, hasher });
-                return Uint8Array.from([0xde, 0xad]);
-            },
-        };
-        return { signer, calls };
+        return spyCreator(
+            PUBLIC_KEY,
+            vi.fn(async () => Uint8Array.from([0xff])),
+        );
     }
 
     const sign = async (extensions = papiExtensions()) => {
         const { signer, calls } = spySigner();
-        const result = await withScoreParticipant(signer).signTx(
-            CALL_DATA,
-            extensions,
-            METADATA,
-            123,
-        );
+        const result = await signTx(withScoreParticipant(signer), CALL_DATA, extensions, METADATA);
         return { result, calls, seen: calls[0].extensions };
     };
 
@@ -205,35 +190,29 @@ if (import.meta.vitest) {
             expect(Object.keys(seen)).toEqual(declared);
         });
 
-        test("throws when CheckNonce is missing, and does not sign", async () => {
+        test("fills the nonce before building the value when the payload has none", async () => {
+            // The PAPI 3 nonce enhancer runs inside the wrapper, so the value is
+            // built from the nonce it filled, here the one the caller passed.
             const extensions = Object.fromEntries(
                 Object.entries(papiExtensions()).filter(([key]) => key !== CHECK_NONCE),
             ) as PapiSignedExtensions;
             const { signer, calls } = spySigner();
-            await expect(
-                withScoreParticipant(signer).signTx(CALL_DATA, extensions, METADATA, 1),
-            ).rejects.toThrow(AsPersonError);
-            expect(calls).toHaveLength(0);
+            await signTx(withScoreParticipant(signer), CALL_DATA, extensions, METADATA, {
+                nonce: 9,
+            });
+            expect(hex(calls[0].extensions.ScoreAsParticipant.value)).toBe("0x0109000000");
         });
 
-        test("passes callData, block number and hasher through untouched", async () => {
+        test("passes the call data through and names the pipeline version", async () => {
             const { signer, calls } = spySigner();
-            const hasher = (data: Uint8Array) => data;
-            await withScoreParticipant(signer).signTx(
-                CALL_DATA,
-                papiExtensions(),
-                METADATA,
-                456,
-                hasher,
-            );
-            expect(calls[0].callData).toBe(CALL_DATA);
-            expect(calls[0].atBlockNumber).toBe(456);
-            expect(calls[0].hasher).toBe(hasher);
+            await signTx(withScoreParticipant(signer), CALL_DATA, papiExtensions(), METADATA);
+            expect(calls[0].callData).toEqual(CALL_DATA);
+            expect(calls[0].txExtVersion).toBe(PIPELINE.version);
         });
 
         test("returns whatever the inner signer returned", async () => {
             const { result } = await sign();
-            expect(hex(result)).toBe("0xdead");
+            expect(result).toBe("0xdead");
         });
 
         test("passes publicKey and signBytes straight through", async () => {
@@ -247,11 +226,11 @@ if (import.meta.vitest) {
         test("throws for a chain that does not declare ScoreAsParticipant", async () => {
             const { signer, calls } = spySigner();
             await expect(
-                withScoreParticipant(signer).signTx(
+                signTx(
+                    withScoreParticipant(signer),
                     CALL_DATA,
                     papiExtensions(),
                     blob("paseo_asset_hub"),
-                    1,
                 ),
             ).rejects.toThrow(AsPersonError);
             expect(calls).toHaveLength(0);

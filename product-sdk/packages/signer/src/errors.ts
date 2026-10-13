@@ -99,7 +99,7 @@ export class SigningFailedError extends SignerError {
  * the wallet. Re-pair the wallet / re-request the allowance to recover.
  *
  * Deliberately **thrown**, not returned as an `Err`: it surfaces at PAPI's
- * `PolkadotSigner.signTx` / `signBytes` boundary, whose contract is a
+ * `TxCreator` and `signBytes` boundary, whose contract is a
  * rejecting Promise.
  */
 export class AllowanceExpiredError extends SignerError {

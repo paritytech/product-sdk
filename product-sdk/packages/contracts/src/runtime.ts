@@ -1,10 +1,11 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { ss58ToH160 } from "@parity/product-sdk-address";
 import { type Result, err, ok } from "@parity/result";
 import type { SubmittableTransaction, TxError, TxResult, Weight } from "@parity/product-sdk-tx";
 import { ensureAccountMapped } from "@parity/product-sdk-tx";
-import type { HexString, PolkadotClient, PolkadotSigner, SS58String } from "polkadot-api";
+import type { HexString, PolkadotClient, SS58String } from "polkadot-api";
 
 import { ContractError } from "./errors.js";
 
@@ -267,7 +268,7 @@ export function createContractRuntimeFromClient<TDescriptor>(
 export async function ensureContractAccountMapped(
     runtime: ContractRuntime,
     address: SS58String,
-    signer: PolkadotSigner,
+    signer: CommonSignerTxCreator,
     options?: { timeoutMs?: number; onStatus?: (s: string) => void },
 ): Promise<Result<TxResult | null, TxError>> {
     const checker = {
@@ -320,7 +321,7 @@ if (import.meta.vitest) {
         // Pin the wiring: storage hit ⇒ short-circuit to null without
         // submitting; H160 (not SS58) is what reaches the storage query.
         const aliceSs58 = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
-        const fakeSigner = { publicKey: new Uint8Array(32) } as unknown as PolkadotSigner;
+        const fakeSigner = { publicKey: new Uint8Array(32) } as unknown as CommonSignerTxCreator;
 
         function makeRuntime(opts: {
             mapped: boolean;

@@ -11,7 +11,7 @@
  * per key (see `chain.ts`), so `limit` bounds the operations too.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { pinBlock, readAt, type Entry, type NftsChain } from "./chain.js";
+import { blockHolds, pinBlock, readAt, type Entry, type NftsChain } from "./chain.js";
 import { fillByIdWindow, isValidId, pageBounds } from "./paging.js";
 import {
     matchChainEntryError,
@@ -206,13 +206,14 @@ export async function getCollectionItems(
     id: number,
     options: GetCollectionItemsOptions = {},
 ): Promise<Result<CollectionItemsResult, ProductNftsError>> {
+    const holds = blockHolds();
     try {
         // Before the block is pinned: an id that cannot address anything is a
         // caller mistake, and answering it costs no round trip.
         if (!isValidId(id)) return err(new NftsIdError(id));
 
         const { signal } = options;
-        const snapshot = await pinBlock(chain, signal, options.at);
+        const snapshot = await pinBlock(chain, signal, options.at, holds);
         const at = readAt(snapshot, signal);
         const query = chain.assetHub.query;
         const { limit, fromId } = pageBounds(options);
@@ -288,6 +289,8 @@ export async function getCollectionItems(
         });
     } catch (cause) {
         return err(matchChainEntryError(cause) ?? normalizeError(cause, ProductNftsError));
+    } finally {
+        holds.release();
     }
 }
 

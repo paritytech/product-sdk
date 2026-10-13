@@ -210,7 +210,10 @@ stops the whole batch. No deadline is applied for you.
 
 A **chain client**, not a typed API. `NftsChain` asks for six storage entries *and*
 `raw.assetHub`, a `BlockSource` with `getFinalizedBlock()` and `getBestBlocks()`, because each read
-pins one block before it touches storage. A PAPI `PolkadotClient` fits as it is.
+pins one block before it touches storage. A PAPI `PolkadotClient` fits as it is. Its `hodlBlock`,
+optional on a `BlockSource`, keeps that block pinned until the read settles. Without it a block
+finalized mid-read unpins the one the read is on, and inside a container the next round trip fails
+with "is not pinned".
 
 ```typescript
 // Either of these satisfies NftsChain whole:
@@ -340,11 +343,12 @@ An `earned` entry with `hash: null` is a block still to come. Pass only non-null
 `previewClaim`.
 
 `previewClaim(chain, { credit, collections })` answers what that credit would mint in each
-collection, in one `NftClaimsApi.preview_mints` call. It runs the real claim selector, so for a
-`Random` collection the preview is the item the claim will produce, and switching collection is the
-only way to change it. A collection the credit cannot mint into is a `Fails` outcome with the
-reason, not an error. The item that would mint is resolved through the same exact-key metadata path
-a catalogue page uses, so its `name`, `rarity` and `imageRef` agree with `getCollectionItems`.
+collection, with one `NftClaimsApi.preview_mints` call per 32 collections. It runs the real claim
+selector, so for a `Random` collection the preview is the item the claim will produce, and
+switching collection is the only way to change it. A collection the credit cannot mint into is a
+`Fails` outcome with the reason, not an error. The item that would mint is resolved through the
+same exact-key metadata path a catalogue page uses, so its `name`, `rarity` and `imageRef` agree
+with `getCollectionItems`.
 
 ```typescript
 const registry = await getClaimableCollections(chain);
@@ -416,8 +420,8 @@ Things that differ from the catalogue reads, each for a reason:
   that. Every other read here walks a space the chain sizes, so it hands back a cursor; this one
   answers a list you already hold, so a cursor would page you over your own input. Split the list
   instead. The cap is this package's contract, not a reading of the chain — it coincides with the
-  live runtime's `metadata_batch` cap, which is why a full read is one runtime call there, but a
-  deployment configured lower just reports its cap and the read re-chunks to it.
+  `metadata_batch` cap of the live runtime, which is why a full read is one runtime call there. A
+  deployment configured lower rejects the call, and the read fails whole.
 
 `getInstanceDisplay(chain, instance, options?)` is the same read for one id, for a detail view.
 Looping it over a shelf forfeits the batching; pass the list.

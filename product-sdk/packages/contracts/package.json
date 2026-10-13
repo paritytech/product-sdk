@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-contracts",
     "description": "Typed contract interactions on Polkadot Asset Hub",
-    "version": "0.10.14",
+    "version": "0.11.0",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -43,6 +43,7 @@
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "@polkadot-labs/hdkd-helpers": "catalog:",
+        "@polkadot-api/signers-common": "catalog:",
         "polkadot-api": "catalog:",
         "viem": "catalog:"
     },

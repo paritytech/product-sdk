@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { ed25519CreateDerive, sr25519CreateDerive } from "@polkadot-labs/hdkd";
 import { entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
-import { getPolkadotSigner } from "polkadot-api/signer";
+import { getTxCreator } from "polkadot-api/tx-creator";
 
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 
@@ -39,7 +39,7 @@ export function seedToAccount(
     const signerKeyType = keyType === "ed25519" ? "Ed25519" : "Sr25519";
     const ss58Address = ss58Encode(keyPair.publicKey, ss58Prefix);
     const h160Address = deriveH160(keyPair.publicKey);
-    const signer = getPolkadotSigner(keyPair.publicKey, signerKeyType, keyPair.sign);
+    const signer = getTxCreator(keyPair.publicKey, signerKeyType, keyPair.sign);
 
     return {
         publicKey: keyPair.publicKey,

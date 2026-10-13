@@ -185,7 +185,7 @@ interface DerivedAccount {
   publicKey: Uint8Array;
   ss58Address: SS58String;
   h160Address: `0x${string}`;
-  signer: PolkadotSigner;
+  signer: CommonSignerTxCreator;
 }
 ```
 

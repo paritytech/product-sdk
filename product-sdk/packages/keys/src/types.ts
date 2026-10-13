@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import type { SS58String } from "@parity/product-sdk-address";
 
@@ -12,8 +12,8 @@ export interface DerivedAccount {
     ss58Address: SS58String;
     /** H160 EVM address derived via keccak256(publicKey) */
     h160Address: `0x${string}`;
-    /** PolkadotSigner for signing extrinsics */
-    signer: PolkadotSigner;
+    /** PAPI 3 transaction creator that signs with this key. */
+    signer: CommonSignerTxCreator;
 }
 
 /** NaCl encryption + signing keypairs derived from a master key. */

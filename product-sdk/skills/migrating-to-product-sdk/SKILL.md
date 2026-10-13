@@ -217,7 +217,7 @@ For each of the 15 areas below, assign a **status** and pick a
 | 11 | Logger | `product-sdk-utilities` | scattered `console.*` ∨ custom logger | n/a |
 | 12 | Statement Store | `product-sdk-statement-store` | pub/sub pattern ∨ manual statement-store interaction | n/a |
 | 13 | Identity / DotNS | (uses `@parity/product-sdk/identity` directly) | product resolves DotNS names | n/a — **optional** simplification |
-| 14 | PAPI 2.x bump + descriptors | _(this skill)_ | `polkadot-api@^1.x` in lockfile | major version pinning by product policy |
+| 14 | PAPI 3.x bump + descriptors | _(this skill)_ | `polkadot-api` below 3.x in lockfile | major version pinning by product policy |
 | 15 | Deps + overrides | _(this skill)_ | at least one other area is in-scope | n/a |
 
 ### Sub-pattern selection per area
@@ -250,7 +250,7 @@ For each of the 15 areas below, assign a **status** and pick a
 - **(11) Logger** → `configure({ level })` once at bootstrap. Wrap the existing `createLogger(prefix)` so app-level call sites don't change.
 - **(12) Statement Store** → `StatementStoreClient` with `{ mode: 'host', accountId }` inside containers, `{ mode: 'local', signer }` standalone. Use `ChannelStore` for stable two-party streams.
 - **(13) Identity / DotNS** → `resolveDotNs` / `reverseDotNs` from `@parity/product-sdk/identity` instead of writing the contract call by hand. Status: **no** when the product does not use DotNS at all (nothing to migrate); **optional** when the product already integrates DotNS via a hand-rolled contract call (simplification opportunity — the hand-rolled call still works; replacing it is a nice-to-have).
-- **(14) PAPI 2.x + descriptors** → bump `polkadot-api` 1.x → ^2.x plus aligned subpackages (`substrate-bindings`, `substrate-client`, `observable-client`, `metadata-compatibility`, `polkadot-sdk-compat`, `sdk-ink`, `sdk-statement`, `utils`); replace `polkadot-api/ws-provider/web` → `polkadot-api/ws`; replace `Binary.fromBytes`/`.asHex()` with `Binary.toHex(uint8)` and raw `Uint8Array`; rewrite event watching to iterate `watch().{block,events[]}`; bump `.papi/descriptors/package.json` to match.
+- **(14) PAPI 3.x + descriptors** → bump `polkadot-api` to ^3.x plus aligned subpackages (`substrate-bindings`, `substrate-client`, `observable-client`, `metadata-compatibility`, `polkadot-sdk-compat`, `sdk-ink`, `sdk-statement`, `utils`); replace `polkadot-api/ws-provider/web` → `polkadot-api/ws`; replace `Binary.fromBytes`/`.asHex()` with `Binary.toHex(uint8)` and raw `Uint8Array`; rewrite event watching to iterate `watch().{block,events[]}`; from 2.x, replace every `PolkadotSigner` with a PAPI 3 `TxCreator` (`getPolkadotSigner` becomes `getTxCreator` from `polkadot-api/tx-creator`), `signSubmitAndWatch` / `signAndSubmit` with `createSubmitAndWatch` / `createAndSubmit`, `getEstimatedFees(address)` with `getEstimatedFees(getFakeTxCreator(address))`, and the `signed` and `txBestBlocksState` events with `created`, `inBestBlock` and `notInBestBlock`; bump `.papi/descriptors/package.json` to match.
 - **(15) Deps + overrides** → see the "Cross-cutting work → Dependencies and overrides" block in the Phase 3 spec template (below) for the canonical add/remove/override lists.
 
 ### Checkpoint
@@ -322,11 +322,12 @@ files affected (with paths), owning SDK skill, notes.
 [... one subsection per area from the matrix ...]
 
 ## Cross-cutting work
-### PAPI 2.x bump + descriptors
-- Bump polkadot-api 1.x → ^2.x plus aligned subpackages: [list]
+### PAPI 3.x bump + descriptors
+- Bump polkadot-api to ^3.x plus aligned subpackages: [list]
 - Import path migrations: ws-provider/web → ws (N files)
 - Binary API: .asHex()/.fromBytes() → Binary.toHex(uint8) / raw Uint8Array
 - Event watching: api.event.X.watch(filter) → watch().{block,events[]} + filter in subscriber
+- Signers: PolkadotSigner → TxCreator, sign* tx methods → create*, tx events renamed (N files)
 - .papi/descriptors/package.json bumped to <version>
 
 ### Dependencies and overrides
@@ -375,7 +376,7 @@ must do this explicitly; it does not emerge from the per-area work.
 ## Recommended ordering
 Phases (each = independent commit-worthy chunk):
 1. Deps + overrides (failure mode contained)
-2. PAPI 2.x adapt (mechanical)
+2. PAPI 3.x adapt (mechanical)
 3. Address utils inline (low risk, deletions)
 4. Crypto + utils swap (mechanical, byte-identical verifiable)
 5. Logger swap (low risk)
