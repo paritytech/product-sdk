@@ -6,7 +6,7 @@
             "wsUrl": "wss://previewnet.substrate.dev/people",
             "metadata": "../../.papi/metadata/previewnet_individuality.scale",
             "genesis": "0x55e3e689ecfa9d2fffcf7d309b8011956671493982230bfd0420c683542249e9",
-            "codeHash": "0x90d0e268041cf5e4a6d97dbba4d42e63747196b28becf245fd0de946ff843744"
+            "codeHash": "0x69e7126f098bdf708302e52b892fd76c5d2477627bce47cbfcee7fcd5db17871"
         }
     }
 }

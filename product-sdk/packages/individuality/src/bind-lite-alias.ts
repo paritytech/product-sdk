@@ -499,8 +499,9 @@ if (import.meta.vitest) {
 
     /**
      * The whole extrinsic, hand-derived rather than recomputed, so the layout
-     * is pinned and an encoder change is a readable diff. Previewnet declares
-     * 22 extensions; each line is one slot's extra in declared order.
+     * is pinned and an encoder change is a readable diff. Previewnet's encoding
+     * pipeline (version 1 since runtime 3004000) declares 23 extensions; each
+     * line is one slot's extra in declared order.
      */
     const EXPECTED_EXTRAS = [
         "", // UnitTransactionExtension: unit
@@ -524,12 +525,14 @@ if (import.meta.vitest) {
         "00", // CheckNonce: compact 0, a pass-through for a LiteAlias origin
         "", // CheckWeight: unit
         "0000", // ChargeAssetTxPayment: tip 0, no fee asset
+        "00", // CheckMetadataHash: Disabled
         "", // StorageWeightReclaim: unit
     ].join("");
 
-    // preamble ++ extensionVersion ++ extras ++ call = 2 + 60 + 3 = 65 bytes,
-    // and compact(65) is the two-byte mode: ((65 << 2) | 0b01) little-endian.
-    const EXPECTED_EXTRINSIC = `0x05014500${EXPECTED_EXTRAS}${hex(CALL_DATA).slice(2)}`;
+    // preamble ++ extensionVersion ++ extras ++ call = 2 + 61 + 3 = 66 bytes,
+    // and compact(66) is the two-byte mode: ((66 << 2) | 0b01) little-endian.
+    // The extension version byte is 1: the pipeline carrying PeopleLiteAuth.
+    const EXPECTED_EXTRINSIC = `0x09014501${EXPECTED_EXTRAS}${hex(CALL_DATA).slice(2)}`;
 
     describe("buildLiteAliasBindTx", () => {
         test("encodes the pinned V5 general extrinsic byte for byte", async () => {
@@ -558,18 +561,21 @@ if (import.meta.vitest) {
             });
 
             // AsMember..HonourAuth None, AuthorizeCall empty, RestrictOrigins
-            // true, CheckMortality immortal, CheckNonce 0, tip 0 and no asset.
-            const valuesAfter = bytes(`${"00000000"}01${"00"}${"00"}0000`);
+            // true, CheckMortality immortal, CheckNonce 0, tip 0 and no asset,
+            // CheckMetadataHash disabled.
+            const valuesAfter = bytes(`${"00000000"}01${"00"}${"00"}0000${"00"}`);
             const implicitsAfter = [
                 u32le(SPEC_VERSION),
                 u32le(TX_VERSION),
                 bytes(GENESIS),
                 bytes(GENESIS),
+                // CheckMetadataHash: Option<[u8; 32]>, None when disabled.
+                bytes("00"),
             ];
             expect(hex(seenMessage!)).toBe(
                 hex(
                     blake2b256(
-                        concatBytes(Uint8Array.of(0), CALL_DATA, valuesAfter, ...implicitsAfter),
+                        concatBytes(Uint8Array.of(1), CALL_DATA, valuesAfter, ...implicitsAfter),
                     ),
                 ),
             );

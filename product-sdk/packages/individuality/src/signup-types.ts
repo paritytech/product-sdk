@@ -12,11 +12,17 @@
  * `is_recognized()` is true only for `Recognized` and `ExternallyRecognized`, so
  * `Suspended` takes `Account`.
  *
- * **`Alias` cannot be built.** It needs a ring-VRF proof at
- * `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and hosts only sign at
- * `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, which they compute
- * themselves. Fixing that is a chain or host change, not more code here. A
- * recognized player can still sign up with an account, passing no draws.
+ * **`Alias` is a People-ring proof per draw.** Since People runtime 3004000 the
+ * chain verifies it in the product context
+ * `blake2b_256("product/" ++ product_name ++ "." ++ tld ++ "/" ++ event_id)`
+ * (`Game.product_name` is `dim2`), which is exactly the context a host mints
+ * ring-VRF proofs in for `{ productId: "dim2.<tld>", suffix: Raw(event_id) }`.
+ * `mintAliasAirdropVrfs` in `signup.ts` builds the arm from those proofs. Whether
+ * a given product may use the People member key is the host's grant decision
+ * (`peopl.<tld>` owns the key; another product needs its manifest grant), which
+ * no chain read can see, so there is no blocker for it: a refused proof request
+ * surfaces from the mint. Before 3004000 the context was a static prefix no host
+ * could mint, and the arm was unbuildable.
  */
 import type { GamePhase } from "./game-types.js";
 import type { FinalizedSnapshot } from "./types.js";
@@ -25,7 +31,7 @@ import type { FinalizedSnapshot } from "./types.js";
 export type AirdropVrfVariant =
     /** Not recognized: sr25519 VRFs from the signing account's own key. */
     | "Account"
-    /** Recognized: ring-VRF membership proofs. Unbuildable, see the module doc. */
+    /** Recognized: People-ring membership proofs, one per draw. See the module doc. */
     | "Alias";
 
 /** One `AirdropVrfs::Account` entry, shaped as the host's `signVrf` returns it. */
@@ -60,8 +66,6 @@ export type SignUpBlocker =
     | { tag: "RegistrationEnded"; registrationEnds: number }
     /** `Game.Players[who].registered` → `Game.AlreadyRegistered`. */
     | { tag: "AlreadyRegistered" }
-    /** Draws only. Recognized, so the chain wants `Alias` proofs no host can mint. */
-    | { tag: "AliasVrfsUnavailable" }
     /**
      * Draws only. The account arm needs an account origin, the alias arm needs
      * recognition, so an unrecognized person satisfies neither. They can sign up.

@@ -114,7 +114,7 @@ jobs:
               run: |
                   set -euo pipefail
                   echo "truapi=$(sed -n 's/^  "@parity\/truapi": \^//p' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
-                  echo "test_sdk=$(sed -n 's/^  "@parity\/host-api-test-sdk": \^//p' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "truapi_host=$(sed -n 's/^  "@parity\/truapi-host": \^//p' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
                   cd packages/host
                   node --input-type=module -e "$PRINT_WIRE_VERSION" >> "$GITHUB_OUTPUT"
 
@@ -130,9 +130,8 @@ jobs:
                     grep -qxF "  \"$1\": ^$2" pnpm-workspace.yaml
                   }
                   bump @parity/truapi "$TRUAPI"
-                  test_sdk=$(curl -fsSL https://registry.npmjs.org/@parity%2fhost-api-test-sdk/latest | jq -r .version)
-                  bump @parity/host-api-test-sdk "$test_sdk"
-                  echo "test_sdk=$test_sdk" >> "$GITHUB_OUTPUT"
+                  curl -fsSL -o /dev/null "https://registry.npmjs.org/@parity%2ftruapi-host/$TRUAPI"
+                  bump @parity/truapi-host "$TRUAPI"
                   pnpm install --no-frozen-lockfile
                   cd packages/host
                   node --input-type=module -e "$PRINT_WIRE_VERSION" >> "$GITHUB_OUTPUT"
@@ -181,16 +180,15 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   OLD_TRUAPI: ${{ steps.before.outputs.truapi }}
-                  OLD_TEST_SDK: ${{ steps.before.outputs.test_sdk }}
-                  NEW_TEST_SDK: ${{ steps.bump.outputs.test_sdk }}
+                  OLD_TRUAPI_HOST: ${{ steps.before.outputs.truapi_host }}
               run: |
                   set -euo pipefail
                   {
                     echo "Automated by [\`product-sdk-truapi-bump.yml\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/main/.github/workflows/product-sdk-truapi-bump.yml)."
                     echo
                     echo "- \`@parity/truapi\`: \`^$OLD_TRUAPI\` to \`^$TRUAPI\`"
-                    if [[ "$OLD_TEST_SDK" != "$NEW_TEST_SDK" ]]; then
-                      echo "- \`@parity/host-api-test-sdk\`: \`^$OLD_TEST_SDK\` to \`^$NEW_TEST_SDK\`"
+                    if [[ "$OLD_TRUAPI_HOST" != "$TRUAPI" ]]; then
+                      echo "- \`@parity/truapi-host\`: \`^$OLD_TRUAPI_HOST\` to \`^$TRUAPI\`"
                     fi
                     echo
                     echo "**Merging this PR publishes a release wave.** The changeset is in \`.changeset/\`, not \`pending-changesets/\`, so it also ships every changeset already promoted there."

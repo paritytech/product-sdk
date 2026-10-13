@@ -210,13 +210,14 @@ if (import.meta.vitest) {
     describe("buildImplication", () => {
         test("is version, call, then values and implicits of the slice after AsPerson", () => {
             // Hand-derived, not computed from the pipeline, so the test is not
-            // circular. AsPerson is at 2 and paseo declares 22 extensions, so the
-            // slice is indices 3 to 21: nineteen values then nineteen implicits.
+            // circular. AsPerson is at 2 and paseo's encoding pipeline (version 1
+            // since runtime 3004000) declares 23 extensions, so the slice is
+            // indices 3 to 22: twenty values then twenty implicits.
             const expected =
-                "0x00" + // pipeline version
+                "0x01" + // pipeline version
                 "3301aa" + // call data
-                "030405060708090a0b0c0d0e0f101112131415" + // values 3..21
-                "6768696a6b6c6d6e6f70717273747576777879"; // implicits 103..121
+                "030405060708090a0b0c0d0e0f10111213141516" + // values 3..22
+                "6768696a6b6c6d6e6f707172737475767778797a"; // implicits 103..122
 
             expect(
                 hex(buildImplication(PASEO, CALL_DATA, positionalExtensions(PASEO), AS_PERSON)),
@@ -248,7 +249,7 @@ if (import.meta.vitest) {
                 AS_PERSON,
             );
             expect(implication[0]).toBe(PASEO.version);
-            expect(implication[0]).toBe(0);
+            expect(implication[0]).toBe(1);
         });
 
         test("values come before implicits, not interleaved", () => {
@@ -261,8 +262,8 @@ if (import.meta.vitest) {
                 AS_PERSON,
             );
             const body = Array.from(implication.slice(1 + CALL_DATA.length));
-            expect(body.slice(0, 19).every((byte) => byte < 100)).toBe(true);
-            expect(body.slice(19).every((byte) => byte >= 100)).toBe(true);
+            expect(body.slice(0, 20).every((byte) => byte < 100)).toBe(true);
+            expect(body.slice(20).every((byte) => byte >= 100)).toBe(true);
         });
 
         test("follows the chain's own pipeline length rather than a constant", () => {
@@ -281,11 +282,16 @@ if (import.meta.vitest) {
                 AS_PERSON,
             );
 
-            expect(PASEO.extensions).toHaveLength(22);
+            // Paseo's encoding pipeline is version 1 of runtime 3004000, which
+            // gained CheckMetadataHash; the devnet declares 23 in version 0.
+            expect(PASEO.extensions).toHaveLength(23);
             expect(DEVNET.extensions).toHaveLength(23);
-            // 19 slots on paseo, 20 on the devnet, each contributing two bytes.
-            expect(onPaseo).toHaveLength(1 + CALL_DATA.length + 19 * 2);
+            // 20 slots after AsPerson on each chain, each contributing two bytes.
+            expect(onPaseo).toHaveLength(1 + CALL_DATA.length + 20 * 2);
             expect(onDevnet).toHaveLength(1 + CALL_DATA.length + 20 * 2);
+            // The version byte is the pipeline's, so the two chains differ there.
+            expect(onPaseo[0]).toBe(1);
+            expect(onDevnet[0]).toBe(0);
         });
 
         test("builds the implication for any origin-modifying extension", () => {
@@ -298,8 +304,8 @@ if (import.meta.vitest) {
                 "GameAsInvited",
             );
             expect(PASEO.indexOf("GameAsInvited")).toBe(5);
-            expect(gameAsInvited).toHaveLength(1 + CALL_DATA.length + 16 * 2);
-            expect(hex(gameAsInvited).startsWith("0x003301aa" + "060708")).toBe(true);
+            expect(gameAsInvited).toHaveLength(1 + CALL_DATA.length + 17 * 2);
+            expect(hex(gameAsInvited).startsWith("0x013301aa" + "060708")).toBe(true);
         });
 
         test("throws for an extension the chain does not declare", () => {
