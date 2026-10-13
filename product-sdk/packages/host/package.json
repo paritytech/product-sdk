@@ -38,8 +38,7 @@
         "@polkadot-api/substrate-bindings": "catalog:",
         "@polkadot-api/tx-creator": "catalog:",
         "neverthrow": "^8.2.0",
-        "polkadot-api": "catalog:",
-        "@novasamatech/host-api-wrapper": "0.12.0"
+        "polkadot-api": "catalog:"
     },
     "devDependencies": {
         "tsup": "catalog:",
