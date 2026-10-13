@@ -340,6 +340,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         coinPayment: notModeled("coinPayment"),
         contacts: notModeled("contacts"),
         entropy: notModeled("entropy"),
+        expandedCard: notModeled("expandedCard"),
         game: notModeled("game"),
         locale: notModeled("locale"),
         notifications: notModeled("notifications"),
