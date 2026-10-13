@@ -972,6 +972,12 @@ importers:
       '@parity/product-sdk-signer':
         specifier: workspace:*
         version: link:../signer
+      '@parity/truapi':
+        specifier: 'catalog:'
+        version: 0.24.0
+      '@parity/truapi-host':
+        specifier: 'catalog:'
+        version: 0.24.0(@playwright/test@1.60.0)(esbuild@0.28.1)
       '@polkadot-api/utils':
         specifier: ^0.4.0
         version: 0.4.0

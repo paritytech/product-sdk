@@ -3,7 +3,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-    entry: ["src/index.ts", "src/testing.ts", "src/host.ts"],
+    entry: ["src/index.ts", "src/testing.ts", "src/host.ts", "src/truapi.ts"],
     format: ["esm"],
     dts: true,
     sourcemap: true,

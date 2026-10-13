@@ -19,6 +19,10 @@
         "./host": {
             "types": "./dist/host.d.ts",
             "import": "./dist/host.js"
+        },
+        "./truapi": {
+            "types": "./dist/truapi.d.ts",
+            "import": "./dist/truapi.js"
         }
     },
     "files": ["dist"],
@@ -42,6 +46,8 @@
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
+        "@parity/truapi": "catalog:",
+        "@parity/truapi-host": "catalog:",
         "@polkadot-api/utils": "^0.4.0",
         "@polkadot-api/ws-provider": "^0.9.0",
         "@polkadot-labs/hdkd-helpers": "catalog:",
