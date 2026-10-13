@@ -9,6 +9,8 @@
  * @module
  */
 
+import { okAsync } from "neverthrow";
+
 import type {
     ChatBotRegistrationStatus,
     ChatRoomRegistrationStatus,
@@ -19,8 +21,6 @@ import type {
     RendererNode,
     TrUApiClient,
 } from "@parity/truapi";
-
-import { okAsync } from "neverthrow";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
 import { getNativeChatManager, isNativeChatHost } from "./nativeChat.js";
@@ -73,6 +73,7 @@ export interface ChatSendMessageOptions {
     /**
      * One line describing the message, which a host shows where it lists the
      * message rather than draws it, such as a chat list preview of a custom card.
+     * The native chat backend has no field for it and drops it.
      */
     alt?: string;
 }
@@ -317,6 +318,16 @@ if (import.meta.vitest) {
             payload,
             alt: "Week 12 results",
         });
+    });
+
+    test("sendMessage without options passes no alt to the host", async () => {
+        const postMessage = vi.fn(() => okAsync({ messageId: "message-1" }));
+        const manager = adaptChatManager({ chat: { postMessage } } as unknown as TrUApiClient);
+        const payload: ChatMessageContent = { tag: "Text", value: { text: "hi" } };
+
+        await manager.sendMessage("room-1", payload);
+
+        expect(postMessage).toHaveBeenCalledWith({ roomId: "room-1", payload, alt: undefined });
     });
 
     test("custom renderer requests decode payloads and receive message-scoped actions", () => {

@@ -298,6 +298,18 @@ if (import.meta.vitest) {
             expect(f.sent[0]!.payload).toEqual({ tag: "Text", value: "hi" });
         });
 
+        it("sendMessage: alt is dropped because the novasama request has no field for it", async () => {
+            const f = makeFakeBackend();
+            const chat = createNativeChatManager(f.backend);
+            const res = await chat.sendMessage(
+                "room",
+                { tag: "Text", value: { text: "hi" } },
+                { alt: "hi" },
+            );
+            expect(res.messageId).toBe("m-1");
+            expect(f.sent[0]).toEqual({ roomId: "room", payload: { tag: "Text", value: "hi" } });
+        });
+
         it("sendMessage: truapi Custom hex payload → novasama Uint8Array", async () => {
             const f = makeFakeBackend();
             const chat = createNativeChatManager(f.backend);
