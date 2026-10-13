@@ -21,14 +21,31 @@
  * const req = await readGameSignUpRequirement(chain, { registrant });
  * if (!req.ok || !req.value.canSignUp) return;
  *
- * // A recognized player has canSignUp true and canEnterDraws false, and must
- * // still be signed up.
+ * // The chain picks the variant from recognition: `Account` VRFs from the
+ * // signing key, or `Alias` People-ring proofs for a recognized player.
  * let airdrops;
- * if (req.value.canEnterDraws) {
+ * if (req.value.canEnterDraws && req.value.variant === "Account") {
  *     const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
  *         eventIds: req.value.eventIds,
  *         publicKey: account.publicKey,
  *     });
+ *     if (!vrfs.ok) return;
+ *     airdrops = vrfs.value;
+ * } else if (req.value.canEnterDraws) {
+ *     // The People member key is `(peopl.<tld>, Index 0)`; list it first, keys
+ *     // register lazily. `productId` is `Game.product_name` under the network tld.
+ *     const vrfs = await mintAliasAirdropVrfs(
+ *         (context, message) =>
+ *             accounts
+ *                 .createRingVRFProof(peopleKey, context, peopleRing(genesis), message)
+ *                 .match(
+ *                     (proof) => proof,
+ *                     (cause) => {
+ *                         throw cause;
+ *                     },
+ *                 ),
+ *         { eventIds: req.value.eventIds, registrant, productId: "dim2.paseo" },
+ *     );
  *     if (!vrfs.ok) return;
  *     airdrops = vrfs.value;
  * }
@@ -48,19 +65,26 @@
  * the draw count from the same block, and the entry count must equal
  * `airdrops_scheduled` exactly or the whole sign-up fails, deposit included.
  *
- * Only the `Account` variant is buildable. `signup-types.ts` says why.
+ * Both variants are buildable since People runtime 3004000; `signup-types.ts`
+ * has the context the `Alias` proofs are verified in. The sign-up call itself is
+ * `sign_up_with_account` only: `sign_up_with_alias` needs a statement-account
+ * signature this package does not produce.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { bytesToHex } from "@parity/product-sdk-utils";
+import { bytesToHex, concatBytes, hexToBytes } from "@parity/product-sdk-utils";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
+import { AccountId } from "polkadot-api";
+import { getFakeTxCreator } from "polkadot-api/tx-creator";
 import { gameAirdropEventIds } from "./airdrop-ids.js";
 import type { AirdropRegistrant } from "./airdrop-types.js";
 import type { BlockAt, FinalizedSnapshot, PersonhoodParticipant } from "./types.js";
+import { productContext } from "./contexts.js";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
 import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
 import { playerKey, type PlayerKey } from "./player-key.js";
-import { FEE_ESTIMATE_EXTENSIONS } from "./origin-extension.js";
+import type { RingVRFProof } from "./origin-extension.js";
 import { airdropVrfTranscript, type VrfTranscriptItem } from "./signup-vrf.js";
 import type {
     AccountVrfSignature,
@@ -78,14 +102,14 @@ const DRAW_ONLY = {
     NotInRegistration: false,
     RegistrationEnded: false,
     AlreadyRegistered: false,
-    AliasVrfsUnavailable: true,
     AccountVrfsNeedAnAccount: true,
     NoDrawsScheduled: true,
     NotSr25519: true,
 } satisfies Record<SignUpBlocker["tag"], boolean>;
 
 /**
- * The chain's `AirdropVrfs`. `Alias` is never constructed, only declared.
+ * The chain's `AirdropVrfs`, as the paseo descriptors spell it: `Alias.proofs`
+ * are raw bytes, `Account` entries are `0x` hex of fixed width.
  * Exported for `signup-lite.ts`, whose call takes the same argument.
  */
 export type AirdropVrfsArg =
@@ -234,18 +258,18 @@ export async function runSignUpRequirementRead(
     }
 
     // What the chain demands, which stays `Account` for an unrecognized person
-    // who cannot supply it. The blocker says why not.
+    // who cannot supply it. The blocker says why not. A recognized player gets
+    // no blocker: `Alias` is mintable since runtime 3004000, and whether this
+    // product's host grants it the People key is not readable from the chain.
     //
     // Every draw-entry blocker lives in this one chain, below the count check,
     // so none of them can name a reason for a draw that does not exist.
     const variant: AirdropVrfVariant = recognized ? "Alias" : "Account";
     if (airdropsScheduled === 0) {
         blockers.push({ tag: "NoDrawsScheduled" });
-    } else if (recognized) {
-        blockers.push({ tag: "AliasVrfsUnavailable" });
-    } else if (registrant.tag === "Alias") {
+    } else if (!recognized && registrant.tag === "Alias") {
         blockers.push({ tag: "AccountVrfsNeedAnAccount" });
-    } else if (options.keyType !== undefined && options.keyType !== "sr25519") {
+    } else if (!recognized && options.keyType !== undefined && options.keyType !== "sr25519") {
         blockers.push({ tag: "NotSr25519", keyType: options.keyType });
     }
 
@@ -356,6 +380,209 @@ export async function mintAccountAirdropVrfs(
     }
 }
 
+/**
+ * The product-scoped context one draw's proof is minted in, as the host's
+ * `createRingVRFProof` takes it: the product's dotNS id and the event id as a
+ * raw 32-byte suffix. Structural, so the package keeps no dependency on
+ * `@parity/product-sdk-host`; the `Raw` arm of truapi's `ProductProofContext`.
+ */
+export interface AliasDrawProofContext {
+    /** `"<product_name>.<tld>"`, lower case: the chain hashes the raw string. */
+    productId: string;
+    /** The draw's event id, `0x` hex, 32 bytes. */
+    suffix: { tag: "Raw"; value: string };
+}
+
+/**
+ * A People-ring proof over `message` in `context`.
+ *
+ * Wire this to `AccountsProvider.createRingVRFProof(keyHandle, context, ring,
+ * message)` with the People member key (`(peopl.<tld>, Index 0)`; list it with
+ * `listRingVrfKeys` first, keys register lazily) and `peopleRing(genesis)`.
+ * The host grants or refuses the key per product; a refusal rejects here.
+ *
+ * **Neither argument is the caller's to choose.** The context is the draw's and
+ * the message is the registration entry the chain verifies the proof against.
+ */
+export type AliasAirdropProofSigner = (
+    context: AliasDrawProofContext,
+    message: Uint8Array,
+) => Promise<RingVRFProof>;
+
+/** The `AirdropVrfs::Alias` arm: one proof per draw, all at one ring revision. */
+export interface AliasAirdropVrfs {
+    /** In airdrop-index order, raw bandersnatch ring-VRF proof bytes. */
+    proofs: Uint8Array[];
+    /** The ring the proofs were generated against. One for all of them. */
+    ringIndex: number;
+    /** That ring's revision at generation time. One for all of them. */
+    revision: number;
+}
+
+/** Options for {@link mintAliasAirdropVrfs}. */
+export interface MintAliasAirdropVrfsOptions {
+    /** In airdrop-index order: entry `i` is checked against airdrop index `i`. */
+    eventIds: string[];
+    /** The identity signing up, which the chain verifies each proof against. */
+    registrant: AirdropRegistrant;
+    /**
+     * The game's product under the network tld, e.g. `"dim2.paseo"`:
+     * `Game.product_name` on chain, which every event the game schedules
+     * stores, joined to the dotNS tld the host runs on. Lower case; the chain
+     * hashes the raw string, so `DIM2.paseo` is a different context.
+     */
+    productId: string;
+    /** Checked between draws only; a proof already being prompted for cannot be cancelled. */
+    signal?: AbortSignal;
+}
+
+/** `RegistrationEntry`'s SCALE encoding: the variant byte, then 32 bytes of id. */
+const REGISTRATION_ENTRY_ALIAS = 0;
+const REGISTRATION_ENTRY_ACCOUNT = 1;
+const ID_BYTES = 32;
+
+/**
+ * The message the chain verifies a draw proof against: the SCALE-encoded
+ * `RegistrationEntry` of the registrant, `0u8 ++ alias` or `1u8 ++ account_id`.
+ *
+ * Exported for `signup-lite.ts`'s tests; not part of the package surface.
+ */
+export function registrationEntryBytes(registrant: AirdropRegistrant): Uint8Array {
+    if (registrant.tag === "Account") {
+        let accountId: Uint8Array;
+        try {
+            accountId = AccountId().enc(registrant.accountAddress);
+        } catch (cause) {
+            throw new ProductIndividualityError("registrant account is not a valid address", {
+                cause,
+            });
+        }
+        return concatBytes(Uint8Array.of(REGISTRATION_ENTRY_ACCOUNT), accountId);
+    }
+    const alias = bytesOfHex(registrant.alias);
+    if (alias.length !== ID_BYTES) {
+        throw new ProductIndividualityError("registrant alias is not 32 bytes");
+    }
+    return concatBytes(Uint8Array.of(REGISTRATION_ENTRY_ALIAS), alias);
+}
+
+function bytesOfHex(hex: string): Uint8Array {
+    if (!/^0x([0-9a-fA-F]{2})*$/.test(hex)) {
+        throw new ProductIndividualityError("expected 0x-prefixed hex");
+    }
+    return hexToBytes(hex.slice(2));
+}
+
+/**
+ * `is_product_name(label) ++ "." ++ network_suffix`: a single lower-case dotNS
+ * label, then the suffix the chain is configured with, which may itself carry
+ * more than one label. What matters is that the string is the one the chain
+ * hashes; the pattern only rejects what certainly is not.
+ */
+const PRODUCT_ID_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+/**
+ * One People-ring proof per scheduled draw, minted through the host.
+ *
+ * Sequential, not parallel: each is a user-visible signing operation on a host
+ * that prompts, and firing sixteen at once is hidden by an allowance until a
+ * product ships without one.
+ *
+ * Two things are checked locally because the chain's own failure rejects the
+ * whole sign-up with the deposit taken and nothing to inspect:
+ *
+ * - **The context.** The host decides it from `productId` and the suffix, and
+ *   the proof carries it back. It must equal the context the chain derives for
+ *   the event (`product/<productId>/<event_id>`, computed offline here), or the
+ *   product id is misspelt, or the host hashed something else.
+ * - **The ring coordinates.** `AirdropVrfs::Alias` carries one `ring_index` and
+ *   one `revision` for every proof, so a ring revision moving between two
+ *   draws' proofs makes the set unusable. Mint again.
+ *
+ * No retry on a rejected proof request: every refusal a host gives (no grant
+ * for the People key, a declined prompt, a key not in the ring) holds for the
+ * rest of this sign-up, so the caller should sign up without the draws rather
+ * than ask again.
+ *
+ * @throws nothing; every failure is on the `err` channel, with the host's
+ *   rejection as the cause.
+ */
+export async function mintAliasAirdropVrfs(
+    signer: AliasAirdropProofSigner,
+    options: MintAliasAirdropVrfsOptions,
+): Promise<Result<AliasAirdropVrfs, ProductIndividualityError>> {
+    try {
+        if (!PRODUCT_ID_PATTERN.test(options.productId)) {
+            throw new ProductIndividualityError(
+                "product id must be a lower-case dotNS name such as dim2.paseo",
+            );
+        }
+        const message = registrationEntryBytes(options.registrant);
+        const proofs: Uint8Array[] = [];
+        let ring: { ringIndex: number; revision: number } | undefined;
+
+        for (const eventId of options.eventIds) {
+            options.signal?.throwIfAborted();
+            const eventIdBytes = bytesOfHex(eventId);
+            if (eventIdBytes.length !== ID_BYTES) {
+                throw new ProductIndividualityError("airdrop event id is not 32 bytes");
+            }
+            const expectedContext = productContext(options.productId, {
+                tag: "Raw",
+                value: eventIdBytes,
+            });
+
+            const proof = checkDrawProof(
+                await signer(
+                    { productId: options.productId, suffix: { tag: "Raw", value: eventId } },
+                    message,
+                ),
+            );
+            if (!sameBytes(proof.contextualAlias.context, expectedContext)) {
+                // The context, not the alias: the alias is pseudonymous identity.
+                throw new ProductIndividualityError(
+                    "draw proof was minted in a different context than the chain verifies; check productId",
+                );
+            }
+            if (ring === undefined) {
+                ring = { ringIndex: proof.ringIndex, revision: proof.ringRevision };
+            } else if (ring.ringIndex !== proof.ringIndex || ring.revision !== proof.ringRevision) {
+                throw new ProductIndividualityError(
+                    "draw proofs were minted against different ring revisions; mint them again",
+                );
+            }
+            proofs.push(proof.proof);
+        }
+
+        return ok({ proofs, ringIndex: ring?.ringIndex ?? 0, revision: ring?.revision ?? 0 });
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/**
+ * The adapter is caller-written and usually unwraps a `Result`, so resolving
+ * with the `Result` itself is a likelier mistake than rejecting.
+ */
+function checkDrawProof(value: RingVRFProof): RingVRFProof {
+    if (
+        !(value?.proof instanceof Uint8Array) ||
+        value.proof.length === 0 ||
+        !(value?.contextualAlias?.context instanceof Uint8Array) ||
+        typeof value?.ringIndex !== "number" ||
+        typeof value?.ringRevision !== "number"
+    ) {
+        throw new ProductIndividualityError(
+            "the proof signer returned no ring VRF proof; unwrap the Result before resolving",
+        );
+    }
+    return value;
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+    return a.length === b.length && a.every((byte, i) => byte === b[i]);
+}
+
 /** Options for {@link signUpWithAccountTx}. */
 export interface SignUpWithAccountOptions {
     /**
@@ -363,8 +590,13 @@ export interface SignUpWithAccountOptions {
      * never interpreted by the chain; it is how co-players reach each other.
      */
     identifierKey: Uint8Array;
-    /** Omit to enter no draw. Length must equal {@link airdropsScheduled}. */
-    airdrops?: AccountVrfSignature[];
+    /**
+     * Omit to enter no draw. Count must equal {@link airdropsScheduled}: a list
+     * of account VRFs from {@link mintAccountAirdropVrfs}, or the alias arm from
+     * {@link mintAliasAirdropVrfs}. Which one is the chain's choice, read from
+     * `GameSignUpRequirement.variant`; the other is rejected on chain.
+     */
+    airdrops?: AccountVrfSignature[] | AliasAirdropVrfs;
     /**
      * From {@link GameSignUpRequirement}, checked against `airdrops` when both are
      * given. A mismatch fails the whole sign-up on chain with the deposit taken,
@@ -382,16 +614,16 @@ const VRF_PROOF_BYTES = 64;
  * Build `Game.sign_up_with_account`, unsigned. `Pays::No` on success, though a new
  * or archived player still pays a deposit.
  *
- * No `Alias` argument: a recognized player needs one that cannot be produced, and
- * an argument that always fails on chain is worse than none.
+ * `airdrops` takes either arm; the chain decides which one it accepts from this
+ * player's recognition, so build the one `GameSignUpRequirement.variant` names.
  *
  * A returning player owes no deposit and can sign under `withScoreParticipant` to
  * skip the fee as well, which is how a zero-balance account signs up again. A new
  * or archived player owes the deposit, so sign plainly.
  *
- * @throws ProductIndividualityError on a wrong-width key or signature, or an
- *   airdrop count that disagrees with `airdropsScheduled`. Checked because the
- *   chain's own failure rejects the sign-up with nothing to inspect.
+ * @throws ProductIndividualityError on a wrong-width key, signature or proof, or
+ *   an airdrop count that disagrees with `airdropsScheduled`. Checked because
+ *   the chain's own failure rejects the sign-up with nothing to inspect.
  */
 export function signUpWithAccountTx<Tx>(
     chain: SignUpChain<Tx>,
@@ -399,7 +631,7 @@ export function signUpWithAccountTx<Tx>(
 ): Tx {
     return chain.individuality.tx.Game.sign_up_with_account({
         identifier_key: identifierKeyHex(options.identifierKey),
-        airdrops: accountAirdropsArg(options),
+        airdrops: airdropsArg(options),
     });
 }
 
@@ -451,6 +683,50 @@ export function accountAirdropsArg(options: {
     };
 }
 
+/** Sanity ceiling on one ring-VRF proof; a real one is under a kilobyte. */
+const ALIAS_PROOF_BYTES_MAX = 8 * 1024;
+
+/**
+ * `airdrops` for either sign-up call: whichever arm the caller built. A list is
+ * the `Account` arm; {@link AliasAirdropVrfs} is the `Alias` arm. `undefined`
+ * is PAPI's `None`. Exported for `signup-lite.ts`; not part of the package surface.
+ */
+export function airdropsArg(options: {
+    airdrops?: AccountVrfSignature[] | AliasAirdropVrfs;
+    airdropsScheduled?: number;
+}): AirdropVrfsArg | undefined {
+    if (options.airdrops === undefined || Array.isArray(options.airdrops)) {
+        return accountAirdropsArg({
+            airdrops: options.airdrops,
+            airdropsScheduled: options.airdropsScheduled,
+        });
+    }
+    return aliasAirdropsArg(options.airdrops, options.airdropsScheduled);
+}
+
+function aliasAirdropsArg(alias: AliasAirdropVrfs, airdropsScheduled?: number): AirdropVrfsArg {
+    const count = alias.proofs.length;
+    if (airdropsScheduled !== undefined && count !== airdropsScheduled) {
+        throw new ProductIndividualityError(
+            `game sign-up needs one airdrop proof per scheduled draw, got ${count} for ${airdropsScheduled}`,
+        );
+    }
+    for (const proof of alias.proofs) {
+        if (!(proof instanceof Uint8Array) || proof.length === 0) {
+            throw new ProductIndividualityError("airdrop ring VRF proof is empty");
+        }
+        if (proof.length > ALIAS_PROOF_BYTES_MAX) {
+            throw new ProductIndividualityError(
+                "airdrop ring VRF proof is larger than the chain will accept",
+            );
+        }
+    }
+    return {
+        type: "Alias",
+        value: { proofs: alias.proofs, ring_index: alias.ringIndex, revision: alias.revision },
+    };
+}
+
 function sizedSignaturePart(bytes: Uint8Array, length: number, what: string): Uint8Array {
     if (bytes.length !== length) {
         throw new ProductIndividualityError(`airdrop VRF ${what} must be ${length} bytes`);
@@ -458,12 +734,9 @@ function sizedSignaturePart(bytes: Uint8Array, length: number, what: string): Ui
     return bytes;
 }
 
-/** A built transaction whose fee can be estimated, as every PAPI transaction can. */
+/** A built transaction whose fee can be estimated, as every PAPI 3 transaction can. */
 export interface FeeEstimable {
-    getEstimatedFees(
-        from: string,
-        options: { nonce: number; customSignedExtensions: Record<string, { value: unknown }> },
-    ): Promise<bigint>;
+    getEstimatedFees(creator: CommonSignerTxCreator, options: { nonce: number }): Promise<bigint>;
 }
 
 /**
@@ -564,13 +837,10 @@ export async function readSignUpFunds(
             query.Game.PlayDepositAmount.getValue(at),
             query.System.Account.getValue(account, at),
             // A fixed nonce saves the nonce lookup PAPI runs before estimating, and
-            // moves the length by a few bytes at most.
-            tx === undefined
-                ? null
-                : tx.getEstimatedFees(account, {
-                      nonce: 0,
-                      customSignedExtensions: FEE_ESTIMATE_EXTENSIONS,
-                  }),
+            // moves the length by a few bytes at most. The fake creator prices the
+            // call as a plain signed transaction from `account`, which is a few
+            // bytes shorter than the person-origin one and never prompts anyone.
+            tx === undefined ? null : tx.getEstimatedFees(getFakeTxCreator(account), { nonce: 0 }),
             chain.raw.individuality.getChainSpecData(),
         ]);
         const token = tokenProperties(spec.properties);
@@ -727,8 +997,10 @@ if (import.meta.vitest) {
             expect(value.at).toBe(given);
         });
 
-        test("a recognized player may sign up but not enter the draws", async () => {
-            // The whole point of splitting sign-up blockers from draw blockers.
+        test("a recognized player enters the draws with the Alias arm", async () => {
+            // Since runtime 3004000 the proofs are mintable, so there is no
+            // blocker; whether this product may use the People key is the
+            // host's decision and surfaces from the mint, not from a read.
             const { chain } = fakeChain({ participant: RECOGNIZED });
             const value = unwrapOk(
                 await readGameSignUpRequirement(chain, { registrant, now: 1_000 }),
@@ -736,13 +1008,25 @@ if (import.meta.vitest) {
 
             expect(value.variant).toBe("Alias");
             expect(value.canSignUp).toBe(true);
-            expect(value.canEnterDraws).toBe(false);
-            expect(value.blockers).toEqual([{ tag: "AliasVrfsUnavailable" }]);
+            expect(value.canEnterDraws).toBe(true);
+            expect(value.blockers).toEqual([]);
+        });
+
+        test("a recognized player's key type does not matter: the proofs are ring VRFs", async () => {
+            const { chain } = fakeChain({ participant: RECOGNIZED });
+            const value = unwrapOk(
+                await readGameSignUpRequirement(chain, {
+                    registrant,
+                    now: 1_000,
+                    keyType: "ed25519",
+                }),
+            );
+            expect(value.blockers).toEqual([]);
         });
 
         test("a suspended player is not recognized, so it stays on the account path", async () => {
             // `is_recognized()` is false for Suspended, so "not NotRecognized" is
-            // the wrong test and would send this player to an unbuildable variant.
+            // the wrong test and would send this player to the arm the chain rejects.
             const { chain } = fakeChain({
                 participant: {
                     score: 1,
@@ -829,7 +1113,7 @@ if (import.meta.vitest) {
             expect(value.blockers).toEqual([{ tag: "AccountVrfsNeedAnAccount" }]);
         });
 
-        test("a recognized person still reports the alias blocker, not the origin one", async () => {
+        test("a recognized person has no origin blocker: the alias arm takes an alias entry", async () => {
             const { chain } = fakeChain({ participant: RECOGNIZED });
             const value = unwrapOk(
                 await readGameSignUpRequirement(chain, {
@@ -838,7 +1122,8 @@ if (import.meta.vitest) {
                 }),
             );
 
-            expect(value.blockers).toEqual([{ tag: "AliasVrfsUnavailable" }]);
+            expect(value.variant).toBe("Alias");
+            expect(value.blockers).toEqual([]);
         });
 
         test("a game with no draws says so, whatever the recognition", async () => {
@@ -942,6 +1227,302 @@ if (import.meta.vitest) {
             });
 
             expect(unwrapErr(result)).toBeInstanceOf(ProductIndividualityError);
+        });
+    });
+
+    describe("registrationEntryBytes", () => {
+        // Alice's account id, so a wrong decoder is a visible 32-byte diff.
+        const ALICE_HEX = "d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d";
+        const hex = (bytes: Uint8Array) =>
+            Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+        test("an account player is 1u8 ++ account_id, the SCALE of RegistrationEntry::Account", () => {
+            expect(hex(registrationEntryBytes(registrant))).toBe(`01${ALICE_HEX}`);
+        });
+
+        test("an alias player is 0u8 ++ alias", () => {
+            expect(hex(registrationEntryBytes({ tag: "Alias", alias: ALIAS }))).toBe(
+                `00${"dd".repeat(32)}`,
+            );
+        });
+
+        test("rejects an alias that is not 32 bytes, and an address that does not decode", () => {
+            expect(() => registrationEntryBytes({ tag: "Alias", alias: "0xdd" })).toThrow(
+                ProductIndividualityError,
+            );
+            expect(() =>
+                registrationEntryBytes({ tag: "Account", accountAddress: "not an address" }),
+            ).toThrow(ProductIndividualityError);
+        });
+    });
+
+    describe("mintAliasAirdropVrfs", () => {
+        const PRODUCT_ID = "dim2.paseo";
+        const EVENT_IDS = [`0x${"01".repeat(32)}`, `0x${"02".repeat(32)}`];
+        const contextOf = (eventId: string) =>
+            productContext(PRODUCT_ID, { tag: "Raw", value: hexToBytes(eventId.slice(2)) });
+
+        /** A host double: records every request and answers in the right context. */
+        function fakeSigner(
+            overrides: {
+                contextFor?: (eventId: string) => Uint8Array;
+                ringFor?: (index: number) => { ringIndex: number; ringRevision: number };
+            } = {},
+        ) {
+            const requests: { context: AliasDrawProofContext; message: Uint8Array }[] = [];
+            const signer: AliasAirdropProofSigner = async (context, message) => {
+                requests.push({ context, message });
+                const index = requests.length - 1;
+                const ring = overrides.ringFor?.(index) ?? { ringIndex: 3, ringRevision: 7 };
+                return {
+                    proof: Uint8Array.from([0xa0 + index, 0xbb, 0xcc]),
+                    contextualAlias: {
+                        context:
+                            overrides.contextFor?.(context.suffix.value) ??
+                            contextOf(context.suffix.value),
+                        alias: new Uint8Array(32),
+                    },
+                    ...ring,
+                };
+            };
+            return { signer, requests };
+        }
+
+        test("mints one proof per draw, in order, at one ring revision", async () => {
+            const { signer, requests } = fakeSigner();
+            const value = unwrapOk(
+                await mintAliasAirdropVrfs(signer, {
+                    eventIds: EVENT_IDS,
+                    registrant,
+                    productId: PRODUCT_ID,
+                }),
+            );
+
+            expect(value.proofs.map((proof) => proof[0])).toEqual([0xa0, 0xa1]);
+            expect(value.ringIndex).toBe(3);
+            expect(value.revision).toBe(7);
+            expect(requests).toHaveLength(2);
+        });
+
+        test("asks for the draw's context: the product id and the event id as a raw suffix", async () => {
+            const { signer, requests } = fakeSigner();
+            await mintAliasAirdropVrfs(signer, {
+                eventIds: EVENT_IDS,
+                registrant,
+                productId: PRODUCT_ID,
+            });
+
+            expect(requests.map((request) => request.context)).toEqual(
+                EVENT_IDS.map((eventId) => ({
+                    productId: PRODUCT_ID,
+                    suffix: { tag: "Raw", value: eventId },
+                })),
+            );
+        });
+
+        test("signs the registration entry, never a caller-chosen message", async () => {
+            const { signer, requests } = fakeSigner();
+            await mintAliasAirdropVrfs(signer, {
+                eventIds: EVENT_IDS,
+                registrant: { tag: "Alias", alias: ALIAS },
+                productId: PRODUCT_ID,
+            });
+
+            for (const request of requests) {
+                expect(request.message).toEqual(
+                    registrationEntryBytes({ tag: "Alias", alias: ALIAS }),
+                );
+            }
+        });
+
+        test("rejects a proof the host minted in another context", async () => {
+            // A misspelt product id, or a host hashing something else: the
+            // chain would reject the whole sign-up with the deposit taken.
+            const { signer } = fakeSigner({ contextFor: () => new Uint8Array(32) });
+            const error = unwrapErr(
+                await mintAliasAirdropVrfs(signer, {
+                    eventIds: EVENT_IDS,
+                    registrant,
+                    productId: PRODUCT_ID,
+                }),
+            );
+            expect(error).toBeInstanceOf(ProductIndividualityError);
+            expect(error.message).toMatch(/productId/);
+        });
+
+        test("rejects proofs that disagree on the ring revision", async () => {
+            const { signer } = fakeSigner({
+                ringFor: (index) => ({ ringIndex: 3, ringRevision: 7 + index }),
+            });
+            const error = unwrapErr(
+                await mintAliasAirdropVrfs(signer, {
+                    eventIds: EVENT_IDS,
+                    registrant,
+                    productId: PRODUCT_ID,
+                }),
+            );
+            expect(error.message).toMatch(/ring revisions/);
+        });
+
+        test("rejects a product id the chain would hash differently", async () => {
+            const { signer, requests } = fakeSigner();
+            for (const productId of [
+                "DIM2.paseo",
+                "dim2",
+                "dim2.paseo/",
+                "dim2..paseo",
+                ".paseo",
+            ]) {
+                const error = unwrapErr(
+                    await mintAliasAirdropVrfs(signer, {
+                        eventIds: EVENT_IDS,
+                        registrant,
+                        productId,
+                    }),
+                );
+                expect(error).toBeInstanceOf(ProductIndividualityError);
+            }
+            expect(requests).toHaveLength(0);
+        });
+
+        test("accepts a network suffix of more than one label", async () => {
+            // The chain hashes whatever suffix it is configured with; a host
+            // may run under one with several labels.
+            const { signer, requests } = fakeSigner({
+                contextFor: (eventId) =>
+                    productContext("dim2.next.paseo", {
+                        tag: "Raw",
+                        value: hexToBytes(eventId.slice(2)),
+                    }),
+            });
+            const value = unwrapOk(
+                await mintAliasAirdropVrfs(signer, {
+                    eventIds: EVENT_IDS,
+                    registrant,
+                    productId: "dim2.next.paseo",
+                }),
+            );
+            expect(value.proofs).toHaveLength(2);
+            expect(requests[0].context.productId).toBe("dim2.next.paseo");
+        });
+
+        test("rejects an event id that is not 32 bytes before asking the host", async () => {
+            const { signer, requests } = fakeSigner();
+            const error = unwrapErr(
+                await mintAliasAirdropVrfs(signer, {
+                    eventIds: ["0x0102"],
+                    registrant,
+                    productId: PRODUCT_ID,
+                }),
+            );
+            expect(error).toBeInstanceOf(ProductIndividualityError);
+            expect(requests).toHaveLength(0);
+        });
+
+        test("keeps the host's rejection as the cause", async () => {
+            const boom = new Error("not allowlisted");
+            const error = unwrapErr(
+                await mintAliasAirdropVrfs(
+                    async () => {
+                        throw boom;
+                    },
+                    { eventIds: EVENT_IDS, registrant, productId: PRODUCT_ID },
+                ),
+            );
+            expect(error).toBeInstanceOf(ProductIndividualityError);
+            expect(error.cause).toBe(boom);
+        });
+
+        test("reports a signer that resolves with the wrong shape", async () => {
+            const error = unwrapErr(
+                await mintAliasAirdropVrfs(
+                    // A Result left unwrapped, the likeliest adapter mistake.
+                    async () => ({ ok: true, value: {} }) as unknown as RingVRFProof,
+                    { eventIds: EVENT_IDS, registrant, productId: PRODUCT_ID },
+                ),
+            );
+            expect(error.message).toMatch(/unwrap the Result/);
+        });
+
+        test("stops between draws when aborted", async () => {
+            const controller = new AbortController();
+            const { signer, requests } = fakeSigner();
+            const error = unwrapErr(
+                await mintAliasAirdropVrfs(
+                    async (context, message) => {
+                        const proof = await signer(context, message);
+                        controller.abort();
+                        return proof;
+                    },
+                    {
+                        eventIds: EVENT_IDS,
+                        registrant,
+                        productId: PRODUCT_ID,
+                        signal: controller.signal,
+                    },
+                ),
+            );
+            expect(error).toBeInstanceOf(ProductIndividualityError);
+            expect(requests).toHaveLength(1);
+        });
+
+        test("no draws means no proofs and no host round trip", async () => {
+            const { signer, requests } = fakeSigner();
+            const value = unwrapOk(
+                await mintAliasAirdropVrfs(signer, {
+                    eventIds: [],
+                    registrant,
+                    productId: PRODUCT_ID,
+                }),
+            );
+            expect(value.proofs).toEqual([]);
+            expect(requests).toHaveLength(0);
+        });
+    });
+
+    describe("signUpWithAccountTx with the Alias arm", () => {
+        const ALIAS_VRFS: AliasAirdropVrfs = {
+            proofs: [Uint8Array.from([0xaa]), Uint8Array.from([0xbb])],
+            ringIndex: 3,
+            revision: 7,
+        };
+
+        test("encodes the arm as the chain's AirdropVrfs::Alias", () => {
+            const { chain, calls } = fakeChain();
+            signUpWithAccountTx(chain, {
+                identifierKey: IDENTIFIER,
+                airdrops: ALIAS_VRFS,
+                airdropsScheduled: 2,
+            });
+            expect(calls.tx[0]).toEqual({
+                identifier_key: `0x${"22".repeat(65)}`,
+                airdrops: {
+                    type: "Alias",
+                    value: { proofs: ALIAS_VRFS.proofs, ring_index: 3, revision: 7 },
+                },
+            });
+        });
+
+        test("checks the proof count against airdropsScheduled", () => {
+            const { chain, calls } = fakeChain();
+            expect(() =>
+                signUpWithAccountTx(chain, {
+                    identifierKey: IDENTIFIER,
+                    airdrops: ALIAS_VRFS,
+                    airdropsScheduled: 3,
+                }),
+            ).toThrow(ProductIndividualityError);
+            expect(calls.tx).toHaveLength(0);
+        });
+
+        test("rejects an empty proof", () => {
+            const { chain } = fakeChain();
+            expect(() =>
+                signUpWithAccountTx(chain, {
+                    identifierKey: IDENTIFIER,
+                    airdrops: { ...ALIAS_VRFS, proofs: [new Uint8Array(0), ALIAS_VRFS.proofs[1]] },
+                }),
+            ).toThrow(ProductIndividualityError);
         });
     });
 
@@ -1084,10 +1665,13 @@ if (import.meta.vitest) {
         }
 
         const feeTx = (fee: bigint) => {
-            const estimates: Array<{ from: string; options: unknown }> = [];
+            const estimates: Array<{ from: Uint8Array; options: unknown }> = [];
             const tx: FeeEstimable = {
-                getEstimatedFees: async (from, options) => {
-                    estimates.push({ from, options });
+                getEstimatedFees: async (creator, options) => {
+                    estimates.push({
+                        from: (creator as unknown as { publicKey: Uint8Array }).publicKey,
+                        options,
+                    });
                     return fee;
                 },
             };
@@ -1123,19 +1707,7 @@ if (import.meta.vitest) {
                 { entry: "PlayDepositAmount", at: BLOCK.hash },
                 { entry: `Account:${ACCOUNT}`, at: BLOCK.hash },
             ]);
-            expect(estimates).toEqual([
-                {
-                    from: ACCOUNT,
-                    options: {
-                        nonce: 0,
-                        // Without it PAPI refuses with "Missing VerifyMultiSignature
-                        // signed extension", measured against paseo on 2026-09-25.
-                        customSignedExtensions: {
-                            VerifyMultiSignature: { value: { type: "Disabled", value: undefined } },
-                        },
-                    },
-                },
-            ]);
+            expect(estimates).toEqual([{ from: AccountId().enc(ACCOUNT), options: { nonce: 0 } }]);
         });
 
         test("has no fee without a transaction to estimate", async () => {

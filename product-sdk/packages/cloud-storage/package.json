@@ -30,6 +30,7 @@
         "@parity/result": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "multiformats": "^13.3.0",
+        "@polkadot-api/signers-common": "catalog:",
         "polkadot-api": "catalog:"
     },
     "devDependencies": {

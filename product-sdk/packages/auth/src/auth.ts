@@ -40,7 +40,7 @@ import {
     type PairingStatus,
     type UserSession,
 } from "@parity/product-sdk-terminal";
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import {
     createSessionSigner,
     deriveProductPublicKey,
@@ -103,7 +103,7 @@ export interface LoginHandle {
 export interface SessionHandle {
     address: string;
     addresses: SessionAddresses;
-    signer: PolkadotSigner;
+    signer: CommonSignerTxCreator;
     userSession: UserSession;
     destroy(): void;
 }
@@ -170,7 +170,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
         };
     }
 
-    function createSigner(session: UserSession): Promise<PolkadotSigner> {
+    function createSigner(session: UserSession): Promise<CommonSignerTxCreator> {
         return createSessionSigner(session, ref, cacheOptions);
     }
 
@@ -348,7 +348,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
         const session = sessions[0];
         // Both can throw, and the handle that owns `destroy` is never returned
         // on that path, so without this the WebSocket leaks.
-        let signer: PolkadotSigner;
+        let signer: CommonSignerTxCreator;
         let addresses: SessionAddresses;
         try {
             signer = await createSigner(session);

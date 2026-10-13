@@ -28,6 +28,7 @@
         "@polkadot-labs/hdkd": "^0.0.28",
         "@polkadot-labs/hdkd-helpers": "catalog:",
         "@scure/sr25519": "^2.2.0",
+        "@polkadot-api/signers-common": "catalog:",
         "polkadot-api": "catalog:"
     },
     "devDependencies": {

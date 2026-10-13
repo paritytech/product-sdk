@@ -35,6 +35,7 @@
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-errors": "workspace:*",
         "@parity/result": "workspace:*",
+        "@polkadot-api/signers-common": "catalog:",
         "polkadot-api": "catalog:"
     },
     "devDependencies": {

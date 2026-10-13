@@ -157,7 +157,7 @@ import {
 ## Common Mistakes
 
 1. **Exceeding 512-byte data limit** - Use for signaling, not bulk data
-2. **Using `PolkadotSigner` instead of `StatementSignerWithKey`** - Different interface
+2. **Using `CommonSignerTxCreator` instead of `StatementSignerWithKey`** - Different interface
 3. **Using host mode outside a container** - Host API only available inside containers
 4. **Forgetting to call `destroy()`** - Keeps connections open
 5. **Not awaiting `connect()`** - Must connect before publish/subscribe

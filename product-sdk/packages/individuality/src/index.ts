@@ -53,7 +53,7 @@
  * spoofed. Anything that gates value must verify on chain itself.
  *
  * The write half needs no chain client and no submitter of its own. It returns a
- * `PolkadotSigner`, so it composes with `@parity/product-sdk-tx`:
+ * PAPI 3 transaction creator, so it composes with `@parity/product-sdk-tx`:
  *
  * ```ts
  * import { submitAndWatch } from "@parity/product-sdk-tx";
@@ -274,9 +274,10 @@ export type { BlockSource, FinalizedBlockSource, PapiIndividualityChain } from "
 // Signing up for the game, and entering its prize draws in the same call. The
 // requirement read comes first because the event ids depend on the game index and
 // the draw count together, and the entry count must match `airdrops_scheduled`
-// exactly. Only the `Account` variant is buildable: the `Alias` one needs a
-// ring-VRF proof at a chain-chosen context, and every context a host will sign
-// under is derived from the product id. `signup-types.ts` has the detail.
+// exactly. Both variants are buildable since People runtime 3004000: the
+// `Alias` one is a People-ring proof per draw in the product context
+// `product/<product_name>.<tld>/<event_id>`, which is what a host mints for
+// `{ productId, suffix: Raw(eventId) }`. `signup-types.ts` has the detail.
 export type {
     AccountVrfSignature,
     AirdropVrfVariant,
@@ -293,14 +294,19 @@ export {
 export type { VrfTranscript, VrfTranscriptItem } from "./signup-vrf.js";
 export {
     mintAccountAirdropVrfs,
+    mintAliasAirdropVrfs,
     readGameSignUpRequirement,
     readSignUpFunds,
     signUpWithAccountTx,
 } from "./signup.js";
 export type {
     AirdropVrfSigner,
+    AliasAirdropProofSigner,
+    AliasAirdropVrfs,
+    AliasDrawProofContext,
     FeeEstimable,
     MintAccountAirdropVrfsOptions,
+    MintAliasAirdropVrfsOptions,
     ReadGameSignUpRequirementOptions,
     ReadSignUpFundsOptions,
     SignUpChain,
@@ -382,7 +388,7 @@ export type {
 } from "./rings.js";
 
 // The write half: wrap a signer so the call runs under a person origin. Returns
-// a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx`.
+// a PAPI 3 transaction creator, so submission stays with `@parity/product-sdk-tx`.
 export { withAsPerson } from "./as-person-signer.js";
 export type { AsPersonInfo, CreateRingVRFProof, RingVRFProof } from "./as-person-signer.js";
 
@@ -451,5 +457,5 @@ export { withScoreParticipant } from "./as-score-participant-signer.js";
 // Errors. `UsernameUnowned` is not one of them — it travels on the success
 // channel as a `PersonhoodResult`. `AsPersonError` is the write half's, and
 // unlike the others it is thrown rather than returned, because it happens inside
-// `PolkadotSigner.signTx` where there is no `Result` channel.
+// a PAPI 3 `TxCreator` where there is no `Result` channel.
 export { AsPersonError, IndividualityDecodeError, ProductIndividualityError } from "./errors.js";

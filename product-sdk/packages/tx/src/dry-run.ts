@@ -122,7 +122,7 @@ if (import.meta.vitest) {
     describe("extractTransaction", () => {
         test("returns ok(tx) from successful dry-run with send()", () => {
             const mockTx = {
-                signSubmitAndWatch: () => ({ subscribe: () => ({ unsubscribe: () => {} }) }),
+                createSubmitAndWatch: () => ({ subscribe: () => ({ unsubscribe: () => {} }) }),
             };
             const result = {
                 success: true,

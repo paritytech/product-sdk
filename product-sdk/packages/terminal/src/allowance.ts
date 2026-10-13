@@ -22,7 +22,7 @@
  */
 import { AllowanceError } from "@novasamatech/host-papp";
 import type { StatementProver } from "@novasamatech/statement-store";
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import type { TerminalAdapter } from "./adapter.js";
 import { type AllowanceResourceKind, readStoredAllowances } from "./allowance-cache.js";
@@ -53,10 +53,10 @@ function resolveSessionId(adapter: TerminalAdapter, sessionId?: string): string 
 }
 
 /**
- * Get a `PolkadotSigner` for a Bulletin allowance slot.
+ * Get a PAPI 3 transaction creator for a Bulletin allowance slot.
  *
  * Allocates an allowance slot via the paired wallet (or returns the cached
- * one), derives the slot-account keypair, and returns a `PolkadotSigner`
+ * one), derives the slot-account keypair, and returns a PAPI 3 transaction creator
  * that signs Bulletin extrinsics with it. Replaces the manual
  * `requestResourceAllocation` + `createSlotAccountSigner` two-step for the
  * common case.
@@ -77,17 +77,19 @@ function resolveSessionId(adapter: TerminalAdapter, sessionId?: string): string 
  * const adapter = createTerminalAdapter({ appId: "my-cli" });
  * // ... QR pair, wait for session ...
  * const signer = await getBulletinSigner(adapter, "my-cli.dot");
- * await client.bulletin.tx.TransactionStorage.store({ data }).signAndSubmit(signer);
+ * await client.bulletin.tx.TransactionStorage.store({ data }).createAndSubmit(signer);
  * ```
  */
 export async function getBulletinSigner(
     adapter: TerminalAdapter,
     productId: string,
     sessionId?: string,
-): Promise<PolkadotSigner> {
+): Promise<CommonSignerTxCreator> {
     const resolvedSessionId = resolveSessionId(adapter, sessionId);
     return adapter.allowance.getBulletinSigner(resolvedSessionId, productId).match(
-        (signer) => signer,
+        // host-papp 0.12 builds this with `getTxCreator`, so it carries
+        // `publicKey` and `signBytes`, but its declared type is plain `TxCreator`.
+        (signer) => signer as CommonSignerTxCreator,
         (err) => {
             throw err;
         },

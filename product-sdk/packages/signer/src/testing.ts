@@ -10,7 +10,7 @@
  *
  * @packageDocumentation
  */
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import { SignerError } from "./errors.js";
 import type { SignerProvider } from "./providers/types.js";
@@ -35,11 +35,10 @@ export function fakeSignerAccount(overrides?: Partial<SignerAccount>): SignerAcc
         name: "Alice",
         source: "dev",
         getSigner: () =>
-            ({
+            Object.assign(async () => "0x", {
                 publicKey,
                 signBytes: async () => new Uint8Array(64),
-                signTx: async () => new Uint8Array(),
-            }) as unknown as PolkadotSigner,
+            }) as unknown as CommonSignerTxCreator,
         ...overrides,
     };
 }
