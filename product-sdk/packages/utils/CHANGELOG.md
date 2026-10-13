@@ -1,5 +1,12 @@
 # @parity/product-sdk-utils
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [dde3b0d]
+  - @parity/product-sdk-logger@0.1.2
+
 ## 0.2.0
 
 ### Minor Changes

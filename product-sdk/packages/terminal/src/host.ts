@@ -11,7 +11,7 @@
 import type { UserSession } from "@novasamatech/host-papp";
 import { createLogger } from "@parity/product-sdk-logger";
 import type { ResultAsync } from "neverthrow";
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import type { TerminalAdapter } from "./adapter.js";
 import {
@@ -196,7 +196,7 @@ export async function ensureSlotAccountSigner(
     adapter: TerminalAdapter,
     resource: AllocatableResource,
     productId?: string,
-): Promise<PolkadotSigner> {
+): Promise<CommonSignerTxCreator> {
     const resolvedProductId = productId ?? adapter.appId;
     // The cache-hit check and the allocation path must share the same
     // critical section: otherwise two concurrent calls for the same

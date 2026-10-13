@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err } from "@parity/result";
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import { TxBatchError, type TxError } from "./errors.js";
 import { submitAndWatch } from "./submit.js";
@@ -94,7 +94,7 @@ async function resolveDecodedCall(call: BatchableCall): Promise<unknown> {
 export async function batchSubmitAndWatch(
     calls: BatchableCall[],
     api: BatchApi,
-    signer: PolkadotSigner,
+    signer: CommonSignerTxCreator,
     options?: BatchSubmitOptions,
 ): Promise<Result<TxResult, TxError>> {
     if (calls.length === 0) {
@@ -146,7 +146,7 @@ if (import.meta.vitest) {
         decodedCall?: unknown,
     ): SubmittableTransaction {
         return {
-            signSubmitAndWatch: (_signer: PolkadotSigner, _options?: unknown) => ({
+            createSubmitAndWatch: (_signer: CommonSignerTxCreator, _options?: unknown) => ({
                 subscribe: (handlers: MockSubscribeHandlers) => {
                     const unsub = vi.fn();
                     queueMicrotask(() => emitFn(handlers));
@@ -157,13 +157,12 @@ if (import.meta.vitest) {
         };
     }
 
-    const mockSigner = {} as PolkadotSigner;
+    const mockSigner = {} as CommonSignerTxCreator;
 
-    const signedEvent: TxEvent = { type: "signed", txHash: "0xbatch" };
+    const signedEvent: TxEvent = { type: "created", txHash: "0xbatch" };
     const bestBlockOk: TxEvent = {
-        type: "txBestBlocksState",
+        type: "inBestBlock",
         txHash: "0xbatch",
-        found: true,
         ok: true,
         events: [{ id: 1 }],
         block: { hash: "0xblock1", number: 100, index: 0 },
@@ -225,7 +224,7 @@ if (import.meta.vitest) {
             const { api, getCapturedCalls } = createMockBatchApi(successEmit);
             const asyncCall = {
                 waited: Promise.resolve({ decodedCall: { pallet: "Contracts", method: "call" } }),
-                signSubmitAndWatch: () => {
+                createSubmitAndWatch: () => {
                     throw new Error("Should not be called");
                 },
             };
@@ -251,7 +250,7 @@ if (import.meta.vitest) {
             const txWithDecoded = { decodedCall: "call1" };
             const asyncTx = {
                 waited: Promise.resolve({ decodedCall: "call2" }),
-                signSubmitAndWatch: () => {
+                createSubmitAndWatch: () => {
                     throw new Error("Should not be called");
                 },
             };
@@ -285,7 +284,7 @@ if (import.meta.vitest) {
             const { api } = createMockBatchApi(successEmit);
             const badAsync = {
                 waited: Promise.resolve({ noDecodedCall: true }),
-                signSubmitAndWatch: () => {
+                createSubmitAndWatch: () => {
                     throw new Error("Should not be called");
                 },
             };
@@ -383,9 +382,8 @@ if (import.meta.vitest) {
             const { api } = createMockBatchApi((h) => {
                 h.next(signedEvent);
                 h.next({
-                    type: "txBestBlocksState",
+                    type: "inBestBlock",
                     txHash: "0xbatch",
-                    found: true,
                     ok: false,
                     events: [],
                     block: { hash: "0xblock1", number: 100, index: 0 },
@@ -422,7 +420,7 @@ if (import.meta.vitest) {
                         resolve({ decodedCall: "call1" });
                     }, 10);
                 }),
-                signSubmitAndWatch: () => {
+                createSubmitAndWatch: () => {
                     throw new Error("Should not be called");
                 },
             };
@@ -433,7 +431,7 @@ if (import.meta.vitest) {
                         resolve({ decodedCall: "call2" });
                     }, 5); // Resolves faster
                 }),
-                signSubmitAndWatch: () => {
+                createSubmitAndWatch: () => {
                     throw new Error("Should not be called");
                 },
             };

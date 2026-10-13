@@ -191,7 +191,7 @@ export interface AccountsProvider {
     getLegacyAccounts: () => NeverthrowResultAsync<RawAccount[], unknown>;
     getLegacyAccountSigner: (account: {
         publicKey: Uint8Array;
-    }) => import("polkadot-api").PolkadotSigner;
+    }) => import("@polkadot-api/signers-common").CommonSignerTxCreator;
     getProductAccount: (
         dotNsIdentifier: string,
         derivationIndex?: number,
@@ -199,7 +199,7 @@ export interface AccountsProvider {
     getProductAccountSigner: (
         account: ProductAccount,
         options?: HostSignerOptions,
-    ) => import("polkadot-api").PolkadotSigner;
+    ) => import("@polkadot-api/signers-common").CommonSignerTxCreator;
     registerRingVrfKey: (
         index: number,
         ring: RingLocation,
@@ -413,19 +413,20 @@ export class HostProvider implements SignerProvider {
     }
 
     /**
-     * Get a PolkadotSigner for a product account.
+     * Get a PAPI 3 transaction creator for a product account.
      *
      * Convenience method for when you already have the product account details.
      * Requires a prior successful `connect()` call.
      *
      * Signing routes through the host's `createTransaction` path, so unknown
      * signed extensions (e.g. `AsPgas` on Paseo Next) are forwarded to the host
-     * as opaque bytes for metadata-driven decoding.
+     * as opaque bytes for metadata-driven decoding. The signer picks a pipeline
+     * version that declares them, version 1 for `AsPgas` on Asset Hub runtime 3004000.
      */
     getProductAccountSigner(
         account: ProductAccount,
         options?: HostSignerOptions,
-    ): import("polkadot-api").PolkadotSigner {
+    ): import("@polkadot-api/signers-common").CommonSignerTxCreator {
         if (!this.accountsProvider) {
             throw new Error("Host provider is not connected");
         }
@@ -1128,7 +1129,7 @@ if (import.meta.vitest) {
         const shouldReject = options.shouldReject ?? false;
         const mockSigner = {
             publicKey: new Uint8Array(32).fill(0xbb),
-        } as unknown as import("polkadot-api").PolkadotSigner;
+        } as unknown as import("@polkadot-api/signers-common").CommonSignerTxCreator;
 
         return {
             getLegacyAccounts: vi.fn().mockReturnValue({

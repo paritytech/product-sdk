@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 import { sr25519CreateDerive } from "@polkadot-labs/hdkd";
-import { getPolkadotSigner } from "polkadot-api/signer";
+import { getTxCreator } from "polkadot-api/tx-creator";
 
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
 import { deriveKey, nacl } from "@parity/product-sdk-crypto";
@@ -93,7 +93,7 @@ export class KeyManager {
 
         const ss58Address = ss58Encode(keyPair.publicKey, ss58Prefix);
         const h160Address = deriveH160(keyPair.publicKey);
-        const signer = getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign);
+        const signer = getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign);
 
         return { publicKey: keyPair.publicKey, ss58Address, h160Address, signer };
     }

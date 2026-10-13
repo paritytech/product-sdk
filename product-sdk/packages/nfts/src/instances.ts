@@ -24,11 +24,10 @@
  * would page someone over their own input. Above the cap it refuses and says
  * to split.
  *
- * On a deployment whose `metadata_batch` cap is at least that, which is the
- * live one, a full read is a single runtime call. `metadata_batch` refuses an
- * oversized batch outright rather than truncating, so a deployment configured
- * lower reports its cap in the refusal and the read re-chunks to it once
- * before giving up.
+ * On a deployment whose `metadata_batch` bound is at least that, which is the
+ * live one, a full read is a single runtime call. The runtime takes the batch
+ * as a bounded vector and rejects a longer one at decode rather than
+ * truncating it, so on a deployment configured lower the read fails whole.
  *
  * Then one `ItemDefs` read, keyed by the `(collection, item)` pairs the batch
  * resolved and deduplicated, fills in `transferability`, `supply` and
@@ -38,7 +37,7 @@
  * it costs one serial hop and nothing per instance beyond what was asked.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { pinAt, readAt, type NftsInstancesChain } from "./chain.js";
+import { blockHolds, pinAt, readAt, type NftsInstancesChain } from "./chain.js";
 import { matchChainEntryError, NftsDecodeError, NftsIdError, ProductNftsError } from "./errors.js";
 import { decodeBag, toTransferability } from "./items.js";
 import { decodeMetadataKey, imageRefFrom, mergeMetadata } from "./metadata.js";
@@ -66,9 +65,8 @@ import type {
  * with the batch cap live `next-asset-hub-paseo` configures for
  * `metadata_batch`, which is why a full read is one runtime call there — but
  * that cap is deployment configuration and this number must not be made to
- * track it. A deployment that allows fewer refuses with `TooLarge` carrying
- * its own cap, and the read re-chunks to that; a deployment that allows more
- * changes nothing here.
+ * track it. A deployment that allows fewer rejects the call, and a deployment
+ * that allows more changes nothing here.
  *
  * Deliberately near {@link DEFAULT_PAGE_LIMIT} rather than
  * {@link MAX_PAGE_LIMIT}: a shelf is tens of NFTs, and a cap is a minor
@@ -107,6 +105,7 @@ export async function getInstanceDisplays(
     instances: bigint[],
     options: PinnedReadOptions = {},
 ): Promise<Result<InstanceDisplaysResult, ProductNftsError>> {
+    const holds = blockHolds();
     try {
         if (instances.length > MAX_INSTANCES_PER_READ) {
             return err(
@@ -120,7 +119,7 @@ export async function getInstanceDisplays(
                 return err(new NftsIdError(instance));
             }
         }
-        const snapshot = await pinAt(chain.raw.assetHub, options.signal, options.at);
+        const snapshot = await pinAt(chain.raw.assetHub, options.signal, options.at, holds);
         if (instances.length === 0) return ok({ at: snapshot, displays: [] });
         const at = readAt(snapshot, options.signal);
         const layers = await readBatched(chain, instances, at);
@@ -131,6 +130,8 @@ export async function getInstanceDisplays(
         });
     } catch (cause) {
         return err(matchChainEntryError(cause) ?? normalizeError(cause, ProductNftsError));
+    } finally {
+        holds.release();
     }
 }
 
@@ -159,22 +160,16 @@ export async function getInstanceDisplay(
  * Every chunk through `metadata_batch`, reassembled positionally.
  *
  * Chunks go out in parallel: each is one runtime operation, and a shelf's
- * worth of instances is a few of them. A `TooLarge` refusal naming a cap below
- * the one used re-chunks only the instances that refusal covered, at the
- * runtime's number, once — the chunks that already answered are kept, and the
- * second attempt is at the cap the runtime itself reported, so a second refusal
- * is the runtime disagreeing with itself and surfaces as the error it is.
+ * worth of instances is a few of them.
  */
 async function readBatched(
     chain: NftsInstancesChain,
     instances: bigint[],
     at: ReadAt,
-    limit: number = MAX_INSTANCES_PER_READ,
-    retried = false,
 ): Promise<RawMetadataLayers[]> {
     const chunks: bigint[][] = [];
-    for (let i = 0; i < instances.length; i += limit) {
-        chunks.push(instances.slice(i, i + limit));
+    for (let i = 0; i < instances.length; i += MAX_INSTANCES_PER_READ) {
+        chunks.push(instances.slice(i, i + MAX_INSTANCES_PER_READ));
     }
     const results = await Promise.all(
         chunks.map((chunk) =>
@@ -186,29 +181,10 @@ async function readBatched(
     );
     const answers: RawMetadataLayers[] = [];
     for (const [index, result] of results.entries()) {
-        const chunk = chunks[index] ?? [];
-        if (!result.success) {
-            const refusal = result.value;
-            const max = refusal.value?.max;
-            if (!retried && typeof max === "number" && max > 0 && max < limit) {
-                // Re-chunk only this refused chunk at the runtime's cap; the
-                // chunks that answered keep their results.
-                answers.push(...(await readBatched(chain, chunk, at, max, true)));
-                continue;
-            }
-            // The variant and the numbers are runtime-reported, not
-            // author-supplied, so naming them is safe and the difference
-            // between "shrink the batch" and "this runtime is refusing".
-            const reported = typeof max === "number" ? max : "unreported";
-            const after = retried ? " after already re-chunking to the cap it reported" : "";
-            throw new ProductNftsError(
-                `metadata_batch refused a chunk of ${chunk.length} as too large (${refusal.type}, runtime max ${reported})${after}`,
-            );
-        }
-        if (result.value.length !== chunk.length) {
+        if (result.length !== chunks[index]?.length) {
             throw new NftsDecodeError("metadata_batch answered a different number of queries");
         }
-        answers.push(...result.value);
+        answers.push(...result);
     }
     return answers;
 }
@@ -365,11 +341,7 @@ if (import.meta.vitest) {
     };
 
     function fakeChain(
-        answer: (
-            queries: Array<{ type: string; value: bigint }>,
-        ) =>
-            | { success: true; value: RawMetadataLayers[] }
-            | { success: false; value: { type: "TooLarge"; value: { max: number } } },
+        answer: (queries: Array<{ type: string; value: bigint }>) => RawMetadataLayers[],
         defs: Record<string, RawItemDef> = DEFS,
     ) {
         const batches: bigint[][] = [];
@@ -414,10 +386,8 @@ if (import.meta.vitest) {
 
     const answerByInstance =
         (state: Record<string, RawMetadataLayers>) =>
-        (queries: Array<{ type: string; value: bigint }>) => ({
-            success: true as const,
-            value: queries.map((q) => state[q.value.toString()] ?? missing()),
-        });
+        (queries: Array<{ type: string; value: bigint }>) =>
+            queries.map((q) => state[q.value.toString()] ?? missing());
 
     describe("getInstanceDisplays", () => {
         test("resolves the three layers most specific first", async () => {
@@ -709,67 +679,8 @@ if (import.meta.vitest) {
             expect(batches).toEqual([]);
         });
 
-        test("a TooLarge naming a smaller cap re-chunks to it", async () => {
-            const state: Record<string, RawMetadataLayers> = {};
-            const ids = Array.from({ length: 10 }, (_, i) => BigInt(i));
-            for (const id of ids) {
-                state[id.toString()] = found({}, { instance: id, collection: 0, item: 0 });
-            }
-            const answer = answerByInstance(state);
-            const { chain, batches } = fakeChain((queries) =>
-                queries.length > 4
-                    ? { success: false, value: { type: "TooLarge", value: { max: 4 } } }
-                    : answer(queries),
-            );
-            const result = await getInstanceDisplays(chain, ids);
-            expect(result.ok).toBe(true);
-            if (!result.ok) return;
-            expect(result.value.displays).toHaveLength(10);
-            // One refused attempt at 10, then the re-run at the reported cap.
-            expect(batches.map((b) => b.length)).toEqual([10, 4, 4, 2]);
-        });
-
-        test("a TooLarge at the runtime's own cap is an error naming the numbers", async () => {
-            const { chain } = fakeChain(() => ({
-                success: false,
-                value: { type: "TooLarge", value: { max: 1024 } },
-            }));
-            const result = await getInstanceDisplays(chain, [1n]);
-            expect(result.ok).toBe(false);
-            if (result.ok) return;
-            expect(result.error.message).toContain("too large");
-            // The variant and the cap the runtime reported, so a caller
-            // debugging a refusal is not pointed at batch sizing it already
-            // satisfies.
-            expect(result.error.message).toContain("TooLarge");
-            expect(result.error.message).toContain("1024");
-        });
-
-        test("a second TooLarge refusal is an error, not another re-run", async () => {
-            // The retry already runs at the cap the runtime itself reported, so
-            // a runtime whose cap keeps shrinking is disagreeing with itself —
-            // re-chunking again would silently re-ask a chunk per shrink.
-            let cap = 4;
-            const { chain, batches } = fakeChain(() => {
-                const refusal = {
-                    success: false as const,
-                    value: { type: "TooLarge" as const, value: { max: cap } },
-                };
-                cap = 2;
-                return refusal;
-            });
-            const ids = Array.from({ length: 10 }, (_, i) => BigInt(i));
-            const result = await getInstanceDisplays(chain, ids);
-            expect(result.ok).toBe(false);
-            if (result.ok) return;
-            expect(result.error.message).toContain("too large");
-            // One attempt at 10, one re-run at the reported cap of 4 — and no
-            // third wave at 2.
-            expect(batches.map((b) => b.length)).toEqual([10, 4, 4, 2]);
-        });
-
         test("an answer with the wrong number of entries is an error", async () => {
-            const { chain } = fakeChain(() => ({ success: true, value: [missing()] }));
+            const { chain } = fakeChain(() => [missing()]);
             const result = await getInstanceDisplays(chain, [1n, 2n]);
             expect(result.ok).toBe(false);
             if (result.ok) return;
@@ -780,10 +691,9 @@ if (import.meta.vitest) {
             // Right count, wrong identity — a shifted or reordered answer must
             // not attach another instance's name and transferability to the
             // asked id, where a Soulbound one could render as Transferable.
-            const { chain } = fakeChain(() => ({
-                success: true,
-                value: [found({}, { instance: 2n, collection: 0, item: 0 })],
-            }));
+            const { chain } = fakeChain(() => [
+                found({}, { instance: 2n, collection: 0, item: 0 }),
+            ]);
             const result = await getInstanceDisplays(chain, [1n]);
             expect(result.ok).toBe(false);
             if (result.ok) return;
@@ -791,17 +701,14 @@ if (import.meta.vitest) {
         });
 
         test("a query resolved to a non-instance target is an error", async () => {
-            const { chain } = fakeChain(() => ({
-                success: true,
-                value: [
-                    {
-                        resolved: { type: "Collection", value: 7 },
-                        collection: [],
-                        item: [],
-                        instance: [],
-                    } as RawMetadataLayers,
-                ],
-            }));
+            const { chain } = fakeChain(() => [
+                {
+                    resolved: { type: "Collection", value: 7 },
+                    collection: [],
+                    item: [],
+                    instance: [],
+                } as RawMetadataLayers,
+            ]);
             const result = await getInstanceDisplays(chain, [1n]);
             expect(result.ok).toBe(false);
             if (result.ok) return;

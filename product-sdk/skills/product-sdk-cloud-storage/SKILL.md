@@ -14,7 +14,7 @@ description: >
 ## Key Concepts
 
 - **Content-addressed storage**: Data is identified by its CID (Content Identifier), computed deterministically from the bytes via blake2b-256.
-- **Uploads always need a signer**: Every `store(...)` submits a `TransactionStorage.store` extrinsic, so `create(...)` **requires** a `signer`. In-container vs standalone only changes *where the signer comes from* (the host's account vs a `PolkadotSigner` you supply) -- there is no signer-less host upload path.
+- **Uploads always need a signer**: Every `store(...)` submits a `TransactionStorage.store` extrinsic, so `create(...)` **requires** a `signer`. In-container vs standalone only changes *where the signer comes from* (the account of the host vs a `CommonSignerTxCreator` you supply). There is no signer-less host upload path.
 - **Reads are container-only**: `fetchBytes`/`fetchJson`/`queryBytes` resolve content through the host's preimage subscription and **require a host container**. Outside a container they return **`err(CloudStorageHostUnavailableError)`** -- the SDK does **not** fall back to a public IPFS gateway. A product that needs a standalone read path must branch on `isInsideContainer()` and perform its own gateway fetch.
 - **Reads return `Result`, not thrown errors**: `queryBytes`/`queryJson`/`executeQuery`/`checkAuthorization`/`verifyStored` and their `CloudStorageClient` method equivalents (`fetchBytes`/`fetchJson`/`checkAuthorization`/`verifyStored`), plus the free `authorizeAccount`, return `Result<T, E>` = `{ ok: true; value: T } | { ok: false; error: E }`. Check `res.ok` and read `res.value` (or `res.error`) -- they do **not** throw. (Upstream `.send()` builder results and the sync CID helpers are unchanged.)
 - **Environments**: `create({ environment })` accepts `"paseo"` (Paseo Next v2) and `"devnet"` (public Paseo testnet) -- the `CloudStorageEnvironment` presets, keys of `CloudStorageNetworks`; both currently available. `"polkadot"`/`"kusama"` are not yet available (compile error, and `getChainAPI` throws).
@@ -29,7 +29,7 @@ import { CloudStorageClient, createLazySigner } from "@parity/product-sdk-cloud-
 // you can build the client before an account is selected.
 const cloudStorage = await CloudStorageClient.create({
   environment: "paseo",
-  // getCurrentSigner returns the active `PolkadotSigner | null`
+  // getCurrentSigner returns the active `CommonSignerTxCreator | null`
   // (e.g. wrap your signer manager / host account here).
   signer: createLazySigner(() => getCurrentSigner()),
 });

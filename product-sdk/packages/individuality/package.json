@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-individuality",
     "description": "Read a person's standing, usernames, game and prize draws on the individuality chain, sign up for a game, and dispatch calls under a person origin",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -32,7 +32,10 @@
         "@parity/product-sdk-utils": "workspace:*",
         "@parity/result": "workspace:*",
         "@polkadot-api/metadata-builders": "catalog:",
+        "@polkadot-api/signers-common": "catalog:",
         "@polkadot-api/substrate-bindings": "catalog:",
+        "@polkadot-api/tx-creator": "catalog:",
+        "@polkadot-api/utils": "^0.4.0",
         "@scure/sr25519": "^2.2.0",
         "polkadot-api": "catalog:"
     },

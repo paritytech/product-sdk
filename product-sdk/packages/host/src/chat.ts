@@ -23,7 +23,6 @@ import type {
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
-import { getNativeChatManager, isNativeChatHost } from "./nativeChat.js";
 import { type RenderHandler, registerRenderContext, renderFailure } from "./renderer.js";
 import { fromHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
@@ -73,7 +72,6 @@ export interface ChatSendMessageOptions {
     /**
      * One line describing the message, which a host shows where it lists the
      * message rather than draws it, such as a chat list preview of a custom card.
-     * The native chat backend has no field for it and drops it.
      */
     alt?: string;
 }
@@ -288,11 +286,6 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
 export async function getChatManager(): Promise<ChatManager | null> {
     const client = await getClient();
     if (client) return adaptChatManager(client);
-    // No truapi host: fall back to the legacy native chat backend when present,
-    // so chat products keep working on the native backend during the transition.
-    // The novasama wrapper is loaded on demand so truapi-only products never
-    // bundle it.
-    if (isNativeChatHost()) return getNativeChatManager();
     return null;
 }
 
