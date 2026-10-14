@@ -8,5 +8,5 @@ The reads in this package pin a finalized block and read at its hash. When the h
 
 Such a read now pins again and runs at the new block, up to three runs in all. If pinning again returns the block that was dropped, it returns the error instead.
 
-- A read you passed a snapshot (`at: { blockHash, blockNumber }`) is not retried. You chose that block, so you still get the error.
+- If you pass a block with `at: { blockHash, blockNumber }`, the read stays on it and returns the error instead of moving to a new block.
 - Every value in a result still comes from one block.
