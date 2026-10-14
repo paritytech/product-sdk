@@ -151,9 +151,9 @@ export async function runDrawRead(
     return readPinned(chain, signal, pinned, async (snapshot) => {
         const at: ReadAt = readAt(snapshot, signal);
 
-        // One round trip, three entries, one block. The winner lookup is a point
-        // read rather than a scan because `Winners` hashes the registration entry —
-        // which is why an identity is all it takes.
+        // All three entries are read at the same block in one round trip. `Winners`
+        // is keyed by the registration entry, so checking whether this registrant
+        // won is a single lookup, not a scan of every winner.
         const [rawEvent, ticket, entropy] = await Promise.all([
             query.Events.getValue(eventId, at),
             registrant === undefined
