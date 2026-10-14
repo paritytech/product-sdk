@@ -53,7 +53,7 @@ import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex } from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
 import type { GameChain } from "./game-read.js";
-import { pinBlock, readAt, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type ReadAt } from "./pinned.js";
 import type { BlockAt } from "./types.js";
 import {
     ringCollectionId,
@@ -256,14 +256,25 @@ export async function readLiteSignUpRequirement(
     options: ReadLiteSignUpRequirementOptions,
 ): Promise<Result<LiteSignUpRequirement, ProductIndividualityError>> {
     try {
-        const { account, liteMemberKey, signal } = options;
-        if (liteMemberKey !== undefined && liteMemberKey.length !== LITE_MEMBER_KEY_BYTES) {
-            throw new ProductIndividualityError(
-                `lite member key must be ${LITE_MEMBER_KEY_BYTES} bytes`,
-            );
-        }
+        return ok(await runLiteSignUpRequirementRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
 
-        const snapshot = await pinBlock(chain, signal, options.at);
+/** Throws; {@link readLiteSignUpRequirement} owns the `Result` boundary. */
+async function runLiteSignUpRequirementRead(
+    chain: GameChain & SignUpChain & AnyScoreContextChain & LiteSignUpChain,
+    options: ReadLiteSignUpRequirementOptions,
+): Promise<LiteSignUpRequirement> {
+    const { account, liteMemberKey, signal } = options;
+    if (liteMemberKey !== undefined && liteMemberKey.length !== LITE_MEMBER_KEY_BYTES) {
+        throw new ProductIndividualityError(
+            `lite member key must be ${LITE_MEMBER_KEY_BYTES} bytes`,
+        );
+    }
+
+    return readPinned(chain, signal, options.at, async (snapshot) => {
         const at = readAt(snapshot, signal);
         const query = chain.individuality.query;
 
@@ -336,15 +347,13 @@ export async function readLiteSignUpRequirement(
             }
         }
 
-        return ok({
+        return {
             ...game,
             canSignUp: game.canSignUp && liteBlockers.length === 0,
             canEnterDraws: game.canEnterDraws && liteBlockers.length === 0,
             blockers: [...game.blockers, ...liteBlockers],
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 /** Options for {@link signUpWithLiteInviteTx}. */

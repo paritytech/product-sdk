@@ -36,7 +36,7 @@ import type {
     PersonhoodResult,
 } from "./types.js";
 
-import type { ReadAt } from "./pinned.js";
+import { readRepinning, type ReadAt } from "./pinned.js";
 
 /** `AccountToAlias`, narrowed to the contextual alias the read keys on. */
 export interface RawAccountAlias {
@@ -261,96 +261,100 @@ async function runRead(
     signal?.throwIfAborted();
 
     // Pin one finalized block: every read below must agree on it.
-    const block = await chain.raw.individuality.getFinalizedBlock();
-    const at: ReadAt = { at: block.hash, signal };
-    const snapshot: FinalizedSnapshot = { blockHash: block.hash, blockNumber: block.number };
+    const pinFinalized = async (): Promise<FinalizedSnapshot> => {
+        const block = await chain.raw.individuality.getFinalizedBlock();
+        return { blockHash: block.hash, blockNumber: block.number };
+    };
+    return readRepinning(pinFinalized, async (snapshot) => {
+        const at: ReadAt = { at: snapshot.blockHash, signal };
 
-    // An account input *skips* the username lookup rather than adding a read to
-    // it, which is why the account path costs one round trip less.
-    let owner: string;
-    if (input.by === "account") {
-        owner = input.account;
-    } else {
-        // The entry point is `Resources.UsernameOwnerOf` on the individuality
-        // chain's resources pallet — not `pallet_identity` on the fellows People
-        // chain. Those are unrelated username systems.
-        const resolved = await query.Resources.UsernameOwnerOf.getValue(
-            new TextEncoder().encode(input.username),
-            at,
-        );
-        if (resolved == null) {
-            return { tag: "UsernameUnowned", at: snapshot };
+        // An account input *skips* the username lookup rather than adding a read to
+        // it, which is why the account path costs one round trip less.
+        let owner: string;
+        if (input.by === "account") {
+            owner = input.account;
+        } else {
+            // The entry point is `Resources.UsernameOwnerOf` on the individuality
+            // chain's resources pallet — not `pallet_identity` on the fellows People
+            // chain. Those are unrelated username systems.
+            const resolved = await query.Resources.UsernameOwnerOf.getValue(
+                new TextEncoder().encode(input.username),
+                at,
+            );
+            if (resolved == null) {
+                return { tag: "UsernameUnowned", at: snapshot };
+            }
+            owner = resolved;
         }
-        owner = resolved;
-    }
 
-    const [
-        accountParticipant,
-        peopleAlias,
-        liteAlias,
-        litePerson,
-        personhoodThreshold,
-        absenceGraceRatio,
-    ] = await Promise.all([
-        query.Score.Participants.getValue(Enum("Account", owner), at),
-        query.People.AccountToAlias.getValue(owner, at),
-        query.PeopleLite.AccountToAlias.getValue(owner, at),
-        query.PeopleLite.LitePeople.getValue(owner, at),
-        // `PersonhoodThreshold` is a u8. PAPI types both u8 and u32 as
-        // number, so a width mistake typechecks and passes tests.
-        query.Score.PersonhoodThreshold.getValue(at),
-        query.Score.AbsenceGraceRatio.getValue(at),
-    ]);
-
-    // Both pallets carry an `AccountToAlias` with the same value shape. The Lite
-    // signal comes from `PeopleLite`, so its alias has to be consulted too, or a
-    // Lite person's alias-keyed record is invisible. `People` wins when both hold
-    // one, since a full person's alias is the more specific answer.
-    const alias = peopleAlias ?? liteAlias;
-
-    // No account-keyed record: fall back to the contextual alias key. The
-    // account key is tried first because `Score.Participants` is keyed by an
-    // enum, so one lookup cannot cover both.
-    const rawParticipant =
-        accountParticipant ??
-        (alias == null
-            ? null
-            : await query.Score.Participants.getValue(Enum("Person", alias.ca.alias), at));
-
-    const participant: PersonhoodParticipant | null =
-        rawParticipant == null ? null : toPersonhoodParticipant(rawParticipant);
-
-    const policy = decodeAbsenceGracePolicy(absenceGraceRatio);
-
-    // `misses` is what the window holds now, not `Caution.misses`, which is what
-    // one more absence would leave in it.
-    const metrics: PersonhoodMetrics = {
-        score: participant?.score ?? null,
-        personhoodThreshold,
-        misses:
-            participant == null
-                ? null
-                : missesInWindow(participant.attendanceHistory, policy.window),
-        allowedMisses: policy.allowedMisses,
-        window: policy.window,
-    };
-
-    return {
-        tag: "Resolved",
-        at: snapshot,
-        accountAddress: owner,
-        // The Person key is the contextual alias, never the DotNS text.
-        alias: alias?.ca.alias ?? null,
-        state: derivePersonhoodState({
-            // Presence is the Lite signal, not `Resources.Consumers().credibility`.
-            isLitePerson: litePerson != null,
-            participant,
+        const [
+            accountParticipant,
+            peopleAlias,
+            liteAlias,
+            litePerson,
             personhoodThreshold,
-            policy,
-        }),
-        metrics,
-        participant,
-    };
+            absenceGraceRatio,
+        ] = await Promise.all([
+            query.Score.Participants.getValue(Enum("Account", owner), at),
+            query.People.AccountToAlias.getValue(owner, at),
+            query.PeopleLite.AccountToAlias.getValue(owner, at),
+            query.PeopleLite.LitePeople.getValue(owner, at),
+            // `PersonhoodThreshold` is a u8. PAPI types both u8 and u32 as
+            // number, so a width mistake typechecks and passes tests.
+            query.Score.PersonhoodThreshold.getValue(at),
+            query.Score.AbsenceGraceRatio.getValue(at),
+        ]);
+
+        // Both pallets carry an `AccountToAlias` with the same value shape. The Lite
+        // signal comes from `PeopleLite`, so its alias has to be consulted too, or a
+        // Lite person's alias-keyed record is invisible. `People` wins when both hold
+        // one, since a full person's alias is the more specific answer.
+        const alias = peopleAlias ?? liteAlias;
+
+        // No account-keyed record: fall back to the contextual alias key. The
+        // account key is tried first because `Score.Participants` is keyed by an
+        // enum, so one lookup cannot cover both.
+        const rawParticipant =
+            accountParticipant ??
+            (alias == null
+                ? null
+                : await query.Score.Participants.getValue(Enum("Person", alias.ca.alias), at));
+
+        const participant: PersonhoodParticipant | null =
+            rawParticipant == null ? null : toPersonhoodParticipant(rawParticipant);
+
+        const policy = decodeAbsenceGracePolicy(absenceGraceRatio);
+
+        // `misses` is what the window holds now, not `Caution.misses`, which is what
+        // one more absence would leave in it.
+        const metrics: PersonhoodMetrics = {
+            score: participant?.score ?? null,
+            personhoodThreshold,
+            misses:
+                participant == null
+                    ? null
+                    : missesInWindow(participant.attendanceHistory, policy.window),
+            allowedMisses: policy.allowedMisses,
+            window: policy.window,
+        };
+
+        return {
+            tag: "Resolved",
+            at: snapshot,
+            accountAddress: owner,
+            // The Person key is the contextual alias, never the DotNS text.
+            alias: alias?.ca.alias ?? null,
+            state: derivePersonhoodState({
+                // Presence is the Lite signal, not `Resources.Consumers().credibility`.
+                isLitePerson: litePerson != null,
+                participant,
+                personhoodThreshold,
+                policy,
+            }),
+            metrics,
+            participant,
+        };
+    });
 }
 
 if (import.meta.vitest) {

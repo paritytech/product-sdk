@@ -21,7 +21,7 @@ import type { AirdropDraw, AirdropRegistrant } from "./airdrop-types.js";
 import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
 import type { CurrentGame, GameSchedulePreview } from "./game-types.js";
-import { pinBlock } from "./pinned.js";
+import { readPinned } from "./pinned.js";
 import type { FinalizedSnapshot } from "./types.js";
 
 /** Both halves of the chain surface, since this read spans `Game` and `Airdrop`. */
@@ -118,39 +118,41 @@ async function runPrizeStatusRead(
 
     // Pinned once here and handed to every inner read, which is the only reason
     // this composition is safe to make.
-    const snapshot = await pinBlock(chain, signal);
+    return readPinned(chain, signal, undefined, async (snapshot) => {
+        const resolved = await resolveGame(chain, captured, snapshot, signal);
+        if (resolved.tag === "NoGame") {
+            return {
+                tag: "NoGame",
+                at: snapshot,
+                lastGameIndex: resolved.lastGameIndex,
+                upcoming: resolved.upcoming,
+            };
+        }
 
-    const resolved = await resolveGame(chain, captured, snapshot, signal);
-    if (resolved.tag === "NoGame") {
+        const base = await chain.individuality.constants.Game.airdrop_event_id_base();
+        const eventIds = gameAirdropEventIds({
+            base,
+            gameIndex: resolved.index,
+            airdropsScheduled: resolved.airdropsScheduled,
+        });
+
+        // Fanned out rather than sequential: the draws are independent point reads
+        // against a block that is already pinned, so ordering buys nothing.
+        const draws = await Promise.all(
+            eventIds.map((eventId) =>
+                runDrawRead(chain, { eventId, registrant, signal }, snapshot),
+            ),
+        );
+
         return {
-            tag: "NoGame",
+            tag: "Draws",
             at: snapshot,
-            lastGameIndex: resolved.lastGameIndex,
-            upcoming: resolved.upcoming,
+            gameIndex: resolved.index,
+            drawCountFrom: resolved.drawCountFrom,
+            game: resolved.game,
+            draws,
         };
-    }
-
-    const base = await chain.individuality.constants.Game.airdrop_event_id_base();
-    const eventIds = gameAirdropEventIds({
-        base,
-        gameIndex: resolved.index,
-        airdropsScheduled: resolved.airdropsScheduled,
     });
-
-    // Fanned out rather than sequential: the draws are independent point reads
-    // against a block that is already pinned, so ordering buys nothing.
-    const draws = await Promise.all(
-        eventIds.map((eventId) => runDrawRead(chain, { eventId, registrant, signal }, snapshot)),
-    );
-
-    return {
-        tag: "Draws",
-        at: snapshot,
-        gameIndex: resolved.index,
-        drawCountFrom: resolved.drawCountFrom,
-        game: resolved.game,
-        draws,
-    };
 }
 
 /** Which game's draws to report, and where its count came from. */

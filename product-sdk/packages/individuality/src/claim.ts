@@ -27,7 +27,7 @@ import type { ClaimEligibilityResult, ClaimOutcome } from "./claim-types.js";
 import { airdropPhase, statusTag, toRawRegistrationEntry } from "./airdrop-decode.js";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
-import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type PinnedChain, type ReadAt } from "./pinned.js";
 import type { PersonhoodParticipant } from "./types.js";
 
 /**
@@ -98,8 +98,19 @@ export async function readClaimEligibility(
     options: ReadClaimEligibilityOptions,
 ): Promise<Result<ClaimEligibilityResult, ProductIndividualityError>> {
     try {
-        const { gameIndex, airdropIndex, registrant, signal } = options;
-        const snapshot = await pinBlock(chain, signal);
+        return ok(await runClaimEligibilityRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readClaimEligibility} owns the `Result` boundary. */
+async function runClaimEligibilityRead(
+    chain: AirdropChain & ClaimChain,
+    options: ReadClaimEligibilityOptions,
+): Promise<ClaimEligibilityResult> {
+    const { gameIndex, airdropIndex, registrant, signal } = options;
+    return readPinned(chain, signal, undefined, async (snapshot) => {
         const at = readAt(snapshot, signal);
 
         const eventId = await readAirdropEventId(chain, { gameIndex, airdropIndex });
@@ -122,7 +133,7 @@ export async function readClaimEligibility(
                       at,
                   )) !== undefined;
 
-        return ok({
+        return {
             at: snapshot,
             gameIndex,
             airdropIndex,
@@ -136,10 +147,8 @@ export async function readClaimEligibility(
                 // is a Unix second.
                 now: options.now ?? Math.floor(Date.now() / 1000),
             }),
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 /**
@@ -175,8 +184,19 @@ export async function confirmClaim(
     options: ConfirmClaimOptions,
 ): Promise<Result<ClaimOutcome, ProductIndividualityError>> {
     try {
-        const { gameIndex, airdropIndex, registrant, signal } = options;
-        const snapshot = await pinBlock(chain, signal);
+        return ok(await runConfirmClaim(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link confirmClaim} owns the `Result` boundary. */
+async function runConfirmClaim(
+    chain: AirdropChain & ClaimChain,
+    options: ConfirmClaimOptions,
+): Promise<ClaimOutcome> {
+    const { gameIndex, airdropIndex, registrant, signal } = options;
+    return readPinned(chain, signal, undefined, async (snapshot) => {
         const at = readAt(snapshot, signal);
 
         const eventId = await readAirdropEventId(chain, { gameIndex, airdropIndex });
@@ -191,7 +211,7 @@ export async function confirmClaim(
         ]);
 
         if (ticket !== undefined) {
-            return ok({ tag: "Pending", at: snapshot, ticket });
+            return { tag: "Pending", at: snapshot, ticket };
         }
 
         // No ticket. Only a draw still taking claims makes that unambiguous:
@@ -200,16 +220,14 @@ export async function confirmClaim(
         // being reported as some other phase.
         const status = rawEvent === undefined ? null : statusTag(rawEvent.status.type);
         if (status === "Claiming") {
-            return ok({ tag: "Claimed", at: snapshot });
+            return { tag: "Claimed", at: snapshot };
         }
-        return ok({
+        return {
             tag: "Unknown",
             at: snapshot,
             phase: status === null ? "Gone" : airdropPhase(status),
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 if (import.meta.vitest) {

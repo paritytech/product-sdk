@@ -56,7 +56,7 @@ import { AccountId, type SS58String } from "polkadot-api";
 import { bytesToHex, utf8ToBytes } from "@parity/product-sdk-utils";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
-import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type PinnedChain, type ReadAt } from "./pinned.js";
 import { playerKey, type PlayerKey } from "./player-key.js";
 import type { AirdropRegistrant } from "./airdrop-types.js";
 import type { FinalizedSnapshot, PersonhoodParticipant } from "./types.js";
@@ -274,7 +274,18 @@ export async function readRegistrationEligibility(
     options: ReadRegistrationEligibilityOptions,
 ): Promise<Result<RegistrationEligibility, ProductIndividualityError>> {
     try {
-        const snapshot = await pinBlock(chain, options.signal);
+        return ok(await runRegistrationEligibilityRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readRegistrationEligibility} owns the `Result` boundary. */
+async function runRegistrationEligibilityRead(
+    chain: RegistrationEligibilityChain,
+    options: ReadRegistrationEligibilityOptions,
+): Promise<RegistrationEligibility> {
+    return readPinned(chain, options.signal, undefined, async (snapshot) => {
         const at = readAt(snapshot, options.signal);
 
         const [rawParticipant, personhoodThreshold] = await Promise.all([
@@ -288,15 +299,13 @@ export async function readRegistrationEligibility(
         const participant =
             rawParticipant === undefined ? null : toPersonhoodParticipant(rawParticipant);
 
-        return ok({
+        return {
             at: snapshot,
             participant,
             personhoodThreshold,
             readyToRegister: readyToRegister(participant, personhoodThreshold),
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 if (import.meta.vitest) {

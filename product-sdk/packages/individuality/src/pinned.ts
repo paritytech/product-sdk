@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Block pinning: entries read a block apart can return a state the chain was never
- * in. Each public read pins its own, so two in sequence pin two — {@link pinBlock}
+ * in. Each public read pins its own, so two in sequence pin two — {@link readPinned}
  * lets a composing read pin once and hand the snapshot down.
  */
 import type { BlockSource } from "./chain.js";
@@ -26,12 +26,73 @@ export interface PinnedChain {
     };
 }
 
+/** Runs of one read. More restarts than this during one read mean the connection is not holding. */
+const MAX_ATTEMPTS = 3;
+
+/** {@link readRepinning} with the block `at` names, pinned from `chain`. */
+export async function readPinned<T>(
+    chain: PinnedChain,
+    signal: AbortSignal | undefined,
+    at: BlockAt | undefined,
+    read: (snapshot: FinalizedSnapshot) => Promise<T>,
+): Promise<T> {
+    return readRepinning(() => pinBlock(chain, signal, at), read);
+}
+
+/**
+ * Run `read` at the block `pin` returns. If PAPI drops that block mid-read, as a
+ * follow restart does, pin again and run `read` at the new block.
+ *
+ * PAPI throws `BlockNotPinnedError` only once its new follow is ready, so the new pin
+ * is a block that follow holds. Stops after {@link MAX_ATTEMPTS} runs, or when the new
+ * pin is the dropped block, which is always the case for a caller's snapshot.
+ */
+export async function readRepinning<T>(
+    pin: () => Promise<FinalizedSnapshot>,
+    read: (snapshot: FinalizedSnapshot) => Promise<T>,
+): Promise<T> {
+    let snapshot = await pin();
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
+            return await read(snapshot);
+        } catch (error) {
+            lastError = error;
+
+            if (!isBlockNotPinned(error)) {
+                throw error;
+            }
+
+            if (attempt + 1 >= MAX_ATTEMPTS) {
+                break;
+            }
+
+            const next = await pin();
+            if (next.blockHash === snapshot.blockHash) {
+                throw error;
+            }
+            snapshot = next;
+        }
+    }
+
+    throw lastError;
+}
+
+/**
+ * Matched by name rather than `instanceof`: a product can load a second copy of
+ * PAPI, and `instanceof` fails across copies.
+ */
+function isBlockNotPinned(error: unknown): boolean {
+    return error instanceof Error && error.name === "BlockNotPinnedError";
+}
+
 /**
  * The abort check lives here because the raw client takes no options and so
  * cannot carry a signal itself — without it an already-cancelled read would still
  * cost a round trip.
  */
-export async function pinBlock(
+async function pinBlock(
     chain: PinnedChain,
     signal: AbortSignal | undefined,
     at: BlockAt = "finalized",
@@ -55,6 +116,7 @@ export function readAt(snapshot: FinalizedSnapshot, signal: AbortSignal | undefi
 
 if (import.meta.vitest) {
     const { describe, expect, test } = import.meta.vitest;
+    const { BlockNotPinnedError } = await import("polkadot-api");
 
     const BLOCK = { hash: `0x${"55".repeat(32)}`, number: 77 };
     const BEST = { hash: `0x${"77".repeat(32)}`, number: 79 };
@@ -125,6 +187,97 @@ if (import.meta.vitest) {
             await expect(
                 pinBlock(fakeChain().chain, controller.signal, SNAPSHOT),
             ).rejects.toThrow();
+        });
+    });
+
+    describe("readPinned", () => {
+        const NEWER = { hash: `0x${"99".repeat(32)}`, number: 140 };
+        const NEWEST = { hash: `0x${"aa".repeat(32)}`, number: 200 };
+
+        /**
+         * A chain whose follow restarts once for each block in `finalizedAfter`: the
+         * restart drops the block the read is at, and finalized becomes that block.
+         */
+        function restartingChain(...finalizedAfter: { hash: string; number: number }[]) {
+            let finalized = BLOCK;
+            const seen: string[] = [];
+            const chain: PinnedChain = {
+                raw: {
+                    individuality: {
+                        getFinalizedBlock: async () => finalized,
+                        getBestBlocks: async () => [finalized],
+                    },
+                },
+            };
+            const read = async (snapshot: FinalizedSnapshot) => {
+                seen.push(snapshot.blockHash);
+                const next = finalizedAfter.shift();
+                if (next !== undefined) {
+                    finalized = next;
+                    throw new BlockNotPinnedError(snapshot.blockHash, "stop-storage");
+                }
+                return snapshot.blockNumber;
+            };
+            return { chain, read, seen };
+        }
+
+        test("reads again at the block pinned after PAPI dropped the first", async () => {
+            const { chain, read, seen } = restartingChain(NEWER);
+            expect(await readPinned(chain, undefined, undefined, read)).toBe(NEWER.number);
+            expect(seen).toEqual([BLOCK.hash, NEWER.hash]);
+        });
+
+        test("follows the read across two restarts in a row", async () => {
+            const { chain, read, seen } = restartingChain(NEWER, NEWEST);
+            expect(await readPinned(chain, undefined, undefined, read)).toBe(NEWEST.number);
+            expect(seen).toEqual([BLOCK.hash, NEWER.hash, NEWEST.hash]);
+        });
+
+        test("returns the last error after three runs", async () => {
+            const LATEST = { hash: `0x${"bb".repeat(32)}`, number: 260 };
+            const { chain, read, seen } = restartingChain(NEWER, NEWEST, LATEST);
+            await expect(readPinned(chain, undefined, undefined, read)).rejects.toBeInstanceOf(
+                BlockNotPinnedError,
+            );
+            expect(seen).toEqual([BLOCK.hash, NEWER.hash, NEWEST.hash]);
+        });
+
+        test("passes the error on when pinning again returns the dropped block", async () => {
+            // Reading again at a block PAPI no longer holds could only fail the same way.
+            const { chain, read, seen } = restartingChain(BLOCK);
+            await expect(readPinned(chain, undefined, undefined, read)).rejects.toBeInstanceOf(
+                BlockNotPinnedError,
+            );
+            expect(seen).toEqual([BLOCK.hash]);
+        });
+
+        test("passes the error on rather than replacing a caller's snapshot", async () => {
+            // The caller chose the block, and may be reading others at it.
+            const { chain, read, seen } = restartingChain(NEWER);
+            await expect(readPinned(chain, undefined, SNAPSHOT, read)).rejects.toBeInstanceOf(
+                BlockNotPinnedError,
+            );
+            expect(seen).toEqual([SNAPSHOT.blockHash]);
+        });
+
+        test("a composed read starts over from the read that pinned the block", async () => {
+            const { chain, read, seen } = restartingChain(NEWER);
+            const result = await readPinned(chain, undefined, undefined, (snapshot) =>
+                readPinned(chain, undefined, snapshot, read),
+            );
+            expect(result).toBe(NEWER.number);
+            expect(seen).toEqual([BLOCK.hash, NEWER.hash]);
+        });
+
+        test("does not read again after another failure", async () => {
+            const { chain, fetches } = fakeChain();
+            const read = async () => {
+                throw new Error("node unreachable");
+            };
+            await expect(readPinned(chain, undefined, undefined, read)).rejects.toThrow(
+                "node unreachable",
+            );
+            expect(fetches()).toBe(1);
         });
     });
 
