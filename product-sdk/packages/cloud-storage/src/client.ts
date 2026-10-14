@@ -15,7 +15,6 @@ import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
 
 import { checkAuthorization } from "./authorization.js";
-import { withBulletinPapi2Tx } from "./bulletin-papi2-shim.js";
 import { ProductCloudStorageError } from "./errors.js";
 import type { CloudStorageAuthorizationError } from "./errors.js";
 import type { CloudStorageNetworks, CloudStorageEnvironment } from "./networks.js";
@@ -128,7 +127,7 @@ export class CloudStorageClient {
         if ("environment" in options) {
             const chain = await getChainAPI(options.environment);
             const inner = new AsyncBulletinClient(
-                withBulletinPapi2Tx(chain.bulletin) as BulletinTypedApi,
+                chain.bulletin as BulletinTypedApi,
                 options.signer,
                 chain.raw.bulletin.submit as SubmitFn,
                 options.config,
@@ -160,7 +159,7 @@ export class CloudStorageClient {
             chains: { bulletin: descriptor },
         });
         const inner = new AsyncBulletinClient(
-            withBulletinPapi2Tx(chain.bulletin) as BulletinTypedApi,
+            chain.bulletin as BulletinTypedApi,
             signer,
             chain.raw.bulletin.submit as SubmitFn,
             config,
