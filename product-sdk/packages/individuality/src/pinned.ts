@@ -26,10 +26,10 @@ export interface PinnedChain {
     };
 }
 
-/** Runs of one read. More restarts than this during one read mean the connection is not holding. */
+/** The most times one read runs. More restarts than that mean the connection is not holding. */
 const MAX_ATTEMPTS = 3;
 
-/** {@link readRepinning} with the block `at` names, pinned from `chain`. */
+/** Run `read` at the block `at` names, pinned from `chain`. See {@link readRepinning}. */
 export async function readPinned<T>(
     chain: PinnedChain,
     signal: AbortSignal | undefined,
@@ -195,8 +195,9 @@ if (import.meta.vitest) {
         const NEWEST = { hash: `0x${"aa".repeat(32)}`, number: 200 };
 
         /**
-         * A chain whose follow restarts once for each block in `finalizedAfter`: the
-         * restart drops the block the read is at, and finalized becomes that block.
+         * A chain whose follow restarts once for each block in `finalizedAfter`. Each
+         * restart drops the block the read is at and makes the next block in
+         * `finalizedAfter` the finalized one.
          */
         function restartingChain(...finalizedAfter: { hash: string; number: number }[]) {
             let finalized = BLOCK;

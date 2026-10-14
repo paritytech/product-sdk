@@ -234,8 +234,8 @@ async function runDrawRegistrationRead(
         );
 
         // Built before the scan, not per entry: the scan runs over every
-        // participant, and re-encoding the caller's own address each time
-        // doubled the work on a large draw.
+        // participant, and re-encoding the caller's own address each time doubled
+        // the work on a large draw.
         const matches = matcherFor(toRawRegistrationEntry(registrant));
         const match = entries.find(matches);
 
