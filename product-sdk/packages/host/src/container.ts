@@ -135,6 +135,8 @@ export async function getHostLocalStorage(): Promise<HostLocalStorage | null> {
  * compatibility; with the single cached TruAPI client this is equivalent to
  * {@link getHostLocalStorage}.
  *
+ * @deprecated Use {@link getHostLocalStorage}; this is an identical alias kept
+ *   for back-compat and will be removed in a future major.
  * @returns A `HostLocalStorage` instance, or `null` if unavailable.
  */
 export async function createHostLocalStorage(): Promise<HostLocalStorage | null> {

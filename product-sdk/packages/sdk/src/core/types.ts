@@ -70,11 +70,23 @@ export interface WalletApi {
     ): Promise<DotNsIdentitySignature>;
     /** Subscribe to account changes */
     onAccountChange(callback: (account: Account | null) => void): () => void;
-    /** Get product-scoped account (container mode only) */
+    /**
+     * Get product-scoped account (container mode only).
+     * @deprecated This sync stub always returns `null`; product accounts need an
+     *   async call. Use `SignerManager.getProductAccount()` directly.
+     */
     getProductAccount(): Account | null;
-    /** Get anonymous alias via Ring VRF (container mode only) */
+    /**
+     * Get anonymous alias via Ring VRF (container mode only).
+     * @deprecated This sync stub always returns `null`. Use
+     *   `SignerManager.getProductAccountAlias()` directly.
+     */
     getAnonymousAlias(): string | null;
-    /** Create Ring VRF proof (container mode only) */
+    /**
+     * Create Ring VRF proof (container mode only).
+     * @deprecated Not implemented on the App API (throws). Use
+     *   `SignerManager.createRingVRFProof()` directly.
+     */
     createProof(message: Uint8Array): Promise<Uint8Array>;
 }
 

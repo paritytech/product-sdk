@@ -27,6 +27,7 @@
     "dependencies": {
         "@parity/product-sdk-address": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
+        "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-terminal": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
         "@polkadot-api/signers-common": "catalog:",
