@@ -30,6 +30,7 @@
  */
 
 import { errAsync, okAsync, ResultAsync } from "neverthrow";
+import { RequestTimeoutError } from "@parity/truapi";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { AccountId } from "polkadot-api";
 
@@ -65,7 +66,7 @@ import type {
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
-import { HostResponseDecodeError, type HostTimeoutError, hostRejectionError } from "./errors.js";
+import { HostResponseDecodeError, HostTimeoutError, hostRejectionError } from "./errors.js";
 import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -1228,6 +1229,15 @@ if (import.meta.vitest) {
                 RING,
                 MESSAGE,
             );
+
+        test("a call the host never answers becomes a HostTimeoutError, not a decode error", async () => {
+            const timeout = new RequestTimeoutError("p:17", 12, 0, 390_000);
+            const result = await callProof(ResultAsync.fromSafePromise(Promise.reject(timeout)));
+
+            const error = result._unsafeUnwrapErr();
+            expect(error).toBeInstanceOf(HostTimeoutError);
+            expect(error).toMatchObject({ call: "createRingVRFProof", cause: timeout });
+        });
 
         test("a thrown decode error (RangeError) becomes a HostResponseDecodeError naming the call", async () => {
             const rangeError = new RangeError("Offset is outside the bounds of the DataView");

@@ -456,9 +456,9 @@ if (import.meta.vitest) {
             expect(result.ok).toBe(false);
             if (!result.ok) {
                 expect(result.error).toBeInstanceOf(HostTimeoutError);
-                expect(result.error).not.toBeInstanceOf(HostResponseDecodeError);
-                expect((result.error as HostTimeoutError).call).toBe("requestResourceAllocation");
-                expect(result.error.cause).toBe(cause);
+                expect(result.error).toMatchObject({ call: "requestResourceAllocation", cause });
+                // A call the host never answered is not a protocol-version skew.
+                expect(result.error.message).not.toContain("protocol-version skew");
             }
         });
 
