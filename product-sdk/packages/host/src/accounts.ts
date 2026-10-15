@@ -65,7 +65,7 @@ import type {
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
-import { HostResponseDecodeError } from "./errors.js";
+import { HostResponseDecodeError, type HostTimeoutError, hostRejectionError } from "./errors.js";
 import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -249,12 +249,13 @@ export type VrfTranscriptItem = { [K in keyof WireVrfTranscriptItem]: Uint8Array
 export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
 
 /**
- * A call's declared `Err` channel, plus {@link HostResponseDecodeError}: any
- * host reply can fail to decode if the host and the product's `@parity/truapi`
- * client are on different protocol versions, so every decoded call can surface
- * it in addition to its own typed errors.
+ * A call's declared `Err` channel, plus the two ways any host call can fail
+ * without an answer to decode: a {@link HostTimeoutError} when the host does not
+ * answer in time, and a {@link HostResponseDecodeError} when its reply can't be
+ * decoded because the host and the product's `@parity/truapi` client are on
+ * different protocol versions.
  */
-export type WithDecodeError<E> = E | HostResponseDecodeError;
+export type WithDecodeError<E> = E | HostTimeoutError | HostResponseDecodeError;
 
 /**
  * Accounts provider handle, backed by `truApi.account.*` / `truApi.signing.*`.
@@ -265,9 +266,9 @@ export type WithDecodeError<E> = E | HostResponseDecodeError;
  * the signer factories return a synchronous PAPI `TxCreator`. The `err`
  * channel carries truapi's canonical `CallErrorValue` envelope around the
  * per-call versioned domain error, exactly as the generated client returns it,
- * plus a {@link HostResponseDecodeError} for the case where the host's reply
- * cannot be decoded at all (a host/client protocol-version skew) — see
- * {@link WithDecodeError}.
+ * plus a {@link HostTimeoutError} when the host does not answer in time and a
+ * {@link HostResponseDecodeError} when its reply cannot be decoded at all (a
+ * host/client protocol-version skew); see {@link WithDecodeError}.
  */
 export interface AccountsProvider {
     getUserId(): ResultAsync<
@@ -445,17 +446,18 @@ function toBytesPayload(data: Uint8Array): RawPayload {
  * `ResultAsync.fromSafePromise`, which installs no rejection handler — so when
  * the host's reply doesn't match the client's codec (a version skew), that
  * rejection escapes the `Result` channel rather than landing on its err side,
- * surfacing as a raw `RangeError`. Wrapping the call re-homes that rejection as
- * a typed {@link HostResponseDecodeError} that names the call, while ok values
- * and the call's own typed `Err` values pass through untouched.
+ * surfacing as a raw `RangeError`. A call the host never answers rejects the
+ * same way, with the client's `RequestTimeoutError`. Wrapping the call re-homes
+ * the rejection as a typed {@link HostTimeoutError} or
+ * {@link HostResponseDecodeError} that names the call, while ok values and the
+ * call's own typed `Err` values pass through untouched.
  */
 function guardDecode<T, E>(
     call: string,
     result: ResultAsync<T, E>,
-): ResultAsync<T, E | HostResponseDecodeError> {
-    return ResultAsync.fromPromise(
-        Promise.resolve(result),
-        (cause) => new HostResponseDecodeError(call, cause),
+): ResultAsync<T, WithDecodeError<E>> {
+    return ResultAsync.fromPromise(Promise.resolve(result), (cause) =>
+        hostRejectionError(call, cause),
     ).andThen((inner) => inner);
 }
 

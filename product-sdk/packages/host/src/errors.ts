@@ -18,7 +18,7 @@
  * @module
  */
 import type { SdkError } from "@parity/product-sdk-errors";
-import type { scale } from "@parity/truapi";
+import { RequestTimeoutError, type scale } from "@parity/truapi";
 
 /**
  * What a `Domain`-tagged call error carries. Widened from truapi's per-domain
@@ -176,6 +176,42 @@ export class HostResponseDecodeError extends HostError {
     }
 }
 
+/**
+ * A host call got no answer before the truapi client's deadline. The host may
+ * still be acting on it, for example a person approving on their phone, so
+ * check the outcome before retrying. The client's {@link RequestTimeoutError}
+ * is preserved on {@link cause}.
+ */
+export class HostTimeoutError extends HostError {
+    /** The host-API call that went unanswered, e.g. `"requestResourceAllocation"`. */
+    readonly call: string;
+    /** How long the client waited, in milliseconds. */
+    readonly timeoutMs: number;
+
+    constructor(call: string, cause: RequestTimeoutError) {
+        super(`The host did not answer ${call} within ${Math.round(cause.timeoutMs / 1000)}s.`, {
+            cause,
+        });
+        this.name = "HostTimeoutError";
+        this.call = call;
+        this.timeoutMs = cause.timeoutMs;
+    }
+}
+
+/**
+ * The typed error for a host call whose `ResultAsync` rejected: a
+ * {@link HostTimeoutError} when the client's deadline passed, otherwise a
+ * {@link HostResponseDecodeError}.
+ */
+export function hostRejectionError(
+    call: string,
+    cause: unknown,
+): HostTimeoutError | HostResponseDecodeError {
+    return cause instanceof RequestTimeoutError
+        ? new HostTimeoutError(call, cause)
+        : new HostResponseDecodeError(call, cause);
+}
+
 /** Check whether a value is any {@link HostError}. */
 export function isHostError(error: unknown): error is HostError {
     return error instanceof HostError;
@@ -235,6 +271,27 @@ if (import.meta.vitest) {
             // The rendered cause is in the message, not just on `.cause`.
             expect(e.message).toContain("Offset is outside the bounds of the DataView");
             expect(e.message).toContain("protocol-version skew");
+        });
+
+        test("HostTimeoutError names the call and the wait, and preserves the timeout", () => {
+            const cause = new RequestTimeoutError("p:17", 12, 0, 390_000);
+            const e = new HostTimeoutError("requestResourceAllocation", cause);
+            expect(e).toBeInstanceOf(HostError);
+            expect(e.name).toBe("HostTimeoutError");
+            expect(e.call).toBe("requestResourceAllocation");
+            expect(e.timeoutMs).toBe(390_000);
+            expect(e.cause).toBe(cause);
+            expect(e.message).toBe(
+                "The host did not answer requestResourceAllocation within 390s.",
+            );
+        });
+
+        test("hostRejectionError tells a timeout from a decode failure", () => {
+            const timeout = new RequestTimeoutError("p:1", 12, 0, 120_000);
+            expect(hostRejectionError("c", timeout)).toBeInstanceOf(HostTimeoutError);
+            const decode = hostRejectionError("c", new RangeError("Offset is outside the bounds"));
+            expect(decode).toBeInstanceOf(HostResponseDecodeError);
+            expect(decode).not.toBeInstanceOf(HostTimeoutError);
         });
 
         test("isHostError narrows host errors only", () => {

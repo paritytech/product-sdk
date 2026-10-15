@@ -71,6 +71,7 @@ export {
     HostUnavailableError,
     HostCallFailedError,
     HostResponseDecodeError,
+    HostTimeoutError,
     isHostError,
     formatHostError,
 } from "./errors.js";
