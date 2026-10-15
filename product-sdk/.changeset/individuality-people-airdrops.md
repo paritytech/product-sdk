@@ -1,5 +1,6 @@
 ---
 "@parity/product-sdk-individuality": minor
+"@parity/product-sdk": minor
 ---
 
 Add `PeopleAirdrops` support, so any product can enter a person in the recurring People-chain prize draws (Humanity's Daily Dollar) without its own copy of the chain logic.
