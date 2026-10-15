@@ -29,7 +29,7 @@ import {
     type HostErrorPayload,
     HostCallFailedError,
     HostResponseDecodeError,
-    HostTimeoutError,
+    type HostTimeoutError,
     HostUnavailableError,
     formatHostError,
     hostRejectionError,
@@ -51,7 +51,7 @@ const log = createLogger("host");
  * rejection escapes the `Result` channel entirely and `.match` never sees it,
  * surfacing as a raw `RangeError` rather than reaching `onErr`. A call the host
  * never answers rejects the same way, with the client's `RequestTimeoutError`.
- * Catching the `.match` promise re-homes the rejection as a typed
+ * Catching the `.match` promise turns the rejection into a typed
  * {@link HostTimeoutError} or {@link HostResponseDecodeError} that names the
  * call. Both {@link unwrapHostResult} and {@link mapHostResult} route through
  * here, so every boundary, throwing and Result-returning, is covered, not just
@@ -450,16 +450,18 @@ if (import.meta.vitest) {
             const cause = new RequestTimeoutError("p:17", 12, 0, 390_000);
             const result = await mapHostResult(
                 rejectLike(cause),
-                (v) => v,
+                (value) => value,
                 "requestResourceAllocation",
             );
-            expect(result.ok).toBe(false);
-            if (!result.ok) {
-                expect(result.error).toBeInstanceOf(HostTimeoutError);
-                expect(result.error).toMatchObject({ call: "requestResourceAllocation", cause });
-                // A call the host never answered is not a protocol-version skew.
-                expect(result.error.message).not.toContain("protocol-version skew");
-            }
+            expect(result).toMatchObject({
+                ok: false,
+                error: {
+                    name: "HostTimeoutError",
+                    call: "requestResourceAllocation",
+                    message: "The host did not answer requestResourceAllocation within 390s.",
+                    cause,
+                },
+            });
         });
 
         test("an ok value maps through", async () => {

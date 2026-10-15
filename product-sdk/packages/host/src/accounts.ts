@@ -66,7 +66,7 @@ import type {
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
-import { HostResponseDecodeError, HostTimeoutError, hostRejectionError } from "./errors.js";
+import { HostResponseDecodeError, type HostTimeoutError, hostRejectionError } from "./errors.js";
 import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -251,10 +251,10 @@ export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
 
 /**
  * A call's declared `Err` channel, plus the two ways any host call can fail
- * without an answer to decode: a {@link HostTimeoutError} when the host does not
+ * before it has a result: a {@link HostTimeoutError} when the host does not
  * answer in time, and a {@link HostResponseDecodeError} when its reply can't be
- * decoded because the host and the product's `@parity/truapi` client are on
- * different protocol versions.
+ * decoded, usually because the host and the product's `@parity/truapi` client
+ * are on different protocol versions.
  */
 export type WithDecodeError<E> = E | HostTimeoutError | HostResponseDecodeError;
 
@@ -448,8 +448,8 @@ function toBytesPayload(data: Uint8Array): RawPayload {
  * the host's reply doesn't match the client's codec (a version skew), that
  * rejection escapes the `Result` channel rather than landing on its err side,
  * surfacing as a raw `RangeError`. A call the host never answers rejects the
- * same way, with the client's `RequestTimeoutError`. Wrapping the call re-homes
- * the rejection as a typed {@link HostTimeoutError} or
+ * same way, with the client's `RequestTimeoutError`. Wrapping the call turns
+ * the rejection into a typed {@link HostTimeoutError} or
  * {@link HostResponseDecodeError} that names the call, while ok values and the
  * call's own typed `Err` values pass through untouched.
  */
@@ -1234,9 +1234,11 @@ if (import.meta.vitest) {
             const timeout = new RequestTimeoutError("p:17", 12, 0, 390_000);
             const result = await callProof(ResultAsync.fromSafePromise(Promise.reject(timeout)));
 
-            const error = result._unsafeUnwrapErr();
-            expect(error).toBeInstanceOf(HostTimeoutError);
-            expect(error).toMatchObject({ call: "createRingVRFProof", cause: timeout });
+            expect(result._unsafeUnwrapErr()).toMatchObject({
+                name: "HostTimeoutError",
+                call: "createRingVRFProof",
+                cause: timeout,
+            });
         });
 
         test("a thrown decode error (RangeError) becomes a HostResponseDecodeError naming the call", async () => {

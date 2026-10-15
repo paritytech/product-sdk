@@ -296,34 +296,43 @@ if (import.meta.vitest) {
             expect(e.message).toContain("protocol-version skew");
         });
 
-        test("HostTimeoutError names the call and the wait, and preserves the timeout", () => {
+        test("HostTimeoutError names the call and the wait, and keeps the client's error", () => {
             const cause = new RequestTimeoutError("p:17", 12, 0, 390_000);
-            const e = new HostTimeoutError("requestResourceAllocation", cause);
-            expect(e).toBeInstanceOf(HostError);
-            expect(e.name).toBe("HostTimeoutError");
-            expect(e.call).toBe("requestResourceAllocation");
-            expect(e.timeoutMs).toBe(390_000);
-            expect(e.cause).toBe(cause);
-            expect(e.message).toBe(
-                "The host did not answer requestResourceAllocation within 390s.",
-            );
+            const error = new HostTimeoutError("requestResourceAllocation", cause);
+            expect({ isHostError: isHostError(error), error }).toMatchObject({
+                isHostError: true,
+                error: {
+                    name: "HostTimeoutError",
+                    call: "requestResourceAllocation",
+                    timeoutMs: 390_000,
+                    message: "The host did not answer requestResourceAllocation within 390s.",
+                    cause,
+                },
+            });
         });
 
         test("hostRejectionError tells a timeout from a decode failure", () => {
-            const timeout = new RequestTimeoutError("p:1", 12, 0, 120_000);
-            expect(hostRejectionError("c", timeout)).toBeInstanceOf(HostTimeoutError);
             // A client bundled with its own copy of `@parity/truapi` throws
             // another class with the same name and shape.
-            const bundled = Object.assign(new Error("timed out"), {
+            const bundledTimeout = Object.assign(new Error("timed out"), {
                 name: "RequestTimeoutError",
                 timeoutMs: 500,
             });
-            const fromBundle = hostRejectionError("c", bundled);
-            expect(fromBundle).toBeInstanceOf(HostTimeoutError);
-            expect(fromBundle.message).toBe("The host did not answer c within 500ms.");
-            const decode = hostRejectionError("c", new RangeError("Offset is outside the bounds"));
-            expect(decode).toBeInstanceOf(HostResponseDecodeError);
-            expect(decode).not.toBeInstanceOf(HostTimeoutError);
+            const causes = [
+                new RequestTimeoutError("p:1", 12, 0, 120_000),
+                bundledTimeout,
+                new RangeError("Offset is outside the bounds of the DataView"),
+            ];
+            expect(
+                causes.map((cause) => {
+                    const error = hostRejectionError("signRaw", cause);
+                    return error instanceof HostTimeoutError ? error.message : error.name;
+                }),
+            ).toEqual([
+                "The host did not answer signRaw within 120s.",
+                "The host did not answer signRaw within 500ms.",
+                "HostResponseDecodeError",
+            ]);
         });
 
         test("isHostError narrows host errors only", () => {
