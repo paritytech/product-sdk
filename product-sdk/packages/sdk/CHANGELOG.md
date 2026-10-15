@@ -1,5 +1,35 @@
 # @parity/product-sdk
 
+## 0.38.0
+
+### Minor Changes
+
+- c712386: Add `PeopleAirdrops` support, so any product can enter a person in the recurring People-chain prize draws (Humanity's Daily Dollar) without its own copy of the chain logic.
+
+  - `readPeopleAirdropsStanding(chain, { account })` reads every `PeopleAirdrops` draw on chain at one block and, for each, whether the account's airdrop alias is registered (through the derived slot) and has won. Other schedulers' draws in `Airdrop.Events` (the weekly game's) are skipped.
+  - `readPeopleAirdropsSigning(chain, { account })` says which `withAsPerson` origin a registration needs now: `Bound` (the account's signature is enough), `Revised` (the ring moved on, so a fresh proof for the binding's context), `Unbound` (bind with `People.set_alias_account` first), `OtherContext` or `RingUnavailable`.
+  - `peopleAirdropsRegisterCalls(chain, eventIds)` builds the `PeopleAirdrops.register` calls, chunked to the runtime's `MaxRegisterBatch` (falling back to 16), with duplicates dropped and non-`PeopleAirdrops` ids refused.
+  - `derivePeopleAirdropsSlot(eventId, salt, alias)` is the slot derivation on its own.
+
+### Patch Changes
+
+- c712386: Add `@deprecated` JSDoc markers so deprecated surface shows struck-through in editors and has a stated migration target. `host`'s `createHostLocalStorage` and `createHostPreimageManager` are identical aliases of `getHostLocalStorage`/`getPreimageManager` (single cached client); the App API's `getProductAccount`, `getAnonymousAlias` and `createProof` are sync stubs that return `null` or throw and should be reached through `SignerManager` directly. Documentation only; no runtime change.
+- c712386: Fix the `@module` label on the `@parity/product-sdk/cloud-storage` re-export barrel, which read `@parity/product-sdk/bulletin` from a copy-paste. Documentation only; no runtime change.
+- Updated dependencies [c712386]
+- Updated dependencies [c712386]
+- Updated dependencies [c712386]
+- Updated dependencies [c712386]
+  - @parity/product-sdk-contracts@0.11.2
+  - @parity/product-sdk-address@0.3.1
+  - @parity/product-sdk-keys@0.5.2
+  - @parity/product-sdk-host@0.27.1
+  - @parity/product-sdk-individuality@0.10.0
+  - @parity/product-sdk-signer@0.17.2
+  - @parity/product-sdk-tx@0.5.2
+  - @parity/product-sdk-chain-client@0.13.2
+  - @parity/product-sdk-cloud-storage@0.13.2
+  - @parity/product-sdk-local-storage@0.3.18
+
 ## 0.37.0
 
 ### Minor Changes

@@ -50,6 +50,8 @@ import type {
     LegacySuffixChain,
     LiteAliasBindChain,
     LiteSignUpChain,
+    PeopleAirdropsChain,
+    PeopleAirdropsRegisterChain,
     NetworkSuffixChain,
     PapiIndividualityChain,
     ParticipantWatchChain,
@@ -105,6 +107,20 @@ type PaseoSatisfiesAirdropContract = Assert<PaseoClient extends AirdropChain ? t
 type DevnetSatisfiesAirdropContract = Assert<DevnetClient extends AirdropChain ? true : false>;
 type PreviewnetSatisfiesAirdropContract = Assert<
     PreviewnetClient extends AirdropChain ? true : false
+>;
+
+// `PeopleAirdrops` — the recurring draws entered under an airdrop alias. The
+// chain contracts were written from the pallet's storage and calls, so these are
+// what tie them to the emitted descriptors. Devnet's runtime predates the pallet.
+type PaseoSatisfiesPeopleAirdrops = Assert<PaseoClient extends PeopleAirdropsChain ? true : false>;
+type PreviewnetSatisfiesPeopleAirdrops = Assert<
+    PreviewnetClient extends PeopleAirdropsChain ? true : false
+>;
+type PaseoSatisfiesPeopleAirdropsRegister = Assert<
+    PaseoClient extends PeopleAirdropsRegisterChain<unknown> ? true : false
+>;
+type PreviewnetSatisfiesPeopleAirdropsRegister = Assert<
+    PreviewnetClient extends PeopleAirdropsRegisterChain<unknown> ? true : false
 >;
 
 // Same again for the current-game contract, which shares no entry with either of

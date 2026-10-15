@@ -1,5 +1,12 @@
 # @parity/product-sdk-pocket-card-example
 
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [c712386]
+  - @parity/product-sdk-host@0.27.1
+
 ## 0.0.8
 
 ### Patch Changes

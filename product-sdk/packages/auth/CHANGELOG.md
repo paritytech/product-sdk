@@ -1,5 +1,17 @@
 # @parity/product-sdk-auth
 
+## 0.5.2
+
+### Patch Changes
+
+- c712386: Terminal adapter cleanup no longer swallows failures silently. The six `adapter.destroy().catch(() => {})` sites now route through a `destroyQuietly` helper that logs the failure at debug via `@parity/product-sdk-logger` (matching how sibling packages log), so a WebSocket that fails to tear down leaves a trace instead of a silent resource leak. The caller's flow is still never failed by a cleanup error.
+- Updated dependencies [c712386]
+- Updated dependencies [c712386]
+  - @parity/product-sdk-address@0.3.1
+  - @parity/product-sdk-keys@0.5.2
+  - @parity/product-sdk-terminal@0.13.2
+  - @parity/product-sdk-tx@0.5.2
+
 ## 0.5.1
 
 ### Patch Changes
