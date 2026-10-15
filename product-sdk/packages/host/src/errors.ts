@@ -188,14 +188,32 @@ export class HostTimeoutError extends HostError {
     /** How long the client waited, in milliseconds. */
     readonly timeoutMs: number;
 
-    constructor(call: string, cause: RequestTimeoutError) {
-        super(`The host did not answer ${call} within ${Math.round(cause.timeoutMs / 1000)}s.`, {
-            cause,
-        });
+    constructor(call: string, cause: RequestTimeout) {
+        super(`The host did not answer ${call} within ${formatWait(cause.timeoutMs)}.`, { cause });
         this.name = "HostTimeoutError";
         this.call = call;
         this.timeoutMs = cause.timeoutMs;
     }
+}
+
+/** The shape of the truapi client's {@link RequestTimeoutError} this package relies on. */
+type RequestTimeout = Error & { timeoutMs: number };
+
+/**
+ * Whether `cause` is the truapi client's {@link RequestTimeoutError}. Matched
+ * by name, not `instanceof`: a host may inject a client bundled with its own
+ * copy of `@parity/truapi`.
+ */
+function isRequestTimeout(cause: unknown): cause is RequestTimeout {
+    return (
+        cause instanceof Error &&
+        cause.name === "RequestTimeoutError" &&
+        typeof (cause as { timeoutMs?: unknown }).timeoutMs === "number"
+    );
+}
+
+function formatWait(ms: number): string {
+    return ms < 1000 ? `${ms}ms` : `${Math.round(ms / 1000)}s`;
 }
 
 /**
@@ -207,7 +225,7 @@ export function hostRejectionError(
     call: string,
     cause: unknown,
 ): HostTimeoutError | HostResponseDecodeError {
-    return cause instanceof RequestTimeoutError
+    return isRequestTimeout(cause)
         ? new HostTimeoutError(call, cause)
         : new HostResponseDecodeError(call, cause);
 }
@@ -289,6 +307,15 @@ if (import.meta.vitest) {
         test("hostRejectionError tells a timeout from a decode failure", () => {
             const timeout = new RequestTimeoutError("p:1", 12, 0, 120_000);
             expect(hostRejectionError("c", timeout)).toBeInstanceOf(HostTimeoutError);
+            // A client bundled with its own copy of `@parity/truapi` throws
+            // another class with the same name and shape.
+            const bundled = Object.assign(new Error("timed out"), {
+                name: "RequestTimeoutError",
+                timeoutMs: 500,
+            });
+            const fromBundle = hostRejectionError("c", bundled);
+            expect(fromBundle).toBeInstanceOf(HostTimeoutError);
+            expect(fromBundle.message).toBe("The host did not answer c within 500ms.");
             const decode = hostRejectionError("c", new RangeError("Offset is outside the bounds"));
             expect(decode).toBeInstanceOf(HostResponseDecodeError);
             expect(decode).not.toBeInstanceOf(HostTimeoutError);
