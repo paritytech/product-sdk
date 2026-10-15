@@ -7,7 +7,24 @@ test.describe("@parity/product-sdk-signer — permission rejection", () => {
     // No afterEach reset despite workers:1 — createTestHostFixture stands up a
     // fresh host server per test, so none of this state outlives the test.
 
-    test("connect tolerates a denied ChainSubmit auto-request when host is in reject-all", async ({
+    // The original test asserted that signRaw fails after `revokePermission`,
+    // but test SDK 0.7.5 exposes `setEnforcePermissions` without wiring it —
+    // signing handlers ignore the granted-permissions state, so revoke + sign
+    // can't be exercised end-to-end yet. This test asserts the layer above
+    // that *is* exercisable: the host records denied ChainSubmit auto-requests,
+    // and the SignerManager tolerates the denial (matching real-host behavior:
+    // log a warning, keep the connection alive, defer the actual failure to
+    // sign-time when the host would refuse).
+    // SKIPPED against a TrUAPI host. This asserts behaviour that exists only in
+    // the Novasama reimplementation @parity/host-api-test-sdk is built on:
+    // there is no core there, so nothing caches a permission decision and a
+    // mid-run revoke takes effect. A real TrUAPI core persists a decided
+    // authorization per (product, permission) and answers from its own storage,
+    // so the second request never reaches the host and the log stays empty.
+    //
+    // No test host can change that. Re-enable only if the core gains per-call
+    // permission checks, or rewrite the test to assert the caching instead.
+    test.skip("connect tolerates a denied ChainSubmit auto-request when host is in reject-all", async ({
         testHost,
     }) => {
         const frame = await waitForAppReady(testHost);

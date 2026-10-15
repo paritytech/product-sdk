@@ -69,10 +69,11 @@ import type {
     LiteSignUpRequirement,
 } from "./signup-types.js";
 import {
-    accountAirdropsArg,
+    airdropsArg,
     identifierKeyHex,
     runSignUpRequirementRead,
     type AirdropVrfsArg,
+    type AliasAirdropVrfs,
     type SignUpChain,
 } from "./signup.js";
 
@@ -360,8 +361,11 @@ export interface SignUpWithLiteInviteOptions {
      * so pass the key whose private half the playing product holds now.
      */
     identifierKey: Uint8Array;
-    /** Omit to enter no draw. Length must equal {@link airdropsScheduled}. */
-    airdrops?: AccountVrfSignature[];
+    /**
+     * Omit to enter no draw. Count must equal {@link airdropsScheduled}: account
+     * VRFs, or the alias arm for a recognized player, as `signUpWithAccountTx`.
+     */
+    airdrops?: AccountVrfSignature[] | AliasAirdropVrfs;
     /**
      * From {@link LiteSignUpRequirement}, checked against `airdrops` when both
      * are given — the same guard as the account sign-up, for the same reason.
@@ -388,7 +392,7 @@ export function signUpWithLiteInviteTx<Tx>(
     return chain.individuality.tx.Game.sign_up_with_account_lite_invite({
         account: options.account,
         identifier_key: identifierKeyHex(options.identifierKey),
-        airdrops: accountAirdropsArg(options),
+        airdrops: airdropsArg(options),
     });
 }
 
@@ -897,7 +901,7 @@ if (import.meta.vitest) {
             ]);
         });
 
-        test("the draw-only split survives: lite-clear but recognized blocks draws only", async () => {
+        test("lite-clear and recognized enters the draws with the Alias arm", async () => {
             const { chain } = fakeChain({
                 binding: BOUND,
                 invited: ACCOUNT,
@@ -915,9 +919,12 @@ if (import.meta.vitest) {
                 await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
             );
 
+            // Recognized means the Alias arm, which is mintable since runtime
+            // 3004000 and rides this call like the Account arm does.
             expect(value.canSignUp).toBe(true);
-            expect(value.canEnterDraws).toBe(false);
-            expect(value.blockers).toEqual([{ tag: "AliasVrfsUnavailable" }]);
+            expect(value.canEnterDraws).toBe(true);
+            expect(value.variant).toBe("Alias");
+            expect(value.blockers).toEqual([]);
         });
 
         test("a lite blocker also stops the draws: they ride on the sign-up", async () => {

@@ -23,8 +23,10 @@
  *    encode or decode. That is why the context and proof lengths are checked
  *    explicitly further down.
  * 3. **The extension pipeline differs between chains that both have `AsPerson`.**
- *    Paseo declares 22 extensions, the devnet 23. Nothing may assume a count, a
- *    position, or that a given extension exists at all.
+ *    Paseo declares two pipeline versions since runtime 3004000, the devnet one.
+ *    Nothing may assume a count, a position, or that a given extension exists
+ *    at all; which version is read is the hosts' rule, see
+ *    {@link encodingPipelineVersion}.
  *
  * The pipeline reader is deliberately not `AsPerson`-specific: every
  * origin-modifying extension on this chain is bound the same way, so
@@ -40,14 +42,29 @@ import { AsPersonError } from "./errors.js";
 export const AS_PERSON = "AsPerson";
 
 /**
- * The only transaction-extension pipeline version this package can work with.
+ * The transaction-extension pipeline version a general transaction is encoded
+ * with: the highest the chain declares.
  *
- * Not a preference. PAPI's `getSignExtensionsCreator` reads
- * `extrinsic.signedExtensions[0]` with the index hard-coded, so version 0 is the
- * only one it can ever fill values for. Reading a different version here while
- * PAPI fills version 0 would hash a payload the node never recomputes.
+ * The rule is the hosts', not this package's. The Rust host core encodes the
+ * highest declared version (`encoding_extension_version`, mirroring Subxt's
+ * `transaction_extension_version_to_use_for_encoding`), and the implication
+ * every proof signs opens with that version byte, so reading any other version
+ * here would hash a payload the node never recomputes. Metadata before V16 and
+ * the devnet declare one version, 0, where the two rules agree.
+ *
+ * People runtime 3004000 is where they part: it declares version 0, the plain
+ * pipeline a signed V4 extrinsic uses, and version 1, which adds the origin
+ * extensions (`AsPerson`, `ScoreAsParticipant`, `PeopleLiteAuth`, …) and is
+ * the only one a person-origin call can ride. The wrapping signers in
+ * `origin-extension.ts` put this version on the PAPI 3 payload, so the host is
+ * told the version the implication was built for rather than inferring one.
  */
-const SUPPORTED_PIPELINE_VERSION = 0;
+function encodingPipelineVersion(declared: number[]): number {
+    if (declared.length === 0) {
+        throw new AsPersonError("chain declares no transaction-extension pipeline");
+    }
+    return Math.max(...declared);
+}
 
 /** One extension as the metadata declares it. */
 export interface ExtensionSlot {
@@ -69,7 +86,7 @@ export type TypeCodec = [(value: any) => Uint8Array, (bytes: Uint8Array) => any]
  * signing attempt and share it between the encoder and the implication builder.
  */
 export interface ExtensionPipeline {
-    /** The version byte that opens the signed implication. Always 0, see above. */
+    /** The version byte that opens the signed implication: the chain's highest, see above. */
     version: number;
     /** Every declared extension, in the order the chain encodes them. */
     extensions: ExtensionSlot[];
@@ -86,33 +103,22 @@ export interface ExtensionPipeline {
 /**
  * Read the transaction-extension pipeline out of a raw metadata blob.
  *
- * @param metadata - the raw metadata bytes, as PAPI hands them to
- *   `PolkadotSigner.signTx`.
- * @throws {AsPersonError} when the chain declares a pipeline version this
- *   package cannot work with. See {@link SUPPORTED_PIPELINE_VERSION}.
+ * @param metadata - the raw metadata bytes, as carried in a PAPI 3 `TxPayloadV1`.
+ * @throws {AsPersonError} when the chain declares no pipeline at all.
  */
 export function readExtensionPipeline(metadata: Uint8Array): ExtensionPipeline {
     const unified = unifyMetadata(decAnyMetadata(metadata));
-    const declared = Object.keys(unified.extrinsic.signedExtensions).map(Number);
+    const version = encodingPipelineVersion(
+        Object.keys(unified.extrinsic.extensionsByVersion).map(Number),
+    );
 
-    // Fail loudly rather than guess. A chain declaring more than one version
-    // nominates one for encoding, and this package cannot see which: the choice
-    // lives in the node's own encoder. Guessing would produce a wrong first byte
-    // in every signed implication, which reaches the caller as an opaque bad
-    // proof with nothing local to read.
-    if (declared.length !== 1 || declared[0] !== SUPPORTED_PIPELINE_VERSION) {
-        throw new AsPersonError(
-            "chain declares a transaction-extension pipeline version this package cannot encode",
-        );
-    }
-
-    const extensions: ExtensionSlot[] = unified.extrinsic.signedExtensions[
-        SUPPORTED_PIPELINE_VERSION
-    ].map((entry) => ({
-        identifier: entry.identifier,
-        type: entry.type,
-        implicit: entry.additionalSigned,
-    }));
+    const extensions: ExtensionSlot[] = unified.extrinsic.extensionsByVersion[version].map(
+        (entry) => ({
+            identifier: entry.identifier,
+            type: entry.type,
+            implicit: entry.additionalSigned,
+        }),
+    );
 
     const builder = getDynamicBuilder(getLookupFn(unified));
 
@@ -127,7 +133,7 @@ export function readExtensionPipeline(metadata: Uint8Array): ExtensionPipeline {
     }
 
     return {
-        version: SUPPORTED_PIPELINE_VERSION,
+        version,
         extensions,
         supportedVersions: [...unified.extrinsic.version],
         codec: (typeId) => builder.buildDefinition(typeId) as TypeCodec,
@@ -385,9 +391,21 @@ if (import.meta.vitest) {
     const PROOF = Uint8Array.from([0xaa, 0xbb, 0xcc]);
 
     describe("readExtensionPipeline", () => {
-        test("reads the pipeline version from the blob rather than assuming it", () => {
-            expect(readExtensionPipeline(PASEO).version).toBe(0);
+        test("reads the highest declared pipeline version, the one the hosts encode", () => {
+            // Runtime 3004000 declares 0 (the plain pipeline a signed V4 rides)
+            // and 1 (the origin extensions); the devnet still declares only 0.
+            expect(readExtensionPipeline(PASEO).version).toBe(1);
             expect(readExtensionPipeline(DEVNET).version).toBe(0);
+        });
+
+        test("the lower version on paseo carries no origin extension at all", () => {
+            // The reason version 0 would be the wrong pick: a person-origin call
+            // cannot ride it. Read straight off the blob, not via the reader.
+            const unified = unifyMetadata(decAnyMetadata(PASEO));
+            const plain = unified.extrinsic.extensionsByVersion[0].map((e) => e.identifier);
+            expect(plain).not.toContain(AS_PERSON);
+            expect(plain).toContain("CheckNonce");
+            expect(Object.keys(unified.extrinsic.extensionsByVersion)).toEqual(["0", "1"]);
         });
 
         test("finds AsPerson at its declared position", () => {
@@ -395,10 +413,12 @@ if (import.meta.vitest) {
             expect(readExtensionPipeline(DEVNET).indexOf(AS_PERSON)).toBe(2);
         });
 
-        test("the two live chains agree on AsPerson but not on the pipeline length", () => {
-            // The argument for reading everything from metadata: both chains
-            // carry AsPerson at the same index, and the slice after it differs.
-            expect(readExtensionPipeline(PASEO).extensions).toHaveLength(22);
+        test("the two live chains agree on AsPerson, and the length is read, not assumed", () => {
+            // Both chains carry AsPerson at the same index. Paseo's encoding
+            // pipeline grew to 23 with CheckMetadataHash in 3004000; the devnet
+            // had 23 before, for a different reason, so the count proves nothing
+            // on its own and is pinned only so a runtime change is a visible diff.
+            expect(readExtensionPipeline(PASEO).extensions).toHaveLength(23);
             expect(readExtensionPipeline(DEVNET).extensions).toHaveLength(23);
         });
 
@@ -431,8 +451,8 @@ if (import.meta.vitest) {
             // Proves the negative case above is about AsPerson specifically, not
             // a blob this reader simply cannot parse.
             const pipeline = readExtensionPipeline(ASSET_HUB);
-            expect(pipeline.extensions).toHaveLength(17);
-            expect(pipeline.indexOf("CheckNonce")).toBe(11);
+            expect(pipeline.extensions).toHaveLength(19);
+            expect(pipeline.indexOf("CheckNonce")).toBe(12);
         });
     });
 

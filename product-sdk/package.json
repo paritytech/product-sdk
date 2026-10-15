@@ -19,6 +19,7 @@
     "bench:compare": "node scripts/bench-bundle.mjs compare --base bundle-size.base.json --head bundle-size.json --md bundle-size.diff.md --strict"
   },
   "devDependencies": {
+        "@polkadot-api/substrate-bindings": "catalog:",
     "@biomejs/biome": "^1.9.4",
     "@changesets/cli": "^2.28.1",
     "esbuild": "^0.28.1",

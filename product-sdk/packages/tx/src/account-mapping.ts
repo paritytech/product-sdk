@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import { TxError } from "./errors.js";
 import { submitAndWatch } from "./submit.js";
@@ -93,7 +93,7 @@ export interface EnsureAccountMappedOptions {
  */
 export async function ensureAccountMapped(
     address: string,
-    signer: PolkadotSigner,
+    signer: CommonSignerTxCreator,
     checker: MappingChecker,
     api: ReviveApi,
     options?: EnsureAccountMappedOptions,
@@ -151,7 +151,7 @@ if (import.meta.vitest) {
     const { describe, test, expect, vi } = import.meta.vitest;
 
     describe("ensureAccountMapped", () => {
-        const mockSigner = {} as PolkadotSigner;
+        const mockSigner = {} as CommonSignerTxCreator;
 
         test("returns ok(null) when already mapped", async () => {
             const checker: MappingChecker = {
@@ -198,14 +198,13 @@ if (import.meta.vitest) {
             };
 
             const mockTx: SubmittableTransaction = {
-                signSubmitAndWatch: (_signer, _options) => ({
+                createSubmitAndWatch: (_signer, _options) => ({
                     subscribe: (handlers) => {
                         queueMicrotask(() => {
-                            handlers.next({ type: "signed", txHash: "0xabc" });
+                            handlers.next({ type: "created", txHash: "0xabc" });
                             handlers.next({
-                                type: "txBestBlocksState",
+                                type: "inBestBlock",
                                 txHash: "0xabc",
-                                found: true,
                                 ok: true,
                                 events: [],
                                 block: { hash: "0xblock", number: 1, index: 0 },
@@ -232,14 +231,13 @@ if (import.meta.vitest) {
             };
 
             const mockTx: SubmittableTransaction = {
-                signSubmitAndWatch: (_signer, _options) => ({
+                createSubmitAndWatch: (_signer, _options) => ({
                     subscribe: (handlers) => {
                         queueMicrotask(() => {
-                            handlers.next({ type: "signed", txHash: "0xabc" });
+                            handlers.next({ type: "created", txHash: "0xabc" });
                             handlers.next({
-                                type: "txBestBlocksState",
+                                type: "inBestBlock",
                                 txHash: "0xabc",
-                                found: true,
                                 ok: true,
                                 events: [],
                                 block: { hash: "0xblock", number: 1, index: 0 },
@@ -267,13 +265,12 @@ if (import.meta.vitest) {
             };
 
             const mockTx: SubmittableTransaction = {
-                signSubmitAndWatch: (_signer, _options) => ({
+                createSubmitAndWatch: (_signer, _options) => ({
                     subscribe: (handlers) => {
                         queueMicrotask(() => {
                             handlers.next({
-                                type: "txBestBlocksState",
+                                type: "inBestBlock",
                                 txHash: "0xabc",
-                                found: true,
                                 ok: false,
                                 events: [],
                                 block: { hash: "0xblock", number: 1, index: 0 },
@@ -301,7 +298,7 @@ if (import.meta.vitest) {
             };
 
             const mockTx: SubmittableTransaction = {
-                signSubmitAndWatch: (_signer, _options) => ({
+                createSubmitAndWatch: (_signer, _options) => ({
                     subscribe: () => ({ unsubscribe: () => {} }),
                 }),
             };

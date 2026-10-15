@@ -1,10 +1,11 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { ss58ToH160 } from "@parity/product-sdk-address";
 import { type Result, err, ok } from "@parity/result";
 import type { SubmittableTransaction, TxError, TxResult, Weight } from "@parity/product-sdk-tx";
 import { ensureAccountMapped } from "@parity/product-sdk-tx";
-import type { HexString, PolkadotClient, PolkadotSigner, SS58String } from "polkadot-api";
+import type { HexString, PolkadotClient, SS58String } from "polkadot-api";
 
 import { ContractError } from "./errors.js";
 
@@ -204,6 +205,13 @@ export function createContractRuntime(
  * Use this on every production code path that calls a contract's `.tx()` or
  * `.query()` against a live chain.
  *
+ * @param client - a connected `PolkadotClient`.
+ * @param descriptor - the descriptor for the **same** chain `client` is
+ *   connected to. This pairing is the caller's responsibility: the descriptor
+ *   is only known at a type level, so a descriptor for a different chain cannot
+ *   be caught here and surfaces later as a cryptic call failure. Pass the
+ *   descriptor whose genesis matches the client's chain.
+ *
  * @example
  * ```ts
  * import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
@@ -218,6 +226,11 @@ export function createContractRuntimeFromClient<TDescriptor>(
     options?: ContractRuntimeOptions,
 ): ContractRuntime {
     const defaultAt: ContractDryRunAt = options?.at ?? "best";
+    // `descriptor` is a caller-supplied type-only token; PAPI gives us no
+    // runtime handle to assert it matches `client`'s chain, so the pairing is a
+    // documented precondition (see @param) rather than something checked here.
+    // The cast is unavoidable: the generic descriptor is narrowed to PAPI's
+    // `getTypedApi` parameter, then to the Revive-shaped API this runtime needs.
     const typed = client.getTypedApi(
         descriptor as Parameters<PolkadotClient["getTypedApi"]>[0],
     ) as unknown as ReviveTypedApi;
@@ -267,7 +280,7 @@ export function createContractRuntimeFromClient<TDescriptor>(
 export async function ensureContractAccountMapped(
     runtime: ContractRuntime,
     address: SS58String,
-    signer: PolkadotSigner,
+    signer: CommonSignerTxCreator,
     options?: { timeoutMs?: number; onStatus?: (s: string) => void },
 ): Promise<Result<TxResult | null, TxError>> {
     const checker = {
@@ -320,7 +333,7 @@ if (import.meta.vitest) {
         // Pin the wiring: storage hit ⇒ short-circuit to null without
         // submitting; H160 (not SS58) is what reaches the storage query.
         const aliceSs58 = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
-        const fakeSigner = { publicKey: new Uint8Array(32) } as unknown as PolkadotSigner;
+        const fakeSigner = { publicKey: new Uint8Array(32) } as unknown as CommonSignerTxCreator;
 
         function makeRuntime(opts: {
             mapped: boolean;

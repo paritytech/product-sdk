@@ -14,7 +14,7 @@
  * with `getCollectionItems` for the same item.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
-import { pinBlock, readAt, type NftsChain } from "./chain.js";
+import { blockHolds, pinBlock, readAt, type NftsChain } from "./chain.js";
 import { matchChainEntryError, NftsDecodeError, NftsIdError, ProductNftsError } from "./errors.js";
 import { toItemSelection } from "./collections.js";
 import { collectionBag, decodeBag, readTypedKeys } from "./items.js";
@@ -39,6 +39,15 @@ export interface PreviewClaimOptions {
     signal?: AbortSignal;
 }
 
+/**
+ * The most queries one `preview_mints` call carries.
+ *
+ * The runtime takes the batch as a bounded vector and traps at decode on
+ * anything longer, so a longer list goes out as several calls. The value is the
+ * bound live `next-asset-hub-paseo` spec 3004000 enforces.
+ */
+const PREVIEWS_PER_CALL = 32;
+
 function failureReason(reason: { type: string; value?: unknown }): string {
     if (
         reason.type === "UnknownItem" &&
@@ -52,7 +61,7 @@ function failureReason(reason: { type: string; value?: unknown }): string {
 }
 
 /**
- * Preview one credit against each of `collections`, in one runtime call.
+ * Preview one credit against each of `collections`, one runtime call per `PREVIEWS_PER_CALL` collections.
  *
  * Returns a `Result`. A collection the credit cannot mint into is a `Fails`
  * outcome with the reason the runtime gave, not an error, because the chain was
@@ -78,6 +87,7 @@ export async function previewClaim(
     chain: NftsChain,
     options: PreviewClaimOptions,
 ): Promise<Result<MintPreviewResult, ProductNftsError>> {
+    const holds = blockHolds();
     try {
         const { credit, collections, signal } = options;
         if (!/^0x[0-9a-fA-F]{64}$/.test(credit)) {
@@ -86,23 +96,27 @@ export async function previewClaim(
         for (const id of collections) {
             if (!isValidId(id)) return err(new NftsIdError(id));
         }
-        const snapshot = await pinBlock(chain, signal, options.at);
+        const snapshot = await pinBlock(chain, signal, options.at, holds);
         if (collections.length === 0) return ok({ at: snapshot, previews: [] });
         const at = readAt(snapshot, signal);
         const query = chain.assetHub.query;
 
-        const result = await chain.assetHub.apis.NftClaimsApi.preview_mints(
-            collections.map((collection) => ({ credit, collection })),
-            at,
-        );
-        if (!result.success) {
-            // `TooLarge` is the only refusal the runtime declares.
-            return err(new ProductNftsError("preview_mints refused the batch as too large"));
+        const chunks: number[][] = [];
+        for (let i = 0; i < collections.length; i += PREVIEWS_PER_CALL) {
+            chunks.push(collections.slice(i, i + PREVIEWS_PER_CALL));
         }
-        const outcomes = result.value;
-        if (outcomes.length !== collections.length) {
+        const answers = await Promise.all(
+            chunks.map((chunk) =>
+                chain.assetHub.apis.NftClaimsApi.preview_mints(
+                    chunk.map((collection) => ({ credit, collection })),
+                    at,
+                ),
+            ),
+        );
+        if (answers.some((answer, index) => answer.length !== chunks[index]?.length)) {
             return err(new NftsDecodeError("preview_mints answered a different number of queries"));
         }
+        const outcomes = answers.flat();
 
         // Metadata for every item that would mint, grouped by collection so each
         // collection costs one exact-key read plus one defaults scan.
@@ -142,6 +156,8 @@ export async function previewClaim(
         return ok({ at: snapshot, previews });
     } catch (cause) {
         return err(matchChainEntryError(cause) ?? normalizeError(cause, ProductNftsError));
+    } finally {
+        holds.release();
     }
 }
 
@@ -183,7 +199,8 @@ if (import.meta.vitest) {
 
     function fakeChain(state: {
         outcomes?: RawMintOutcome[];
-        refuse?: boolean;
+        outcomeOf?: (collection: number) => RawMintOutcome;
+        reject?: boolean;
         itemMetadata?: Record<string, Array<[string, Uint8Array]>>;
         collectionMetadata?: Record<number, Array<[string, Uint8Array]>>;
     }) {
@@ -224,9 +241,12 @@ if (import.meta.vitest) {
                             queries: Array<{ credit: string; collection: number }>,
                         ) => {
                             calls.push(`preview:${queries.map((q) => q.collection).join(",")}`);
-                            if (state.refuse)
-                                return { success: false, value: { type: "TooLarge" } };
-                            return { success: true, value: state.outcomes ?? [] };
+                            if (state.reject || queries.length > 32) {
+                                throw new Error("wasm trap: unreachable");
+                            }
+                            const { outcomeOf } = state;
+                            if (outcomeOf) return queries.map((q) => outcomeOf(q.collection));
+                            return state.outcomes ?? [];
                         },
                     },
                 },
@@ -361,12 +381,47 @@ if (import.meta.vitest) {
             expect(calls).toEqual([]);
         });
 
-        test("a refused batch is an error, since nothing was answered", async () => {
-            const { chain } = fakeChain({ refuse: true });
+        test("exactly as many collections as one call carries go out in one call", async () => {
+            const collections = Array.from({ length: 32 }, (_, i) => i);
+            const { chain, calls } = fakeChain({
+                outcomeOf: (collection) => fails("UnknownItem", { item: collection }),
+            });
+            const result = await previewClaim(chain, { credit: CREDIT, collections });
+            expect(result.ok).toBe(true);
+            expect(
+                calls
+                    .filter((c) => c.startsWith("preview:"))
+                    .map((c) => c.slice("preview:".length).split(",").length),
+            ).toEqual([32]);
+        });
+
+        test("more collections than one call carries go out in calls of 32, answered in order", async () => {
+            const collections = Array.from({ length: 70 }, (_, i) => i);
+            const { chain, calls } = fakeChain({
+                outcomeOf: (collection) => fails("UnknownItem", { item: collection }),
+            });
+            const result = await previewClaim(chain, { credit: CREDIT, collections });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(
+                calls
+                    .filter((c) => c.startsWith("preview:"))
+                    .map((c) => c.slice("preview:".length).split(",").length),
+            ).toEqual([32, 32, 6]);
+            expect(result.value.previews).toEqual(
+                collections.map((collection) => ({
+                    collection,
+                    outcome: { tag: "Fails", reason: `UnknownItem ${collection}` },
+                })),
+            );
+        });
+
+        test("a call the runtime rejects is an error, since nothing was answered", async () => {
+            const { chain } = fakeChain({ reject: true });
             const result = await previewClaim(chain, { credit: CREDIT, collections: [0] });
             expect(result.ok).toBe(false);
             if (result.ok) return;
-            expect(result.error.message).toContain("too large");
+            expect(result.error).toBeInstanceOf(ProductNftsError);
         });
 
         test("a credit that is not a 32-byte hash is refused before the pin", async () => {

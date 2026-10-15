@@ -32,6 +32,7 @@ import { readdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { deriveH160, ss58Encode } from "@parity/product-sdk-address";
+import { createLogger } from "@parity/product-sdk-logger";
 import {
     createTerminalAdapter,
     waitForSessions,
@@ -40,7 +41,7 @@ import {
     type PairingStatus,
     type UserSession,
 } from "@parity/product-sdk-terminal";
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import {
     createSessionSigner,
     deriveProductPublicKey,
@@ -55,8 +56,22 @@ import {
 } from "./allocations.js";
 import type { AuthConfig } from "./types.js";
 
+const log = createLogger("auth");
+
 /** How long we wait for the statement store to publish the pairing QR. */
 const QR_TIMEOUT_MS = 60_000;
+
+/**
+ * Tear down a terminal adapter without letting a cleanup failure escape, but
+ * still leave a trace. The adapter owns a WebSocket that keeps the event loop
+ * alive, so `destroy()` must always run; a failure there is not worth failing
+ * the caller's flow over, but swallowing it silently hid real leaks.
+ */
+function destroyQuietly(adapter: TerminalAdapter): void {
+    adapter.destroy().catch((cause) => {
+        log.debug("terminal adapter destroy() failed during cleanup", cause);
+    });
+}
 
 /**
  * The three addresses we surface from a paired session.
@@ -103,7 +118,7 @@ export interface LoginHandle {
 export interface SessionHandle {
     address: string;
     addresses: SessionAddresses;
-    signer: PolkadotSigner;
+    signer: CommonSignerTxCreator;
     userSession: UserSession;
     destroy(): void;
 }
@@ -170,7 +185,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
         };
     }
 
-    function createSigner(session: UserSession): Promise<PolkadotSigner> {
+    function createSigner(session: UserSession): Promise<CommonSignerTxCreator> {
         return createSessionSigner(session, ref, cacheOptions);
     }
 
@@ -208,7 +223,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
                 const addresses = await deriveSessionAddresses(sessions[0]);
                 return { kind: "existing", address: addresses.productAddress, addresses };
             } finally {
-                adapter.destroy().catch(() => {});
+                destroyQuietly(adapter);
             }
         }
 
@@ -254,7 +269,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
             // swallows the post-destroy `DestroyedError` that polkadot-api's
             // raw-client surfaces when a pending chainHead unsubscribe races the
             // WS close.
-            adapter.destroy().catch(() => {});
+            destroyQuietly(adapter);
             throw err;
         } finally {
             // Clear the timeout regardless of which promise won — on the QR-win
@@ -324,7 +339,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
             unsubPairing();
             // The pairing adapter isn't needed after login — getSessionSigner()
             // builds its own — so tear it down to release the WebSocket.
-            adapter.destroy().catch(() => {});
+            destroyQuietly(adapter);
         }
 
         return address;
@@ -341,20 +356,20 @@ export function createAuthClient(config: AuthConfig): AuthClient {
 
         const sessions = await waitForSessions(adapter, 3000);
         if (sessions.length === 0) {
-            adapter.destroy().catch(() => {});
+            destroyQuietly(adapter);
             return null;
         }
 
         const session = sessions[0];
         // Both can throw, and the handle that owns `destroy` is never returned
         // on that path, so without this the WebSocket leaks.
-        let signer: PolkadotSigner;
+        let signer: CommonSignerTxCreator;
         let addresses: SessionAddresses;
         try {
             signer = await createSigner(session);
             addresses = await deriveSessionAddresses(session);
         } catch (err) {
-            adapter.destroy().catch(() => {});
+            destroyQuietly(adapter);
             throw err;
         }
 
@@ -362,7 +377,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
         const destroy = () => {
             if (destroyed) return;
             destroyed = true;
-            adapter.destroy().catch(() => {});
+            destroyQuietly(adapter);
         };
 
         return {

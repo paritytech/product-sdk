@@ -9,6 +9,8 @@
  * @module
  */
 
+import { okAsync } from "neverthrow";
+
 import type {
     ChatBotRegistrationStatus,
     ChatRoomRegistrationStatus,
@@ -21,7 +23,6 @@ import type {
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
-import { getNativeChatManager, isNativeChatHost } from "./nativeChat.js";
 import { type RenderHandler, registerRenderContext, renderFailure } from "./renderer.js";
 import { fromHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
@@ -66,6 +67,15 @@ export interface ChatCustomMessageRenderingRegistration {
     unsubscribe(): void;
 }
 
+/** Options for {@link ChatManager.sendMessage}. */
+export interface ChatSendMessageOptions {
+    /**
+     * One line describing the message, which a host shows where it lists the
+     * message rather than draws it, such as a chat list preview of a custom card.
+     */
+    alt?: string;
+}
+
 /**
  * Chat manager handle. Exposes room/bot registration, message sending, and
  * subscription to the room list and incoming actions.
@@ -73,7 +83,11 @@ export interface ChatCustomMessageRenderingRegistration {
 export interface ChatManager {
     registerRoom(request: HostChatCreateRoomRequest): Promise<ChatRoomRegistrationResult>;
     registerBot(request: HostChatRegisterBotRequest): Promise<ChatBotRegistrationResult>;
-    sendMessage(roomId: string, payload: ChatMessageContent): Promise<{ messageId: string }>;
+    sendMessage(
+        roomId: string,
+        payload: ChatMessageContent,
+        options?: ChatSendMessageOptions,
+    ): Promise<{ messageId: string }>;
     subscribeChatList(callback: (rooms: ChatRoom[]) => void): HostSubscription;
     subscribeAction(callback: (action: ChatReceivedAction) => void): HostSubscription;
     onCustomMessageRenderingRequest(
@@ -185,9 +199,9 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
             botStatus.set(request.botId, response.status);
             return response.status;
         },
-        async sendMessage(roomId, payload) {
+        async sendMessage(roomId, payload, options) {
             const response = await unwrapHostResult(
-                chat.postMessage({ roomId, payload }),
+                chat.postMessage({ roomId, payload, alt: options?.alt }),
                 "chat sendMessage failed",
             );
             return { messageId: response.messageId };
@@ -272,11 +286,6 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
 export async function getChatManager(): Promise<ChatManager | null> {
     const client = await getClient();
     if (client) return adaptChatManager(client);
-    // No truapi host: fall back to the legacy native chat backend when present,
-    // so chat products keep working on the native backend during the transition.
-    // The novasama wrapper is loaded on demand so truapi-only products never
-    // bundle it.
-    if (isNativeChatHost()) return getNativeChatManager();
     return null;
 }
 
@@ -285,6 +294,33 @@ if (import.meta.vitest) {
 
     test("getChatManager returns null outside a container", async () => {
         expect(await getChatManager()).toBeNull();
+    });
+
+    test("sendMessage passes the alt to the host", async () => {
+        const postMessage = vi.fn(() => okAsync({ messageId: "message-1" }));
+        const manager = adaptChatManager({ chat: { postMessage } } as unknown as TrUApiClient);
+        const payload: ChatMessageContent = {
+            tag: "Custom",
+            value: { messageType: "results", payload: "0x01" },
+        };
+
+        await manager.sendMessage("room-1", payload, { alt: "Week 12 results" });
+
+        expect(postMessage).toHaveBeenCalledWith({
+            roomId: "room-1",
+            payload,
+            alt: "Week 12 results",
+        });
+    });
+
+    test("sendMessage without options passes no alt to the host", async () => {
+        const postMessage = vi.fn(() => okAsync({ messageId: "message-1" }));
+        const manager = adaptChatManager({ chat: { postMessage } } as unknown as TrUApiClient);
+        const payload: ChatMessageContent = { tag: "Text", value: { text: "hi" } };
+
+        await manager.sendMessage("room-1", payload);
+
+        expect(postMessage).toHaveBeenCalledWith({ roomId: "room-1", payload, alt: undefined });
     });
 
     test("custom renderer requests decode payloads and receive message-scoped actions", () => {

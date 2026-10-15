@@ -122,7 +122,7 @@ export type HostConnectionStatus = ConnectionStatus;
  *
  * Outstanding upstream, not tied to the version we happen to be on: `sandbox.js`
  * is byte-identical from 0.7.0 through 0.9.0 (npm latest) and still unfixed on
- * `paritytech/host-rust-core` main, the repo formerly named truapi. Remove once
+ * `paritytech/trinity-user-agents` main, the repo formerly named truapi. Remove once
  * it clears the cached client on close.
  */
 function latchDisconnected(

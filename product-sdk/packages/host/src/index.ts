@@ -78,6 +78,8 @@ export type { HostErrorPayload } from "./errors.js";
 
 // Accounts — host wallet accounts, product accounts, Ring VRF, and signers.
 export { getAccountsProvider, findRingVrfKeyHandle } from "./accounts.js";
+export { createHostTxCreator } from "./tx-creator.js";
+export type { HostTxExtension, HostTxRequest } from "./tx-creator.js";
 export type {
     AccountsProvider,
     WithDecodeError,
@@ -125,6 +127,7 @@ export type {
     ChatCustomMessageRenderingRequest,
     ChatCustomMessageRenderingRequestHandler,
     ChatCustomMessageRenderingRegistration,
+    ChatSendMessageOptions,
 } from "./chat.js";
 
 // Renderer (the shared `onRender` slot)

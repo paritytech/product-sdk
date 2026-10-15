@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * @parity/product-sdk/bulletin
+ * @parity/product-sdk/cloud-storage
  *
  * Re-exports from @parity/product-sdk-cloud-storage.
  */

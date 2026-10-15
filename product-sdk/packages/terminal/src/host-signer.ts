@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Slot-account signer: reads the cached Bulletin/SSS allowance key and
- * returns a `PolkadotSigner` that signs locally with sr25519. SC and
+ * returns a PAPI 3 transaction creator that signs locally with sr25519. SC and
  * AutoSigning are not slot-table variants and throw.
  *
  * @module
@@ -10,8 +10,8 @@
 import { bytesToNumberLE, numberToBytesLE } from "@noble/curves/utils.js";
 import { fromHex } from "@polkadot-api/utils";
 import { createDerive, sr25519, sr25519Derive } from "@polkadot-labs/hdkd-helpers";
-import type { PolkadotSigner } from "polkadot-api";
-import { getPolkadotSigner } from "polkadot-api/signer";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
+import { getTxCreator } from "polkadot-api/tx-creator";
 
 import type { TerminalAdapter } from "./adapter.js";
 import { type CachedAllocation, loadCache, readCacheEntry } from "./host-cache.js";
@@ -51,14 +51,14 @@ function buildKeypair(secret: Uint8Array): {
 }
 
 /**
- * Build a `PolkadotSigner` from an already-loaded cache entry. Throws
+ * Build a transaction creator from an already-loaded cache entry. Throws
  * for SC and AutoSigning — they don't carry a slot account key. See
  * the module docstring.
  *
  * Useful when the caller already holds the cache in memory, e.g. inside
  * a `withCacheLock` block, and wants to avoid re-reading disk.
  */
-export function buildSignerFromEntry(entry: CachedAllocation): PolkadotSigner {
+export function buildSignerFromEntry(entry: CachedAllocation): CommonSignerTxCreator {
     if (entry.tag !== "BulletInAllowance" && entry.tag !== "StatementStoreAllowance") {
         throw new Error(
             `createSlotAccountSigner: ${entry.tag} does not carry a slot account key. Slot-table signing is defined for BulletInAllowance and StatementStoreAllowance only.`,
@@ -66,11 +66,11 @@ export function buildSignerFromEntry(entry: CachedAllocation): PolkadotSigner {
     }
     const secret = fromHex(entry.slotAccountKey);
     const { publicKey, sign } = buildKeypair(secret);
-    return getPolkadotSigner(publicKey, "Sr25519", async (data) => sign(data));
+    return getTxCreator(publicKey, "Sr25519", async (data) => sign(data));
 }
 
 /**
- * `PolkadotSigner` backed by the cached slot account key. Returns `null`
+ * Transaction creator backed by the cached slot account key. Returns `null`
  * when nothing's cached for `(productId, resource)`, where `productId`
  * defaults to `adapter.appId`. Throws for SC and AutoSigning (no slot
  * account key — see module docstring).
@@ -93,7 +93,7 @@ export async function createSlotAccountSigner(
     adapter: TerminalAdapter,
     resource: AllocatableResource,
     productId?: string,
-): Promise<PolkadotSigner | null> {
+): Promise<CommonSignerTxCreator | null> {
     const cache = await loadCache(productId ?? adapter.appId, adapter.storageDir);
     const entry = readCacheEntry(cache, resource);
     if (!entry) return null;
@@ -187,12 +187,8 @@ if (import.meta.vitest) {
                 tag: "BulletInAllowance",
                 value: undefined,
             });
-            // `signBytes` wraps with `<Bytes>...</Bytes>` like all PAPI
-            // PolkadotSigners do; for direct payload signing PAPI calls
-            // `signTx` which routes through the same `sign` callback we
-            // installed. Test that callback directly by reaching for the
-            // typed surface: PAPI exposes signTx but the easiest direct
-            // verification is `signBytes` which is wired through our sign.
+            // `signBytes` goes through the same `sign` callback as a transaction,
+            // so verifying it verifies the key the creator signs with.
             const payload = new TextEncoder().encode("hello slot");
             // signBytes wraps in <Bytes>...</Bytes> before calling our sign.
             // To verify, reconstruct the wrap manually.

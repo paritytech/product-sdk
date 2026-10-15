@@ -2,25 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import { AccountId, type SS58String } from "@polkadot-api/substrate-bindings";
 import { keccak_256 } from "@noble/hashes/sha3.js";
+// Hex conversion comes straight from @noble/hashes (already a dependency for
+// keccak_256), rather than a hand-rolled copy. Both call sites below pass
+// un-prefixed, even-length hex, which is exactly what noble's hexToBytes takes.
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 
 const EVM_DERIVED_MARKER = 0xee;
 const H160_BYTE_LEN = 20;
 const ACCOUNTID_BYTE_LEN = 32;
-
-function bytesToHex(bytes: Uint8Array): string {
-    return Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-}
-
-function hexToBytes(hex: string): Uint8Array {
-    const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-    const bytes = new Uint8Array(clean.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
-    }
-    return bytes;
-}
 
 /**
  * Derive the H160 EVM address from a 32-byte Substrate public key.

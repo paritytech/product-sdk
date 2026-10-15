@@ -36,7 +36,7 @@ getProductAccount(
 ): Promise<Result<SignerAccount, SignerError>>
 ```
 
-Request a product account derived by the host wallet for this app, identified by `dotNsIdentifier` (e.g., `"myapp.dot"`). The returned account's `getSigner()` routes through `host_create_transaction`, which preserves arbitrary signed extensions (e.g. `AsPgas` on Paseo Next v2) end-to-end. **This is the recommended signing path** for any chain that ships signed extensions PJS doesn't know about. Only available when connected via the host provider — returns `HOST_UNAVAILABLE` otherwise.
+Request a product account derived by the host wallet for this app, identified by `dotNsIdentifier` (e.g., `"myapp.dot"`). The `getSigner()` of the returned account routes through `host_create_transaction`, which preserves arbitrary signed extensions (e.g. `AsPgas` on Paseo Next v2) end-to-end. The signer picks a pipeline version that declares them, version 1 for `AsPgas` on Asset Hub runtime 3004000. **This is the recommended signing path** for any chain that ships signed extensions PJS doesn't know about. Only available when connected via the host provider. It returns `HOST_UNAVAILABLE` otherwise.
 
 ```ts
 const result = await manager.getProductAccount("myapp.dot");
@@ -57,10 +57,10 @@ Select a **legacy account** (one returned by `connect()`) by SS58 address. Pair 
 #### getSigner (legacy)
 
 ```ts
-getSigner(): PolkadotSigner | null
+getSigner(): CommonSignerTxCreator | null
 ```
 
-Get the `PolkadotSigner` for the currently selected **legacy** account. Same PJS routing constraint as `selectAccount` — not safe on chains with unknown signed extensions.
+Get the `CommonSignerTxCreator` for the currently selected **legacy** account. Same PJS routing constraint as `selectAccount`, so it is not safe on chains with unknown signed extensions.
 
 #### signRaw
 
@@ -153,7 +153,7 @@ interface SignerAccount {
   publicKey: Uint8Array;
   name: string | null;
   source: ProviderType;
-  getSigner(): PolkadotSigner;
+  getSigner(): CommonSignerTxCreator;
 }
 ```
 

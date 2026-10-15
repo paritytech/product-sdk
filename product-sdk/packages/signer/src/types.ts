@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import type { SS58String } from "@parity/product-sdk-address";
 import type { AllocatableResource, AllocationOutcome } from "@parity/product-sdk-host";
@@ -36,8 +36,8 @@ export interface SignerAccount {
     name: string | null;
     /** Which provider supplied this account. */
     source: ProviderType;
-    /** Get the PolkadotSigner for this account. */
-    getSigner(): PolkadotSigner;
+    /** Get the PAPI 3 transaction creator for this account. */
+    getSigner(): CommonSignerTxCreator;
 }
 
 /** Full state snapshot emitted to subscribers. */

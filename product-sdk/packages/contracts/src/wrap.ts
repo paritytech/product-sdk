@@ -1,5 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { isValidSs58 } from "@parity/product-sdk-address";
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok, unwrapErr, unwrapOk } from "@parity/result";
@@ -11,7 +12,7 @@ import type {
     TxResult,
 } from "@parity/product-sdk-tx";
 import { ss58Address } from "@polkadot-labs/hdkd-helpers";
-import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
+import type { HexString, SS58String } from "polkadot-api";
 import {
     bytesToHex,
     decodeErrorResult,
@@ -107,8 +108,8 @@ function resolveOrigin(
 
 function resolveSigner(
     defaults: ContractDefaults,
-    override?: PolkadotSigner,
-): PolkadotSigner | undefined {
+    override?: CommonSignerTxCreator,
+): CommonSignerTxCreator | undefined {
     return override ?? defaults.signerManager?.getSigner() ?? defaults.signer;
 }
 
@@ -696,7 +697,7 @@ if (import.meta.vitest) {
     /** Minimal SignerManager mock for resolve* helpers. */
     function mockSigner(opts: {
         address?: string | null;
-        signer?: PolkadotSigner | null;
+        signer?: CommonSignerTxCreator | null;
     }): import("@parity/product-sdk-signer").SignerManager {
         return {
             getSigner: () => opts.signer ?? null,
@@ -742,12 +743,12 @@ if (import.meta.vitest) {
     });
 
     describe("resolveSigner", () => {
-        const fakeSigner = { id: "fake" } as unknown as PolkadotSigner;
-        const sourceSigner = { id: "source" } as unknown as PolkadotSigner;
+        const fakeSigner = { id: "fake" } as unknown as CommonSignerTxCreator;
+        const sourceSigner = { id: "source" } as unknown as CommonSignerTxCreator;
 
         test("explicit override wins", () => {
             const defaults: ContractDefaults = {
-                signer: { id: "static" } as unknown as PolkadotSigner,
+                signer: { id: "static" } as unknown as CommonSignerTxCreator,
                 signerManager: mockSigner({ signer: sourceSigner }),
             };
             expect(resolveSigner(defaults, fakeSigner)).toBe(fakeSigner);
@@ -755,7 +756,7 @@ if (import.meta.vitest) {
 
         test("signerManager wins over static default", () => {
             const defaults: ContractDefaults = {
-                signer: { id: "static" } as unknown as PolkadotSigner,
+                signer: { id: "static" } as unknown as CommonSignerTxCreator,
                 signerManager: mockSigner({ signer: sourceSigner }),
             };
             expect(resolveSigner(defaults)).toBe(sourceSigner);
@@ -804,15 +805,14 @@ if (import.meta.vitest) {
                             call: (args: { dest: unknown; data: unknown }) => {
                                 captured.tx = { dest: args.dest, data: args.data };
                                 return {
-                                    signSubmitAndWatch: () => ({
+                                    createSubmitAndWatch: () => ({
                                         subscribe: (handlers: {
                                             next: (event: unknown) => void;
                                         }) => {
                                             queueMicrotask(() => {
                                                 handlers.next({
-                                                    type: "txBestBlocksState",
+                                                    type: "inBestBlock",
                                                     txHash: "0xdeadbeef",
-                                                    found: true,
                                                     ok: true,
                                                     events: [],
                                                     block: {
@@ -836,7 +836,7 @@ if (import.meta.vitest) {
 
         const fakeSigner = {
             publicKey: new Uint8Array(32),
-        } as unknown as PolkadotSigner;
+        } as unknown as CommonSignerTxCreator;
         const origin = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
 
         test("`bytesN` argument: hex string is forwarded as 0x-string dest and Uint8Array calldata", async () => {
@@ -1067,7 +1067,7 @@ if (import.meta.vitest) {
         const origin = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
         const fakeSigner = {
             publicKey: new Uint8Array(32),
-        } as unknown as PolkadotSigner;
+        } as unknown as CommonSignerTxCreator;
 
         function makeCapturingRuntime(): {
             runtime: ContractRuntime;
@@ -1193,7 +1193,7 @@ if (import.meta.vitest) {
         const ADDRESS = "0x0102030405060708090a0b0c0d0e0f1011121314";
         const fakeSigner = {
             publicKey: new Uint8Array(32),
-        } as unknown as PolkadotSigner;
+        } as unknown as CommonSignerTxCreator;
 
         test("throws ContractDryRunFailedError when ReviveApi.call reports failure", async () => {
             const dispatchError = { type: "Module", value: { type: "ContractReverted" } };
@@ -1277,15 +1277,14 @@ if (import.meta.vitest) {
                                     storage_deposit_limit: args.storage_deposit_limit,
                                 };
                                 return {
-                                    signSubmitAndWatch: () => ({
+                                    createSubmitAndWatch: () => ({
                                         subscribe: (handlers: {
                                             next: (event: unknown) => void;
                                         }) => {
                                             queueMicrotask(() => {
                                                 handlers.next({
-                                                    type: "txBestBlocksState",
+                                                    type: "inBestBlock",
                                                     txHash: "0xdeadbeef",
-                                                    found: true,
                                                     ok: true,
                                                     events: [],
                                                     block: {
@@ -1434,7 +1433,7 @@ if (import.meta.vitest) {
                                 // the `Utility.batch_all` payload.
                                 return {
                                     decodedCall: sentinelDecodedCall,
-                                    signSubmitAndWatch: () => {
+                                    createSubmitAndWatch: () => {
                                         throw new Error(
                                             "prepare must NOT sign or submit — caller batches the result",
                                         );
@@ -1680,15 +1679,14 @@ if (import.meta.vitest) {
                         batch_all: (args: { calls: unknown[] }) => {
                             batchCalls = args.calls;
                             return {
-                                signSubmitAndWatch: () => ({
+                                createSubmitAndWatch: () => ({
                                     subscribe: (h: {
                                         next: (event: unknown) => void;
                                     }) => {
                                         queueMicrotask(() => {
                                             h.next({
-                                                type: "txBestBlocksState",
+                                                type: "inBestBlock",
                                                 txHash: "0xb",
-                                                found: true,
                                                 ok: true,
                                                 events: [],
                                                 block: {
@@ -1811,7 +1809,7 @@ if (import.meta.vitest) {
         const H160_ORIGIN = "0x9621dde636de098b43efb0fa9b61facfe328f99d";
         const fakeSigner = {
             publicKey: new Uint8Array(32),
-        } as unknown as PolkadotSigner;
+        } as unknown as CommonSignerTxCreator;
 
         function guardedRuntime(): ContractRuntime {
             return {
@@ -1975,7 +1973,7 @@ if (import.meta.vitest) {
         const ORIGIN = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as SS58String;
         const fakeSigner = {
             publicKey: new Uint8Array(32),
-        } as unknown as PolkadotSigner;
+        } as unknown as CommonSignerTxCreator;
 
         const REVERT_PAYLOAD = hexToBytes("0x556e617574686f72697a6564" as HexString);
 

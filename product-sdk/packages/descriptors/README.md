@@ -54,17 +54,24 @@ const balance = await api.query.System.Account.getValue(address);
 
 ## Regenerating Descriptors
 
-To fetch the latest metadata from live chains and regenerate descriptors:
+`pnpm generate` regenerates the descriptors from the metadata already pinned under `.papi/metadata/`. It does not contact a chain.
+
+To fetch the latest metadata from a live chain and re-pin its `codeHash` and `genesis`, run `papi update` in that chain directory:
 
 ```bash
-pnpm generate
+cd chains/paseo-asset-hub
+npx papi update paseo_asset_hub --config .papi/polkadot-api.json --skip-codegen
 ```
+
+This rewrites the `.scale` blob and the chain config. The CLI writes the config with two-space indentation, so restore the four-space indentation the repo uses.
 
 To compile the generated TypeScript:
 
 ```bash
 pnpm build
 ```
+
+`pnpm build` skips a chain whose `generated/dist` already exists, so remove that directory for every chain you refreshed first.
 
 ## Adding a New Chain
 
@@ -101,7 +108,7 @@ pnpm build
 
 ## Detecting Drift
 
-PAPI's bundled type bindings are a frozen snapshot at the moment `pnpm generate` last ran. When a chain runtime upgrades, the bundled descriptors go stale — PAPI then either errors with `Incompatible runtime entry RuntimeCall(...)` or silently mis-decodes a subscription so it never emits an event.
+PAPI's bundled type bindings are a frozen snapshot of the metadata `papi update` last fetched. When a chain runtime upgrades, the bundled descriptors go stale. PAPI then either errors with `Incompatible runtime entry RuntimeCall(...)` or silently mis-decodes a subscription so it never emits an event.
 
 The [`product-sdk: Descriptors drift`](../../../.github/workflows/product-sdk-descriptors-drift.yml) workflow catches this before E2E does. It runs daily, connects to each chain's RPC via `papi update --skip-codegen`, and compares the live `codeHash` and `genesis` against what's pinned in `chains/*/.papi/polkadot-api.json`.
 
@@ -110,8 +117,8 @@ On drift it opens (or updates in place) a single tracking issue labeled `descrip
 ### What to do when the auto-issue fires
 
 1. `cd packages/descriptors`
-2. `pnpm generate` — fetches fresh metadata from every chain RPC and rewrites `chains/*/.papi/polkadot-api.json` + the `.scale` metadata blobs
-3. `pnpm build` — regenerates the TypeScript bindings under `chains/*/generated/dist/`
+2. In each drifted chain directory, run `npx papi update <entry> --config .papi/polkadot-api.json --skip-codegen`. It fetches fresh metadata from the chain RPC and rewrites that chain config and its `.scale` blob. `pnpm generate` does not do this, because it reads the pinned `.scale`.
+3. `rm -rf chains/<chain>/generated/dist` for each refreshed chain, then `pnpm build`, which regenerates the TypeScript bindings under `chains/*/generated/dist/`
 4. `git diff packages/descriptors/` — verify nothing else changed unexpectedly
 5. `pnpm changeset` — add a `@parity/product-sdk-descriptors: patch` entry (or `minor` if the runtime added new pallets or changed decode shape)
 6. Open a PR. Run `pnpm test:e2e` against the regenerated bindings before merging — drift sometimes hides a real consumer-side break (e.g. a pallet rename)

@@ -25,7 +25,7 @@
  * hypothetical: it is the live state of the other supported network.
  */
 import type { getChainAPI } from "@parity/product-sdk-chain-client";
-import type { NftsChain, NftsCreditsChain } from "@parity/product-sdk-nfts";
+import type { NftsChain, NftsCreditsChain, NftsInstancesChain } from "@parity/product-sdk-nfts";
 import { expect, test } from "vitest";
 
 // The false branch must be `false`, not `never`. `never` is assignable to
@@ -43,12 +43,23 @@ type PaseoSatisfiesContract = Assert<PaseoClient extends NftsChain ? true : fals
 // has to satisfy the second contract too.
 type PaseoSatisfiesCredits = Assert<PaseoClient extends NftsCreditsChain ? true : false>;
 
+// The instance-display read takes its own contract — one runtime API,
+// `ScarcityApi.metadata_batch`. This is the line that checks the hand-written
+// query enum and the `resolved` + three-layer result against what PAPI
+// generated from the pinned runtime.
+type PaseoSatisfiesInstances = Assert<PaseoClient extends NftsInstancesChain ? true : false>;
+
 // The negative control, and a real fact about the network rather than a
 // hypothetical: devnet Asset Hub has no `Scarcity` and no `NftClaims`. If
 // `NftsChain` ever stopped constraining, this `@ts-expect-error` would report
 // as unused and the file would fail.
 // @ts-expect-error devnet Asset Hub carries neither pallet
 type DevnetLacksPallets = Assert<DevnetClient extends NftsChain ? true : false>;
+
+// No `Scarcity` pallet also means no `ScarcityApi`, so the instances contract
+// must refuse the devnet client the same way.
+// @ts-expect-error devnet Asset Hub has no ScarcityApi runtime API
+type DevnetLacksScarcityApi = Assert<DevnetClient extends NftsInstancesChain ? true : false>;
 
 test("nfts chain contract holds against the paseo descriptor", () => {
     // The assertions above are compile-time. This keeps vitest from reporting

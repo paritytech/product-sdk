@@ -271,7 +271,7 @@ reports the account is unmapped.
 function ensureContractAccountMapped(
     runtime: ContractRuntime,
     address: SS58String,
-    signer: PolkadotSigner,
+    signer: CommonSignerTxCreator,
     options?: { timeoutMs?: number; onStatus?: (s: string) => void },
 ): Promise<Result<TxResult | null, TxError>>
 ```
@@ -430,7 +430,7 @@ interface QueryResult {
 
 ```typescript
 interface TxOptions {
-    signer?: PolkadotSigner;
+    signer?: CommonSignerTxCreator;
     waitFor?: "best-block" | "finalized";
     onStatus?: (status: TxStatus) => void;
 }
@@ -452,7 +452,7 @@ interface ContractDefaults {
     signerManager?: SignerManager;
     /** Must be SS58 — an H160 throws ContractInvalidOriginError. */
     origin?: SS58String;
-    signer?: PolkadotSigner;
+    signer?: CommonSignerTxCreator;
 }
 ```
 
@@ -463,7 +463,7 @@ interface ContractManagerOptions {
     signerManager?: SignerManager;
     /** Must be SS58 — an H160 throws ContractInvalidOriginError. */
     defaultOrigin?: SS58String;
-    defaultSigner?: PolkadotSigner;
+    defaultSigner?: CommonSignerTxCreator;
 }
 ```
 
@@ -489,7 +489,7 @@ interface ContractOptions {
     signerManager?: SignerManager;
     /** Must be SS58 — an H160 throws ContractInvalidOriginError. */
     defaultOrigin?: SS58String;
-    defaultSigner?: PolkadotSigner;
+    defaultSigner?: CommonSignerTxCreator;
 }
 ```
 
