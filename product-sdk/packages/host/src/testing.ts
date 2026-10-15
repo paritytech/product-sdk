@@ -429,11 +429,15 @@ export {
     resumeAtEveryCheckpoint,
 } from "./funding/fake.js";
 export type {
+    FakeCancelConfirmation,
+    FakeCancelOutcome,
     FakeFundingCall,
+    FakeFundingCancel,
     FakeFundingHost,
     FakeFundingHostOptions,
     FakeFundingLogEntry,
     FakeFundingSession,
+    ResumeDriver,
     ResumeExpectation,
 } from "./funding/fake.js";
 

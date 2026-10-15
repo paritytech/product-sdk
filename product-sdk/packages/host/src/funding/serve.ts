@@ -20,7 +20,12 @@ import { getClientSync } from "../transport.js";
 import { type FundingClient, call } from "./client.js";
 import { FundingAbortedError, FundingFailed, SessionOverError, hostErrorTag } from "./errors.js";
 import { refuse } from "./quotes.js";
-import { DEFAULT_FUNDING_TIMING, FundingSession, type FundingTiming } from "./session.js";
+import {
+    type CancelOffer,
+    DEFAULT_FUNDING_TIMING,
+    FundingSession,
+    type FundingTiming,
+} from "./session.js";
 import type { SavedStateSpec } from "./state.js";
 
 /** What a provider's worker does with the sessions and asks the host hands it. */
@@ -42,12 +47,37 @@ export interface FundingProviderHandlers<S> {
      */
     onAssigned(session: FundingSession<S>): Promise<void>;
     /**
-     * The user asked to cancel. Return whether to stop; the default stops
-     * while `session.cancellable`. Stopping aborts `session.signal`, and the
-     * session is reported `Failed { Cancelled }`.
+     * The user asked to cancel before money moved (`session.cancellable`).
+     * Return whether to stop; the default stops. Stopping aborts
+     * `session.signal`, and the session is reported `Failed { Cancelled }`.
      */
     onCancel?(session: FundingSession<S>): boolean;
+    /**
+     * The user asked to cancel after money moved. Answer with an offer, which
+     * the host shows the user, or a refusal. The default refuses. An open
+     * offer is made again as it was when the host asks again after a restart.
+     * While an offer is open, call `session.untilCancelDecided()` before the
+     * step it would undo.
+     */
+    onCancelRequest?(session: FundingSession<S>): CancelAnswer | Promise<CancelAnswer>;
+    /**
+     * The user accepted the offer. `onAssigned` is stopped first (its signal
+     * aborts), and this runs on a fresh signal; resolve once the cancel is
+     * settled. Refund a withdrawal with `session.refund`, at most what the
+     * user paid, and end a top-up with `session.fail("Refunded")` once the
+     * user's payment is on its way back. The default does the latter for a
+     * top-up; a provider that offers to cancel a withdrawal must handle it.
+     */
+    onCancelAccepted?(session: FundingSession<S>): Promise<void>;
+    /** The user declined the offer, or it lapsed. `onAssigned` carries on. */
+    onCancelDeclined?(session: FundingSession<S>): void;
 }
+
+/** A provider's answer to a cancel after money moved. */
+export type CancelAnswer = { offer: CancelOffer } | { refuse: string };
+
+/** What a cancel after money moved is answered with when the provider has no `onCancelRequest`. */
+const DEFAULT_REFUSAL = "This payment can no longer be cancelled";
 
 /** Context for answering one ask. */
 export interface QuoteContext {
@@ -81,6 +111,9 @@ interface Running<S> {
     session: FundingSession<S>;
     controller: AbortController;
     cancelRequested: boolean;
+    cancelAccepted: boolean;
+    /** `onCancelAccepted` is running, so an abort is the server stopping, not the acceptance. */
+    settlingCancel: boolean;
 }
 
 /**
@@ -164,9 +197,18 @@ export function serveFunding<S>(
     };
 
     const handle = (item: HostFundingServeSubscribeItem) => {
-        if (item.tag === "Assigned") start(item.value.session);
-        else if (item.tag === "Cancel") cancel(item.value.intent);
-        else void answer(item.value.askId, item.value.ask);
+        switch (item.tag) {
+            case "Assigned":
+                return start(item.value.session);
+            case "Cancel":
+                return cancel(item.value.intent);
+            case "CancelAccepted":
+                return void accepted(item.value.intent);
+            case "CancelDeclined":
+                return void declined(item.value.intent);
+            case "Quote":
+                return void answer(item.value.askId, item.value.ask);
+        }
     };
 
     const start = (assignment: FundingAssignment) => {
@@ -180,15 +222,40 @@ export function serveFunding<S>(
             logger: log,
             signal: controller.signal,
         });
-        const entry: Running<S> = { session, controller, cancelRequested: false };
+        const entry: Running<S> = {
+            session,
+            controller,
+            cancelRequested: false,
+            cancelAccepted: session.cancel?.state === "accepted",
+            settlingCancel: false,
+        };
         running.set(assignment.intent, entry);
-        void run(entry);
+        void (entry.cancelAccepted ? settleCancel(entry) : run(entry));
     };
 
     const run = async (entry: Running<S>) => {
         const { session } = entry;
         try {
             await handlers.onAssigned(session);
+            await end(entry);
+        } catch (error) {
+            await settle(entry, error);
+        }
+    };
+
+    /** Settle a cancel the user accepted, on a fresh signal. */
+    const settleCancel = async (entry: Running<S>) => {
+        const { session } = entry;
+        entry.settlingCancel = true;
+        entry.controller = new AbortController();
+        session.rebind(entry.controller.signal);
+        try {
+            if (handlers.onCancelAccepted) await handlers.onCancelAccepted(session);
+            else if (session.direction === "In") session.fail("Refunded");
+            else
+                throw new TypeError(
+                    "onCancelAccepted must refund a withdrawal it offered to cancel",
+                );
             await end(entry);
         } catch (error) {
             await settle(entry, error);
@@ -209,6 +276,14 @@ export function serveFunding<S>(
         }
         try {
             if (error instanceof SessionOverError) return await end(entry);
+            if (
+                entry.cancelAccepted &&
+                !entry.settlingCancel &&
+                !(error instanceof FundingFailed) &&
+                (error instanceof FundingAbortedError || entry.controller.signal.aborted)
+            ) {
+                return void (await settleCancel(entry));
+            }
             if (error instanceof FundingFailed) {
                 const outcome = await session.reportFailure(error.reason);
                 if (outcome === "funds-moving") {
@@ -244,16 +319,74 @@ export function serveFunding<S>(
 
     const cancel = (intent: string) => {
         const entry = running.get(intent);
-        if (!entry) return;
-        const stop = handlers.onCancel
-            ? handlers.onCancel(entry.session)
-            : entry.session.cancellable;
-        if (!stop) {
-            log.info("cancel declined: funds are moving", { intent });
+        if (!entry || entry.cancelAccepted) return;
+        const { session } = entry;
+        if (!session.cancellable) {
+            void answerCancel(entry);
+            return;
+        }
+        if (handlers.onCancel && !handlers.onCancel(session)) {
+            log.info("cancel not honoured", { intent });
             return;
         }
         entry.cancelRequested = true;
         entry.controller.abort();
+    };
+
+    /** Answer a cancel after money moved: an open offer again, else what `onCancelRequest` says. */
+    const answerCancel = async (entry: Running<S>) => {
+        const { session } = entry;
+        try {
+            const open = session.cancel;
+            if (
+                open?.state === "offered" &&
+                (open.expiresAt ?? Number.POSITIVE_INFINITY) > Date.now()
+            ) {
+                await session.offerCancel(open);
+                return;
+            }
+            const reply: CancelAnswer = handlers.onCancelRequest
+                ? await handlers.onCancelRequest(session)
+                : { refuse: DEFAULT_REFUSAL };
+            if ("refuse" in reply) {
+                await session.refuseCancel(reply.refuse);
+            } else if (session.direction === "Out" && !handlers.onCancelAccepted) {
+                log.error("a withdrawal's cancel offer needs onCancelAccepted; refusing", {
+                    intent: session.intent,
+                });
+                await session.refuseCancel(DEFAULT_REFUSAL);
+            } else {
+                await session.offerCancel(reply.offer);
+            }
+        } catch (error) {
+            log.warn("answering a cancel failed", { intent: session.intent, error });
+        }
+    };
+
+    /** The user accepted the offer: save it, then stop `onAssigned` so the cancel is settled. */
+    const accepted = async (intent: string) => {
+        const entry = running.get(intent);
+        if (!entry || entry.cancelAccepted) return;
+        entry.cancelAccepted = true;
+        try {
+            await entry.session.markCancelAccepted();
+        } catch (error) {
+            // The host hands the acceptance back on the next stream if it did not stick.
+            log.warn("saving the accepted cancel failed", { intent, error });
+        }
+        entry.controller.abort();
+    };
+
+    /** The user declined the offer, or it lapsed: `onAssigned` carries on. */
+    const declined = async (intent: string) => {
+        const entry = running.get(intent);
+        if (!entry || entry.cancelAccepted) return;
+        try {
+            if (await entry.session.markCancelDeclined())
+                handlers.onCancelDeclined?.(entry.session);
+        } catch (error) {
+            log.warn("saving the declined cancel failed", { intent, error });
+        }
     };
 
     const answer = async (askId: string, ask: FundingQuoteAsk) => {

@@ -364,6 +364,10 @@ describe("the core's report order", () => {
         tag: "Payout",
         value: { outcome: { tag: "Failed", value: { reason: "x" } } },
     };
+    const offer = (fee: bigint, refund: bigint): FundingUpdate => ({
+        tag: "CancelOffer",
+        value: { fee, refund },
+    });
 
     // Rows mirror the cases of the core's own `follows` and
     // `report_after_release` tests (host_logic/funding.rs in trinity-user-agents).
@@ -552,11 +556,89 @@ describe("the core's report order", () => {
             { tag: "Refunding", value: { topUpId: B, amount: 10n } },
             "OutOfOrder",
         ],
+        [
+            "a refund above what the user paid",
+            "Out",
+            async (s) => {
+                await released(s);
+                await s.report(failedPayout);
+                await s.topUp(B, 11n);
+            },
+            { tag: "Refunding", value: { topUpId: B, amount: 11n } },
+            "OutOfOrder",
+        ],
+        [
+            "Failed once a top-up started, though not named",
+            "In",
+            async (s) => void (await s.topUp(A, 10n)),
+            { tag: "Failed", value: { reason: { tag: "Cancelled" } } },
+            "OutOfOrder",
+        ],
+        ["a cancel offer nobody asked for", "In", async () => {}, offer(1n, 9n), "OutOfOrder"],
+        [
+            "a cancel offer while the user's cancel waits",
+            "Out",
+            async (s) => {
+                await released(s);
+                s.host.cancel(s.intent);
+            },
+            offer(1n, 9n),
+            "ok",
+        ],
+        [
+            "a refusal after the user answered",
+            "Out",
+            async (s) => {
+                await released(s);
+                s.host.cancel(s.intent);
+                await s.report(offer(1n, 9n));
+                s.host.confirmCancel(s.intent, false);
+            },
+            { tag: "CancelRefused", value: { reason: "no" } },
+            "OutOfOrder",
+        ],
+        [
+            "a refund after an accepted cancel",
+            "Out",
+            async (s) => {
+                await released(s);
+                s.host.cancel(s.intent);
+                await s.report(offer(1n, 9n));
+                s.host.confirmCancel(s.intent, true);
+                await s.topUp(B, 9n);
+            },
+            { tag: "Refunding", value: { topUpId: B, amount: 9n } },
+            "ok",
+        ],
+        [
+            "a payout after an accepted cancel",
+            "Out",
+            async (s) => {
+                await released(s);
+                s.host.cancel(s.intent);
+                await s.report(offer(1n, 9n));
+                s.host.confirmCancel(s.intent, true);
+            },
+            { tag: "Payout", value: { outcome: { tag: "PaidOut" } } },
+            "OutOfOrder",
+        ],
+        [
+            "Failed { Refunded } after an accepted cancel of a top-up",
+            "In",
+            async (s) => {
+                await s.report({ tag: "PaymentReceived", value: { finalized: false } });
+                s.host.cancel(s.intent);
+                await s.report(offer(1n, 9n));
+                s.host.confirmCancel(s.intent, true);
+            },
+            { tag: "Failed", value: { reason: { tag: "Refunded" } } },
+            "ok",
+        ],
     ])("%s", async (_name, direction, setup, update, expected) => {
         expect(await reportAfter(direction, setup, update)).toBe(expected);
     });
 
-    test("a cancel is refused once the provider holds the payment", async () => {
+    test("once the provider holds the payment a cancel is a request, never an ending", async () => {
         const host = createFakeFundingHost();
         const intent = host.assign({ direction: "In", amount: 10n });
         await host
@@ -569,7 +651,37 @@ describe("the core's report order", () => {
                 () => {},
                 () => {},
             );
-        expect(host.cancel(intent)).toBe("Refused");
+        expect(host.cancel(intent)).toBe("Requested");
+        expect(host.cancel(intent)).toBe("Pending");
+        expect(host.session(intent)?.stage).toEqual({ tag: "Open" });
+    });
+
+    test("a top-up whose credit started is too late to cancel", async () => {
+        const host = createFakeFundingHost();
+        const intent = host.assign({ direction: "In", amount: 10n });
+        await host
+            .connect()
+            .payment.topUp({
+                id: A,
+                amount: 10n,
+                source: { tag: "PrivateKey", value: { sr25519SecretKey: "0x00" } },
+            })
+            .match(
+                () => {},
+                () => {},
+            );
+        expect(host.cancel(intent)).toBe("TooLate");
+    });
+
+    test("a second cancel before money moved ends the session", () => {
+        const host = createFakeFundingHost();
+        const intent = host.assign({ direction: "In", amount: 10n });
+        expect(host.cancel(intent)).toBe("Requested");
+        expect(host.cancel(intent)).toBe("Ended");
+        expect(host.session(intent)?.stage).toEqual({
+            tag: "Failed",
+            reason: { tag: "Cancelled" },
+        });
     });
 });
 
@@ -614,5 +726,188 @@ describe("screen channel", () => {
         await host.settled(intent);
         worker.abort();
         expect(seen).toEqual({ intent, view: { amount: "10" } });
+    });
+});
+
+// ── cancelling after money moved ───────────────────────────────────────────
+
+/** Wait until `ready` holds, polling the fake core. */
+async function until(ready: () => boolean, timeoutMs = 2_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (!ready()) {
+        if (Date.now() > deadline) throw new Error("waited too long");
+        await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+}
+
+const CANCEL_FEE = 2n;
+
+/**
+ * A withdrawal that pays out `payoutAfterMs` after the release, and offers to
+ * cancel until then for a fee, refunding the rest from its reserve account.
+ */
+function cancellableWithdrawal({
+    payoutAfterMs = 60_000,
+    offerFor = 60_000,
+}: { payoutAfterMs?: number; offerFor?: number } = {}): FundingProviderHandlers<PayoutState> {
+    return {
+        onQuote: () => refuse.unavailable(),
+        async onAssigned(session) {
+            const amount = session.amount ?? 0n;
+            if (session.state.phase === "new") {
+                const paid = await session.collect("payment", { amount, destination: PAYEE });
+                if (paid.tag !== "Completed") return session.fail("Cancelled");
+                await session.checkpoint({ phase: "released" });
+            }
+            await session.holdWorker("payout", async () => {
+                await session.converting();
+                await session.waitUntil(Date.now() + payoutAfterMs);
+                await session.untilCancelDecided();
+                await session.payout({ tag: "PaidOut" });
+            });
+        },
+        onCancelRequest: (session) => ({
+            offer: {
+                fee: CANCEL_FEE,
+                refund: (session.amount ?? 0n) - CANCEL_FEE,
+                expiresAt: Date.now() + offerFor,
+            },
+        }),
+        async onCancelAccepted(session) {
+            const offer = session.cancel;
+            if (!offer) throw new Error("no accepted offer");
+            const reserve = await session.account("reserve");
+            await session.refund("refund", { amount: offer.refund, source: reserve.topUpSource() });
+        },
+    };
+}
+
+/** The user cancels once the withdrawal is released, and answers the offer. */
+const cancelOnceReleased = (accept: boolean) => async (host: FakeFundingHost, intent: string) => {
+    await until(() => host.session(intent)?.stage.tag === "Released");
+    host.cancel(intent);
+    await until(() => host.session(intent)?.cancel?.tag === "Offered");
+    host.confirmCancel(intent, accept);
+};
+
+describe("cancelling after money moved", () => {
+    test("an accepted offer stops the payout and refunds the user less the fee", async () => {
+        const host = createFakeFundingHost();
+        const intent = host.assign({ direction: "Out", amount: 30n });
+        const worker = await serve(host, cancellableWithdrawal(), PAYOUT_SPEC);
+        await cancelOnceReleased(true)(host, intent);
+        const session = await host.settled(intent);
+        worker.abort();
+        expect(session.updates.map((u) => u.tag)).toEqual([
+            "Collecting",
+            "Converting",
+            "CancelOffer",
+            "Refunding",
+        ]);
+        expect(session.refund).toEqual({
+            id: deriveId(intent, "refund"),
+            amount: 30n - CANCEL_FEE,
+            refunded: 30n - CANCEL_FEE,
+        });
+    });
+
+    // A crash between the user's answer and the refund must neither lose the
+    // refund nor make it twice.
+    test("an accepted cancel resumes from every call without refunding twice", async () => {
+        const { crashPoints } = await resumeAtEveryCheckpoint(
+            cancellableWithdrawal(),
+            PAYOUT_SPEC,
+            { direction: "Out", amount: 30n },
+            { outcome: "Released", updates: ["Collecting", "Converting", "Refunding"] },
+            { drive: cancelOnceReleased(true) },
+        );
+        expect(crashPoints).toBeGreaterThan(5);
+    });
+
+    test("a declined offer lets the payout go through", async () => {
+        const host = createFakeFundingHost();
+        const intent = host.assign({ direction: "Out", amount: 30n });
+        let declined = false;
+        const worker = await serve(
+            host,
+            {
+                ...cancellableWithdrawal({ payoutAfterMs: 20 }),
+                onCancelDeclined: () => {
+                    declined = true;
+                },
+            },
+            PAYOUT_SPEC,
+        );
+        await cancelOnceReleased(false)(host, intent);
+        const session = await host.settled(intent);
+        worker.abort();
+        expect(declined).toBe(true);
+        expect(session.updates.map((u) => u.tag)).toEqual([
+            "Collecting",
+            "Converting",
+            "CancelOffer",
+            "Payout",
+        ]);
+        expect([...host.funds.values()].map((f) => f.kind)).toEqual(["request"]);
+    });
+
+    test("an offer the user leaves open lapses and the payout goes through", async () => {
+        const host = createFakeFundingHost();
+        const intent = host.assign({ direction: "Out", amount: 30n });
+        const worker = await serve(
+            host,
+            cancellableWithdrawal({ payoutAfterMs: 0, offerFor: 30 }),
+            PAYOUT_SPEC,
+        );
+        await until(() => host.session(intent)?.stage.tag === "Released");
+        host.cancel(intent);
+        const session = await host.settled(intent);
+        worker.abort();
+        expect(session.updates.map((u) => u.tag)).toContain("Payout");
+        expect(host.confirmCancel(intent, true)).toBe("NoOffer");
+    });
+
+    test("a provider with no onCancelRequest refuses, and the session carries on", async () => {
+        const host = createFakeFundingHost();
+        const intent = host.assign({ direction: "Out", amount: 30n });
+        const { onCancelRequest: _refuses, ...handlers } = cancellableWithdrawal({
+            payoutAfterMs: 20,
+        });
+        const worker = await serve(host, handlers, PAYOUT_SPEC);
+        await until(() => host.session(intent)?.stage.tag === "Released");
+        expect(host.cancel(intent)).toBe("Requested");
+        const session = await host.settled(intent);
+        worker.abort();
+        expect(session.updates).toContainEqual({
+            tag: "CancelRefused",
+            value: { reason: "This payment can no longer be cancelled" },
+        });
+        expect(session.updates.at(-1)?.tag).toBe("Payout");
+    });
+
+    test("an accepted cancel of a top-up before its credit ends refunded on the user's rail", async () => {
+        const host = createFakeFundingHost();
+        const intent = host.assign({ direction: "In", amount: 50n });
+        const worker = await serve<CardState>(
+            host,
+            {
+                ...cardProvider(),
+                async onAssigned(session) {
+                    await session.paymentReceived({ finalized: false });
+                    await session.untilCancelDecided();
+                    await session.waitUntil(Date.now() + 60_000);
+                },
+                onCancelRequest: () => ({ offer: { fee: 1n, refund: 49n } }),
+            },
+            CARD_SPEC,
+        );
+        await until(() => (host.session(intent)?.updates.length ?? 0) > 0);
+        expect(host.cancel(intent)).toBe("Requested");
+        await until(() => host.session(intent)?.cancel?.tag === "Offered");
+        expect(host.confirmCancel(intent, true)).toBe("Accepted");
+        const session = await host.settled(intent);
+        worker.abort();
+        expect(session.stage).toEqual({ tag: "Failed", reason: { tag: "Refunded" } });
+        expect(host.funds.size).toBe(0);
     });
 });

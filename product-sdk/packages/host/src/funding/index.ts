@@ -24,6 +24,7 @@
  */
 export { serveFunding } from "./serve.js";
 export type {
+    CancelAnswer,
     FundingProviderHandlers,
     FundingServer,
     QuoteContext,
@@ -31,15 +32,17 @@ export type {
 } from "./serve.js";
 export { DEFAULT_FUNDING_TIMING, FundingSession } from "./session.js";
 export type {
+    CancelOffer,
     FailureCode,
     FundingTiming,
     PageResult,
     PaymentOutcome,
     ReportOutcome,
+    SessionCancel,
     TopUpOutcome,
 } from "./session.js";
 export { MAX_SAVED_BYTES } from "./state.js";
-export type { Journal, JournalEntry, SavedStateSpec } from "./state.js";
+export type { Journal, JournalEntry, SavedCancel, SavedStateSpec } from "./state.js";
 export { deriveId } from "./ids.js";
 export { refuse, quoted, validateAsk, quoteId } from "./quotes.js";
 export type { AskPolicy, QuoteTerms } from "./quotes.js";

@@ -46,6 +46,7 @@ import {
     type Journal,
     type JournalEntry,
     MAX_SAVED_BYTES,
+    type SavedCancel,
     type SavedStateSpec,
     decodeEnvelope,
     encodeEnvelope,
@@ -113,6 +114,16 @@ export type PageResult =
     | { tag: "Returned"; url: URL; params: URLSearchParams }
     | { tag: "Dismissed" }
     | { tag: "Closed" };
+
+/** The terms a provider offers to cancel on, in balance units. */
+export interface CancelOffer {
+    /** What cancelling costs the user. */
+    fee: bigint;
+    /** What the user gets back: for a withdrawal, the top-up {@link FundingSession.refund} makes. */
+    refund: bigint;
+    /** Unix ms the offer lapses at; the host then declines it for the user. */
+    expiresAt?: number;
+}
 
 /** A failure reason, or the tag of one that carries no data. */
 export type FailureCode = Exclude<FundingFailure, { tag: "Other" }>["tag"];
@@ -196,6 +207,9 @@ export interface SessionContext<S> {
     signal: AbortSignal;
 }
 
+/** What a session's open or accepted cancel offer is. */
+export type SessionCancel = CancelOffer & { state: "offered" | "accepted" };
+
 /**
  * A funding session the provider's worker runs, handed to `onAssigned`.
  *
@@ -215,15 +229,15 @@ export class FundingSession<S> {
     readonly expiresAt: bigint | undefined;
     /** Whether the host handed back state this provider saved (a restart). */
     readonly resumed: boolean;
-    /** Aborted when a cancel is honoured or serving stops. Pass it to every wait. */
-    readonly signal: AbortSignal;
 
     readonly #client: FundingClient;
     readonly #spec: SavedStateSpec<S>;
     readonly #timing: FundingTiming;
     readonly #log: Logger;
+    #signal: AbortSignal;
     #state: S;
     #journal: Journal;
+    #cancel: SavedCancel | undefined;
     #lastStep: FundingUpdate | undefined;
     #received = false;
     readonly #onEnd = new Set<() => Promise<void> | void>();
@@ -236,7 +250,7 @@ export class FundingSession<S> {
         this.amount = assignment.amount;
         this.quote = assignment.quote;
         this.expiresAt = assignment.expiresAt;
-        this.signal = context.signal;
+        this.#signal = context.signal;
         this.#client = context.client;
         this.#spec = context.spec;
         this.#timing = context.timing;
@@ -244,10 +258,24 @@ export class FundingSession<S> {
         const restored = decodeEnvelope(assignment, context.spec);
         this.#state = restored.state;
         this.#journal = restored.journal;
+        this.#cancel = restored.cancel;
         this.resumed = restored.resumed;
         this.#lastStep = assignment.lastUpdate;
         const rank = assignment.lastUpdate ? updateRank(assignment.lastUpdate) : undefined;
         this.#received = rank !== undefined && rank >= 1;
+    }
+
+    /**
+     * Aborted when a cancel is honoured, when the user accepts a cancel offer,
+     * or when serving stops. Pass it to every wait.
+     */
+    get signal(): AbortSignal {
+        return this.#signal;
+    }
+
+    /** @internal Run the session on `signal` from now on, as when it settles an accepted cancel. */
+    rebind(signal: AbortSignal): void {
+        this.#signal = signal;
     }
 
     /** The provider's state as last checkpointed, or its initial state. Change it through {@link checkpoint}. */
@@ -307,8 +335,8 @@ export class FundingSession<S> {
         this.#state = state;
     }
 
-    async #save(state: S, journal: Journal): Promise<void> {
-        const bytes = encodeEnvelope(this.#spec, state, journal);
+    async #save(state: S, journal: Journal, cancel = this.#cancel): Promise<void> {
+        const bytes = encodeEnvelope(this.#spec, state, journal, cancel);
         await this.#retry(async () => {
             try {
                 await call(
@@ -412,6 +440,8 @@ export class FundingSession<S> {
             }
         }
         if (update.tag === "Failed" && !this.cancellable) return "funds-moving";
+        // The cancel no longer waits on an answer: the user answered, or it lapsed.
+        if (update.tag === "CancelOffer" || update.tag === "CancelRefused") return "already";
         return undefined;
     }
 
@@ -427,11 +457,17 @@ export class FundingSession<S> {
         return this.report({ tag: "AwaitingPayment" });
     }
 
-    /** Inbound: the user's payment reached the provider; `finalized` once it cannot be reversed. */
+    /**
+     * Inbound: the user's payment reached the provider; `finalized` once it
+     * cannot be reversed. From the moment this is sent the session is no
+     * longer {@link cancellable}: a cancel the host forwards meanwhile is a
+     * request to answer, not a reason to stop.
+     */
     paymentReceived(received: {
         finalized: boolean;
         mismatch?: { asset: string; amount: bigint };
     }): Promise<ReportOutcome> {
+        this.#received = true;
         return this.report({ tag: "PaymentReceived", value: received });
     }
 
@@ -475,9 +511,81 @@ export class FundingSession<S> {
         return this.report({ tag: "PayoutRetrying" });
     }
 
-    /** Outbound, after a failed payout: name the top-up refunding the user. Prefer {@link refund}. */
+    /** Outbound, after a failed payout or an accepted cancel: name the top-up refunding the user. Prefer {@link refund}. */
     refunding(topUpId: HexString, amount: bigint): Promise<ReportOutcome> {
         return this.report({ tag: "Refunding", value: { topUpId, amount } });
+    }
+
+    // ── cancelling after money moved ─────────────────────────────────────────
+
+    /** The cancel offer the session made, while it is open or once the user accepted it. */
+    get cancel(): SessionCancel | undefined {
+        return this.#cancel === undefined ? undefined : { ...this.#cancel };
+    }
+
+    /**
+     * Offer to cancel on `offer`'s terms. The offer is saved before it is
+     * reported, so a restart knows it is open. `serveFunding` calls this with
+     * what `onCancelRequest` answers; call it directly only outside that hook.
+     */
+    async offerCancel(offer: CancelOffer): Promise<ReportOutcome> {
+        if (offer.fee < 0n || offer.refund < 0n) {
+            throw new RangeError("a cancel offer's fee and refund cannot be negative");
+        }
+        await this.#saveCancel({ state: "offered", ...offer });
+        return this.report({
+            tag: "CancelOffer",
+            value: {
+                fee: offer.fee,
+                refund: offer.refund,
+                expiresAt: offer.expiresAt === undefined ? undefined : BigInt(offer.expiresAt),
+            },
+        });
+    }
+
+    /** Refuse the user's cancel; the session carries on and the user sees `reason`. */
+    refuseCancel(reason: string): Promise<ReportOutcome> {
+        return this.report({ tag: "CancelRefused", value: { reason } });
+    }
+
+    /**
+     * Wait while a cancel offer is open, so the session does not pass the
+     * point the cancel would undo before the user answers: call it before
+     * crediting the user, or before paying a withdrawal out. Returns once
+     * there is no open offer, it lapsed, or the user declined it; throws
+     * {@link FundingAbortedError} when the user accepted it.
+     */
+    async untilCancelDecided(): Promise<void> {
+        for (;;) {
+            const cancel = this.#cancel;
+            if (cancel?.state === "accepted") {
+                throw new FundingAbortedError("the session the user cancelled");
+            }
+            if (cancel === undefined) return;
+            const left = cancel.expiresAt === undefined ? undefined : cancel.expiresAt - Date.now();
+            if (left !== undefined && left <= 0) return;
+            const tick = Math.min(this.#timing.retryMaxMs, 1_000);
+            await sleep(left === undefined ? tick : Math.min(tick, left), this.signal);
+        }
+    }
+
+    /** @internal The user accepted the open offer: save it, so a restart settles the cancel. */
+    async markCancelAccepted(): Promise<void> {
+        if (this.#cancel?.state === "accepted") return;
+        const offer = this.#cancel ?? { fee: 0n, refund: 0n };
+        await this.#saveCancel({ ...offer, state: "accepted" });
+    }
+
+    /** @internal The user declined the open offer, or it lapsed. Returns whether one was open. */
+    async markCancelDeclined(): Promise<boolean> {
+        if (this.#cancel?.state !== "offered") return false;
+        await this.#saveCancel(undefined);
+        return true;
+    }
+
+    async #saveCancel(cancel: SavedCancel | undefined): Promise<void> {
+        await this.#save(this.#state, this.#journal, cancel);
+        this.#cancel = cancel;
     }
 
     /** End the session as `Failed`. `serveFunding` reports it when the session unwinds. */
@@ -559,8 +667,10 @@ export class FundingSession<S> {
     }
 
     /**
-     * Refund a withdrawal whose payout failed: start the top-up for `step`
-     * (`"refund"` by convention), name it in a `Refunding` report, and follow it.
+     * Refund a withdrawal whose payout failed, or whose cancel the user
+     * accepted: start the top-up for `step` (`"refund"` by convention), name it
+     * in a `Refunding` report, and follow it. The core refuses a refund above
+     * what the user paid.
      */
     async refund(
         step: string,

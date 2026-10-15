@@ -6,7 +6,8 @@
  *
  * It follows the core's own rules for a session: which reports may come
  * next, which funds a report may name, when a withdrawal is released, what a
- * provider may report after that, and when a cancel applies. Unlike the real
+ * provider may report after that, and what a cancel does before and after
+ * money moved, offers and their lapsing included. Unlike the real
  * core it settles at once: an inbound session is delivered as soon as
  * `Delivered` is reported, and a withdrawal is released as soon as its payment
  * is named, each from the status scripts the options set.
@@ -76,6 +77,20 @@ export interface FakeFundingHostOptions {
     entropy?: (context: HexString) => HexString;
 }
 
+/** Where the user's cancel of a session stands, as the core's `FundingCancel`. */
+export type FakeFundingCancel =
+    | { tag: "Requested" }
+    | { tag: "Refused"; reason: string }
+    | { tag: "Offered"; fee: bigint; refund: bigint; expiresAt?: bigint }
+    | { tag: "Accepted"; fee: bigint; refund: bigint }
+    | { tag: "Declined" };
+
+/** What a cancel did, as the core's `CancelOutcome`. */
+export type FakeCancelOutcome = "Ended" | "Requested" | "Pending" | "TooLate" | "Refused";
+
+/** What the user's answer to an offer did, as the core's `CancelConfirmation`. */
+export type FakeCancelConfirmation = "Accepted" | "Declined" | "Lapsed" | "NoOffer";
+
 /** A session as the fake core holds it. */
 export interface FakeFundingSession {
     intent: string;
@@ -93,7 +108,7 @@ export interface FakeFundingSession {
     started: Array<{ id: HexString; amount: bigint; named: boolean }>;
     saved?: HexString;
     refund?: { id: HexString; amount: bigint; refunded?: bigint };
-    cancelRequested: boolean;
+    cancel?: FakeFundingCancel;
 }
 
 /** One call the worker made and how the fake answered. */
@@ -120,8 +135,15 @@ export interface FakeFundingHost {
     }): string;
     /** Ask the provider for a quote; resolves with its answer, or `"timeout"` after `timeoutMs`. */
     ask(ask: FundingQuoteAsk, timeoutMs?: number): Promise<FundingQuoteAnswer | "timeout">;
-    /** Cancel at the user's request, under the core's rules. */
-    cancel(intent: string): "Refused" | "Requested" | "Ended";
+    /**
+     * Cancel at the user's request, under the core's rules: before money
+     * moved the provider is asked and a second cancel ends the session; after,
+     * the cancel is a request the provider answers; a top-up whose credit
+     * started is too late to cancel.
+     */
+    cancel(intent: string): FakeCancelOutcome;
+    /** The user's answer to the provider's cancel offer. An offer past its expiry lapses. */
+    confirmCancel(intent: string, accept: boolean): FakeCancelConfirmation;
     /** The session as the core holds it now. */
     session(intent: string): FakeFundingSession | undefined;
     /** Resolve once the provider has no more work on the session, or throw after `timeoutMs`. */
@@ -162,8 +184,18 @@ class Core {
         return this.session.updates.some((u) => u.tag === "Crediting" || u.tag === "Collecting");
     }
 
-    holdsPayment(): boolean {
-        return this.fundsMoving() || this.session.updates.some((u) => u.tag === "PaymentReceived");
+    /** Funds started for the session, named or not: from then the provider cannot fail it. */
+    fundsStarted(): boolean {
+        return this.session.started.length > 0 || this.fundsMoving();
+    }
+
+    /** Money moved: funds started, or the provider saw the user's payment. */
+    moneyMoved(): boolean {
+        return this.fundsStarted() || this.session.updates.some((u) => u.tag === "PaymentReceived");
+    }
+
+    cancelAccepted(): boolean {
+        return this.session.cancel?.tag === "Accepted";
     }
 
     payout(): FundingUpdate | undefined {
@@ -172,20 +204,20 @@ class Core {
 
     awaitsRefund(): boolean {
         const payout = this.payout();
+        const payoutFailed = payout?.tag === "Payout" && payout.value.outcome.tag === "Failed";
         return (
             this.session.stage.tag === "Released" &&
-            payout?.tag === "Payout" &&
-            payout.value.outcome.tag === "Failed" &&
-            this.session.refund === undefined
+            this.session.refund === undefined &&
+            (payoutFailed || this.cancelAccepted())
         );
     }
 
+    /** A released withdrawal whose payout outcome is not reported, or whose refund is not settled. */
     awaitsProvider(): boolean {
         if (this.session.stage.tag !== "Released") return false;
+        if (this.session.refund) return this.session.refund.refunded === undefined;
         const payout = this.payout();
-        if (payout?.tag !== "Payout") return true;
-        if (payout.value.outcome.tag === "PaidOut") return false;
-        return this.session.refund?.refunded === undefined;
+        return payout?.tag !== "Payout" || payout.value.outcome.tag === "Failed";
     }
 
     servesProvider(): boolean {
@@ -214,6 +246,7 @@ class Core {
             case "Details":
                 return true;
             case "Failed":
+                return !this.fundsStarted();
             case "Deposit":
                 return !this.fundsMoving();
             case "Crediting":
@@ -231,6 +264,17 @@ class Core {
 
     /** Store `update`, or the reason the core refuses it. */
     report(update: FundingUpdate): Rejection | undefined {
+        if (update.tag === "CancelOffer" || update.tag === "CancelRefused") {
+            if (!this.servesProvider()) return "NotFound";
+            const waiting = this.session.cancel?.tag;
+            if (waiting !== "Requested" && waiting !== "Offered") return "OutOfOrder";
+            this.session.cancel =
+                update.tag === "CancelOffer"
+                    ? { tag: "Offered", ...update.value }
+                    : { tag: "Refused", reason: update.value.reason };
+            this.session.updates.push(update);
+            return undefined;
+        }
         const afterRelease =
             update.tag === "Payout" ||
             update.tag === "Refunding" ||
@@ -240,14 +284,20 @@ class Core {
             if (!this.terminal) return "OutOfOrder";
             if (this.session.stage.tag !== "Released") return "NotFound";
             if (update.tag === "Refunding") {
-                if (!this.awaitsRefund()) return "OutOfOrder";
+                const { stage } = this.session;
+                const overDebit = stage.tag === "Released" && update.value.amount > stage.debited;
+                if (!this.awaitsRefund() || overDebit) return "OutOfOrder";
                 const record = this.unnamed(update.value.topUpId, update.value.amount);
                 if (!record) return "NotStarted";
                 record.named = true;
                 this.session.refund = { id: update.value.topUpId, amount: update.value.amount };
             } else {
                 const converting = this.session.updates.some((u) => u.tag === "Converting");
-                if (this.payout() || (update.tag === "Converting" && converting))
+                if (
+                    this.payout() ||
+                    this.cancelAccepted() ||
+                    (update.tag === "Converting" && converting)
+                )
                     return "OutOfOrder";
             }
             this.session.updates.push(update);
@@ -264,7 +314,7 @@ class Core {
         if (update.tag === "Failed")
             this.session.stage = { tag: "Failed", reason: update.value.reason };
         this.session.updates.push(update);
-        if (this.terminal || this.holdsPayment()) this.session.cancelRequested = false;
+        if (this.terminal) this.session.cancel = undefined;
         return undefined;
     }
 
@@ -284,14 +334,54 @@ class Core {
         return true;
     }
 
-    cancel(): "Refused" | "Requested" | "Ended" {
-        if (this.terminal || this.holdsPayment()) return "Refused";
-        if (this.session.cancelRequested) {
-            this.session.stage = { tag: "Failed", reason: { tag: "Cancelled" } };
-            return "Ended";
+    cancel(): FakeCancelOutcome {
+        if (!this.servesProvider()) return "Refused";
+        if (!this.moneyMoved()) {
+            if (this.session.cancel !== undefined) {
+                this.session.stage = { tag: "Failed", reason: { tag: "Cancelled" } };
+                this.session.cancel = undefined;
+                return "Ended";
+            }
+            this.session.cancel = { tag: "Requested" };
+            return "Requested";
         }
-        this.session.cancelRequested = true;
+        if (this.session.direction === "In" && this.fundsStarted()) return "TooLate";
+        const current = this.session.cancel?.tag;
+        if (current === "Requested" || current === "Offered" || current === "Accepted")
+            return "Pending";
+        this.session.cancel = { tag: "Requested" };
         return "Requested";
+    }
+
+    confirmCancel(accept: boolean, nowMs: number): FakeCancelConfirmation {
+        const offer = this.session.cancel;
+        if (!this.servesProvider() || offer?.tag !== "Offered") return "NoOffer";
+        if (offer.expiresAt !== undefined && BigInt(nowMs) >= offer.expiresAt) {
+            this.session.cancel = { tag: "Declined" };
+            return "Lapsed";
+        }
+        if (!accept) {
+            this.session.cancel = { tag: "Declined" };
+            return "Declined";
+        }
+        this.session.cancel = { tag: "Accepted", fee: offer.fee, refund: offer.refund };
+        return "Accepted";
+    }
+
+    /** What the provider still has to hear about the user's cancel when its stream opens. */
+    pendingCancelItem(): HostFundingServeSubscribeItem | undefined {
+        const intent = this.session.intent;
+        switch (this.session.cancel?.tag) {
+            case "Requested":
+            case "Offered":
+                return { tag: "Cancel", value: { intent } };
+            case "Accepted":
+                return { tag: "CancelAccepted", value: { intent } };
+            case "Declined":
+                return { tag: "CancelDeclined", value: { intent } };
+            default:
+                return undefined;
+        }
     }
 
     assignment(): FundingAssignment {
@@ -432,6 +522,23 @@ export function createFakeFundingHost(options: FakeFundingHostOptions = {}): Fak
         }
     };
 
+    /** Decline an offer when it lapses, as the core's alarm does. */
+    const lapseLater = (core: Core) => {
+        const offer = core.session.cancel;
+        if (offer?.tag !== "Offered" || offer.expiresAt === undefined) return;
+        const expiresAt = offer.expiresAt;
+        setTimeout(
+            () => {
+                const current = core.session.cancel;
+                if (current?.tag !== "Offered" || current.expiresAt !== expiresAt) return;
+                core.session.cancel = { tag: "Declined" };
+                push({ tag: "CancelDeclined", value: { intent: core.session.intent } });
+                notify();
+            },
+            Math.max(0, Number(expiresAt) - Date.now()),
+        );
+    };
+
     /** Record funds on the provider's sessions the way the core does: the one asking for the amount, else each. */
     const recordStart = (direction: FundingDirection, id: HexString, amount: bigint) => {
         const served = [...sessions.values()].filter(
@@ -507,12 +614,13 @@ export function createFakeFundingHost(options: FakeFundingHostOptions = {}): Fak
                                 queueMicrotask(() => {
                                     if (!streams.has(deliver)) return;
                                     for (const core of sessions.values()) {
-                                        if (core.servesProvider()) {
-                                            deliver({
-                                                tag: "Assigned",
-                                                value: { session: core.assignment() },
-                                            });
-                                        }
+                                        if (!core.servesProvider()) continue;
+                                        deliver({
+                                            tag: "Assigned",
+                                            value: { session: core.assignment() },
+                                        });
+                                        const cancel = core.pendingCancelItem();
+                                        if (cancel) deliver(cancel);
                                     }
                                     for (const [askId, pending] of asks) {
                                         deliver({
@@ -534,6 +642,7 @@ export function createFakeFundingHost(options: FakeFundingHostOptions = {}): Fak
                             const refused = core.report(update);
                             if (refused) return { error: refused };
                             settle(core, update);
+                            if (update.tag === "CancelOffer") lapseLater(core);
                             return { ok: undefined };
                         }),
                     save: ({ intent, state }: { intent: string; state: HexString }) =>
@@ -614,7 +723,6 @@ export function createFakeFundingHost(options: FakeFundingHostOptions = {}): Fak
                 stage: { tag: "Open" },
                 updates: [],
                 started: [],
-                cancelRequested: false,
             });
             sessions.set(intent, core);
             push({ tag: "Assigned", value: { session: core.assignment() } });
@@ -645,6 +753,16 @@ export function createFakeFundingHost(options: FakeFundingHostOptions = {}): Fak
             if (outcome === "Requested") push({ tag: "Cancel", value: { intent } });
             notify();
             return outcome;
+        },
+        confirmCancel(intent, accept) {
+            const core = sessions.get(intent);
+            if (!core) return "NoOffer";
+            const confirmation = core.confirmCancel(accept, Date.now());
+            if (confirmation === "Accepted") push({ tag: "CancelAccepted", value: { intent } });
+            if (confirmation === "Declined" || confirmation === "Lapsed")
+                push({ tag: "CancelDeclined", value: { intent } });
+            notify();
+            return confirmation;
         },
         session(intent) {
             const core = sessions.get(intent);
@@ -700,10 +818,18 @@ export interface ResumeExpectation {
     outcome: "Delivered" | "Released" | "Failed";
     /**
      * The tags of the reports the core stores, in order, leaving out
-     * `Details`, `Deposit` and `PayoutRetrying`, which a resumed worker may repeat.
+     * `Details`, `Deposit`, `PayoutRetrying` and the answers to a cancel,
+     * which a resumed worker may repeat.
      */
     updates?: FundingUpdate["tag"][];
 }
+
+/**
+ * What the user does during a run of {@link resumeAtEveryCheckpoint}, such as
+ * cancelling once the session reached a point and accepting the offer. It runs
+ * alongside the worker in every run, crashes and restarts included.
+ */
+export type ResumeDriver = (host: FakeFundingHost, intent: string) => Promise<void>;
 
 /**
  * Run a session through the provider's handlers once, then once more for
@@ -724,7 +850,11 @@ export async function resumeAtEveryCheckpoint<S>(
     spec: SavedStateSpec<S>,
     session: { direction: FundingDirection; amount?: bigint; quote?: FundingQuote },
     expect: ResumeExpectation,
-    options: FakeFundingHostOptions & { timing?: Partial<FundingTiming>; timeoutMs?: number } = {},
+    options: FakeFundingHostOptions & {
+        timing?: Partial<FundingTiming>;
+        timeoutMs?: number;
+        drive?: ResumeDriver;
+    } = {},
 ): Promise<{ crashPoints: number }> {
     const run = async (crashAt: number | undefined) => {
         const host = createFakeFundingHost({
@@ -750,8 +880,12 @@ export async function resumeAtEveryCheckpoint<S>(
         });
         const intent = host.assign(session);
         startWorker();
+        const driving = options.drive?.(host, intent);
         try {
-            const settled = await host.settled(intent, options.timeoutMs ?? 5_000);
+            const [settled] = await Promise.all([
+                host.settled(intent, options.timeoutMs ?? 5_000),
+                driving,
+            ]);
             return { host, settled };
         } finally {
             for (const worker of workers) worker.abort();
@@ -776,7 +910,13 @@ export async function resumeAtEveryCheckpoint<S>(
             fail(`ended ${settled.stage.tag}, expected ${expect.outcome}`);
         }
         if (expect.updates) {
-            const repeatable = new Set(["Details", "Deposit", "PayoutRetrying"]);
+            const repeatable = new Set([
+                "Details",
+                "Deposit",
+                "PayoutRetrying",
+                "CancelOffer",
+                "CancelRefused",
+            ]);
             const tags = settled.updates.map((u) => u.tag).filter((tag) => !repeatable.has(tag));
             if (tags.join() !== expect.updates.join()) {
                 fail(`stored ${tags.join(", ")}, expected ${expect.updates.join(", ")}`);

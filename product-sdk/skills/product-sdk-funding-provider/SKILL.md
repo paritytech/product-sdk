@@ -105,11 +105,39 @@ How a session ends:
 |---|---|
 | resolves | the session is done for this provider |
 | `session.fail("Declined")` | reported `Failed { Declined }`, unless funds are moving |
-| user cancel the provider honours | reported `Failed { Cancelled }` |
+| user cancel before money moved | reported `Failed { Cancelled }` |
+| user accepts a cancel offer | `onAssigned` is stopped and `onCancelAccepted` settles the cancel |
 | any other throw | logged, and the session is handed out again after a doubling wait |
 
-A cancel is honoured by default while `session.cancellable`: nothing started and the user's payment not
-marked received. Pass `session.signal` to everything that waits, so a cancel unwinds at once.
+## Cancelling
+
+Before money moved (`session.cancellable`: nothing started, and the user's payment not reported received)
+a cancel stops the session by default; `onCancel` can keep it going. Pass `session.signal` to everything
+that waits, so a cancel unwinds at once.
+
+After money moved a cancel is a request, and only the provider can end the session:
+
+```ts
+onCancelRequest: (session) =>
+    canStillUndo(session)
+        ? { offer: { fee: FEE, refund: session.amount! - FEE, expiresAt: Date.now() + 5 * 60_000 } }
+        : { refuse: "The payout already left" },
+async onCancelAccepted(session) {
+    const reserve = await session.account("reserve");
+    await session.refund("refund", { amount: session.cancel!.refund, source: reserve.topUpSource() });
+},
+```
+
+- The host shows the offer to the user. `onCancelAccepted` runs once they accept, after `onAssigned` was
+  stopped, on a fresh signal: refund a withdrawal (at most what the user paid), or `session.fail("Refunded")`
+  a top-up whose payment goes back on the user's rail (the default for a top-up).
+- A declined or lapsed offer calls `onCancelDeclined` and `onAssigned` carries on. While an offer is open,
+  call `await session.untilCancelDecided()` before the step the cancel would undo, the credit or the payout:
+  it returns once the offer is gone and throws when the user accepted.
+- With no `onCancelRequest` every cancel after money moved is refused. The host refuses a cancel of a
+  top-up whose credit started; the provider is not asked.
+- The offer and an acceptance are saved with the session, and the host hands the request or the answer
+  back after a restart, so a cancel settles once.
 
 ## A withdrawal
 
@@ -133,8 +161,9 @@ async onAssigned(session) {
 ```
 
 The session is released once the user's payment completes; `converting`, `payoutRetrying`, `payout` and
-`refunding` only make sense after that, and the session keeps waiting for them retried. A failed payout
-is refunded with a top-up the provider names in `Refunding`; the host ends the session once it is claimed.
+`refunding` only make sense after that, and the session keeps waiting for them retried. A failed payout,
+or a cancel the user accepted, is refunded with a top-up the provider names in `Refunding`; the host ends
+the session once it is claimed.
 
 ## Quotes
 
@@ -177,7 +206,9 @@ test("resumes from every crash", async () => {
 The fake follows the core's rules for a session and settles at once from status scripts you can set.
 `resumeAtEveryCheckpoint` runs the session once, then once more for every call the worker makes, crashing
 it right after that call and resuming on what the host kept. It fails if the session ends differently, if
-funds start under a different id than without a crash, or if a report is refused `NotStarted`. Use
+funds start under a different id than without a crash, or if a report is refused `NotStarted`. Pass
+`drive` to act as the user during every run, such as cancelling once the withdrawal is released and
+accepting the offer with `host.cancel(intent)` and `host.confirmCancel(intent, true)`. Use
 `createFakeFundingHost` directly for anything else: asks, cancels, frames, faults.
 
 ## Not in this module

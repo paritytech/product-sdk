@@ -10,7 +10,9 @@
  * - `v`, the provider's state version from its {@link SavedStateSpec};
  * - `s`, the provider's state;
  * - `j`, the journal of top-ups, payment requests and actions the session
- *   started, which the library keeps so a restart finds them again.
+ *   started, which the library keeps so a restart finds them again;
+ * - `c`, the cancel offer the session made and whether the user accepted it,
+ *   when there is one.
  *
  * Bigints are kept as `{ "$big": "<decimal>" }`, so providers store them as they are.
  *
@@ -58,10 +60,20 @@ export interface JournalEntry {
 /** The library's journal: what the session started, by step. */
 export type Journal = Record<string, JournalEntry>;
 
+/** A cancel offer the session made, open or accepted. Amounts in balance units. */
+export interface SavedCancel {
+    state: "offered" | "accepted";
+    fee: bigint;
+    refund: bigint;
+    /** Unix ms the offer lapses at, if it does. */
+    expiresAt?: number;
+}
+
 /** What a session reads back from its assignment. */
 export interface RestoredState<S> {
     state: S;
     journal: Journal;
+    cancel?: SavedCancel;
     /** Whether the host handed back state this provider could read. */
     resumed: boolean;
 }
@@ -71,6 +83,18 @@ interface Envelope {
     v: number;
     s: unknown;
     j: Journal;
+    c?: SavedCancel;
+}
+
+function isSavedCancel(value: unknown): value is SavedCancel {
+    if (value === null || typeof value !== "object") return false;
+    const cancel = value as Partial<SavedCancel>;
+    return (
+        (cancel.state === "offered" || cancel.state === "accepted") &&
+        typeof cancel.fee === "bigint" &&
+        typeof cancel.refund === "bigint" &&
+        (cancel.expiresAt === undefined || typeof cancel.expiresAt === "number")
+    );
 }
 
 function replacer(_key: string, value: unknown): unknown {
@@ -103,8 +127,14 @@ export function decodeJson(hex: HexString): unknown {
  * Encode the state and journal into the bytes `save` stores. Throws
  * {@link StateTooLargeError} past {@link MAX_SAVED_BYTES}, before the host is asked.
  */
-export function encodeEnvelope<S>(spec: SavedStateSpec<S>, state: S, journal: Journal): HexString {
+export function encodeEnvelope<S>(
+    spec: SavedStateSpec<S>,
+    state: S,
+    journal: Journal,
+    cancel?: SavedCancel,
+): HexString {
     const envelope: Envelope = { f: ENVELOPE_FORMAT, v: spec.version, s: state, j: journal };
+    if (cancel !== undefined) envelope.c = cancel;
     const hex = encodeJson(envelope);
     const size = (hex.length - 2) / 2;
     if (size > MAX_SAVED_BYTES) throw new StateTooLargeError(size, MAX_SAVED_BYTES);
@@ -121,9 +151,10 @@ export function decodeEnvelope<S>(
     assignment: FundingAssignment,
     spec: SavedStateSpec<S>,
 ): RestoredState<S> {
-    const fresh = (journal: Journal = {}): RestoredState<S> => ({
+    const fresh = (journal: Journal = {}, cancel?: SavedCancel): RestoredState<S> => ({
         state: spec.initial(assignment),
         journal,
+        ...(cancel === undefined ? {} : { cancel }),
         resumed: false,
     });
     if (assignment.saved === undefined) return fresh();
@@ -137,11 +168,15 @@ export function decodeEnvelope<S>(
         return fresh();
     }
     const journal = envelope.j && typeof envelope.j === "object" ? envelope.j : {};
+    const cancel = isSavedCancel(envelope.c) ? envelope.c : undefined;
+    const kept = cancel === undefined ? { journal } : { journal, cancel };
     if (envelope.v === spec.version) {
-        return { state: envelope.s as S, journal, resumed: true };
+        return { state: envelope.s as S, ...kept, resumed: true };
     }
     const migrated = spec.migrate?.(envelope.s, envelope.v);
-    return migrated === undefined ? fresh(journal) : { state: migrated, journal, resumed: true };
+    return migrated === undefined
+        ? fresh(journal, cancel)
+        : { state: migrated, ...kept, resumed: true };
 }
 
 if (import.meta.vitest) {
@@ -202,6 +237,23 @@ if (import.meta.vitest) {
                 journal,
                 resumed: false,
             });
+        });
+
+        // A restart must know an offer is open, or accepted, before the
+        // provider's flow passes the point the cancel would undo.
+        test("a cancel offer comes back with the state, and with a fresh one", () => {
+            const cancel: SavedCancel = {
+                state: "accepted",
+                fee: 1n,
+                refund: 9n,
+                expiresAt: 1_000,
+            };
+            const saved = encodeEnvelope(spec, { phase: "paid", amount: 10n }, {}, cancel);
+            expect(decodeEnvelope(assignment(saved), spec).cancel).toEqual(cancel);
+            const v9 = encodeEnvelope({ version: 9, initial: () => ({}) }, {}, {}, cancel);
+            expect(decodeEnvelope(assignment(v9), spec).cancel).toEqual(cancel);
+            const malformed = encodeJson({ f: 1, v: 2, s: {}, j: {}, c: { state: "maybe" } });
+            expect(decodeEnvelope(assignment(malformed), spec).cancel).toBeUndefined();
         });
 
         test("bytes that are not an envelope start over", () => {
