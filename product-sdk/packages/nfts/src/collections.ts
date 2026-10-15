@@ -59,7 +59,7 @@ import type {
 /** Collection ids by network, in the order apps offer them. */
 const APPROVED_COLLECTIONS: ReadonlyMap<string, readonly number[]> = new Map([
     // Paseo Asset Hub Next: Coffee and Tea, Jobs, Sports.
-    ["paseo", Object.freeze([17, 18, 19])],
+    ["paseo", Object.freeze([27, 28, 26])],
 ]);
 
 const NONE: readonly number[] = Object.freeze([]);
