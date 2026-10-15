@@ -58,6 +58,7 @@ Every PR that changes a published artifact needs a changeset. See [`product-sdk/
 - **CHANGELOG files are historical.** A mass rename (e.g. of a dep) should not sweep them — the names that were current at release time should stay frozen.
 - **e2e specs may carry `TODO(truapi-migration)` skips.** These are real and load-bearing — track them via the open issue rather than randomly unskipping.
 - **The umbrella `@parity/product-sdk` package re-exports many smaller packages.** A bundle-size measurement on the umbrella reflects the transitive graph of everything it touches, not its own code.
+- **`hooks-core`, `react` and `vue` tests import the built `dist` of their workspace deps** (and react/vue run on jsdom), so run `pnpm build` before `pnpm test` when working on them locally.
 
 ## Where to look first for X
 
@@ -73,6 +74,7 @@ Every PR that changes a published artifact needs a changeset. See [`product-sdk/
 | Check a face against the protocol | `product-sdk/packages/renderer/src/validate.ts`, `product-sdk/packages/renderer/src/schema.ts` |
 | Read Scarcity NFTs and the claims a player holds | `product-sdk/packages/nfts/src/claims.ts`, `product-sdk/packages/nfts/src/collections.ts` |
 | Draw a Pocket card from a worker | `product-sdk/packages/host/src/pocket.ts`, `product-sdk/examples/pocket-card-example/` |
+| React hooks / Vue composables (TanStack Query bindings) | `product-sdk/packages/hooks-core/src/runtime.ts`, `product-sdk/packages/react/src/context.tsx`, `product-sdk/packages/vue/src/context.ts` |
 | Release pipeline | `.github/workflows/product-sdk-release.yml`, `product-sdk/RELEASES.md` |
 | Descriptor drift detection | `.github/workflows/product-sdk-descriptors-drift.yml`, `product-sdk/packages/descriptors/README.md` |
 

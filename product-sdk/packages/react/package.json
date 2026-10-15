@@ -1,0 +1,47 @@
+{
+    "name": "@parity/product-sdk-react",
+    "version": "0.0.0",
+    "description": "React hooks for Polkadot apps on TanStack Query: chain queries, accounts, transactions, contracts, host features, chat, statements, payments and cloud storage",
+    "type": "module",
+    "sideEffects": false,
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": ["dist"],
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "build": "tsup",
+        "test": "vitest run",
+        "clean": "rm -rf dist",
+        "typecheck": "tsc -p tsconfig.typecheck.json"
+    },
+    "dependencies": {
+        "@parity/product-sdk-hooks-core": "workspace:*",
+        "@parity/product-sdk-host": "workspace:*"
+    },
+    "peerDependencies": {
+        "@tanstack/react-query": "^5.0.0",
+        "react": "^18.0.0 || ^19.0.0"
+    },
+    "devDependencies": {
+        "@tanstack/react-query": "^5.101.2",
+        "@testing-library/react": "^16.3.2",
+        "@types/react": "^19.2.17",
+        "jsdom": "^26.1.0",
+        "react": "^19.3.1",
+        "react-dom": "^19.3.1",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    },
+    "keywords": ["polkadot", "parity", "sdk", "react", "hooks", "tanstack-query", "web3"],
+    "license": "Apache-2.0"
+}

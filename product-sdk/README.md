@@ -20,6 +20,9 @@ TypeScript SDK for building products in the Polkadot ecosystem. Provides typed A
 | `@parity/product-sdk-host` | Host container detection and storage access for Desktop/Mobile |
 | `@parity/product-sdk-renderer` | Check a renderer tree against the protocol before it reaches a device |
 | `@parity/product-sdk-react-renderer` | Author those trees in JSX, for a product already using React |
+| `@parity/product-sdk-react` | React hooks on TanStack Query over the whole SDK surface: chain, accounts, transactions, contracts, host, chat, statements, payments, storage |
+| `@parity/product-sdk-vue` | Vue 3 composables with the same surface as the React hooks |
+| `@parity/product-sdk-hooks-core` | Framework-agnostic runtime the React and Vue bindings share |
 | `@parity/product-sdk-address` | SS58/H160 address encoding, validation, and conversion |
 | `@parity/product-sdk-crypto` | Cryptographic primitives — encryption, key derivation, NaCl |
 | `@parity/product-sdk-descriptors` | PAPI-generated chain descriptors for Polkadot ecosystem |
