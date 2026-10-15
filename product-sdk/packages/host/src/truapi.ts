@@ -46,17 +46,16 @@ const log = createLogger("host");
  *
  * The truapi client decodes each response inside the value it resolves, and
  * wraps the whole call with `ResultAsync.fromSafePromise`, which installs no
- * rejection handler. So when the host's reply doesn't match the client's codec
- * — a protocol-version skew, or a channel that closed mid-call — the resulting
+ * rejection handler. So when the host's reply doesn't match the client's codec,
+ * from a protocol-version skew or a channel that closed mid-call, the resulting
  * rejection escapes the `Result` channel entirely and `.match` never sees it,
  * surfacing as a raw `RangeError` rather than reaching `onErr`. A call the host
  * never answers rejects the same way, with the client's `RequestTimeoutError`.
  * Catching the `.match` promise re-homes the rejection as a typed
  * {@link HostTimeoutError} or {@link HostResponseDecodeError} that names the
- * call. Both
- * {@link unwrapHostResult} and {@link mapHostResult} route through here, so
- * every boundary — throwing and Result-returning — is covered, not just the
- * accounts adapter.
+ * call. Both {@link unwrapHostResult} and {@link mapHostResult} route through
+ * here, so every boundary, throwing and Result-returning, is covered, not just
+ * the accounts adapter.
  */
 async function matchGuarded<T, E, A, B>(
     result: ResultAsync<T, E>,
@@ -66,7 +65,7 @@ async function matchGuarded<T, E, A, B>(
     onRejected: (error: HostTimeoutError | HostResponseDecodeError) => B,
 ): Promise<A | B> {
     // `.match` rejects for two reasons: the underlying `ResultAsync` rejected (a
-    // decode failure — what we want to catch), or `onOk`/`onErr` themselves threw
+    // timeout or an undecodable reply, which we want to catch), or `onOk`/`onErr` threw
     // (e.g. `unwrapHostResult`'s err path deliberately throws). Wrap the handler
     // throws in a sentinel so the `catch` can tell them apart and only re-home a
     // genuine underlying rejection; a handler throw is rethrown unchanged.
@@ -89,11 +88,7 @@ async function matchGuarded<T, E, A, B>(
         );
     } catch (cause) {
         if (cause instanceof HandlerThrow) throw cause.thrown;
-        return onRejected(
-            cause instanceof HostResponseDecodeError || cause instanceof HostTimeoutError
-                ? cause
-                : hostRejectionError(label, cause),
-        );
+        return onRejected(hostRejectionError(label, cause));
     }
 }
 

@@ -152,7 +152,8 @@ export class HostCallFailedError extends HostError {
  * and the `@parity/truapi` version the product is built against disagree on the
  * wire shape of that call — a protocol-version skew. A host channel that closed
  * mid-call looks identical from here, so this does not assert the skew; the
- * real error is preserved on {@link cause}.
+ * real error is preserved on {@link cause}. A call the host never answers is a
+ * {@link HostTimeoutError} instead.
  *
  * The truapi client catches the decode throw in its message handler and turns
  * it into a promise rejection, then wraps the call with
@@ -177,10 +178,11 @@ export class HostResponseDecodeError extends HostError {
 }
 
 /**
- * A host call got no answer before the truapi client's deadline. The host may
- * still be acting on it, for example a person approving on their phone, so
- * check the outcome before retrying. The client's {@link RequestTimeoutError}
- * is preserved on {@link cause}.
+ * A host call got no answer before the truapi client's deadline. The client
+ * asks the host to cancel the call, but the host may already have acted on it,
+ * for example a person approving on their phone, so check the outcome before
+ * retrying. The client's {@link RequestTimeoutError} is preserved on
+ * {@link cause}.
  */
 export class HostTimeoutError extends HostError {
     /** The host-API call that went unanswered, e.g. `"requestResourceAllocation"`. */
@@ -219,12 +221,15 @@ function formatWait(ms: number): string {
 /**
  * The typed error for a host call whose `ResultAsync` rejected: a
  * {@link HostTimeoutError} when the client's deadline passed, otherwise a
- * {@link HostResponseDecodeError}.
+ * {@link HostResponseDecodeError}. One already typed passes through.
+ *
+ * @internal
  */
 export function hostRejectionError(
     call: string,
     cause: unknown,
 ): HostTimeoutError | HostResponseDecodeError {
+    if (cause instanceof HostTimeoutError || cause instanceof HostResponseDecodeError) return cause;
     return isRequestTimeout(cause)
         ? new HostTimeoutError(call, cause)
         : new HostResponseDecodeError(call, cause);
