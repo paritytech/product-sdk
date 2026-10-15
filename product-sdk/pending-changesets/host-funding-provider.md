@@ -1,0 +1,8 @@
+---
+"@parity/product-sdk": minor
+"@parity/product-sdk-host": minor
+"@parity/product-sdk-crypto": minor
+"@parity/product-sdk-keys": minor
+---
+
+Funding providers: `@parity/product-sdk-host/funding-provider`, a new subpath, carries the worker side of the funding modality, so products that are not funding providers do not carry it. `serveFunding(handlers, { state })` serves the sessions and quote asks the host assigns a provider, replays them after a restart, and turns how a session ends into its final report. A `FundingSession` keeps the provider's state in a versioned envelope saved with the host, reports under the core's ordering rules, and moves funds only through journaled steps (`credit`, `collect`, `refund`, `topUp`, `request`, `action`) that are saved before the host is asked, under ids from `deriveId(intent, step)`, so a worker that restarts never moves funds twice. Also `validateAsk`, `refuse`, `quoted` and `quoteId` for quotes; `presentApp`, `presentPage` and `screenChannel` / `screenSession` / `submitScreenAction` for screens; `deriveEntropyAccount` for accounts from host entropy. `@parity/product-sdk-host/testing` gains `createFakeFundingHost`, a fake funding core that follows the core's rules, and `resumeAtEveryCheckpoint`, which crashes a provider after every call it makes and checks it resumes. `@parity/product-sdk-crypto` gains `sr25519KeypairFromSeed` and `sr25519Sign` (re-exported from `@parity/product-sdk-keys`), which expand a 32-byte seed into the 64-byte secret a payment top-up's `PrivateKey` source takes. Needs the `@parity/truapi` release that carries the funding provider API.

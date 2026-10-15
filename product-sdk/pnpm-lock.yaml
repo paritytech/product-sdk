@@ -575,6 +575,9 @@ importers:
       '@noble/hashes':
         specifier: ^2.2.0
         version: 2.2.0
+      '@scure/sr25519':
+        specifier: ^2.2.0
+        version: 2.4.0
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3
@@ -607,6 +610,12 @@ importers:
 
   packages/host:
     dependencies:
+      '@parity/product-sdk-address':
+        specifier: workspace:*
+        version: link:../address
+      '@parity/product-sdk-crypto':
+        specifier: workspace:*
+        version: link:../crypto
       '@parity/product-sdk-errors':
         specifier: workspace:*
         version: link:../errors
