@@ -1,5 +1,6 @@
 ---
 "@parity/product-sdk-host": patch
+"@parity/product-sdk": patch
 ---
 
 Pace the stop the PAPI provider synthesizes when a host follow stream is
