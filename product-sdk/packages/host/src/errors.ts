@@ -152,8 +152,8 @@ export class HostCallFailedError extends HostError {
  * and the `@parity/truapi` version the product is built against disagree on the
  * wire shape of that call — a protocol-version skew. A host channel that closed
  * mid-call looks identical from here, so this does not assert the skew; the
- * real error is preserved on {@link cause}. A call the host never answers is a
- * {@link HostTimeoutError} instead.
+ * real error is preserved on {@link cause}. A call the host never answers is
+ * the {@link HostTimeoutError} subclass, whose message says so.
  *
  * The truapi client catches the decode throw in its message handler and turns
  * it into a promise rejection, then wraps the call with
@@ -183,17 +183,19 @@ export class HostResponseDecodeError extends HostError {
  * for example a person approving on their phone, so check the outcome before
  * retrying. The client's {@link RequestTimeoutError} is preserved on
  * {@link cause}.
+ *
+ * It is a {@link HostResponseDecodeError}, so code that handles a call the
+ * client could not complete handles a timeout too, but its message does not
+ * blame a protocol-version skew.
  */
-export class HostTimeoutError extends HostError {
-    /** The host-API call that went unanswered, e.g. `"requestResourceAllocation"`. */
-    readonly call: string;
+export class HostTimeoutError extends HostResponseDecodeError {
     /** How long the client waited, in milliseconds. */
     readonly timeoutMs: number;
 
     constructor(call: string, cause: RequestTimeout) {
-        super(`The host did not answer ${call} within ${formatWait(cause.timeoutMs)}.`, { cause });
+        super(call, cause);
+        this.message = `The host did not answer ${call} within ${formatWait(cause.timeoutMs)}.`;
         this.name = "HostTimeoutError";
-        this.call = call;
         this.timeoutMs = cause.timeoutMs;
     }
 }
@@ -225,11 +227,8 @@ function formatWait(ms: number): string {
  *
  * @internal
  */
-export function hostRejectionError(
-    call: string,
-    cause: unknown,
-): HostTimeoutError | HostResponseDecodeError {
-    if (cause instanceof HostTimeoutError || cause instanceof HostResponseDecodeError) return cause;
+export function hostRejectionError(call: string, cause: unknown): HostResponseDecodeError {
+    if (cause instanceof HostResponseDecodeError) return cause;
     return isRequestTimeout(cause)
         ? new HostTimeoutError(call, cause)
         : new HostResponseDecodeError(call, cause);
@@ -299,8 +298,12 @@ if (import.meta.vitest) {
         test("HostTimeoutError names the call and the wait, and keeps the client's error", () => {
             const cause = new RequestTimeoutError("p:17", 12, 0, 390_000);
             const error = new HostTimeoutError("requestResourceAllocation", cause);
-            expect({ isHostError: isHostError(error), error }).toMatchObject({
-                isHostError: true,
+            // Code that handles a decode error keeps handling a timeout.
+            expect({
+                isDecodeError: error instanceof HostResponseDecodeError,
+                error,
+            }).toMatchObject({
+                isDecodeError: true,
                 error: {
                     name: "HostTimeoutError",
                     call: "requestResourceAllocation",

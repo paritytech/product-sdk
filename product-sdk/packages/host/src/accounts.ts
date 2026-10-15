@@ -250,13 +250,13 @@ export type VrfTranscriptItem = { [K in keyof WireVrfTranscriptItem]: Uint8Array
 export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
 
 /**
- * A call's declared `Err` channel, plus the two ways any host call can fail
- * before it has a result: a {@link HostTimeoutError} when the host does not
- * answer in time, and a {@link HostResponseDecodeError} when its reply can't be
- * decoded, usually because the host and the product's `@parity/truapi` client
- * are on different protocol versions.
+ * A call's declared `Err` channel, plus {@link HostResponseDecodeError}: any
+ * host reply can fail to decode if the host and the product's `@parity/truapi`
+ * client are on different protocol versions, so every decoded call can surface
+ * it in addition to its own typed errors. A call the host never answers
+ * surfaces as its {@link HostTimeoutError} subclass.
  */
-export type WithDecodeError<E> = E | HostTimeoutError | HostResponseDecodeError;
+export type WithDecodeError<E> = E | HostResponseDecodeError;
 
 /**
  * Accounts provider handle, backed by `truApi.account.*` / `truApi.signing.*`.
@@ -267,9 +267,10 @@ export type WithDecodeError<E> = E | HostTimeoutError | HostResponseDecodeError;
  * the signer factories return a synchronous PAPI `TxCreator`. The `err`
  * channel carries truapi's canonical `CallErrorValue` envelope around the
  * per-call versioned domain error, exactly as the generated client returns it,
- * plus a {@link HostTimeoutError} when the host does not answer in time and a
- * {@link HostResponseDecodeError} when its reply cannot be decoded at all (a
- * host/client protocol-version skew); see {@link WithDecodeError}.
+ * plus a {@link HostResponseDecodeError} when the host's reply cannot be
+ * decoded at all (a host/client protocol-version skew) or, as its
+ * {@link HostTimeoutError} subclass, when the host does not answer in time;
+ * see {@link WithDecodeError}.
  */
 export interface AccountsProvider {
     getUserId(): ResultAsync<

@@ -62,7 +62,7 @@ async function matchGuarded<T, E, A, B>(
     label: string,
     onOk: (value: T) => A,
     onErr: (error: E) => B,
-    onRejected: (error: HostTimeoutError | HostResponseDecodeError) => B,
+    onRejected: (error: HostResponseDecodeError) => B,
 ): Promise<A | B> {
     // `.match` rejects for two reasons: the underlying `ResultAsync` rejected (a
     // timeout or an undecodable reply, which we want to catch), or `onOk`/`onErr` threw
