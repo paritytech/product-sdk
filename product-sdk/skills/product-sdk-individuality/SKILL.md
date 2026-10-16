@@ -344,12 +344,14 @@ Sign-up and draw entry are one extrinsic: `sign_up_with_account` takes `airdrops
 import {
   readGameSignUpRequirement,
   mintAccountAirdropVrfs,
+  mintAliasAirdropVrfs,
+  peopleRing,
   signUpWithAccountTx,
 } from "@parity/product-sdk-individuality";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
 // `accounts.signVrf` takes the account first and returns a Result, so it needs
-// this adapter. `txSigner` is the ordinary PolkadotSigner, not the same object.
+// this adapter. `txSigner` is the ordinary transaction creator, not the same object.
 const vrfSigner = {
   signVrf: (label, items) =>
     accounts.signVrf(account, label, items).match(
@@ -362,11 +364,25 @@ const req = await readGameSignUpRequirement(chain, { registrant, keyType: "sr255
 if (!req.ok || !req.value.canSignUp) return;
 
 let airdrops;
-if (req.value.canEnterDraws) {
+if (req.value.canEnterDraws && req.value.variant === "Account") {
   const vrfs = await mintAccountAirdropVrfs(vrfSigner, {
     eventIds: req.value.eventIds,
     publicKey: account.publicKey,
   });
+  if (!vrfs.ok) return;
+  airdrops = vrfs.value;
+} else if (req.value.canEnterDraws) {
+  // Recognized: one People-ring proof per draw, in the game's product context.
+  // The People member key is `(peopl.<tld>, Index 0)`; list it first, keys
+  // register lazily. `productId` is `Game.product_name` under the network tld.
+  const vrfs = await mintAliasAirdropVrfs(
+    (context, message) =>
+      accounts.createRingVRFProof(peopleKey, context, peopleRing(genesis), message).match(
+        (proof) => proof,
+        (cause) => { throw cause },
+      ),
+    { eventIds: req.value.eventIds, registrant, productId: "dim2.paseo" },
+  );
   if (!vrfs.ok) return;
   airdrops = vrfs.value;
 }
@@ -385,11 +401,11 @@ await submitAndWatch(
 
 > **THE VARIANT IS NOT YOURS TO PICK.** The chain reads `Score` recognition and rejects the other with `InvalidAirdropVrfVariantForRecognition`: not recognized takes `Account`, recognized takes `Alias`. `is_recognized()` covers only `Recognized` and `ExternallyRecognized`, so a **`Suspended` player takes the account path**. Recognition is only half the gate: the account arm also destructures the origin, so a **person** who is not recognized satisfies neither arm and cannot enter any draw.
 
-> **A RECOGNIZED PLAYER CANNOT ENTER THE DRAWS AT ALL.** `Alias` needs a ring-VRF proof at `blake2_256("pop:polkadot.network/airdrop" ++ event_id)`, and hosts only sign at `blake2b_256("product/" ++ productId ++ "/" ++ suffix)`, which they compute themselves. That is a chain or host change, not more SDK code. It arrives as the `AliasVrfsUnavailable` blocker, and such a player **can** still sign up with an account, passing no draws.
+> **A RECOGNIZED PLAYER ENTERS WITH PEOPLE-RING PROOFS, AND THE HOST DECIDES WHO MAY MINT THEM.** Since People runtime 3004000 the chain verifies each `Alias` proof in the product context `blake2b_256("product/" ++ product_name ++ "." ++ tld ++ "/" ++ event_id)`, `Game.product_name` being `dim2`, which is exactly what a host mints for `createRingVRFProof(peopleKey, { productId: "dim2.<tld>", suffix: Raw(eventId) }, peopleRing(genesis), message)`. `mintAliasAirdropVrfs` drives that: it signs the registration entry (`1u8 ++ account_id`, or `0u8 ++ alias`), checks the returned context against the one computed offline, and refuses proofs that disagree on `ring_index`/`revision`, since the arm carries one pair for all draws. The People member key belongs to `peopl.<tld>`; a product that is not the personhood product needs that product's manifest grant, and the host refuses a caller without one. No chain read sees that, so there is no blocker for it: the refusal arrives from the mint, on the `err` channel. Spell `productId` lower case, exactly; the chain hashes the raw string. (Before 3004000 the context was a static prefix no host could mint, and `AliasVrfsUnavailable` said so; that tag is gone.)
 
 > **`sign_up_with_alias` STILL CANNOT BE ASSEMBLED.** Its `sig`, the statement-account proof, is a bare `blake2_256` hash, and the signer factories' `signBytes` (`signRaw`) `<Bytes>`-wraps it. `accounts.signRawUnwatermarkedDeprecated(account, data)` and its `…WithLegacyAccount` twin sign the bytes unwrapped — that is the escape hatch People chain's `Resources.register_person` uses, and it needs a host on `@parity/truapi` 0.16.0+ — but `withAsPerson` only gives the origin, and that `sig` argument still has no source here. The example in the write section shows the origin, not a working flow.
 
-The eight reasons a sign-up or its draw entry can be blocked:
+The seven reasons a sign-up or its draw entry can be blocked:
 
 | Tag | Means |
 |---|---|
@@ -397,12 +413,11 @@ The eight reasons a sign-up or its draw entry can be blocked:
 | `NotInRegistration` | The game left its registration phase |
 | `RegistrationEnded` | Past `registrationEnds`, still in the phase: the offchain worker moves phases on its own schedule |
 | `AlreadyRegistered` | `Game.Players[who].registered` is set |
-| `AliasVrfsUnavailable` | Draws only. Recognized, so the chain wants proofs no host can mint |
 | `AccountVrfsNeedAnAccount` | Draws only. A person who is not recognized: the account arm needs an account origin, the alias arm needs recognition, so the chain takes neither |
 | `NoDrawsScheduled` | Draws only. Nothing scheduled, so anything but `None` fails the count check |
-| `NotSr25519` | Draws only, and only if you passed `keyType`. Another scheme cannot mint `Account` VRFs |
+| `NotSr25519` | Draws only, and only if you passed `keyType` and the variant is `Account`. Another scheme cannot mint `Account` VRFs; the `Alias` arm's proofs come from the People key, so the account's scheme does not matter there |
 
-The first four stop the extrinsic; the last four stop only the draw entry. `canSignUp` and `canEnterDraws` are the split.
+The first four stop the extrinsic; the last three stop only the draw entry. `canSignUp` and `canEnterDraws` are the split.
 
 ### Sign-Up Gotchas
 
@@ -486,7 +501,7 @@ Composing this with other reads? Use `runScoreContextRead(chain, options, snapsh
 
 ## Acting As a Person (Write)
 
-`withAsPerson` wraps a signer so the call dispatches under a person origin. It returns a `PolkadotSigner`, so submission stays with `@parity/product-sdk-tx` and nothing about `submitAndWatch` changes.
+`withAsPerson` wraps a signer so the call dispatches under a person origin. It returns a `CommonSignerTxCreator`, so submission stays with `@parity/product-sdk-tx` and nothing about `submitAndWatch` changes.
 
 ```ts
 import { submitAndWatch } from "@parity/product-sdk-tx";
@@ -506,7 +521,7 @@ const result = await submitAndWatch(
 
 > **THE PROOF MESSAGE IS NOT YOURS TO CHOOSE.** It is blake2-256 of the *call implication*: the pipeline version, the call data, and every extension after `AsPerson`, which includes the nonce, the era and the tip. `withAsPerson` computes it and hands it to your `createProof` callback. A proof over anything else fails on chain as a bad proof.
 
-> **THIS ONE THROWS, IT DOES NOT RETURN A `Result`.** Unlike the read half, failures surface as a thrown `AsPersonError`, because they happen inside `PolkadotSigner.signTx` where there is no `Result` channel. `submitAndWatch` catches it and gives you back an `err`.
+> **THIS ONE THROWS, IT DOES NOT RETURN A `Result`.** Unlike the read half, failures surface as a thrown `AsPersonError`, because they happen inside a PAPI 3 `TxCreator` where there is no `Result` channel. `submitAndWatch` catches it and gives you back an `err`.
 
 ### Which variant
 
@@ -546,7 +561,7 @@ const signer = withAsPerson(innerSigner, {
 
 ### If you are building the extension yourself
 
-`withAsPerson`, `withLiteAlias` and `withScoreParticipant` are the public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. All three share the ordered `signTx` body through the internal `withOriginExtension`, so a fourth would extend that rather than copy it.
+`withAsPerson`, `withLiteAlias` and `withScoreParticipant` are the public surface for this, alongside `AsPersonInfo`, `CreateRingVRFProof`, `RingVRFProof` and `AsPersonError`. The metadata-driven pieces underneath are deliberately not exported: they are implementation details today, and widening a public surface later is easy where narrowing it is not. All three share the ordered creator body through the internal `withOriginExtension`, so a fourth would extend that rather than copy it.
 
 Two things to know either way, because they are the traps that cost the most time here:
 
@@ -726,7 +741,7 @@ A `Suspended` participant resumes with `register(None)`, which this package does
 9. **Reading the six values at different blocks** if you roll your own read — the threshold and grace ratio are session-updated, so an unpinned batch can mix eras and look valid.
 10. **Hand-building `AsPerson` and forgetting `RestrictOrigins`** — every call fails `Invalid.Call` before dispatch, and nothing in the error points at the extension you missed.
 11. **Choosing the proof message yourself** — it must be the implication hash, which depends on the nonce, era and tip. `withAsPerson` passes it to your callback; anything else is a bad proof.
-12. **Expecting `withAsPerson` to return a `Result`** — it returns a `PolkadotSigner` and throws `AsPersonError` from `signTx`. Wrap it in `submitAndWatch` and read the `err` channel.
+12. **Expecting `withAsPerson` to return a `Result`**. It returns a `CommonSignerTxCreator` and throws `AsPersonError` when the transaction is created. Wrap it in `submitAndWatch` and read the `err` channel.
 13. **Returning the host's `Result` straight out of `createProof`** — the callback must resolve to the proof object itself, so unwrap it first. Resolving with a `Result`, with `undefined`, or with a partial object throws `AsPersonError` and nothing is signed.
 14. **Reaching for `AliasWithProof` to bind an alias before paseo upgrades** — the chain fixes the allowed contexts as constants until `specVersion 1000035`, so it answers `Invalid.Call` however correct the bytes are.
 15. **Assuming `AliasWithAccount` works for a stale ring revision** — the chain answers `Custom(172)` (`StaleAlias`), and `AliasWithAccountRevised` is the variant that fixes it. `readLiteSignUpRequirement` reads the ring root and reports it as the `StaleAlias` blocker.

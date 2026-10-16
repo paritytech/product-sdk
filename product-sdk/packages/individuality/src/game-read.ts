@@ -23,7 +23,7 @@ import {
 import type { CurrentGameResult, GamePhaseDurations, PlayerRegistration } from "./game-types.js";
 import type { AirdropRegistrant } from "./airdrop-types.js";
 import { ProductIndividualityError } from "./errors.js";
-import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type PinnedChain, type ReadAt } from "./pinned.js";
 import { playerKey, type PlayerKey } from "./player-key.js";
 import type { FinalizedSnapshot } from "./types.js";
 
@@ -151,53 +151,56 @@ export async function runGameRead(
     const { signal, players } = options;
     const query = chain.individuality.query.Game;
 
-    const snapshot = await pinBlock(chain, signal, pinned);
-    const at: ReadAt = readAt(snapshot, signal);
+    return readPinned(chain, signal, pinned, async (snapshot) => {
+        const at: ReadAt = readAt(snapshot, signal);
 
-    const [gameIndex, rawGame, rawSchedules, storedDurations, registration] = await Promise.all([
-        query.GameIndex.getValue(at),
-        query.Game.getValue(at),
-        query.GameSchedules.getValue(at),
-        query.StoredPhaseDurations.getValue(at),
-        readRegistration(chain, players, at),
-    ]);
+        const [gameIndex, rawGame, rawSchedules, storedDurations, registration] = await Promise.all(
+            [
+                query.GameIndex.getValue(at),
+                query.Game.getValue(at),
+                query.GameSchedules.getValue(at),
+                query.StoredPhaseDurations.getValue(at),
+                readRegistration(chain, players, at),
+            ],
+        );
 
-    // The constant is only needed when governance has set no override, so it is
-    // not fetched otherwise — which also keeps the un-pinned read out of the
-    // common path entirely.
-    const durations: GamePhaseDurations = toGamePhaseDurations(
-        storedDurations ?? (await chain.individuality.constants.Game.DefaultPhaseDurations()),
-    );
+        // The constant is only needed when governance has set no override, so it is
+        // not fetched otherwise — which also keeps the un-pinned read out of the
+        // common path entirely.
+        const durations: GamePhaseDurations = toGamePhaseDurations(
+            storedDurations ?? (await chain.individuality.constants.Game.DefaultPhaseDurations()),
+        );
 
-    // Already chronological: the chain rejects a schedule that overlaps or
-    // precedes the last one, so no sort is needed and imposing one would hide a
-    // chain-side ordering bug rather than surface it.
-    const upcoming = rawSchedules.map((schedule) => toGameSchedulePreview(schedule, durations));
+        // Already chronological: the chain rejects a schedule that overlaps or
+        // precedes the last one, so no sort is needed and imposing one would hide a
+        // chain-side ordering bug rather than surface it.
+        const upcoming = rawSchedules.map((schedule) => toGameSchedulePreview(schedule, durations));
 
-    if (rawGame === undefined) {
+        if (rawGame === undefined) {
+            return {
+                tag: "BetweenGames",
+                at: snapshot,
+                // The counter only moves when a game is created, so it still names
+                // the game that just ended. Games are numbered from 1, so 0 means
+                // none has ever been created.
+                lastGameIndex: gameIndex === 0 ? null : gameIndex,
+                upcoming,
+                durations,
+            };
+        }
+
         return {
-            tag: "BetweenGames",
+            tag: "Running",
             at: snapshot,
-            // The counter only moves when a game is created, so it still names
-            // the game that just ended. Games are numbered from 1, so 0 means
-            // none has ever been created.
-            lastGameIndex: gameIndex === 0 ? null : gameIndex,
+            // Taken from the game itself, not from `GameIndex`. The two agree while a
+            // game runs, and the game's own copy is the one a prize claim is keyed
+            // by.
+            game: toCurrentGame(rawGame),
+            registration,
             upcoming,
             durations,
         };
-    }
-
-    return {
-        tag: "Running",
-        at: snapshot,
-        // Taken from the game itself, not from `GameIndex`. The two agree while a
-        // game runs, and the game's own copy is the one a prize claim is keyed
-        // by.
-        game: toCurrentGame(rawGame),
-        registration,
-        upcoming,
-        durations,
-    };
+    });
 }
 
 /**

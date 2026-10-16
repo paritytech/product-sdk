@@ -74,6 +74,8 @@ import type {
     RawCollection,
     RawItemDef,
     RawMetadataEntry,
+    RawMetadataLayers,
+    RawMetadataQuery,
 } from "./types.js";
 import type {
     Claimant,
@@ -245,7 +247,91 @@ export interface NftsChain {
                 preview_mints(
                     queries: Array<{ credit: string; collection: number }>,
                     options: ReadAt,
-                ): Promise<RuntimeResult<RawMintOutcome[]>>;
+                ): Promise<RawMintOutcome[]>;
+            };
+        };
+    };
+    raw: {
+        assetHub: BlockSource;
+    };
+}
+
+/**
+ * The two entries a display read of minted instances needs, beside the raw
+ * client it pins a block with.
+ *
+ * Separate from {@link NftsChain} for the same reason {@link NftsCreditsChain}
+ * is: a read should never ask for a surface it does not touch. An app that
+ * prunes its descriptors to the catalogue entries can keep calling the
+ * catalogue reads; only `getInstanceDisplays` demands the runtime API.
+ *
+ * This is the second runtime API in the package, and the bar it had to clear
+ * is written on the first (`preview_mints`, in the index doc): no storage
+ * equivalent. Storage *can* answer an instance's metadata, but not reasonably.
+ * `InstanceMetadata` keys on the instance id, while the item and collection
+ * layers key on `(collection, item)` — and the only storage path from an
+ * instance to its item runs through two serial owner-keyed hops,
+ * `Scarcity.Instances` (instance → owner) then `Scarcity.NftsByOwner`
+ * (owner → NFT record), before three metadata reads can even be addressed.
+ * `metadata_batch` is the pallet's own answer: one runtime call takes a batch
+ * of targets and returns, positionally, every metadata pair of all three
+ * layers plus the resolved (collection, item) of each target. One operation
+ * for a whole shelf, against five per instance with two of them serial.
+ *
+ * The query list is a bounded vector, so the runtime rejects an oversized
+ * batch at decode rather than truncating it, and the call fails as a whole. On
+ * live `next-asset-hub-paseo` spec 3004000 the bound is 128 queries, the same
+ * number as `MAX_INSTANCES_PER_READ`.
+ *
+ * `ItemDefs` is the second entry, and it is read always rather than behind an
+ * option because its cost is bounded by the question asked. Whether an
+ * instance is soulbound, and how many of its item exist, live on the item
+ * definition rather than in metadata, so `metadata_batch` cannot answer them.
+ * The keys are the `(collection, item)` pairs `metadata_batch` just resolved,
+ * deduplicated — every instance of one definition shares a key — so this costs
+ * one serial hop and bytes under its own input. A different trade from
+ * `attributes` on a catalogue page, whose prefix scan costs bytes proportional
+ * to the whole collection and so is opt-in there.
+ *
+ * Matched by hand on 2026-10-12 against the descriptors pinned to
+ * `next-asset-hub-paseo` spec 3004000:
+ *
+ * ```
+ * ScarcityApi.metadata_batch(queries) -> Vec<{ resolved?, collection, item, instance }>
+ * Scarcity.ItemDefs   map (u32, u32)  -> { supply, live_supply, transferability }
+ * ```
+ */
+export interface NftsInstancesChain {
+    assetHub: {
+        query: {
+            Scarcity: {
+                /**
+                 * The definitions behind a set of instances, by exact
+                 * `(collection, item)` key.
+                 *
+                 * The same entry and the same call shape a catalogue page
+                 * uses; only the keys differ, coming from what
+                 * `metadata_batch` resolved rather than from an index window.
+                 */
+                ItemDefs: {
+                    getValues(
+                        keys: Array<[number, number]>,
+                        options: ReadAt,
+                    ): Promise<Array<RawItemDef | undefined>>;
+                };
+            };
+        };
+        apis: {
+            ScarcityApi: {
+                /**
+                 * All metadata of a batch of targets, answered positionally:
+                 * `out[i]` answers `queries[i]`, and a target that does not
+                 * exist answers with no `resolved` rather than an error.
+                 */
+                metadata_batch(
+                    queries: RawMetadataQuery[],
+                    options: ReadAt,
+                ): Promise<RawMetadataLayers[]>;
             };
         };
     };
@@ -346,6 +432,44 @@ export interface NftsCreditsChain {
 export interface BlockSource {
     getFinalizedBlock(): Promise<{ hash: string; number: number }>;
     getBestBlocks(): Promise<{ hash: string; number: number }[]>;
+    /**
+     * Keep a block pinned until the returned function is called.
+     *
+     * Optional so a test double can leave it out, at the cost of the race
+     * {@link BlockHolds} describes.
+     */
+    hodlBlock?(blockHash: string): () => void;
+}
+
+/**
+ * The blocks one read keeps pinned, released together once the read settles.
+ *
+ * PAPI unpins a finalized block as soon as a newer one is finalized and no
+ * operation on it is running. A read whose round trips follow one another can
+ * therefore lose its block between two of them, and the next one fails with
+ * "is not pinned". PAPI retries such a read on an archive node, but the host
+ * serves no `archive_v1` methods, so inside a container nothing recovers it.
+ */
+export interface BlockHolds {
+    hold(raw: BlockSource, blockHash: string): void;
+    release(): void;
+}
+
+export function blockHolds(): BlockHolds {
+    const releases: Array<() => void> = [];
+    return {
+        hold(raw, blockHash) {
+            try {
+                if (raw.hodlBlock) releases.push(raw.hodlBlock(blockHash));
+            } catch {
+                // A block that is already gone cannot be held. The read then
+                // fails, or falls back to an archive node, exactly as unheld.
+            }
+        },
+        release() {
+            for (const release of releases.splice(0)) release();
+        },
+    };
 }
 
 /**
@@ -364,9 +488,10 @@ export interface BlockSource {
 export async function pinBlock(
     chain: NftsChain,
     signal: AbortSignal | undefined,
-    at?: BlockAt,
+    at: BlockAt | undefined,
+    holds: BlockHolds,
 ): Promise<FinalizedSnapshot> {
-    return pinAt(chain.raw.assetHub, signal, at);
+    return pinAt(chain.raw.assetHub, signal, at, holds);
 }
 
 /**
@@ -374,20 +499,26 @@ export async function pinBlock(
  *
  * The abort check lives here because the raw client takes no options and so
  * cannot carry a signal itself. Without it an already-cancelled read would
- * still cost a round trip.
+ * still cost a round trip. The block stays held in `holds` until the read
+ * releases them, so a newer finalized block cannot unpin it mid-read.
  */
 export async function pinAt(
     raw: BlockSource,
     signal: AbortSignal | undefined,
-    at: BlockAt = "finalized",
+    at: BlockAt | undefined,
+    holds: BlockHolds,
 ): Promise<FinalizedSnapshot> {
     signal?.throwIfAborted();
     // A caller that already has a snapshot is joining it rather than opening a
     // new one: several reads, or several pages of one read, addressing a single
     // block. It costs no round trip, and the abort check above still applies.
-    if (typeof at === "object") return at;
+    if (typeof at === "object") {
+        holds.hold(raw, at.blockHash);
+        return at;
+    }
     const block = at === "best" ? (await raw.getBestBlocks())[0] : await raw.getFinalizedBlock();
     if (block === undefined) throw new ProductNftsError("the chain client reported no best block");
+    holds.hold(raw, block.hash);
     return { blockHash: block.hash, blockNumber: block.number };
 }
 
@@ -423,14 +554,14 @@ if (import.meta.vitest) {
     describe("pinBlock", () => {
         test("pins the finalized block", async () => {
             const { chain } = fakeChain();
-            expect(await pinBlock(chain, undefined)).toEqual({
+            expect(await pinBlock(chain, undefined, undefined, blockHolds())).toEqual({
                 blockHash: BLOCK.hash,
                 blockNumber: BLOCK.number,
             });
         });
 
         test("pins the newest best block when asked for best", async () => {
-            expect(await pinBlock(fakeChain().chain, undefined, "best")).toEqual({
+            expect(await pinBlock(fakeChain().chain, undefined, "best", blockHolds())).toEqual({
                 blockHash: BEST.hash,
                 blockNumber: BEST.number,
             });
@@ -440,7 +571,9 @@ if (import.meta.vitest) {
             const { chain, fetches } = fakeChain();
             const controller = new AbortController();
             controller.abort();
-            await expect(pinBlock(chain, controller.signal)).rejects.toThrow();
+            await expect(
+                pinBlock(chain, controller.signal, undefined, blockHolds()),
+            ).rejects.toThrow();
             expect(fetches()).toBe(0);
         });
     });
@@ -449,7 +582,7 @@ if (import.meta.vitest) {
         test("joins it without a round trip", async () => {
             const { chain, fetches } = fakeChain();
             const given = { blockHash: `0x${"aa".repeat(32)}`, blockNumber: 12 };
-            expect(await pinBlock(chain, undefined, given)).toEqual(given);
+            expect(await pinBlock(chain, undefined, given, blockHolds())).toEqual(given);
             expect(fetches()).toBe(0);
         });
 
@@ -458,11 +591,65 @@ if (import.meta.vitest) {
             const controller = new AbortController();
             controller.abort();
             await expect(
-                pinBlock(chain, controller.signal, {
-                    blockHash: BLOCK.hash,
-                    blockNumber: BLOCK.number,
-                }),
+                pinBlock(
+                    chain,
+                    controller.signal,
+                    { blockHash: BLOCK.hash, blockNumber: BLOCK.number },
+                    blockHolds(),
+                ),
             ).rejects.toThrow();
+        });
+    });
+
+    describe("blockHolds", () => {
+        function holdingSource() {
+            const held = new Map<string, number>();
+            const raw: BlockSource = {
+                getFinalizedBlock: async () => BLOCK,
+                getBestBlocks: async () => [BEST, BLOCK],
+                hodlBlock(hash) {
+                    held.set(hash, (held.get(hash) ?? 0) + 1);
+                    return () => held.set(hash, (held.get(hash) ?? 0) - 1);
+                },
+            };
+            return { raw, held };
+        }
+
+        test("holds the pinned block until the read releases it", async () => {
+            const { raw, held } = holdingSource();
+            const holds = blockHolds();
+            await pinAt(raw, undefined, undefined, holds);
+            expect(held.get(BLOCK.hash)).toBe(1);
+            holds.release();
+            expect(held.get(BLOCK.hash)).toBe(0);
+        });
+
+        test("holds a given snapshot too", async () => {
+            const { raw, held } = holdingSource();
+            const holds = blockHolds();
+            await pinAt(raw, undefined, { blockHash: BEST.hash, blockNumber: BEST.number }, holds);
+            expect(held.get(BEST.hash)).toBe(1);
+        });
+
+        test("releases each hold once", async () => {
+            const { raw, held } = holdingSource();
+            const holds = blockHolds();
+            await pinAt(raw, undefined, undefined, holds);
+            holds.release();
+            holds.release();
+            expect(held.get(BLOCK.hash)).toBe(0);
+        });
+
+        test("a block the client can no longer hold still pins", async () => {
+            const raw: BlockSource = {
+                getFinalizedBlock: async () => BLOCK,
+                getBestBlocks: async () => [BLOCK],
+                hodlBlock: () => {
+                    throw new Error("is not pinned");
+                },
+            };
+            const given = { blockHash: BLOCK.hash, blockNumber: BLOCK.number };
+            expect(await pinAt(raw, undefined, given, blockHolds())).toBe(given);
         });
     });
 

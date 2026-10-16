@@ -97,9 +97,9 @@ answer from outside it.
 
 Whether `error` is the benign teardown noise above (`Client destroyed`, matched on the message so it never swallows another package's `DestroyedError`). `destroy()` already drops it during its own teardown; export it so a consumer with its own `console.error` guard can drop the same line without reinventing the match.
 
-### `createSessionSigner(session, adapter, publicKey?, options?): Promise<PolkadotSigner>`
+### `createSessionSigner(session, adapter, publicKey?, options?): Promise<CommonSignerTxCreator>`
 
-Creates a `PolkadotSigner` backed by a QR-paired mobile wallet session, using the session's **default account** (`derivationIndex: 0`) under the adapter's `appId`. This is the right entry point for ~all CLI flows.
+Creates a `CommonSignerTxCreator` backed by a QR-paired mobile wallet session, using the **default account** of the session (`derivationIndex: 0`) under the adapter's `appId`. This is the right entry point for ~all CLI flows.
 
 Async because the signer needs the product's subtree public key (RFC-0022), which only the paired wallet holds. That is one consent-free round trip the first time a product is seen; afterwards it is served from a cache on disk.
 
@@ -109,7 +109,7 @@ const signer = await createSessionSigner(session, adapter);
 await contract.publish.tx(domain, cid, { signer, origin });
 ```
 
-### `createSessionSignerForAccount(session, ref, options?): Promise<PolkadotSigner>`
+### `createSessionSignerForAccount(session, ref, options?): Promise<CommonSignerTxCreator>`
 
 Escape hatch for signing as a non-default sub-account of a paired session, or as a `productId` that differs from the adapter's `appId`. Most callers don't need this.
 
@@ -124,7 +124,7 @@ const subSigner = await createSessionSignerForAccount(session, {
 });
 ```
 
-Both factories accept `SessionSignerOptions`, extending `ProductSubtreeOptions` with optional `txExtVersion` (default `0`). For example, pass `{ txExtVersion: 1 }` as the final `options` argument. The extension bytes supplied to `signTx` must match that version. PAPI 2.1.6's standard transaction builder encodes version `0`; this option does not change its encoder.
+Both factories accept `SessionSignerOptions`, extending `ProductSubtreeOptions` with optional `txExtVersion`. It is the pipeline version to prefer when the transaction names none, and defaults to `0`. When that pipeline does not declare every extension the caller supplied, for example in `customSignedExtensions`, the signer uses the lowest version that does, and refuses a transaction no pipeline can carry. A wrapper that writes its own extensions, such as `withAsPerson`, sets the version on the PAPI 3 payload itself, and that version always wins.
 
 > **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
 
@@ -156,9 +156,22 @@ File-based storage adapter for Node.js. Data persists in `storageDir` (defaults 
 
 Waits for the session list to emit at least one entry, or resolves with `[]` after `timeoutMs`.
 
+### `deriveEntropy(session, productId, key): Uint8Array`
+
+Derives 32 bytes of deterministic entropy from a paired session, scoped to a product and a caller key (RFC-0007, host-spec §C.8). The bytes match what an in-container app gets from `@parity/product-sdk-host`'s `deriveEntropy` for the same wallet + product + key, so keys derived from them interoperate across web and terminal clients. Computed locally from the session's `rootEntropySource` — no round trip to the wallet.
+
+```ts
+const entropy = deriveEntropy(session, "my-cli.dot", new TextEncoder().encode("repo-key"));
+```
+
+- `productId` -- the identifier the in-container deployment is served under: the same value you pass as `productId` to `getBulletinSigner`, **not** `adapter.appId`. Used verbatim and case-sensitively, and scoped per deployment — production, PR previews and `localhost:<port>` all derive different entropy.
+- `key` -- caller key, 1..32 bytes.
+
+Throws if the session predates RFC-0007 (no `rootEntropySource`; re-pair to fix). With several paired sessions, pin the intended wallet with `sessionRootPublicKey` first: the wrong session yields valid entropy for a different wallet. The result is raw key material — don't log it or persist it unwrapped.
+
 ## Allowance signers — the canonical path
 
-For CLIs that need to write to Bulletin or publish to the Statement Store: ask the paired wallet for an allowance slot, get a `PolkadotSigner` back, sign extrinsics with it. This is what most consumers want.
+For CLIs that need to write to Bulletin or publish to the Statement Store: ask the paired wallet for an allowance slot, get a `CommonSignerTxCreator` back, sign extrinsics with it. This is what most consumers want.
 
 ```ts
 import {
@@ -176,13 +189,13 @@ await waitForSessions(adapter);
 // First call prompts the wallet for an allowance slot; subsequent calls
 // return the cached slot key — no wire round-trip.
 const bulletinSigner = await getBulletinSigner(adapter, "my-cli.dot");
-await bulletinClient.tx.TransactionStorage.store({ data }).signAndSubmit(bulletinSigner);
+await bulletinClient.tx.TransactionStorage.store({ data }).createAndSubmit(bulletinSigner);
 
 // Same idea, returns a StatementProver for `@novasamatech/statement-store` writes.
 const prover = await getStatementStoreProver(adapter, "my-cli.dot");
 ```
 
-### `getBulletinSigner(adapter, productId, sessionId?): Promise<PolkadotSigner>`
+### `getBulletinSigner(adapter, productId, sessionId?): Promise<CommonSignerTxCreator>`
 
 ### `getStatementStoreProver(adapter, productId, sessionId?): Promise<StatementProver>`
 
@@ -255,7 +268,7 @@ const signer = await ensureSlotAccountSigner(session, adapter, {
 await bulletinTx.submitAndWatch(signer);
 ```
 
-### `ensureSlotAccountSigner(session, adapter, resource): Promise<PolkadotSigner>`
+### `ensureSlotAccountSigner(session, adapter, resource): Promise<CommonSignerTxCreator>`
 
 The one call most CLIs want. Cache hit → returns signer; cache miss → allocates via the wallet, then returns signer. Throws on `Rejected` / `NotAvailable`. Slot-table resources only (`BulletInAllowance`, `StatementStoreAllowance`).
 
@@ -267,9 +280,9 @@ Lower-level: pre-allocate any combination of resources. Granted keys cached at `
 
 Read-only cache lookup; no wire round-trip.
 
-### `createSlotAccountSigner(adapter, resource): Promise<PolkadotSigner | null>`
+### `createSlotAccountSigner(adapter, resource): Promise<CommonSignerTxCreator | null>`
 
-Build a `PolkadotSigner` from the cached slot key without round-tripping. Returns `null` if nothing's cached (use `ensureSlotAccountSigner` for the round-trip-if-missing flow).
+Build a `CommonSignerTxCreator` from the cached slot key without round-tripping. Returns `null` if nothing is cached (use `ensureSlotAccountSigner` for the round-trip-if-missing flow).
 
 > **Caveats.** `AutoSigning` currently returns `NotAvailable` on both Android and iOS wallets. Slot renewal at expiry depends on [paritytech/individuality#931](https://github.com/paritytech/individuality/pull/931) (open) — first-time allocation works end-to-end today.
 
@@ -344,9 +357,9 @@ const sessions = await waitForSessions(adapter);
 
 ## Signing
 
-After login and attestation, the paired wallet can sign both transactions and raw messages via the statement store. The `PolkadotSigner` returned by `createSessionSigner` routes each path to the right host-papp method:
+After login and attestation, the paired wallet can sign both transactions and raw messages via the statement store. The `CommonSignerTxCreator` returned by `createSessionSigner` routes each path to the right host-papp method:
 
-- **Transactions** (`signTx`, used by `submitAndWatch`, `signSubmitAndWatch`, and contract calls) go through `session.createTransaction`. The signer forwards the account, call data, `txExtVersion`, and every extension's encoded `extra` and `additionalSigned` bytes, including unknown extensions such as `AsPgas`. The wallet decodes the transaction for display and returns the signed extrinsic.
+- **Transactions** (the creator itself, used by `submitAndWatch`, `createSubmitAndWatch`, and contract calls) go through `session.createTransaction`. The signer forwards the account, call data, `txExtVersion`, and the encoded `extra` and `additionalSigned` bytes of every extension, including unknown extensions such as `AsPgas`. The version is one whose pipeline declares every supplied extension, so `AsPgas` on Asset Hub runtime 3004000 goes out on version 1. The wallet decodes the transaction for display and returns the signed extrinsic.
 - **Raw bytes** (`signBytes`) go through `session.signRaw` with the `Bytes` tag. Mobile applies the standard `<Bytes>...</Bytes>` anti-phishing wrap before signing — appropriate for arbitrary data, the same behavior `signRaw` has across all Polkadot wallets.
 
 > **Note on previous bugs.** Versions prior to `0.1.1` routed *all* signing through `signRaw` with no tag distinction, producing `BadProof`-rejected signatures. Versions `0.1.1` through `0.2.x` then used `polkadot-api/pjs-signer`, which threw `PJS does not support this signed-extension: <name>` on any extension outside its eight built-in mappers (notably `AsPgas`). The current path bypasses both pitfalls.
@@ -371,7 +384,6 @@ Sessions are persisted to `~/.polkadot-apps/` and survive across restarts. The S
 
 - `@novasamatech/host-papp` -- Polkadot host-product SDK (auth, attestation, signing)
 - `@novasamatech/statement-store` -- statement store client and session management
-- `@novasamatech/storage-adapter` -- storage interface
 - `@polkadot-api/ws-provider` -- WebSocket JSON-RPC provider
 - `neverthrow` -- Result type for error handling
 - `qrcode` -- QR code generation

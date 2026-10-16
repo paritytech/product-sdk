@@ -1,5 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import {
     AsyncBulletinClient,
     type AuthCallBuilder,
@@ -12,7 +13,6 @@ import {
 import { createChainClient, getChainAPI } from "@parity/product-sdk-chain-client";
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
-import type { PolkadotSigner } from "polkadot-api";
 
 import { checkAuthorization } from "./authorization.js";
 import { ProductCloudStorageError } from "./errors.js";
@@ -45,7 +45,7 @@ export type CreateCloudStorageClientOptions =
 
 interface CreateCloudStorageClientCommon {
     /** Signer for transaction submission. Required — every store needs a signer. */
-    signer: PolkadotSigner;
+    signer: CommonSignerTxCreator;
     /** Optional config forwarded to the upstream client. */
     config?: Partial<ClientConfig>;
 }
@@ -200,7 +200,7 @@ export class CloudStorageClient {
 
     /** Renew a stored transaction by block + index. */
     renew(block: number, index: number): CallBuilder {
-        return this.inner.renew(block, index);
+        return this.inner.renew({ block, index });
     }
 
     /** Estimate the authorization (transactions + bytes) needed for `dataSize`. */
@@ -327,7 +327,7 @@ if (import.meta.vitest) {
                     genesisHash:
                         "0x0000000000000000000000000000000000000000000000000000000000000001",
                     descriptor: stubDescriptor(realPaseo),
-                    signer: {} as PolkadotSigner,
+                    signer: {} as CommonSignerTxCreator,
                 }),
             ).rejects.toThrow(/does not match descriptor\.genesis/i);
         });

@@ -53,8 +53,8 @@ import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex } from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
 import type { GameChain } from "./game-read.js";
-import { pinBlock, readAt, type ReadAt } from "./pinned.js";
-import type { BlockAt } from "./types.js";
+import { readAt, readPinned, type ReadAt } from "./pinned.js";
+import type { BlockAt, FinalizedSnapshot } from "./types.js";
 import {
     ringCollectionId,
     runScoreContextRead,
@@ -69,10 +69,11 @@ import type {
     LiteSignUpRequirement,
 } from "./signup-types.js";
 import {
-    accountAirdropsArg,
+    airdropsArg,
     identifierKeyHex,
     runSignUpRequirementRead,
     type AirdropVrfsArg,
+    type AliasAirdropVrfs,
     type SignUpChain,
 } from "./signup.js";
 
@@ -255,25 +256,41 @@ export async function readLiteSignUpRequirement(
     options: ReadLiteSignUpRequirementOptions,
 ): Promise<Result<LiteSignUpRequirement, ProductIndividualityError>> {
     try {
-        const { account, liteMemberKey, signal } = options;
-        if (liteMemberKey !== undefined && liteMemberKey.length !== LITE_MEMBER_KEY_BYTES) {
-            throw new ProductIndividualityError(
-                `lite member key must be ${LITE_MEMBER_KEY_BYTES} bytes`,
-            );
-        }
+        return ok(await runLiteSignUpRequirementRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
 
-        const snapshot = await pinBlock(chain, signal, options.at);
-        const at = readAt(snapshot, signal);
-        const query = chain.individuality.query;
+/** Throws; {@link readLiteSignUpRequirement} owns the `Result` boundary. */
+async function runLiteSignUpRequirementRead(
+    chain: GameChain & SignUpChain & AnyScoreContextChain & LiteSignUpChain,
+    options: ReadLiteSignUpRequirementOptions,
+): Promise<LiteSignUpRequirement> {
+    const { liteMemberKey, signal } = options;
+    if (liteMemberKey !== undefined && liteMemberKey.length !== LITE_MEMBER_KEY_BYTES) {
+        throw new ProductIndividualityError(
+            `lite member key must be ${LITE_MEMBER_KEY_BYTES} bytes`,
+        );
+    }
 
-        const [
-            { requirement: game, player },
-            score,
-            binding,
-            litePerson,
-            statementAlias,
-            membership,
-        ] = await Promise.all([
+    return readPinned(chain, signal, options.at, (snapshot) =>
+        readLiteSignUpRequirementAt(chain, options, snapshot),
+    );
+}
+
+/** The reads of {@link readLiteSignUpRequirement}, all at `snapshot`. */
+async function readLiteSignUpRequirementAt(
+    chain: GameChain & SignUpChain & AnyScoreContextChain & LiteSignUpChain,
+    options: ReadLiteSignUpRequirementOptions,
+    snapshot: FinalizedSnapshot,
+): Promise<LiteSignUpRequirement> {
+    const { account, liteMemberKey, signal } = options;
+    const at = readAt(snapshot, signal);
+    const query = chain.individuality.query;
+
+    const [{ requirement: game, player }, score, binding, litePerson, statementAlias, membership] =
+        await Promise.all([
             runSignUpRequirementRead(
                 chain,
                 {
@@ -297,53 +314,50 @@ export async function readLiteSignUpRequirement(
                   ),
         ]);
 
-        const liteBlockers: LiteSignUpBlocker[] = [];
+    const liteBlockers: LiteSignUpBlocker[] = [];
 
-        // Environment first: a context no host can mint stops both legs, and
-        // naming it keeps a UI from sending the player to fix their binding.
-        if (score.tag === "NotProductDerived") {
-            liteBlockers.push({ tag: "ContextNotProductDerived" });
-        }
-        if (liteMemberKey !== undefined && membership?.type !== "Included") {
-            liteBlockers.push({ tag: "NotLiteMember" });
-        }
-        if (player !== undefined && player.registered !== true) {
-            liteBlockers.push({ tag: "AlreadyPlaying" });
-        }
-        if (statementAlias !== undefined) {
-            liteBlockers.push({ tag: "AccountIsAStatementAccount" });
-        }
-
-        // A lite person's own account can never hold a binding.
-        if (litePerson !== undefined) {
-            liteBlockers.push({ tag: "AccountIsALitePerson" });
-        } else if (binding === undefined) {
-            liteBlockers.push({ tag: "AliasNotBound" });
-        } else if (normalizedHex(binding.ca.context) !== bytesToHex(score.context)) {
-            liteBlockers.push({ tag: "AliasBoundElsewhere" });
-        } else {
-            const collection = `0x${bytesToHex(ringCollectionId("people-lite"))}`;
-            const [invited, root] = await Promise.all([
-                query.Game.LiteInvites.getValue(binding.ca.alias, at),
-                query.Members.Root.getValue(collection, binding.ring, at),
-            ]);
-            if (root === undefined || root.revision !== binding.revision) {
-                liteBlockers.push({ tag: "StaleAlias" });
-            }
-            if (invited !== undefined && !sameAccount(invited, account)) {
-                liteBlockers.push({ tag: "AnotherAccountInvited", invited });
-            }
-        }
-
-        return ok({
-            ...game,
-            canSignUp: game.canSignUp && liteBlockers.length === 0,
-            canEnterDraws: game.canEnterDraws && liteBlockers.length === 0,
-            blockers: [...game.blockers, ...liteBlockers],
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
+    // Environment first: a context no host can mint stops both legs, and
+    // naming it keeps a UI from sending the player to fix their binding.
+    if (score.tag === "NotProductDerived") {
+        liteBlockers.push({ tag: "ContextNotProductDerived" });
     }
+    if (liteMemberKey !== undefined && membership?.type !== "Included") {
+        liteBlockers.push({ tag: "NotLiteMember" });
+    }
+    if (player !== undefined && player.registered !== true) {
+        liteBlockers.push({ tag: "AlreadyPlaying" });
+    }
+    if (statementAlias !== undefined) {
+        liteBlockers.push({ tag: "AccountIsAStatementAccount" });
+    }
+
+    // A lite person's own account can never hold a binding.
+    if (litePerson !== undefined) {
+        liteBlockers.push({ tag: "AccountIsALitePerson" });
+    } else if (binding === undefined) {
+        liteBlockers.push({ tag: "AliasNotBound" });
+    } else if (normalizedHex(binding.ca.context) !== bytesToHex(score.context)) {
+        liteBlockers.push({ tag: "AliasBoundElsewhere" });
+    } else {
+        const collection = `0x${bytesToHex(ringCollectionId("people-lite"))}`;
+        const [invited, root] = await Promise.all([
+            query.Game.LiteInvites.getValue(binding.ca.alias, at),
+            query.Members.Root.getValue(collection, binding.ring, at),
+        ]);
+        if (root === undefined || root.revision !== binding.revision) {
+            liteBlockers.push({ tag: "StaleAlias" });
+        }
+        if (invited !== undefined && !sameAccount(invited, account)) {
+            liteBlockers.push({ tag: "AnotherAccountInvited", invited });
+        }
+    }
+
+    return {
+        ...game,
+        canSignUp: game.canSignUp && liteBlockers.length === 0,
+        canEnterDraws: game.canEnterDraws && liteBlockers.length === 0,
+        blockers: [...game.blockers, ...liteBlockers],
+    };
 }
 
 /** Options for {@link signUpWithLiteInviteTx}. */
@@ -360,8 +374,11 @@ export interface SignUpWithLiteInviteOptions {
      * so pass the key whose private half the playing product holds now.
      */
     identifierKey: Uint8Array;
-    /** Omit to enter no draw. Length must equal {@link airdropsScheduled}. */
-    airdrops?: AccountVrfSignature[];
+    /**
+     * Omit to enter no draw. Count must equal {@link airdropsScheduled}: account
+     * VRFs, or the alias arm for a recognized player, as `signUpWithAccountTx`.
+     */
+    airdrops?: AccountVrfSignature[] | AliasAirdropVrfs;
     /**
      * From {@link LiteSignUpRequirement}, checked against `airdrops` when both
      * are given — the same guard as the account sign-up, for the same reason.
@@ -388,7 +405,7 @@ export function signUpWithLiteInviteTx<Tx>(
     return chain.individuality.tx.Game.sign_up_with_account_lite_invite({
         account: options.account,
         identifier_key: identifierKeyHex(options.identifierKey),
-        airdrops: accountAirdropsArg(options),
+        airdrops: airdropsArg(options),
     });
 }
 
@@ -897,7 +914,7 @@ if (import.meta.vitest) {
             ]);
         });
 
-        test("the draw-only split survives: lite-clear but recognized blocks draws only", async () => {
+        test("lite-clear and recognized enters the draws with the Alias arm", async () => {
             const { chain } = fakeChain({
                 binding: BOUND,
                 invited: ACCOUNT,
@@ -915,9 +932,12 @@ if (import.meta.vitest) {
                 await readLiteSignUpRequirement(chain, { account: ACCOUNT, now: 1_000 }),
             );
 
+            // Recognized means the Alias arm, which is mintable since runtime
+            // 3004000 and rides this call like the Account arm does.
             expect(value.canSignUp).toBe(true);
-            expect(value.canEnterDraws).toBe(false);
-            expect(value.blockers).toEqual([{ tag: "AliasVrfsUnavailable" }]);
+            expect(value.canEnterDraws).toBe(true);
+            expect(value.variant).toBe("Alias");
+            expect(value.blockers).toEqual([]);
         });
 
         test("a lite blocker also stops the draws: they ride on the sign-up", async () => {

@@ -3,13 +3,13 @@
 /**
  * File-based StorageAdapter for Node.js environments.
  *
- * Implements the @novasamatech/storage-adapter interface using JSON files
+ * Implements host-papp's storage interface using JSON files
  * in ~/.polkadot-apps/. Node.js doesn't have localStorage, so this
  * provides persistent storage for the SDK's session and secret data.
  */
-import type { StorageAdapter } from "@novasamatech/storage-adapter";
+import type { createPappAdapter } from "@novasamatech/host-papp";
 import { createLogger } from "@parity/product-sdk-logger";
-import { fromPromise } from "neverthrow";
+import { fromPromise, type ResultAsync } from "neverthrow";
 import { join } from "node:path";
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -27,6 +27,19 @@ const DEFAULT_STORAGE_DIR = join(homedir(), ".polkadot-apps");
 export function sanitizeKey(appId: string, key: string): string {
     return `${appId}_${key}`.replace(/[^a-zA-Z0-9_.-]/g, "_");
 }
+
+/**
+ * Key/value storage contract that `@novasamatech/host-papp`'s `createPappAdapter`
+ * accepts as `storage`. Declared locally (structurally identical to
+ * `@novasamatech/storage-adapter`'s `StorageAdapter`) so terminal does not
+ * depend on that package directly.
+ */
+export type StorageAdapter = {
+    write(key: string, value: string): ResultAsync<void, Error>;
+    read(key: string): ResultAsync<string | null, Error>;
+    clear(key: string): ResultAsync<void, Error>;
+    subscribe(key: string, callback: (value: string | null) => unknown): VoidFunction;
+};
 
 function toError(e: unknown): Error {
     return e instanceof Error ? e : new Error(String(e));
@@ -73,7 +86,7 @@ export function createNodeStorageAdapter(appId: string, storageDir?: string): St
                     // Missing files are expected (a missing key reads as null);
                     // log at debug so consumers can opt in to seeing reads when
                     // diagnosing "why isn't my session loading".
-                    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+                    if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") {
                         log.warn("storage read failed", { key, error: e });
                     } else {
                         log.debug("storage read miss", { key });
@@ -119,7 +132,7 @@ export function createNodeStorageAdapter(appId: string, storageDir?: string): St
 }
 
 if (import.meta.vitest) {
-    const { describe, test, expect, beforeEach, afterAll } = import.meta.vitest;
+    const { describe, test, expect, expectTypeOf, beforeEach, afterAll } = import.meta.vitest;
     const { mkdtemp, rm } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const { configure } = await import("@parity/product-sdk-logger");
@@ -246,6 +259,18 @@ if (import.meta.vitest) {
             await store.write("json", JSON.stringify(obj));
             const raw = (await store.read("json"))._unsafeUnwrap();
             expect(JSON.parse(raw!)).toEqual(obj);
+        });
+    });
+
+    describe("StorageAdapter", () => {
+        test("matches what host-papp's createPappAdapter accepts as storage, both ways", () => {
+            // Type-level: the local declaration replaced a direct dependency on
+            // @novasamatech/storage-adapter, so pin it to host-papp's view. An
+            // added optional member or a changed callback type fails typecheck.
+            type PappStorage = NonNullable<
+                NonNullable<Parameters<typeof createPappAdapter>[0]["adapters"]>["storage"]
+            >;
+            expectTypeOf<StorageAdapter>().toEqualTypeOf<PappStorage>();
         });
     });
 

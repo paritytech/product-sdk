@@ -99,8 +99,10 @@ export async function readStoredAllowances(
     try {
         hex = await readFile(allowanceFilePath(storageDir, appId, sessionId), "utf-8");
     } catch (err) {
-        // ENOENT is the only error we treat as "no entries".
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        // ENOENT is the only error we treat as "no entries". Optional-chain the
+        // code read so a non-Error throw doesn't itself throw here, matching
+        // json-cache.ts.
+        if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
             return [];
         }
         throw err;

@@ -1,6 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-import type { PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 
 import { createLogger } from "@parity/product-sdk-logger";
 
@@ -313,17 +313,17 @@ export class SignerManager {
     }
 
     /**
-     * Get the PolkadotSigner for the currently selected account.
+     * Get the PAPI 3 transaction creator for the currently selected account.
      * Returns null if no account is selected or manager is disconnected.
      */
-    getSigner(): PolkadotSigner | null {
+    getSigner(): CommonSignerTxCreator | null {
         return this.state.selectedAccount?.getSigner() ?? null;
     }
 
     /**
      * Sign arbitrary bytes with the currently selected account.
      *
-     * Convenience wrapper around `PolkadotSigner.signBytes` — useful for
+     * Convenience wrapper around the signer `signBytes`, useful for
      * master key derivation, message signing, and proof generation without
      * constructing a full transaction.
      *

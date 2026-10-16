@@ -1,5 +1,66 @@
 # @parity/product-sdk-individuality
 
+## 0.10.0
+
+### Minor Changes
+
+- c712386: Add `PeopleAirdrops` support, so any product can enter a person in the recurring People-chain prize draws (Humanity's Daily Dollar) without its own copy of the chain logic.
+
+  - `readPeopleAirdropsStanding(chain, { account })` reads every `PeopleAirdrops` draw on chain at one block and, for each, whether the account's airdrop alias is registered (through the derived slot) and has won. Other schedulers' draws in `Airdrop.Events` (the weekly game's) are skipped.
+  - `readPeopleAirdropsSigning(chain, { account })` says which `withAsPerson` origin a registration needs now: `Bound` (the account's signature is enough), `Revised` (the ring moved on, so a fresh proof for the binding's context), `Unbound` (bind with `People.set_alias_account` first), `OtherContext` or `RingUnavailable`.
+  - `peopleAirdropsRegisterCalls(chain, eventIds)` builds the `PeopleAirdrops.register` calls, chunked to the runtime's `MaxRegisterBatch` (falling back to 16), with duplicates dropped and non-`PeopleAirdrops` ids refused.
+  - `derivePeopleAirdropsSlot(eventId, salt, alias)` is the slot derivation on its own.
+
+## 0.9.0
+
+### Minor Changes
+
+- dde3b0d: **Person-origin signing follows the pipeline the hosts encode, and the game's prize draws are open to recognized players.** Both are People runtime 3004000.
+
+  The runtime now declares two transaction-extension pipelines: version 0, the plain one a signed V4 extrinsic rides, and version 1, which carries `AsPerson`, `ScoreAsParticipant`, `PeopleLiteAuth` and the rest of the origin extensions. `readExtensionPipeline` used to refuse any blob that declared more than one version, so every `withAsPerson`, `withScoreParticipant`, `withLiteAlias` and `buildLiteAliasBindTx` call threw against the live chains. It now reads the highest declared version, the rule the Rust host core encodes with, and the signer wrappers fill the slots PAPI 2.x leaves out (it only knows version 0) with the chain's own defaults before hashing the implication. The pinned lite-bind extrinsic opens with extension version 1 and carries `CheckMetadataHash`.
+
+  `AirdropVrfs::Alias` is buildable: the chain verifies each draw proof in the product context `product/<product_name>.<tld>/<event_id>` (`Game.product_name` is `dim2`), which is what a host mints for `createRingVRFProof(peopleKey, { productId, suffix: Raw(eventId) }, peopleRing(genesis), message)`. New `mintAliasAirdropVrfs(signer, { eventIds, registrant, productId })` returns `{ proofs, ringIndex, revision }`, signing the registration entry (`1u8 ++ account_id` or `0u8 ++ alias`), checking the returned context against the one derived offline, and refusing proofs that disagree on the ring revision. `signUpWithAccountTx` and `signUpWithLiteInviteTx` take that value in `airdrops` beside the account VRFs.
+
+  Breaking: the `AliasVrfsUnavailable` blocker is gone. A recognized player now reads `canEnterDraws: true` with `variant: "Alias"`; whether the calling product may use the People member key is the host's grant decision and surfaces from the mint, not from the requirement read. `NotSr25519` applies to the `Account` variant only.
+
+- dde3b0d: **Moves the SDK to polkadot-api 3.** Breaking for every caller that signs.
+
+  PAPI 3 replaced the `PolkadotSigner` with a `TxCreator`, which receives one payload holding the call, every transaction extension, the pipeline version those extensions belong to, and the runtime metadata. Every signer the SDK builds or accepts is now a `CommonSignerTxCreator` from `@polkadot-api/signers-common`: `getProductAccountSigner` and `getLegacyAccountSigner` in host, `SignerManager.getSigner`, `seedToAccount` and the key manager in keys, `createDevSigner` in tx, the session, slot-account and allowance signers in terminal, and the signers `resolveSigner` returns in auth. `submitAndWatch`, `batchSubmitAndWatch` and contract calls take it unchanged. A PAPI transaction is now submitted with `createSubmitAndWatch` or `createAndSubmit`, fees are estimated with a creator such as `getFakeTxCreator(address)`, and the transaction events `signed` and `txBestBlocksState` are now `created`, `inBestBlock` and `notInBestBlock`. The `TxEvent` type in tx follows.
+
+  `withAsPerson`, `withLiteAlias` and `withScoreParticipant` now wrap a `TxCreator`. They fill the standard extensions with the PAPI 3 enhancers, write their origin extension, and hand the inner signer the pipeline version that carries it, so the host is told the version the proof was built for instead of inferring one. This replaces the slot filling that worked around PAPI 2 only knowing pipeline version 0. A fee estimate through a wrapper is priced as a plain account transaction and never requests a proof.
+
+  Host exports `createHostTxCreator`, also published as the transport-free subpath `@parity/product-sdk-host/tx-creator`, which terminal uses for the paired-phone signer. The `txExtVersion` signer option is now the version used when the transaction names none.
+
+  Terminal moves to `@novasamatech/host-papp`, `statement-store` and `storage-adapter` 0.12.0, and host to `@novasamatech/host-api-wrapper` 0.12.0, the releases built for PAPI 3. `@novasamatech/statement-store` 0.12.0 still depends on `@novasamatech/sdk-statement` 0.6.0, which pulls a private copy of polkadot-api 2 into the install. The descriptors are regenerated with the PAPI 3 CLI.
+
+  Cloud Storage keeps working with `@parity/bulletin-sdk` 0.3.0 through a shim that maps its `signSubmitAndWatch` onto `createSubmitAndWatch`, to be removed when a PAPI 3 build ships.
+
+  The `paseo-asset-hub` and `previewnet-asset-hub` descriptors follow `next-asset-hub-paseo` 3004000, and `previewnet-asset-hub` takes the new genesis of the reset Previewnet Asset Hub. That runtime drops the `Result` wrapper from `ScarcityApi.metadata_batch` and `NftClaimsApi.preview_mints`, which now return their list directly and reject an oversized batch at decode (128 queries for `metadata_batch`, 32 for `preview_mints` on `next-asset-hub-paseo` 3004000). `NftsChain` and `NftsInstancesChain` follow, so a hand-built chain answers those calls with a bare list. `getInstanceDisplays` no longer re-chunks on a `TooLarge` refusal, and `previewClaim` sends one `preview_mints` call per 32 collections, the bound the runtime enforces.
+
+  Every nfts read now holds the blocks it pins until it settles, through the optional `hodlBlock` that `BlockSource` gains and a PAPI client already has. A finalized block was unpinned as soon as a newer one was finalized, so a read that spanned that moment failed inside a container with "is not pinned", because the host serves no archive methods to fall back to.
+
+### Patch Changes
+
+- @parity/product-sdk-utils@0.2.1
+
+## 0.8.0
+
+### Minor Changes
+
+- 133451f: Let a read address its block the way PAPI's `at` does. `readSignUpFunds`,
+  `readGameSignUpRequirement`, `readLiteSignUpRequirement` and `readAirdropDraw`
+  take `at: "finalized" | "best" | BlockSnapshot`. Every nfts read that took a
+  snapshot as `at` takes the same, and `getClaims` also takes it as
+  `individualityAt` for its People read. `"finalized"` stays the default.
+
+  The raw clients these reads take, `raw.individuality` and `raw.assetHub`, are
+  now `BlockSource`, the part of PAPI's `PolkadotClient` they use, so they name
+  `getBestBlocks` next to `getFinalizedBlock`. Every `PolkadotClient` has both, so `fromPapi` and
+  `getChainAPI` callers change nothing. A hand-built raw client needs
+  `getBestBlocks` added. `FinalizedBlockSource` stays as a deprecated alias.
+  `BlockSnapshot` names the pinned block, and `FinalizedSnapshot` stays as an
+  alias of it.
+
 ## 0.7.0
 
 ### Minor Changes

@@ -1,5 +1,221 @@
 # @parity/product-sdk
 
+## 0.38.0
+
+### Minor Changes
+
+- c712386: Add `PeopleAirdrops` support, so any product can enter a person in the recurring People-chain prize draws (Humanity's Daily Dollar) without its own copy of the chain logic.
+
+  - `readPeopleAirdropsStanding(chain, { account })` reads every `PeopleAirdrops` draw on chain at one block and, for each, whether the account's airdrop alias is registered (through the derived slot) and has won. Other schedulers' draws in `Airdrop.Events` (the weekly game's) are skipped.
+  - `readPeopleAirdropsSigning(chain, { account })` says which `withAsPerson` origin a registration needs now: `Bound` (the account's signature is enough), `Revised` (the ring moved on, so a fresh proof for the binding's context), `Unbound` (bind with `People.set_alias_account` first), `OtherContext` or `RingUnavailable`.
+  - `peopleAirdropsRegisterCalls(chain, eventIds)` builds the `PeopleAirdrops.register` calls, chunked to the runtime's `MaxRegisterBatch` (falling back to 16), with duplicates dropped and non-`PeopleAirdrops` ids refused.
+  - `derivePeopleAirdropsSlot(eventId, salt, alias)` is the slot derivation on its own.
+
+### Patch Changes
+
+- c712386: Add `@deprecated` JSDoc markers so deprecated surface shows struck-through in editors and has a stated migration target. `host`'s `createHostLocalStorage` and `createHostPreimageManager` are identical aliases of `getHostLocalStorage`/`getPreimageManager` (single cached client); the App API's `getProductAccount`, `getAnonymousAlias` and `createProof` are sync stubs that return `null` or throw and should be reached through `SignerManager` directly. Documentation only; no runtime change.
+- c712386: Fix the `@module` label on the `@parity/product-sdk/cloud-storage` re-export barrel, which read `@parity/product-sdk/bulletin` from a copy-paste. Documentation only; no runtime change.
+- Updated dependencies [c712386]
+- Updated dependencies [c712386]
+- Updated dependencies [c712386]
+- Updated dependencies [c712386]
+  - @parity/product-sdk-contracts@0.11.2
+  - @parity/product-sdk-address@0.3.1
+  - @parity/product-sdk-keys@0.5.2
+  - @parity/product-sdk-host@0.27.1
+  - @parity/product-sdk-individuality@0.10.0
+  - @parity/product-sdk-signer@0.17.2
+  - @parity/product-sdk-tx@0.5.2
+  - @parity/product-sdk-chain-client@0.13.2
+  - @parity/product-sdk-cloud-storage@0.13.2
+  - @parity/product-sdk-local-storage@0.3.18
+
+## 0.37.0
+
+### Minor Changes
+
+- d076015: `ChatManager.sendMessage` takes an optional `{ alt }`, one line describing the message that a host shows where it lists the message rather than draws it, such as the chat list preview of a custom card.
+
+### Patch Changes
+
+- Updated dependencies [d076015]
+- Updated dependencies [d076015]
+  - @parity/product-sdk-host@0.27.0
+  - @parity/product-sdk-cloud-storage@0.13.1
+  - @parity/product-sdk-chain-client@0.13.1
+  - @parity/product-sdk-local-storage@0.3.17
+  - @parity/product-sdk-signer@0.17.1
+  - @parity/product-sdk-keys@0.5.1
+  - @parity/product-sdk-contracts@0.11.1
+  - @parity/product-sdk-tx@0.5.1
+
+## 0.36.0
+
+### Minor Changes
+
+- dde3b0d: Re-pin `paseo-individuality` and `previewnet-individuality` to the People runtime now live on both chains (`next-people-paseo` 3004000, code hash `0x69e7126f…7871`). The genesis hashes are unchanged.
+
+  What moved in the pallets products read: `Airdrop.EventInfo` gained `product_name` (so `Airdrop.Events` and `schedule_event` changed shape, with a new `InvalidProductName` error); `Game` gained the `product_name` constant and a `CreditCapacityExhausted` error; `Members` gained `RetiredIdentifiers` and `IdentifierRetired`; `NftCredits` keys awards by `(block, index)` with expiry sweeps and its runtime API arguments are named `tree_block`; the `SkipFeelessPayment` pallet is gone; `AuthorizedAliasersApi` and `TrustedQueryApi` were added. `PeopleLite`, `People`, `Score`, `Coinage` and `PeopleAirdrops` are unchanged in shape.
+
+  The runtime also declares two transaction-extension pipelines now, version 0 (plain, what a signed V4 extrinsic uses) and version 1 (the origin extensions); `@parity/product-sdk-individuality` reads the right one from this release on.
+
+- dde3b0d: Remove the legacy novasama native-chat backend from `getChatManager()`. The `@parity/product-sdk-host` chat path now resolves only through the truapi host; the fallback that loaded `@novasamatech/host-api-wrapper` when running inside the legacy iOS `__container__` WebView is gone, along with the dependency. `getChatManager()` returns `null` on a host with no truapi client instead of bridging to the native backend. Products running under a truapi host are unaffected (that branch was never reached there).
+- dde3b0d: **Person-origin signing follows the pipeline the hosts encode, and the game's prize draws are open to recognized players.** Both are People runtime 3004000.
+
+  The runtime now declares two transaction-extension pipelines: version 0, the plain one a signed V4 extrinsic rides, and version 1, which carries `AsPerson`, `ScoreAsParticipant`, `PeopleLiteAuth` and the rest of the origin extensions. `readExtensionPipeline` used to refuse any blob that declared more than one version, so every `withAsPerson`, `withScoreParticipant`, `withLiteAlias` and `buildLiteAliasBindTx` call threw against the live chains. It now reads the highest declared version, the rule the Rust host core encodes with, and the signer wrappers fill the slots PAPI 2.x leaves out (it only knows version 0) with the chain's own defaults before hashing the implication. The pinned lite-bind extrinsic opens with extension version 1 and carries `CheckMetadataHash`.
+
+  `AirdropVrfs::Alias` is buildable: the chain verifies each draw proof in the product context `product/<product_name>.<tld>/<event_id>` (`Game.product_name` is `dim2`), which is what a host mints for `createRingVRFProof(peopleKey, { productId, suffix: Raw(eventId) }, peopleRing(genesis), message)`. New `mintAliasAirdropVrfs(signer, { eventIds, registrant, productId })` returns `{ proofs, ringIndex, revision }`, signing the registration entry (`1u8 ++ account_id` or `0u8 ++ alias`), checking the returned context against the one derived offline, and refusing proofs that disagree on the ring revision. `signUpWithAccountTx` and `signUpWithLiteInviteTx` take that value in `airdrops` beside the account VRFs.
+
+  Breaking: the `AliasVrfsUnavailable` blocker is gone. A recognized player now reads `canEnterDraws: true` with `variant: "Alias"`; whether the calling product may use the People member key is the host's grant decision and surfaces from the mint, not from the requirement read. `NotSr25519` applies to the `Account` variant only.
+
+- dde3b0d: **Moves the SDK to polkadot-api 3.** Breaking for every caller that signs.
+
+  PAPI 3 replaced the `PolkadotSigner` with a `TxCreator`, which receives one payload holding the call, every transaction extension, the pipeline version those extensions belong to, and the runtime metadata. Every signer the SDK builds or accepts is now a `CommonSignerTxCreator` from `@polkadot-api/signers-common`: `getProductAccountSigner` and `getLegacyAccountSigner` in host, `SignerManager.getSigner`, `seedToAccount` and the key manager in keys, `createDevSigner` in tx, the session, slot-account and allowance signers in terminal, and the signers `resolveSigner` returns in auth. `submitAndWatch`, `batchSubmitAndWatch` and contract calls take it unchanged. A PAPI transaction is now submitted with `createSubmitAndWatch` or `createAndSubmit`, fees are estimated with a creator such as `getFakeTxCreator(address)`, and the transaction events `signed` and `txBestBlocksState` are now `created`, `inBestBlock` and `notInBestBlock`. The `TxEvent` type in tx follows.
+
+  `withAsPerson`, `withLiteAlias` and `withScoreParticipant` now wrap a `TxCreator`. They fill the standard extensions with the PAPI 3 enhancers, write their origin extension, and hand the inner signer the pipeline version that carries it, so the host is told the version the proof was built for instead of inferring one. This replaces the slot filling that worked around PAPI 2 only knowing pipeline version 0. A fee estimate through a wrapper is priced as a plain account transaction and never requests a proof.
+
+  Host exports `createHostTxCreator`, also published as the transport-free subpath `@parity/product-sdk-host/tx-creator`, which terminal uses for the paired-phone signer. The `txExtVersion` signer option is now the version used when the transaction names none.
+
+  Terminal moves to `@novasamatech/host-papp`, `statement-store` and `storage-adapter` 0.12.0, and host to `@novasamatech/host-api-wrapper` 0.12.0, the releases built for PAPI 3. `@novasamatech/statement-store` 0.12.0 still depends on `@novasamatech/sdk-statement` 0.6.0, which pulls a private copy of polkadot-api 2 into the install. The descriptors are regenerated with the PAPI 3 CLI.
+
+  Cloud Storage keeps working with `@parity/bulletin-sdk` 0.3.0 through a shim that maps its `signSubmitAndWatch` onto `createSubmitAndWatch`, to be removed when a PAPI 3 build ships.
+
+  The `paseo-asset-hub` and `previewnet-asset-hub` descriptors follow `next-asset-hub-paseo` 3004000, and `previewnet-asset-hub` takes the new genesis of the reset Previewnet Asset Hub. That runtime drops the `Result` wrapper from `ScarcityApi.metadata_batch` and `NftClaimsApi.preview_mints`, which now return their list directly and reject an oversized batch at decode (128 queries for `metadata_batch`, 32 for `preview_mints` on `next-asset-hub-paseo` 3004000). `NftsChain` and `NftsInstancesChain` follow, so a hand-built chain answers those calls with a bare list. `getInstanceDisplays` no longer re-chunks on a `TooLarge` refusal, and `previewClaim` sends one `preview_mints` call per 32 collections, the bound the runtime enforces.
+
+  Every nfts read now holds the blocks it pins until it settles, through the optional `hodlBlock` that `BlockSource` gains and a PAPI client already has. A finalized block was unpinned as soon as a newer one was finalized, so a read that spanned that moment failed inside a container with "is not pinned", because the host serves no archive methods to fall back to.
+
+- dde3b0d: **Pair with a truapi 0.25.0 host.** `@parity/truapi` moves from `^0.24.0` to `^0.25.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `c130fa60ef495768` to `3c45e49b26c1ab97`, so the schema a product speaks no longer matches a host still on 0.24.0. Every host surface has to move in the same window.
+
+### Patch Changes
+
+- Updated dependencies [dde3b0d]
+- Updated dependencies [dde3b0d]
+- Updated dependencies [dde3b0d]
+- Updated dependencies [dde3b0d]
+- Updated dependencies [dde3b0d]
+  - @parity/product-sdk-host@0.26.0
+  - @parity/product-sdk-individuality@0.9.0
+  - @parity/product-sdk-logger@0.1.2
+  - @parity/product-sdk-address@0.3.0
+  - @parity/product-sdk-chain-client@0.13.0
+  - @parity/product-sdk-cloud-storage@0.13.0
+  - @parity/product-sdk-contracts@0.11.0
+  - @parity/product-sdk-keys@0.5.0
+  - @parity/product-sdk-nfts@0.3.0
+  - @parity/product-sdk-signer@0.17.0
+  - @parity/product-sdk-tx@0.5.0
+  - @parity/product-sdk-renderer@0.7.0
+  - @parity/product-sdk-local-storage@0.3.16
+
+## 0.35.0
+
+### Minor Changes
+
+- 133451f: Let a read address its block the way PAPI's `at` does. `readSignUpFunds`,
+  `readGameSignUpRequirement`, `readLiteSignUpRequirement` and `readAirdropDraw`
+  take `at: "finalized" | "best" | BlockSnapshot`. Every nfts read that took a
+  snapshot as `at` takes the same, and `getClaims` also takes it as
+  `individualityAt` for its People read. `"finalized"` stays the default.
+
+  The raw clients these reads take, `raw.individuality` and `raw.assetHub`, are
+  now `BlockSource`, the part of PAPI's `PolkadotClient` they use, so they name
+  `getBestBlocks` next to `getFinalizedBlock`. Every `PolkadotClient` has both, so `fromPapi` and
+  `getChainAPI` callers change nothing. A hand-built raw client needs
+  `getBestBlocks` added. `FinalizedBlockSource` stays as a deprecated alias.
+  `BlockSnapshot` names the pinned block, and `FinalizedSnapshot` stays as an
+  alias of it.
+
+- 133451f: `getInstanceDisplays(chain, instances)` reads the display metadata of minted
+  NFTs by instance id: `name`, `collectionName`, `rarity`, `imageRef`, the full
+  three-layer `attributes` bag, the (collection, item) each instance was minted
+  from as the runtime resolves it, and `transferability`, `supply` and
+  `liveSupply` from its item definition.
+
+  `name` is the instance's own — its instance layer, else its item layer — and
+  does **not** inherit the collection's, which is reported beside it as
+  `collectionName`. Inheriting is right for `image` and `rarity`, where the
+  collection sets a default for its items, and wrong for `name`, where the
+  collection layer holds the name of a different thing. A deployment that names
+  its collection and titles items by `archetype` would otherwise see every item
+  wearing the collection's name. This differs from `CollectionItem.name`, which
+  merges the two; that read shipped first and this is the shape both should
+  have. Positional like `previewClaim`, with a per-instance `Found` /
+  `NotFound` tag — an unminted or burned instance is a clean miss on the `ok`
+  channel, and an instance with no metadata at all (every claim-minted one
+  today) is still `Found`. `getInstanceDisplay` is the same read for one id.
+
+  The read takes its own chain contract, `NftsInstancesChain`: the runtime API
+  `api.ScarcityApi.metadata_batch` and `query.Scarcity.ItemDefs`, both of which
+  a pruned descriptor whitelist must carry, plus the raw client. A `getChainAPI`
+  client satisfies it whole.
+
+  The read is capped at `MAX_INSTANCES_PER_READ` (128) instances per call and
+  refuses above it rather than paging: every other read here walks a space the
+  chain sizes, while this one answers a list the caller already holds, so a
+  cursor would page someone over their own input. The cap is the package's
+  contract rather than a reading of the chain, though it coincides with the live
+  runtime's `metadata_batch` cap, so a full read is one runtime call there and a
+  deployment configured lower reports its own cap for the read to re-chunk to.
+  The definitions are then one keyed read over the deduplicated
+  `(collection, item)` pairs, so they cost one serial hop and nothing per
+  instance. The three definition-backed fields are `null` together, and only
+  when the definition is gone from under a live instance.
+
+  `NftsIdError` now also reports out-of-range `u64` instance ids; its `id` field
+  widened from `number` to `number | bigint`. The constructor shape is unchanged
+  (`(id, options?)`): which space the id missed follows from the value's type.
+
+  `getCollectionItems` now refuses an item definition carrying a transferability
+  variant this package does not know with an `NftsDecodeError`, instead of
+  passing the unknown string through a field typed as the `Transferability`
+  union. It is the same refusal `getInstanceDisplays` makes, through the one
+  shared decoder. This is a behavior change for consumers: the two variants the
+  runtime has today still read as before, but a future third variant now fails
+  the read on the `err` channel where it previously reached callers as an
+  untyped string, so a consumer wanting to tolerate an unknown variant must
+  handle the `NftsDecodeError`.
+
+- 133451f: `@parity/product-sdk-react-renderer` now covers the whole renderer vocabulary. The new `Image` and `Effect` components complete the eleven node types, and `opacity` and `blendingMode` complete the twelve modifiers every widget accepts.
+
+  Serialization no longer emits fields the protocol does not declare on a node. `Spacer`, `TextField` and `Image` are sent without `children`, and `Effect` without `modifiers`; before this, a card of any size produced a run of `unknown-field` warnings that a host silently ignored.
+
+  `createRenderer` takes a new `validate` option: a checker to run over every tree before it reaches `onRender`, reporting each issue to the console with its path. Pass `validateFace` from `@parity/product-sdk-renderer`. It is injected rather than imported so that a bundle which never asks for checking does not carry the checker, which an eager import could not be shaken out of. It never throws, because an exception inside the reconciler's commit would leave React half applied.
+
+  `drawPocketCard` joins a Pocket card to a React tree. It takes the manager structurally, so neither package depends on the other, and it does the adapting between the two action shapes: the host reports a press as hex, the renderer wants bytes, and a press that carried nothing arrives as no payload rather than an empty array. The card is then a component with state, so a press is `onClick` and React streams the next face.
+
+  `@parity/product-sdk-renderer` exports its vocabulary tables, `NODE_SCHEMA` and `MODIFIER_SCHEMA`, so a consumer can hold its own coverage against the protocol. The React renderer's own completeness test does exactly that.
+
+### Patch Changes
+
+- Updated dependencies [133451f]
+- Updated dependencies [133451f]
+- Updated dependencies [133451f]
+- Updated dependencies [133451f]
+  - @parity/product-sdk-individuality@0.8.0
+  - @parity/product-sdk-nfts@0.2.0
+  - @parity/product-sdk-renderer@0.6.0
+  - @parity/product-sdk-signer@0.16.2
+  - @parity/product-sdk-contracts@0.10.14
+
+## 0.34.0
+
+### Minor Changes
+
+- a1e1f72: **Pair with a truapi 0.24.0 host.** `@parity/truapi` moves from `^0.23.0` to `^0.24.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `ea1a1441ff0219b1` to `c130fa60ef495768`, so the schema a product speaks no longer matches a host still on 0.23.0. Every host surface has to move in the same window.
+
+### Patch Changes
+
+- Updated dependencies [a1e1f72]
+  - @parity/product-sdk-host@0.25.0
+  - @parity/product-sdk-renderer@0.5.0
+  - @parity/product-sdk-chain-client@0.12.10
+  - @parity/product-sdk-cloud-storage@0.12.6
+  - @parity/product-sdk-local-storage@0.3.15
+  - @parity/product-sdk-signer@0.16.1
+  - @parity/product-sdk-keys@0.4.3
+  - @parity/product-sdk-contracts@0.10.13
+  - @parity/product-sdk-tx@0.4.13
+
 ## 0.33.0
 
 ### Minor Changes

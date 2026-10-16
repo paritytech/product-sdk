@@ -29,7 +29,7 @@ const HOST_VECTOR_ENTROPY = new Uint8Array(16).fill(0xab);
 
 describe("deriveProductAccountPublicKey", () => {
     it("matches the host's own cross-host vector", () => {
-        // Vector from host-rust-core tests/wasm_crypto_vectors.rs,
+        // Vector from trinity-user-agents tests/wasm_crypto_vectors.rs,
         // product_account_and_entropy_vectors_match_mobile.
         const subtree = productSubtreePublicKey(HOST_VECTOR_ENTROPY, "myapp.dot");
         expect(toHex(subtree)).toBe(

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, normalizeError, ok } from "@parity/result";
-import { InvalidTxError, type PolkadotSigner } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
+import { InvalidTxError } from "polkadot-api";
 
 import {
     TxDispatchError,
@@ -76,7 +77,7 @@ function classifyFailure(event: { dispatchError?: unknown }, formatted: string):
  * Submit a transaction and watch its lifecycle through signing, broadcasting,
  * block inclusion, and (optionally) finalization.
  *
- * @param tx - A transaction object with `signSubmitAndWatch`. Works with raw PAPI
+ * @param tx - A transaction object with `createSubmitAndWatch`. Works with raw PAPI
  *   transactions and Ink SDK `AsyncTransaction` wrappers (resolved automatically).
  * @param signer - The signer to use. Can come from the Host API
  *   (`getProductAccountSigner`) or {@link createDevSigner}.
@@ -90,7 +91,7 @@ function classifyFailure(event: { dispatchError?: unknown }, formatted: string):
  */
 export async function submitAndWatch(
     tx: SubmittableTransaction,
-    signer: PolkadotSigner,
+    signer: CommonSignerTxCreator,
     options?: SubmitOptions,
 ): Promise<Result<TxResult, TxError>> {
     const waitFor = options?.waitFor ?? "best-block";
@@ -128,14 +129,14 @@ export async function submitAndWatch(
         }
 
         try {
-            const observable = resolvedTx.signSubmitAndWatch(signer, {
+            const observable = resolvedTx.createSubmitAndWatch(signer, {
                 mortality: { mortal: true, period: mortalityPeriod },
             });
 
             subscription = observable.subscribe({
                 next: (event: TxEvent) => {
                     switch (event.type) {
-                        case "signed": {
+                        case "created": {
                             log.info("Transaction signed", { txHash: event.txHash });
                             onStatus?.("signing");
                             break;
@@ -145,9 +146,7 @@ export async function submitAndWatch(
                             onStatus?.("broadcasting");
                             break;
                         }
-                        case "txBestBlocksState": {
-                            if (!event.found) break;
-
+                        case "inBestBlock": {
                             if (event.ok === false) {
                                 const formatted = formatDispatchError({
                                     ok: false,
@@ -277,7 +276,7 @@ if (import.meta.vitest) {
         emitFn: (handlers: MockSubscribeHandlers) => void,
     ): SubmittableTransaction {
         return {
-            signSubmitAndWatch: (_signer: PolkadotSigner, _options?: unknown) => ({
+            createSubmitAndWatch: (_signer: CommonSignerTxCreator, _options?: unknown) => ({
                 subscribe: (handlers: MockSubscribeHandlers) => {
                     const unsub = vi.fn();
                     // Emit events asynchronously so the subscription is returned first
@@ -288,22 +287,20 @@ if (import.meta.vitest) {
         };
     }
 
-    const mockSigner = {} as PolkadotSigner;
+    const mockSigner = {} as CommonSignerTxCreator;
 
-    const signedEvent: TxEvent = { type: "signed", txHash: "0xabc" };
+    const signedEvent: TxEvent = { type: "created", txHash: "0xabc" };
     const broadcastedEvent: TxEvent = { type: "broadcasted", txHash: "0xabc" };
     const bestBlockOk: TxEvent = {
-        type: "txBestBlocksState",
+        type: "inBestBlock",
         txHash: "0xabc",
-        found: true,
         ok: true,
         events: [{ id: 1 }],
         block: { hash: "0xblock1", number: 100, index: 0 },
     };
     const bestBlockFail: TxEvent = {
-        type: "txBestBlocksState",
+        type: "inBestBlock",
         txHash: "0xabc",
-        found: true,
         ok: false,
         events: [],
         block: { hash: "0xblock1", number: 100, index: 0 },
@@ -457,7 +454,7 @@ if (import.meta.vitest) {
                 h.next(bestBlockOk);
             });
             const wrappedTx: SubmittableTransaction = {
-                signSubmitAndWatch: () => {
+                createSubmitAndWatch: () => {
                     throw new Error("Should not be called on outer tx");
                 },
                 waited: Promise.resolve(innerTx),
@@ -469,7 +466,7 @@ if (import.meta.vitest) {
         test("passes mortality options", async () => {
             let capturedOptions: unknown;
             const tx: SubmittableTransaction = {
-                signSubmitAndWatch: (_signer: PolkadotSigner, options?: unknown) => {
+                createSubmitAndWatch: (_signer: CommonSignerTxCreator, options?: unknown) => {
                     capturedOptions = options;
                     return {
                         subscribe: (handlers: MockSubscribeHandlers) => {
@@ -495,13 +492,12 @@ if (import.meta.vitest) {
             if (!result.ok) expect(result.error).toBeInstanceOf(TxSigningRejectedError);
         });
 
-        test("skips txBestBlocksState with found=false", async () => {
+        test("skips notInBestBlock", async () => {
             const tx = createMockTx((h) => {
                 h.next(signedEvent);
                 h.next({
-                    type: "txBestBlocksState",
+                    type: "notInBestBlock",
                     txHash: "0xabc",
-                    found: false,
                 });
                 h.next(bestBlockOk);
             });
@@ -522,9 +518,9 @@ if (import.meta.vitest) {
             }
         });
 
-        test("returns err wrapping a synchronous throw from signSubmitAndWatch", async () => {
+        test("returns err wrapping a synchronous throw from createSubmitAndWatch", async () => {
             const tx: SubmittableTransaction = {
-                signSubmitAndWatch: () => {
+                createSubmitAndWatch: () => {
                     throw new Error("Signer not available");
                 },
             };
@@ -577,14 +573,13 @@ if (import.meta.vitest) {
             configureLogs({ handler: () => {} });
         });
 
-        test("does not resolve when txBestBlocksState ok is undefined", async () => {
+        test("does not resolve when inBestBlock ok is undefined", async () => {
             const tx = createMockTx((h) => {
                 h.next(signedEvent);
                 // ok is undefined (not explicitly true or false)
                 h.next({
-                    type: "txBestBlocksState",
+                    type: "inBestBlock",
                     txHash: "0xabc",
-                    found: true,
                     events: [{ id: 1 }],
                     block: { hash: "0xblock1", number: 100, index: 0 },
                     // ok intentionally omitted

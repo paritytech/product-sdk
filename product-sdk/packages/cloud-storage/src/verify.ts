@@ -18,6 +18,8 @@
  */
 import { type Result, err, normalizeError, ok, unwrapOk } from "@parity/result";
 import { CID } from "multiformats/cid";
+import type { HexString } from "polkadot-api";
+import { fromHex } from "polkadot-api/utils";
 
 import { HashAlgorithm } from "./cid.js";
 import { CloudStorageCidError, ProductCloudStorageError } from "./errors.js";
@@ -167,12 +169,12 @@ interface ParsedCid {
  * `cid_codec`/`hashing` matching in `matchesEntry`, and the
  * `HASH_CODE_TO_ENUM_TYPE` map above all need to be re-validated together.
  *
- * `Uint8Array | { asBytes(): Uint8Array }` covers both the raw and Binary-
- * wrapped shapes the codec can return depending on configuration.
+ * polkadot-api 3 decodes `FixedSizeBinary` as a hex string; `Uint8Array`
+ * covers callers that pass raw bytes.
  */
 interface ChainEntry {
-    chunk_root: { asBytes(): Uint8Array } | Uint8Array;
-    content_hash: { asBytes(): Uint8Array } | Uint8Array;
+    chunk_root: HexString | Uint8Array;
+    content_hash: HexString | Uint8Array;
     hashing: { type: "Blake2b256" | "Sha2_256" | "Keccak256" };
     cid_codec: bigint;
     size: number;
@@ -212,9 +214,7 @@ function parseCidForVerify(cid: string): ParsedCid {
 function matchesEntry(entry: ChainEntry, target: ParsedCid): boolean {
     if (entry.hashing.type !== target.hashType) return false;
     const onChainBytes =
-        entry.content_hash instanceof Uint8Array
-            ? entry.content_hash
-            : entry.content_hash.asBytes();
+        typeof entry.content_hash === "string" ? fromHex(entry.content_hash) : entry.content_hash;
     if (onChainBytes.length !== target.digest.length) return false;
     for (let i = 0; i < onChainBytes.length; i++) {
         if (onChainBytes[i] !== target.digest[i]) return false;
@@ -367,13 +367,13 @@ if (import.meta.vitest) {
             if (!result.ok) expect(result.error.message).toMatch(/does not expose query/);
         });
 
-        test("handles content_hash as a Binary-like wrapper", async () => {
+        test("handles content_hash as a hex string", async () => {
             const digest = new Uint8Array(32).fill(0xab);
             const cid = await makeCidWithDigest(digest);
-            const wrapper = { asBytes: () => digest };
+            const hex = `0x${"ab".repeat(32)}` as const;
             const entry: ChainEntry = {
-                chunk_root: wrapper,
-                content_hash: wrapper,
+                chunk_root: hex,
+                content_hash: hex,
                 hashing: { type: "Blake2b256" },
                 cid_codec: 0x55n,
                 size: 50,

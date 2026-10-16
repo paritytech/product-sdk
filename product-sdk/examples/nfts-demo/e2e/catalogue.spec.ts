@@ -26,6 +26,8 @@ import { numberIn, waitForAppReady } from "./helpers";
  *   - getCollections paged -> a small-page walk pinned with `at`, cross-checked against a
  *                              single larger page
  *   - getCollectionItems      -> Scarcity.ItemDefs/ItemMetadata prefix scans, merged metadata
+ *   - getInstanceDisplays  -> ScarcityApi.metadata_batch + a keyed Scarcity.ItemDefs read;
+ *                              minted NFTs rather than a catalogue, `Found` / `NotFound` per id
  *   - the structural chain contract, satisfied by a real ChainClient
  */
 test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
@@ -191,6 +193,23 @@ test.describe("@parity/product-sdk-nfts via Host API, catalogue reads", () => {
         const registered = await numberIn(frame, "registry-count");
         expect(await numberIn(frame, "preview-count")).toBe(registered);
         await expect(frame.locator('[data-testid="nfts-log"]')).toContainText("previewClaim:");
+    });
+
+    test("minted instances answer per id, and u64 max is a clean miss", async ({ testHost }) => {
+        const frame = await waitForAppReady(testHost);
+
+        const found = frame.locator('[data-testid="instances-found"]');
+        await expect(found).not.toHaveText("-", { timeout: 60_000 });
+        // How many of the probed low ids are minted is live state, so only the
+        // shape is pinned: four asked for, the fourth one that cannot exist.
+        await expect(found).toHaveText(/^\d+ of 4$/);
+
+        // u64 max was never allocated, so this is the `NotFound` arm of the
+        // same read, on the ok channel rather than as an error.
+        await expect(frame.locator('[data-testid="instance-missing-tag"]')).toHaveText("NotFound");
+        await expect(frame.locator('[data-testid="nfts-log"]')).toContainText(
+            "getInstanceDisplays:",
+        );
     });
 
     test("the artwork of the first item is fetched and checked against its reference", async ({

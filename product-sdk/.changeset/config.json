@@ -7,6 +7,9 @@
     "access": "public",
     "baseBranch": "main",
     "updateInternalDependencies": "patch",
+    "snapshot": {
+        "useCalculatedVersion": true
+    },
     "ignore": [
         "@parity/product-sdk-cloud-storage-demo",
         "@parity/product-sdk-chain-client-demo",

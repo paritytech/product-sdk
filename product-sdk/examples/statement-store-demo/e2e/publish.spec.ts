@@ -32,10 +32,17 @@ test.describe("@parity/product-sdk-statement-store via Host API — publish", ()
             { timeout: 30_000 },
         );
 
-        // Verify the host recorded the submission
+        // The host answers decoded entries, so this asserts on the statement's
+        // own fields rather than on the hex it put on the wire.
         const submitted = await testHost.getSubmittedStatements();
         expect(submitted.length).toBeGreaterThanOrEqual(1);
-        expect(submitted[0].timestamp).toBeGreaterThan(0);
+        expect(submitted[0].fromProduct).toBe(true);
+        expect(submitted[0].topics.length).toBeGreaterThanOrEqual(1);
+        // `data` is optional on the entry, so prove it is there before matching
+        // its shape -- a bare `toMatch` on `undefined` fails as a matcher type
+        // error that names neither the field nor the statement.
+        expect(submitted[0].data).toBeDefined();
+        expect(submitted[0].data).toMatch(/^0x[0-9a-f]+$/i);
     });
 
     test("published statement echoes back via subscription (full round-trip)", async ({
@@ -88,8 +95,12 @@ test.describe("@parity/product-sdk-statement-store via Host API — publish", ()
         const submitted = await testHost.getSubmittedStatements();
         expect(submitted.length).toBeGreaterThanOrEqual(1);
 
-        // Topics are `0x`-hex strings on the entry itself.
+        // The secondary topic is the whole point of this path: a plain publish
+        // carries one topic, this one carries that topic plus `topic2`.
         const stmt = submitted[submitted.length - 1];
         expect(stmt.topics.length).toBeGreaterThanOrEqual(2);
+        for (const topic of stmt.topics) {
+            expect(topic).toMatch(/^0x[0-9a-f]+$/i);
+        }
     });
 });

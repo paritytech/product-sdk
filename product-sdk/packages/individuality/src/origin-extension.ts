@@ -5,18 +5,24 @@
  * extension.
  *
  * `withAsPerson`, `withLiteAlias` and `withScoreParticipant` differ only in
- * which extension they fill and how its value is built. Everything else —
- * patching a slot while keeping the chain's declared order, reading the nonce
- * back out of `CheckNonce`, requesting a ring VRF proof defensively, caching
- * the decoded pipeline — is identical, and identical in ways that are easy to
- * get subtly wrong, so it lives here once. Internal to the package on purpose:
+ * which extension they fill and how its value is built. Everything else is
+ * identical, and identical in ways that are easy to get subtly wrong, so it
+ * lives here once: patching a slot while keeping the declared order, reading
+ * the nonce back out of `CheckNonce`, requesting a ring VRF proof defensively,
+ * caching the decoded pipeline, and naming the pipeline version for the host. Internal to the package on purpose:
  * these are implementation details of the three signers, not a public contract.
  *
  * The errors are `AsPersonError` throughout. It is the write half's error
  * class, predates the second extension, and callers already catch it; a
  * parallel class per extension would split one failure domain in two.
  */
-import type { PolkadotSigner } from "polkadot-api";
+import {
+    type CommonSignerTxCreator,
+    withCommonExtensions,
+    withNonce,
+} from "@polkadot-api/signers-common";
+import type { TxCreator, TxPayloadV1 } from "@polkadot-api/tx-creator";
+import { fromHex, toHex } from "@polkadot-api/utils";
 
 import {
     type ExtensionPipeline,
@@ -38,16 +44,6 @@ export const RESTRICT_ORIGINS_ENABLED = true;
 
 /** `Disabled`: no signature slot, so the origin stays `None`. */
 export const VERIFY_SIGNATURE_DISABLED = { type: "Disabled", value: undefined };
-
-/**
- * The extensions a fee estimate passes to PAPI. PAPI cannot fill
- * `VerifyMultiSignature`, which the host fills with the account signature when it
- * signs, so the estimate signs the extrinsic the classic way with the extension
- * `Disabled`. The length differs by a few bytes at most.
- */
-export const FEE_ESTIMATE_EXTENSIONS = {
-    [VERIFY_SIGNATURE]: { value: VERIFY_SIGNATURE_DISABLED },
-};
 
 /** Metadata identifier of the nonce extension. */
 export const CHECK_NONCE = "CheckNonce";
@@ -98,8 +94,8 @@ export type CreateRingVRFProof = (message: Uint8Array) => Promise<RingVRFProof>;
  *
  * The implicit half is carried through untouched when the slot already exists,
  * and encoded from the chain's own declared type when it does not. That second
- * case is `VerifyMultiSignature`, which PAPI omits entirely whenever the host is
- * the one signing.
+ * case is `VerifyMultiSignature`, which PAPI cannot fill and the host fills
+ * itself when it signs.
  */
 export function withSlot(
     pipeline: ExtensionPipeline,
@@ -178,20 +174,84 @@ export async function requestProof(
  * A per-signer pipeline reader that decodes each metadata blob once.
  *
  * Decoding the metadata is the expensive part of reading the pipeline, around
- * 7 ms for a 435 KB blob, and PAPI hands the same array for every signature
- * until the runtime upgrades. Cached on identity rather than content, so a
- * runtime upgrade brings a different array and cannot be served a stale
- * pipeline. One reader per wrapped signer, not module level, so two wrapped
- * signers on two chains cannot share an entry.
+ * 7 ms for a 435 KB blob, and PAPI hands the same metadata for every
+ * transaction until the runtime upgrades. Keyed on the hex string PAPI puts on
+ * the payload, so a runtime upgrade brings different metadata and cannot be
+ * served a stale pipeline. One reader per wrapped signer, not module level, so
+ * two wrapped signers on two chains cannot share an entry.
  */
-export function cachedPipelineReader(): (metadata: Uint8Array) => ExtensionPipeline {
-    let cached: { metadata: Uint8Array; pipeline: ExtensionPipeline } | undefined;
+export function cachedPipelineReader(): (metadata: string) => ExtensionPipeline {
+    let cached: { metadata: string; pipeline: ExtensionPipeline } | undefined;
     return (metadata) => {
         if (cached?.metadata !== metadata) {
-            cached = { metadata, pipeline: readExtensionPipeline(metadata) };
+            cached = { metadata, pipeline: readExtensionPipeline(fromHex(metadata)) };
         }
         return cached.pipeline;
     };
+}
+
+/**
+ * Run the PAPI 3 enhancers that fill the standard extensions, and keep the result.
+ *
+ * They fill the nonce, the era, the genesis, the runtime versions, the tip, the
+ * metadata hash, and the encoding of `undefined` for every other extension any
+ * pipeline declares. Each one skips an extension the payload already carries,
+ * so the inner signer, which runs the same enhancers, signs exactly these bytes.
+ */
+async function withStandardExtensions(
+    publicKey: Uint8Array,
+    payload: TxPayloadV1,
+    opts: unknown,
+    bindings: Parameters<TxCreator>[2],
+): Promise<TxPayloadV1> {
+    let filled: TxPayloadV1 | undefined;
+    const keep: TxCreator<[]> = async (complete) => {
+        filled = complete;
+        return "0x";
+    };
+    await withNonce(publicKey)(withCommonExtensions(keep))(payload, opts as never, bindings, false);
+    if (!filled) {
+        throw new AsPersonError("transaction extensions could not be filled");
+    }
+    return filled;
+}
+
+/** The payload extensions the pipeline declares, as bytes, in its order. */
+function toExtensionMap(
+    pipeline: ExtensionPipeline,
+    supplied: TxPayloadV1["extensions"],
+): PapiSignedExtensions {
+    // First occurrence wins, as in the PAPI creators and the host creator, so
+    // an entry appended after one already written cannot replace it.
+    const byId = new Map<string, TxPayloadV1["extensions"][number]>();
+    for (const extension of supplied) {
+        if (!byId.has(extension.id)) byId.set(extension.id, extension);
+    }
+    return Object.fromEntries(
+        pipeline.extensions.flatMap(({ identifier }) => {
+            const extension = byId.get(identifier);
+            return extension
+                ? [
+                      [
+                          identifier,
+                          {
+                              identifier,
+                              value: fromHex(extension.extra),
+                              additionalSigned: fromHex(extension.additionalSigned),
+                          },
+                      ],
+                  ]
+                : [];
+        }),
+    ) as PapiSignedExtensions;
+}
+
+function toPayloadExtensions(extensions: PapiSignedExtensions): TxPayloadV1["extensions"] {
+    return Object.values(extensions).map(({ identifier, value, additionalSigned }) => ({
+        id: identifier,
+        extra: toHex(value),
+        additionalSigned: toHex(additionalSigned),
+    }));
 }
 
 /** Named fields, because a bare `true` in argument position says nothing. */
@@ -215,61 +275,78 @@ export interface OriginExtensionSpec<Value> {
  * The step order below is the fragile part, and getting it wrong produces a bad
  * proof with nothing local to read. `spec.identifier` goes last because its own
  * value is outside its own hash, which is what makes the proof step orderable.
+ *
+ * The inner signer receives the finished extensions and the pipeline version
+ * they belong to, so a host never has to infer the version from the names.
+ *
+ * A fee estimate goes straight to the inner signer. It needs no proof, and a
+ * proof request can prompt the user, so the call is priced as a plain account
+ * transaction, a few bytes shorter than the real one.
  */
 export function withOriginExtension<Value>(
-    signer: PolkadotSigner,
+    signer: CommonSignerTxCreator,
     spec: OriginExtensionSpec<Value>,
-): PolkadotSigner {
+): CommonSignerTxCreator {
     const pipelineFor = cachedPipelineReader();
 
-    return {
-        publicKey: signer.publicKey,
-        signBytes: (data) => signer.signBytes(data),
-        async signTx(callData, signedExtensions, metadata, atBlockNumber, hasher) {
-            const pipeline = pipelineFor(metadata);
-            let extensions = signedExtensions;
+    const create: TxCreator<[]> = async (payload, opts, bindings, mocked) => {
+        if (mocked) return signer(payload, opts as never, bindings, true);
 
-            if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    RESTRICT_ORIGINS,
-                    encodeChecked(
-                        pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type),
-                        RESTRICT_ORIGINS_ENABLED,
-                    ),
-                );
-            }
+        const standard = await withStandardExtensions(signer.publicKey, payload, opts, bindings);
+        const pipeline = pipelineFor(standard.context.metadata);
+        const callData = fromHex(standard.callData);
+        let extensions = toExtensionMap(pipeline, standard.extensions);
 
-            if (spec.unsigned) {
-                extensions = withSlot(
-                    pipeline,
-                    extensions,
-                    VERIFY_SIGNATURE,
-                    encodeChecked(
-                        pipeline.codec(pipeline.slot(VERIFY_SIGNATURE).type),
-                        VERIFY_SIGNATURE_DISABLED,
-                    ),
-                );
-            }
-
-            const value = await spec.buildValue(pipeline, callData, extensions, signer.publicKey);
-
+        if (pipeline.extensions.some((slot) => slot.identifier === RESTRICT_ORIGINS)) {
             extensions = withSlot(
                 pipeline,
                 extensions,
-                spec.identifier,
-                spec.encode(pipeline, value),
+                RESTRICT_ORIGINS,
+                encodeChecked(
+                    pipeline.codec(pipeline.slot(RESTRICT_ORIGINS).type),
+                    RESTRICT_ORIGINS_ENABLED,
+                ),
             );
+        }
 
-            return signer.signTx(callData, extensions, metadata, atBlockNumber, hasher);
-        },
+        if (spec.unsigned) {
+            extensions = withSlot(
+                pipeline,
+                extensions,
+                VERIFY_SIGNATURE,
+                encodeChecked(
+                    pipeline.codec(pipeline.slot(VERIFY_SIGNATURE).type),
+                    VERIFY_SIGNATURE_DISABLED,
+                ),
+            );
+        }
+
+        const value = await spec.buildValue(pipeline, callData, extensions, signer.publicKey);
+
+        extensions = withSlot(pipeline, extensions, spec.identifier, spec.encode(pipeline, value));
+
+        return signer(
+            {
+                ...standard,
+                extensions: toPayloadExtensions(extensions),
+                txExtVersion: pipeline.version,
+            },
+            opts as never,
+            bindings,
+            false,
+        );
     };
+
+    return Object.assign(create, {
+        publicKey: signer.publicKey,
+        signBytes: (data: Uint8Array) => signer.signBytes(data),
+    }) as CommonSignerTxCreator;
 }
 
 if (import.meta.vitest) {
-    const { describe, expect, test } = import.meta.vitest;
+    const { describe, expect, test, vi } = import.meta.vitest;
     const { readFileSync } = await import("node:fs");
+    const { unifyMetadata, decAnyMetadata } = await import("@polkadot-api/substrate-bindings");
 
     const METADATA = new Uint8Array(
         readFileSync(
@@ -332,6 +409,124 @@ if (import.meta.vitest) {
         });
     });
 
+    describe("withOriginExtension", () => {
+        // People runtime 3004000 on paseo: version 0 is the plain account
+        // pipeline, version 1 adds the person and origin extensions.
+        const METADATA_HEX = toHex(METADATA);
+        const versionZero = unifyMetadata(decAnyMetadata(METADATA)).extrinsic
+            .extensionsByVersion[0];
+
+        /** A payload holding version 0 only, filled, so no enhancer needs chain bindings. */
+        const payload = (): TxPayloadV1 => ({
+            version: 1,
+            signer: null,
+            callData: "0x3301aa",
+            extensions: versionZero.map(({ identifier }, index) => ({
+                id: identifier,
+                extra: identifier === CHECK_NONCE ? "0x1c" : toHex(Uint8Array.of(index)),
+                additionalSigned: "0x",
+            })),
+            txExtVersion: null,
+            context: {
+                metadata: METADATA_HEX,
+                token: null,
+                bestBlockHeight: 1,
+                bestBlockHash: `0x${"11".repeat(32)}`,
+                genesisHash: `0x${"22".repeat(32)}`,
+            },
+        });
+
+        function spySigner() {
+            const inner = vi.fn(async (_payload: TxPayloadV1, ..._rest: unknown[]) => "0xdead");
+            const signer = Object.assign(inner, {
+                publicKey: new Uint8Array(32).fill(7),
+                signBytes: async () => new Uint8Array(64),
+            }) as unknown as CommonSignerTxCreator;
+            return { signer, inner };
+        }
+
+        const spec = (unsigned: boolean) => ({
+            identifier: "AsPerson",
+            unsigned,
+            encode: () => Uint8Array.of(0x01, 0x00, 0x07, 0x00, 0x00, 0x00),
+            buildValue: vi.fn(async () => ({})),
+        });
+
+        test("names the pipeline that carries the extension on the payload", async () => {
+            const { signer, inner } = spySigner();
+            await withOriginExtension(signer, spec(false))(payload(), {}, {} as never, false);
+            const handed = inner.mock.calls[0][0];
+            expect(handed.txExtVersion).toBe(PIPELINE.version);
+            expect(handed.txExtVersion).toBe(1);
+        });
+
+        test("hands over every slot of that pipeline, the person ones filled", async () => {
+            const { signer, inner } = spySigner();
+            await withOriginExtension(signer, spec(false))(payload(), {}, {} as never, false);
+            const handed = inner.mock.calls[0][0];
+            const byId = Object.fromEntries(handed.extensions.map((e) => [e.id, e]));
+            expect(handed.extensions.map((e) => e.id)).toEqual(
+                PIPELINE.extensions
+                    .map((slot) => slot.identifier)
+                    .filter((identifier) => identifier !== VERIFY_SIGNATURE),
+            );
+            expect(byId.AsPerson.extra).toBe("0x010007000000");
+            expect(byId[RESTRICT_ORIGINS].extra).toBe("0x01");
+            for (const name of ["ScoreAsParticipant", "PeopleLiteAuth", "AsMember", "HonourAuth"]) {
+                expect(byId[name].extra).toBe("0x00");
+            }
+            expect(byId[CHECK_NONCE].extra).toBe("0x1c");
+        });
+
+        test("an unsigned origin disables VerifyMultiSignature for the host", async () => {
+            const { signer, inner } = spySigner();
+            await withOriginExtension(signer, spec(true))(payload(), {}, {} as never, false);
+            const handed = inner.mock.calls[0][0];
+            expect(handed.extensions.find((e) => e.id === VERIFY_SIGNATURE)?.extra).toBe("0x00");
+        });
+
+        test("hashes over the slots the standard enhancers filled", async () => {
+            const { signer } = spySigner();
+            const withSpy = spec(false);
+            await withOriginExtension(signer, withSpy)(payload(), {}, {} as never, false);
+            const seen = withSpy.buildValue.mock.calls[0] as unknown as [
+                ExtensionPipeline,
+                Uint8Array,
+                PapiSignedExtensions,
+            ];
+            expect(Object.keys(seen[2])).toContain("GameAsInvited");
+            expect(seen[1]).toEqual(Uint8Array.of(0x33, 0x01, 0xaa));
+        });
+
+        test("the first of two entries for one extension is the one the proof covers", async () => {
+            const { signer } = spySigner();
+            const withSpy = spec(false);
+            const original = payload();
+            const later = { id: CHECK_NONCE, extra: "0xffff", additionalSigned: "0x" };
+            await withOriginExtension(signer, withSpy)(
+                { ...original, extensions: [...original.extensions, later] },
+                {},
+                {} as never,
+                false,
+            );
+            const seen = withSpy.buildValue.mock.calls[0] as unknown as [
+                ExtensionPipeline,
+                Uint8Array,
+                PapiSignedExtensions,
+            ];
+            expect(seen[2][CHECK_NONCE].value).toEqual(Uint8Array.of(0x1c));
+        });
+
+        test("a fee estimate reaches the inner signer untouched and asks for no proof", async () => {
+            const { signer, inner } = spySigner();
+            const withSpy = spec(false);
+            const original = payload();
+            await withOriginExtension(signer, withSpy)(original, {}, {} as never, true);
+            expect(inner).toHaveBeenCalledWith(original, {}, {}, true);
+            expect(withSpy.buildValue).not.toHaveBeenCalled();
+        });
+    });
+
     describe("nonceFrom", () => {
         test("reads back the compact nonce PAPI put in the body", () => {
             const nonceBytes = PIPELINE.codec(PIPELINE.slot(CHECK_NONCE).type)[0](300);
@@ -348,12 +543,19 @@ if (import.meta.vitest) {
     });
 
     describe("cachedPipelineReader", () => {
-        test("decodes a blob once and re-decodes on a new array", () => {
+        test("decodes a runtime once and again for different metadata", () => {
             const read = cachedPipelineReader();
-            const first = read(METADATA);
-            expect(read(METADATA)).toBe(first);
-            // A different array means a different runtime, so the cache must miss.
-            expect(read(new Uint8Array(METADATA))).not.toBe(first);
+            const first = read(toHex(METADATA));
+            expect(read(toHex(METADATA))).toBe(first);
+            const other = new Uint8Array(
+                readFileSync(
+                    new URL(
+                        "../../descriptors/.papi/metadata/devnet_individuality.scale",
+                        import.meta.url,
+                    ),
+                ),
+            );
+            expect(read(toHex(other))).not.toBe(first);
         });
     });
 }

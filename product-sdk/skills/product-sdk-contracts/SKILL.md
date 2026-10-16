@@ -185,8 +185,9 @@ await signerManager.connect();
 
 // Request a product account — its signer routes through
 // `host_create_transaction` (PR #96), which preserves arbitrary signed
-// extensions (e.g. `AsPgas` on Paseo Next v2). Required on any chain that
-// ships signed extensions PJS doesn't know about.
+// extensions (e.g. `AsPgas` on Paseo Next v2), on a pipeline version that
+// declares them (version 1 for `AsPgas` on Asset Hub runtime 3004000).
+// Required on any chain that ships signed extensions PJS doesn't know about.
 const productRes = await signerManager.getProductAccount("your-app.dot", 0);
 if (!productRes.ok) throw productRes.error;
 const productAccount = productRes.value;
@@ -310,7 +311,7 @@ The typed-API factory `createContractRuntime(typedApi, { at })` is also exported
 
 2. **Missing signerManager for tx()** — If no signer is available, `tx()` returns `err(ContractSignerMissingError)` (on `result.error`, not thrown). Check `!result.ok` before reading `result.value`.
 
-3. **Wrong signer type** — Contract transactions need a `PolkadotSigner`. Don't confuse with `StatementSignerWithKey` (for statement-store).
+3. **Wrong signer type**. Contract transactions need a `CommonSignerTxCreator`. Don't confuse with `StatementSignerWithKey` (for statement-store).
 
 4. **Adding a spurious `await`** — `ContractManager.fromClient()` and `createContractFromClient()` are **synchronous**; don't `await` them. Only the live-resolution factories `ContractManager.fromLive()` / `fromLiveClient()` (and `withLiveContractAddresses()`) return Promises.
 
@@ -318,7 +319,7 @@ The typed-API factory `createContractRuntime(typedApi, { at })` is also exported
 
 6. **Assuming `query()` throws on revert** — It doesn't. Reverts come back as `{ success: false, value: { type: "ContractRevertedWithPayload", ... } }`. Always check `success` before reading `value` as the return type.
 
-7. **Using `manager.getSigner()` (legacy account) on chains with unknown signed extensions** — `signerManager.connect()` exposes legacy accounts, whose signer routes through PJS. On chains like Paseo Next v2 that ship `AsPgas`, PJS throws `PJS does not support this signed-extension: AsPgas` at signing time. Use `signerManager.getProductAccount(<appOrigin>, 0)` and `productAccount.getSigner()` instead — that path goes through `host_create_transaction` and preserves arbitrary extensions.
+7. **Using `manager.getSigner()` (legacy account) on chains with unknown signed extensions**. `signerManager.connect()` exposes legacy accounts, whose signer routes through PJS. On chains like Paseo Next v2 that ship `AsPgas`, PJS throws `PJS does not support this signed-extension: AsPgas` at signing time. Use `signerManager.getProductAccount(<appOrigin>, 0)` and `productAccount.getSigner()` instead. That path goes through `host_create_transaction` and preserves arbitrary extensions, signing on a pipeline version that declares them.
 
 8. **Assuming `.query()` reads finalized state** — Dry-runs default to **best-block**, matching `.tx()`'s submission resolution. A `.query()` right after a `.tx()` will read what the just-landed transaction wrote, even before finalization. Pass `{ at: "finalized" }` (per-call) or set the runtime default to `"finalized"` if your product needs canonical lagged reads.
 

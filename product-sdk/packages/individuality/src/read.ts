@@ -36,7 +36,7 @@ import type {
     PersonhoodResult,
 } from "./types.js";
 
-import type { ReadAt } from "./pinned.js";
+import { readRepinning, type ReadAt } from "./pinned.js";
 
 /** `AccountToAlias`, narrowed to the contextual alias the read keys on. */
 export interface RawAccountAlias {
@@ -253,7 +253,6 @@ async function runRead(
     options: ReadPersonhoodStateOptions,
 ): Promise<PersonhoodResult> {
     const { signal } = options;
-    const query = chain.individuality.query;
 
     // Neither an unusable call nor an already cancelled one should pin a block. The
     // fetch below takes no options, so it cannot carry the signal itself.
@@ -261,9 +260,24 @@ async function runRead(
     signal?.throwIfAborted();
 
     // Pin one finalized block: every read below must agree on it.
-    const block = await chain.raw.individuality.getFinalizedBlock();
-    const at: ReadAt = { at: block.hash, signal };
-    const snapshot: FinalizedSnapshot = { blockHash: block.hash, blockNumber: block.number };
+    const pinFinalized = async (): Promise<FinalizedSnapshot> => {
+        const block = await chain.raw.individuality.getFinalizedBlock();
+        return { blockHash: block.hash, blockNumber: block.number };
+    };
+    return readRepinning(pinFinalized, (snapshot) =>
+        readPersonhoodAt(chain, input, snapshot, signal),
+    );
+}
+
+/** The reads of {@link readPersonhoodState}, all at `snapshot`. */
+async function readPersonhoodAt(
+    chain: IndividualityChain,
+    input: ReadInput,
+    snapshot: FinalizedSnapshot,
+    signal: AbortSignal | undefined,
+): Promise<PersonhoodResult> {
+    const query = chain.individuality.query;
+    const at: ReadAt = { at: snapshot.blockHash, signal };
 
     // An account input *skips* the username lookup rather than adding a read to
     // it, which is why the account path costs one round trip less.

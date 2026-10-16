@@ -1,5 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import type { Result } from "@parity/result";
 import type { SignerManager } from "@parity/product-sdk-signer";
 import type {
@@ -9,7 +10,7 @@ import type {
     TxResult,
     Weight,
 } from "@parity/product-sdk-tx";
-import type { HexString, PolkadotSigner, SS58String } from "polkadot-api";
+import type { HexString, SS58String } from "polkadot-api";
 
 import type { ContractError } from "./errors.js";
 import type { ContractDryRunAt } from "./runtime.js";
@@ -122,7 +123,7 @@ export interface QueryOptions {
 
 /** Options for transaction calls — passed as the last argument after positional args. */
 export interface TxOptions extends SubmitOptions {
-    signer?: PolkadotSigner;
+    signer?: CommonSignerTxCreator;
     origin?: SS58String;
     value?: bigint;
     gasLimit?: Weight;
@@ -160,7 +161,7 @@ export interface PrepareOptions {
 /** Mutable defaults shared across all contract handles from a manager. */
 export interface ContractDefaults {
     origin?: SS58String;
-    signer?: PolkadotSigner;
+    signer?: CommonSignerTxCreator;
     signerManager?: SignerManager;
 }
 
@@ -183,7 +184,7 @@ export interface ContractOptions {
     /** Static fallback caller address for queries. */
     defaultOrigin?: SS58String;
     /** Static fallback signer for transactions. */
-    defaultSigner?: PolkadotSigner;
+    defaultSigner?: CommonSignerTxCreator;
 }
 
 /** Options for {@link ContractManager} construction. */

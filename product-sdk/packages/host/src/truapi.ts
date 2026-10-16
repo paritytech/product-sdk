@@ -261,6 +261,8 @@ export async function getPreimageManager(): Promise<PreimageManager | null> {
  * Construct a `PreimageManager`. Retained for API compatibility; with the single
  * cached TruAPI client this is equivalent to {@link getPreimageManager}.
  *
+ * @deprecated Use {@link getPreimageManager}; this is an identical alias kept for
+ *   back-compat and will be removed in a future major.
  * @returns A `PreimageManager` instance, or `null` if unavailable.
  */
 export async function createHostPreimageManager(): Promise<PreimageManager | null> {

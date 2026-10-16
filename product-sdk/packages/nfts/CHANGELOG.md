@@ -1,5 +1,97 @@
 # @parity/product-sdk-nfts
 
+## 0.3.0
+
+### Minor Changes
+
+- dde3b0d: **Moves the SDK to polkadot-api 3.** Breaking for every caller that signs.
+
+  PAPI 3 replaced the `PolkadotSigner` with a `TxCreator`, which receives one payload holding the call, every transaction extension, the pipeline version those extensions belong to, and the runtime metadata. Every signer the SDK builds or accepts is now a `CommonSignerTxCreator` from `@polkadot-api/signers-common`: `getProductAccountSigner` and `getLegacyAccountSigner` in host, `SignerManager.getSigner`, `seedToAccount` and the key manager in keys, `createDevSigner` in tx, the session, slot-account and allowance signers in terminal, and the signers `resolveSigner` returns in auth. `submitAndWatch`, `batchSubmitAndWatch` and contract calls take it unchanged. A PAPI transaction is now submitted with `createSubmitAndWatch` or `createAndSubmit`, fees are estimated with a creator such as `getFakeTxCreator(address)`, and the transaction events `signed` and `txBestBlocksState` are now `created`, `inBestBlock` and `notInBestBlock`. The `TxEvent` type in tx follows.
+
+  `withAsPerson`, `withLiteAlias` and `withScoreParticipant` now wrap a `TxCreator`. They fill the standard extensions with the PAPI 3 enhancers, write their origin extension, and hand the inner signer the pipeline version that carries it, so the host is told the version the proof was built for instead of inferring one. This replaces the slot filling that worked around PAPI 2 only knowing pipeline version 0. A fee estimate through a wrapper is priced as a plain account transaction and never requests a proof.
+
+  Host exports `createHostTxCreator`, also published as the transport-free subpath `@parity/product-sdk-host/tx-creator`, which terminal uses for the paired-phone signer. The `txExtVersion` signer option is now the version used when the transaction names none.
+
+  Terminal moves to `@novasamatech/host-papp`, `statement-store` and `storage-adapter` 0.12.0, and host to `@novasamatech/host-api-wrapper` 0.12.0, the releases built for PAPI 3. `@novasamatech/statement-store` 0.12.0 still depends on `@novasamatech/sdk-statement` 0.6.0, which pulls a private copy of polkadot-api 2 into the install. The descriptors are regenerated with the PAPI 3 CLI.
+
+  Cloud Storage keeps working with `@parity/bulletin-sdk` 0.3.0 through a shim that maps its `signSubmitAndWatch` onto `createSubmitAndWatch`, to be removed when a PAPI 3 build ships.
+
+  The `paseo-asset-hub` and `previewnet-asset-hub` descriptors follow `next-asset-hub-paseo` 3004000, and `previewnet-asset-hub` takes the new genesis of the reset Previewnet Asset Hub. That runtime drops the `Result` wrapper from `ScarcityApi.metadata_batch` and `NftClaimsApi.preview_mints`, which now return their list directly and reject an oversized batch at decode (128 queries for `metadata_batch`, 32 for `preview_mints` on `next-asset-hub-paseo` 3004000). `NftsChain` and `NftsInstancesChain` follow, so a hand-built chain answers those calls with a bare list. `getInstanceDisplays` no longer re-chunks on a `TooLarge` refusal, and `previewClaim` sends one `preview_mints` call per 32 collections, the bound the runtime enforces.
+
+  Every nfts read now holds the blocks it pins until it settles, through the optional `hodlBlock` that `BlockSource` gains and a PAPI client already has. A finalized block was unpinned as soon as a newer one was finalized, so a read that spanned that moment failed inside a container with "is not pinned", because the host serves no archive methods to fall back to.
+
+### Patch Changes
+
+- @parity/product-sdk-utils@0.2.1
+
+## 0.2.0
+
+### Minor Changes
+
+- 133451f: Let a read address its block the way PAPI's `at` does. `readSignUpFunds`,
+  `readGameSignUpRequirement`, `readLiteSignUpRequirement` and `readAirdropDraw`
+  take `at: "finalized" | "best" | BlockSnapshot`. Every nfts read that took a
+  snapshot as `at` takes the same, and `getClaims` also takes it as
+  `individualityAt` for its People read. `"finalized"` stays the default.
+
+  The raw clients these reads take, `raw.individuality` and `raw.assetHub`, are
+  now `BlockSource`, the part of PAPI's `PolkadotClient` they use, so they name
+  `getBestBlocks` next to `getFinalizedBlock`. Every `PolkadotClient` has both, so `fromPapi` and
+  `getChainAPI` callers change nothing. A hand-built raw client needs
+  `getBestBlocks` added. `FinalizedBlockSource` stays as a deprecated alias.
+  `BlockSnapshot` names the pinned block, and `FinalizedSnapshot` stays as an
+  alias of it.
+
+- 133451f: `getInstanceDisplays(chain, instances)` reads the display metadata of minted
+  NFTs by instance id: `name`, `collectionName`, `rarity`, `imageRef`, the full
+  three-layer `attributes` bag, the (collection, item) each instance was minted
+  from as the runtime resolves it, and `transferability`, `supply` and
+  `liveSupply` from its item definition.
+
+  `name` is the instance's own — its instance layer, else its item layer — and
+  does **not** inherit the collection's, which is reported beside it as
+  `collectionName`. Inheriting is right for `image` and `rarity`, where the
+  collection sets a default for its items, and wrong for `name`, where the
+  collection layer holds the name of a different thing. A deployment that names
+  its collection and titles items by `archetype` would otherwise see every item
+  wearing the collection's name. This differs from `CollectionItem.name`, which
+  merges the two; that read shipped first and this is the shape both should
+  have. Positional like `previewClaim`, with a per-instance `Found` /
+  `NotFound` tag — an unminted or burned instance is a clean miss on the `ok`
+  channel, and an instance with no metadata at all (every claim-minted one
+  today) is still `Found`. `getInstanceDisplay` is the same read for one id.
+
+  The read takes its own chain contract, `NftsInstancesChain`: the runtime API
+  `api.ScarcityApi.metadata_batch` and `query.Scarcity.ItemDefs`, both of which
+  a pruned descriptor whitelist must carry, plus the raw client. A `getChainAPI`
+  client satisfies it whole.
+
+  The read is capped at `MAX_INSTANCES_PER_READ` (128) instances per call and
+  refuses above it rather than paging: every other read here walks a space the
+  chain sizes, while this one answers a list the caller already holds, so a
+  cursor would page someone over their own input. The cap is the package's
+  contract rather than a reading of the chain, though it coincides with the live
+  runtime's `metadata_batch` cap, so a full read is one runtime call there and a
+  deployment configured lower reports its own cap for the read to re-chunk to.
+  The definitions are then one keyed read over the deduplicated
+  `(collection, item)` pairs, so they cost one serial hop and nothing per
+  instance. The three definition-backed fields are `null` together, and only
+  when the definition is gone from under a live instance.
+
+  `NftsIdError` now also reports out-of-range `u64` instance ids; its `id` field
+  widened from `number` to `number | bigint`. The constructor shape is unchanged
+  (`(id, options?)`): which space the id missed follows from the value's type.
+
+  `getCollectionItems` now refuses an item definition carrying a transferability
+  variant this package does not know with an `NftsDecodeError`, instead of
+  passing the unknown string through a field typed as the `Transferability`
+  union. It is the same refusal `getInstanceDisplays` makes, through the one
+  shared decoder. This is a behavior change for consumers: the two variants the
+  runtime has today still read as before, but a future third variant now fails
+  the read on the `err` channel where it previously reached callers as an
+  untyped string, so a consumer wanting to tolerate an unknown variant must
+  handle the `NftsDecodeError`.
+
 ## 0.1.0
 
 ### Minor Changes
