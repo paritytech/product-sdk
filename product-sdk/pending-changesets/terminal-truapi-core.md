@@ -9,18 +9,18 @@ The core handles pairing, the session, allowances and signing. It is the same Ru
 
 **What users and data see**
 
-- **Users pair once more.** Sessions from the earlier backend are not read. `clearLocalAppStorage` removes their `<appsDir>/<dappId>_*` files.
+- **Users pair once more.** Sessions from the earlier backend are not read. Auth's `clearLocalAppStorage` removes their `<appsDir>/<dappId>_*` files; terminal-only users can delete `~/.polkadot-apps/<appId>_*.json`.
 - **Product addresses and entropy are unchanged for lowercase product ids.** The core lowercases and NFC-normalises `productId` before deriving, so `"My-App.dot"` now gives the account and entropy of `"my-app.dot"`.
 - **`appId` must be a dotNS id** (ending in `.dot`, `.paseo` or `.testnet`) or `localhost`. The core refuses any other id.
-- **`storageDir` is now the app's own directory.** It defaults to `~/.polkadot-apps/<appId>/`, and the session lives in its `core/` and `product/` folders. It is no longer a parent directory shared by several apps, so do not point two apps at the same `storageDir`.
+- **`storageDir` is now the app's own directory.** It defaults to `~/.polkadot-apps/<appId>/`; the session lives in `core/` and the product's storage in `product/`. It is no longer a parent directory shared by several apps, so do not point two apps at the same `storageDir`.
 - **Requires Node ≥22.** Do not bundle the package into one file: the core's worker and WASM load from files beside it.
 
 **`@parity/product-sdk-terminal` API**
 
-- `createTerminalAdapter` is now `async`. The adapter has `session`, `authState`, `onAuthStateChange`, `login`, `logout`, `client` and `destroy`.
+- `createTerminalAdapter` is now `async`. The adapter has `appId`, `storageDir`, `runtime`, `session`, `authState`, `onAuthStateChange`, `login`, `logout`, `client` and `destroy`. `logout` resolves once the wallet has been told, and rejects when it could not be reached within 30 s.
 - Signers and helpers take the adapter instead of a `UserSession`: `createSessionSigner`, `createSessionSignerForAccount`, `deriveProductPublicKey`, `deriveEntropy`, `getStatementStoreProver` and `requestResourceAllocation`.
 - `requestResourceAllocation(adapter, resources, { productId? })` returns one outcome per resource: `"Allocated"`, `"Rejected"` or `"NotAvailable"`. It has no `onExisting` option, because the core increases an existing allowance.
-- New: `submitPreimage`, `submitStatement`, `approveAll`, and the `approvals` option for answering the core's approval prompts.
+- New: `submitPreimage`, `submitStatement`, `defaultStorageDir`, `approveAll`, and the `approvals` option for answering the core's approval prompts.
 - `StatementStoreNetworks` is replaced by `TerminalNetworks`, keyed by network with genesis hashes and endpoints for People, Bulletin and Asset Hub. Only `"paseo-next-v2"` is defined; `previewnet` is gone.
 - Removed:
   - `waitForSessions`, `getProductSubtreePublicKey`, `ProductSubtreeOptions` and `INCOMPLETE_SESSION_MESSAGE`.
@@ -31,7 +31,7 @@ The core handles pairing, the session, allowances and signing. It is the same Ru
 
 **`@parity/product-sdk-auth` API**
 
-- `AuthConfig.peopleEndpoints` is replaced by `network`. There is a new `approvals` option.
+- `AuthConfig.peopleEndpoints` is replaced by `network`. There are new `storageDir` and `approvals` options.
 - `AuthConfig.productId` must be a dotNS id. The client acts as it for every call, and keeps its session under `dappId`.
 - `SessionHandle` now has `adapter` and `session` in place of `userSession`. `ResolvedSigner.userSession` is now `session`.
 - `LoginHandle.authPromise` is now `session`, and `LogoutHandle.session` is removed.

@@ -53,7 +53,7 @@ The adapter exposes:
 - `session`: the paired session (root key, identity, usernames), or `undefined`.
 - `authState` and `onAuthStateChange(listener)`: the core's auth state.
 - `login({ reason?, onPairing? })`: resolves with the session, pairing first when there is none.
-- `logout()`: ends the session and tells the wallet when it can be reached.
+- `logout()`: ends the session and tells the wallet. Rejects when the wallet could not be reached within 30 s; the local session is cleared either way.
 - `client(productId?)`: a `@parity/truapi` client for anything not wrapped here.
 - `runtime`: the underlying `WorkerPairingHostRuntime`.
 - `destroy()`: stops the core. Idempotent.
@@ -87,11 +87,17 @@ The core asks before it shares the product account, submits to a chain, or signs
 const adapter = await createTerminalAdapter({
     appId: "my-cli.dot",
     approvals: async (request) =>
-        request.kind === "review" ? await confirm(`Allow ${request.review.tag}?`) : false,
+        request.kind === "review"
+            ? await confirm(`Allow ${request.review.tag}?`)
+            : await confirm(`Grant ${request.permission}?`),
 });
 ```
 
 Device permissions (camera, location and the like) are always refused.
+
+### `defaultStorageDir(appId): string`
+
+The directory an adapter uses when no `storageDir` is given: `~/.polkadot-apps/<appId>`, with characters outside `[A-Za-z0-9_.-]` replaced by `_`.
 
 ### `renderQrCode(data, options?): Promise<string>`
 
