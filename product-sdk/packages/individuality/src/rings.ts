@@ -30,7 +30,7 @@ import { err, normalizeError, ok, type Result } from "@parity/result";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@parity/product-sdk-utils";
 import { PERSONHOOD_PRODUCT_NAME, personhoodContext } from "./contexts.js";
 import { IndividualityDecodeError, ProductIndividualityError } from "./errors.js";
-import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type PinnedChain, type ReadAt } from "./pinned.js";
 import type { FinalizedSnapshot } from "./types.js";
 
 /** `0x`-prefixed hex, as truapi's wire types spell it. */
@@ -289,11 +289,10 @@ async function resolveSuffix(
                 "reading the suffix from storage needs a finalized block",
             );
         }
-        const snapshot = await pinBlock(chain as PinnedChain, options.signal, pinned);
-        return {
+        return readPinned(chain as PinnedChain, options.signal, pinned, async (snapshot) => ({
             tld: SUFFIX_DECODER.decode(await stored.getValue(readAt(snapshot, options.signal))),
             at: snapshot,
-        };
+        }));
     }
     const constant = chain.individuality.constants.Score.Suffix;
     if (constant !== undefined) {

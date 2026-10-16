@@ -82,7 +82,7 @@ import { productContext } from "./contexts.js";
 import { toPersonhoodParticipant, type RawParticipant } from "./decode.js";
 import { ProductIndividualityError } from "./errors.js";
 import { runGameRead, type GameChain } from "./game-read.js";
-import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type PinnedChain, type ReadAt } from "./pinned.js";
 import { playerKey, type PlayerKey } from "./player-key.js";
 import type { RingVRFProof } from "./origin-extension.js";
 import { airdropVrfTranscript, type VrfTranscriptItem } from "./signup-vrf.js";
@@ -206,8 +206,18 @@ export async function runSignUpRequirementRead(
     options: ReadGameSignUpRequirementOptions,
     pinnedAt?: BlockAt,
 ): Promise<{ requirement: GameSignUpRequirement; player: { registered: boolean } | undefined }> {
+    return readPinned(chain, options.signal, pinnedAt, (snapshot) =>
+        readSignUpRequirementAt(chain, options, snapshot),
+    );
+}
+
+/** The reads of {@link runSignUpRequirementRead}, all at `snapshot`. */
+async function readSignUpRequirementAt(
+    chain: GameChain & SignUpChain,
+    options: ReadGameSignUpRequirementOptions,
+    snapshot: FinalizedSnapshot,
+): Promise<{ requirement: GameSignUpRequirement; player: { registered: boolean } | undefined }> {
     const { registrant, signal } = options;
-    const snapshot = await pinBlock(chain, signal, pinnedAt);
     const at = readAt(snapshot, signal);
     const key = playerKey(registrant);
 
@@ -828,9 +838,20 @@ export async function readSignUpFunds(
     options: ReadSignUpFundsOptions,
 ): Promise<Result<SignUpFunds, ProductIndividualityError>> {
     try {
-        const { account, tx, signal } = options;
-        const query = chain.individuality.query;
-        const snapshot = await pinBlock(chain, signal, options.at);
+        return ok(await runSignUpFundsRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readSignUpFunds} owns the `Result` boundary. */
+async function runSignUpFundsRead(
+    chain: SignUpFundsChain,
+    options: ReadSignUpFundsOptions,
+): Promise<SignUpFunds> {
+    const { account, tx, signal } = options;
+    const query = chain.individuality.query;
+    return readPinned(chain, signal, options.at, async (snapshot) => {
         const at = readAt(snapshot, signal);
 
         const [deposit, info, estimatedFee, spec] = await Promise.all([
@@ -844,10 +865,8 @@ export async function readSignUpFunds(
             chain.raw.individuality.getChainSpecData(),
         ]);
         const token = tokenProperties(spec.properties);
-        return ok({ at: snapshot, deposit, estimatedFee, free: info.data.free, ...token });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        return { at: snapshot, deposit, estimatedFee, free: info.data.free, ...token };
+    });
 }
 
 /** Multi-token chains publish a list, and the native token is the first entry. */
