@@ -1,83 +1,39 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
-// Terminal Adapter
-export { createTerminalAdapter, isBenignTeardownError } from "./adapter.js";
-export { StatementStoreNetworks, SS_STABLE_STAGE_ENDPOINTS } from "./networks.js";
-export type { StatementStoreEnvironment } from "./networks.js";
-export type { TerminalAdapterOptions, TerminalAdapter } from "./adapter.js";
+/**
+ * `@parity/product-sdk-terminal`: QR pairing and signing for CLIs, through the
+ * truapi core every Polkadot host runs.
+ */
 
-// Session Signer
+export { createTerminalAdapter, defaultStorageDir } from "./adapter.js";
+export type {
+    LoginOptions,
+    TerminalAdapter,
+    TerminalAdapterOptions,
+    TerminalSession,
+} from "./adapter.js";
+export { approveAll } from "./host-callbacks/approvals.js";
+export type { TerminalApprovalRequest, TerminalApprovals } from "./host-callbacks/approvals.js";
+export { TerminalNetworks } from "./networks.js";
+export type { TerminalChain, TerminalNetwork, TerminalNetworkName } from "./networks.js";
 export {
     createSessionSigner,
     createSessionSignerForAccount,
     deriveProductPublicKey,
     sessionRootPublicKey,
-    INCOMPLETE_SESSION_MESSAGE,
 } from "./signer.js";
 export type { ProductAccountRef, SessionSignerOptions } from "./signer.js";
-// Exported so a consumer can warm the cache before going offline.
-export { getProductSubtreePublicKey } from "./subtree-cache.js";
-export type { ProductSubtreeOptions } from "./subtree-cache.js";
-// Thrown by the session signers' signTx/signBytes when the paired session's
-// allowance has lapsed (chain-side NoAllowanceError). Authored in
-// @parity/product-sdk-signer — the SDK's signer error taxonomy — and
-// re-exported here so terminal consumers can catch it without a second import.
 export { AllowanceExpiredError, SignerError } from "@parity/product-sdk-signer/errors";
-
-// Allowance service — `adapter.allowance` lives on every TerminalAdapter (inherited
-// from host-papp's PappAdapter). These helpers default the session id to the only
-// paired session and unwrap the underlying ResultAsync into a throw, matching the
-// idiom of the rest of this package.
-//
-// The `has*Allowance` variants are cache-only probes that never prompt the
-// paired wallet — safe to call from login health-check paths that must not
-// surface a phone dialog.
-export {
-    getBulletinSigner,
-    getStatementStoreProver,
-    hasBulletinAllowance,
-    hasStatementStoreAllowance,
-} from "./allowance.js";
-export { AllowanceError } from "@novasamatech/host-papp";
-export type { AllowanceService, AllowanceErrorReason } from "@novasamatech/host-papp";
-
-// Resource allocation (RFC-0010). `requestResourceAllocation` is the cached,
-// adapter-scoped entry point; `sendResourceAllocation` is the raw wire call for
-// consumers that hold only a productId and manage their own policy. The
-// resource / outcome types are derived from `UserSession` so they can't drift
-// from the host codec.
-export { requestResourceAllocation, sendResourceAllocation } from "./host.js";
+export { requestResourceAllocation } from "./allocations.js";
+export type { AllocatableResource, AllocationOutcome } from "./allocations.js";
+export { getStatementStoreProver, submitPreimage, submitStatement } from "./statement-store.js";
 export type {
-    AllocatableResource,
-    ApAllocationOutcome,
-    OnExistingAllowancePolicy,
-    RequestResourceAllocationOptions,
-} from "./host.js";
-
-// Session helpers
-export { waitForSessions } from "./sessions.js";
-
-// Entropy derivation (RFC-0007). Client-side product-entropy derivation from a
-// paired session, at parity with `@parity/product-sdk-host`'s `deriveEntropy`
-// (same bytes for the same wallet + product + key) but computed locally — no
-// host round-trip — since the session already carries `rootEntropySource`.
+    SignedStatement,
+    Statement,
+    StatementProof,
+    StatementStoreProver,
+} from "./statement-store.js";
 export { deriveEntropy } from "./entropy.js";
-
-// QR Encoding
 export { renderQrCode } from "./qr-encode.js";
 export type { QrRenderOptions } from "./qr-encode.js";
-
-// Storage adapter (advanced use — most callers get this implicitly via createTerminalAdapter)
-export { createNodeStorageAdapter } from "./node-storage.js";
-
-// Re-export SDK types consumers will need
-export type {
-    PappAdapter,
-    HostMetadata,
-    PairingStatus,
-    UserSession,
-    StoredUserSession,
-    SigningPayloadRequest,
-    SigningRawRequest,
-    SigningPayloadResponse,
-} from "@novasamatech/host-papp";
+export type { AuthState } from "@parity/truapi-host";
