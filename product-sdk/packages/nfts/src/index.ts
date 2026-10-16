@@ -15,7 +15,9 @@
  * superset of the same thing. There is one kind of collection, and a
  * `NftClaims.CollectionMinters` entry is what makes one claimable. Both are four
  * reads a page, so pick by which set you want. Prefer the registry read when
- * only claimable collections belong in the answer.
+ * only claimable collections belong in the answer. `getApprovedCollections`
+ * names the part of that subset apps actually offer, per network: static data,
+ * read from no chain.
  *
  * **Every catalogue read is paged, and none of them is unbounded.** `limit`
  * defaults to {@link DEFAULT_PAGE_LIMIT} and caps at {@link MAX_PAGE_LIMIT};
@@ -165,8 +167,11 @@
  */
 // The three reads, each pinning its own finalized block. Two list collections
 // and differ only in whether the claim registry filters them; the third reads
-// the catalogue of one collection and filters by nothing.
-export { getClaimableCollections, getCollections } from "./collections.js";
+// the catalogue of one collection and filters by nothing. Beside them, the
+// collections apps offer, per network: static data rather than a read, because
+// any owner can register a collection for claims and the chain cannot say
+// which ones to offer.
+export { getApprovedCollections, getClaimableCollections, getCollections } from "./collections.js";
 export type {
     CollectionsResult,
     ClaimableCollectionsResult,

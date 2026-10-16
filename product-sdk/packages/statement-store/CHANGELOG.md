@@ -1,5 +1,13 @@
 # @parity/product-sdk-statement-store
 
+## 0.7.2
+
+### Patch Changes
+
+- c712386: Harden proof-signer extraction when reading statements. The code cast `stmt.proof.value` to `Record<string, unknown>` and then ran `"signer" in proofValue`, which throws a `TypeError` if the proof value is ever a primitive. Replace the cast with a real object-ness narrow (`typeof === "object" && !== null`) before the `in` check; TypeScript then narrows the signer field without any cast.
+- Updated dependencies [c712386]
+  - @parity/product-sdk-host@0.27.1
+
 ## 0.7.1
 
 ### Patch Changes

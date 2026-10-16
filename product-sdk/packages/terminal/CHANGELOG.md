@@ -1,5 +1,16 @@
 # @parity/product-sdk-terminal
 
+## 0.13.2
+
+### Patch Changes
+
+- c712386: Optional-chain the `NodeJS.ErrnoException` code read in the file-cache error handlers. `allowance-cache.ts` and `node-storage.ts` read `(err as NodeJS.ErrnoException).code` without a guard, so a non-Error throw would itself throw on `.code` inside the catch and mask the original failure. Match `json-cache.ts`, which already uses `?.code`.
+- Updated dependencies [c712386]
+- Updated dependencies [c712386]
+  - @parity/product-sdk-keys@0.5.2
+  - @parity/product-sdk-host@0.27.1
+  - @parity/product-sdk-signer@0.17.2
+
 ## 0.13.1
 
 ### Patch Changes

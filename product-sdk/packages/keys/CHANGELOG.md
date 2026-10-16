@@ -1,5 +1,14 @@
 # @parity/product-sdk-keys
 
+## 0.5.2
+
+### Patch Changes
+
+- c712386: Drop the hand-rolled `hexToBytes`/`bytesToHex` copies in `address/h160.ts` and `keys/key-manager.ts` in favour of the `@noble/hashes` versions already pulled in elsewhere. No public surface changes (the local functions were private). noble's `hexToBytes` is stricter than the hand-rolled one (it rejects non-hex input instead of silently producing zero bytes), which is safe here because both call sites pass un-prefixed, even-length hex; verified against the existing address and keys test suites, including the RFC-0022 product-account vectors.
+- Updated dependencies [c712386]
+  - @parity/product-sdk-address@0.3.1
+  - @parity/product-sdk-local-storage@0.3.18
+
 ## 0.5.1
 
 ### Patch Changes

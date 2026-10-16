@@ -177,6 +177,29 @@ export type {
     ReadGameAirdropEventIdsOptions,
 } from "./airdrop-read.js";
 
+// `PeopleAirdrops`, the recurring draws a person enters under their airdrop
+// alias: where an account stands in every draw, which origin a registration
+// needs, and the register calls chunked to the runtime's batch limit.
+export {
+    FALLBACK_PEOPLE_AIRDROPS_REGISTER_BATCH,
+    derivePeopleAirdropsSlot,
+    peopleAirdropsRegisterCalls,
+    readPeopleAirdropsSigning,
+    readPeopleAirdropsStanding,
+} from "./people-airdrops.js";
+export type {
+    PeopleAirdropEntry,
+    PeopleAirdropsAlias,
+    PeopleAirdropsBinding,
+    PeopleAirdropsChain,
+    PeopleAirdropsRegisterCall,
+    PeopleAirdropsRegisterChain,
+    PeopleAirdropsSigning,
+    PeopleAirdropsStanding,
+    RawPeopleAccountAlias,
+    ReadPeopleAirdropsOptions,
+} from "./people-airdrops.js";
+
 // The composed read behind `getDailyPrizeStatus`: a game's draws and this
 // identity's outcome in each, all at one pinned block. A caller cannot assemble
 // this from the two reads above without pinning two blocks.
