@@ -17,6 +17,12 @@
  * id it already has. {@link newPaymentId} makes a fresh random id for a
  * product with nothing to derive one from.
  *
+ * The balance is the user's, per purse, and the same for every product that
+ * follows it. Following it needs the `BalanceAccess` remote permission: the host
+ * checks the grant when the product subscribes and again before each balance it
+ * passes on, so a grant revoked later ends the subscription with
+ * `PermissionDenied`.
+ *
  * @module
  */
 
@@ -67,7 +73,13 @@ export interface PaymentRequest {
  * directly rather than re-aliased.
  */
 export interface PaymentManager {
-    /** Follow the spendable balance of `purse` (the main purse when omitted). */
+    /**
+     * Follow the spendable balance of `purse` (the main purse when omitted).
+     *
+     * Needs the `BalanceAccess` permission. Without it, or once it is revoked,
+     * the subscription ends and its `onInterrupt` callback receives the host's
+     * `PermissionDenied` error.
+     */
     subscribeBalance(
         callback: (balance: HostPaymentBalanceSubscribeItem) => void,
         purse?: number,
@@ -198,12 +210,16 @@ if (import.meta.vitest) {
         const id = `0x${"ab".repeat(32)}` as HexString;
         const destination = `0x${"cd".repeat(32)}` as HexString;
 
-        function stubClient() {
+        function stubClient(balanceFailure?: unknown) {
             const calls: Array<[string, unknown]> = [];
-            const observable = (name: string) => (args: unknown) => {
+            const observable = (name: string, failWith?: unknown) => (args: unknown) => {
                 calls.push([name, args]);
                 return {
-                    subscribe: () => ({ unsubscribe: () => {}, subscriptionId: name }),
+                    subscribe: (observer: { error?: (reason: unknown) => void }) => {
+                        if (failWith !== undefined)
+                            queueMicrotask(() => observer.error?.(failWith));
+                        return { unsubscribe: () => {}, subscriptionId: name };
+                    },
                 };
             };
             const payment = {
@@ -215,7 +231,7 @@ if (import.meta.vitest) {
                     calls.push(["request", args]);
                     return okAsync(undefined);
                 },
-                balanceSubscribe: observable("balanceSubscribe"),
+                balanceSubscribe: observable("balanceSubscribe", balanceFailure),
                 statusSubscribe: observable("statusSubscribe"),
                 topUpStatusSubscribe: observable("topUpStatusSubscribe"),
             };
@@ -224,7 +240,7 @@ if (import.meta.vitest) {
 
         test("a top-up carries the product's id", async () => {
             const { client, calls } = stubClient();
-            const source = { tag: "Coins", value: { coins: [] } } as unknown as PaymentTopUpSource;
+            const source: PaymentTopUpSource = { tag: "Coins", value: { sr25519SecretKeys: [] } };
             await adaptPaymentManager(client).topUp({ id, amount: 5n, source });
             expect(calls).toEqual([["topUp", { id, into: undefined, amount: 5n, source }]]);
         });
@@ -239,6 +255,15 @@ if (import.meta.vitest) {
             });
             expect(result).toBeUndefined();
             expect(calls).toEqual([["request", { id, from: 1, amount: 7n, destination }]]);
+        });
+
+        test("a balance subscription ends with PermissionDenied when access is revoked", async () => {
+            const denied = { tag: "V1", value: { tag: "PermissionDenied" } };
+            const { client, calls } = stubClient(denied);
+            const sub = adaptPaymentManager(client).subscribeBalance(() => {}, 2);
+            const reason = await new Promise((resolve) => sub.onInterrupt(resolve));
+            expect(reason).toEqual(denied);
+            expect(calls).toEqual([["balanceSubscribe", { request: { purse: 2 } }]]);
         });
 
         test("statuses are followed by id", () => {
