@@ -35,6 +35,9 @@ const log = createLogger("terminal");
 /** Pairing takes 80 to 110 s on Paseo, longer than the client's 120 s default leaves for slow phones. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
 
+/** How long logout waits for the wallet's disconnect notice to be submitted. */
+const LOGOUT_NOTICE_TIMEOUT_MS = 30_000;
+
 /** The paired wallet session: its root key, identity and usernames. */
 export type TerminalSession = SessionUiInfo;
 
@@ -82,14 +85,22 @@ export interface TerminalAdapter {
     client(productId?: string): Promise<TrUApiClient>;
     /** Resolve with the session, pairing first when there is none. */
     login(options?: LoginOptions): Promise<TerminalSession>;
-    /** End the session and tell the paired wallet when it can be reached. */
+    /**
+     * End the session and tell the paired wallet. Resolves once the wallet's
+     * notice has been submitted; rejects when it could not be within 30 s. The
+     * local session is cleared either way.
+     */
     logout(): Promise<void>;
     /** Stop the core's thread. Idempotent. */
     destroy(): Promise<void>;
 }
 
 export function defaultStorageDir(appId: string): string {
-    return join(homedir(), ".polkadot-apps", appId.replace(/[^a-zA-Z0-9_.-]/g, "_"));
+    const name = appId.replace(/[^a-zA-Z0-9_.-]/g, "_");
+    // "", "." and ".." would resolve to the shared folder or the home directory.
+    if (!/[a-zA-Z0-9]/.test(name))
+        throw new Error(`appId ${JSON.stringify(appId)} cannot name a storage directory`);
+    return join(homedir(), ".polkadot-apps", name);
 }
 
 export async function createTerminalAdapter(
@@ -102,6 +113,10 @@ export async function createTerminalAdapter(
         Bulletin: network.bulletin,
         AssetHub: network.assetHub,
     };
+
+    const chainConnections = createChainProvider(
+        new Map(Object.values(chains).map((chain) => [chain.genesisHash, chain.endpoint])),
+    );
 
     let authState: AuthState = { tag: "Disconnected" };
     const listeners = new Set<(state: AuthState) => void>();
@@ -116,9 +131,7 @@ export async function createTerminalAdapter(
         createHeadlessHostCallbacks({
             coreStorage: createFileCoreStorage(storageDir),
             productStorage: createFileProductStorage(storageDir),
-            chain: createChainProvider(
-                new Map(Object.values(chains).map((chain) => [chain.genesisHash, chain.endpoint])),
-            ),
+            chain: chainConnections.provider,
             auth: {
                 authStateChanged(state) {
                     authState = state;
@@ -235,10 +248,24 @@ export async function createTerminalAdapter(
             });
         },
 
-        logout: () => runtime.disconnectSession(),
+        async logout() {
+            const paired = authState.tag === "Connected";
+            // Armed before disconnecting: the core sends the wallet's notice in the background.
+            const notified = paired
+                ? chainConnections.nextStatementSubmit(LOGOUT_NOTICE_TIMEOUT_MS)
+                : undefined;
+            await runtime.disconnectSession();
+            if (notified && !(await notified)) {
+                throw new Error(
+                    `Signed out locally, but the wallet was not reached within ${LOGOUT_NOTICE_TIMEOUT_MS / 1000} s and may still list this session`,
+                );
+            }
+        },
 
         destroy() {
-            destroyed ??= Promise.resolve().then(() => runtime.dispose());
+            destroyed ??= Promise.resolve()
+                .then(() => runtime.dispose())
+                .finally(() => chainConnections.closeAll());
             return destroyed;
         },
     };

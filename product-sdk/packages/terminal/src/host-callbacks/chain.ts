@@ -21,6 +21,14 @@ export interface SocketLike {
     addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
 }
 
+/** Called with the socket once created, as requests leave and responses arrive, and when the core closes it. */
+interface ConnectionHooks {
+    created?(socket: SocketLike): void;
+    sent?(request: string): void;
+    received?(response: string): void;
+    closing?(): void;
+}
+
 /**
  * Resolves once the socket is open, so an unreachable endpoint fails the
  * core's connect instead of swallowing its first requests.
@@ -28,8 +36,10 @@ export interface SocketLike {
 export function openJsonRpcConnection(
     endpoint: string,
     openSocket: (url: string) => SocketLike = (url) => new WebSocket(url) as unknown as SocketLike,
+    hooks: ConnectionHooks = {},
 ): Promise<JsonRpcConnection> {
     const socket = openSocket(endpoint);
+    hooks.created?.(socket);
     const received: string[] = [];
     let wake: (() => void) | undefined;
     let opened = false;
@@ -45,7 +55,9 @@ export function openJsonRpcConnection(
             else log.warn("chain connection closed", { endpoint });
         };
         socket.addEventListener("message", (event) => {
-            received.push(String(event.data));
+            const response = String(event.data);
+            hooks.received?.(response);
+            received.push(response);
             wake?.();
         });
         socket.addEventListener("close", finish);
@@ -54,7 +66,9 @@ export function openJsonRpcConnection(
             opened = true;
             resolve({
                 send(request) {
-                    if (!closed) socket.send(request);
+                    if (closed) return;
+                    socket.send(request);
+                    hooks.sent?.(request);
                 },
                 async *responses() {
                     while (!closed || received.length > 0) {
@@ -71,23 +85,101 @@ export function openJsonRpcConnection(
                     closed = true;
                     wake?.();
                     socket.close();
+                    hooks.closing?.();
                 },
             });
         });
     });
 }
 
+/** The chain connections the core uses, with what the terminal needs to see of them. */
+export interface TerminalChains {
+    provider: ChainProvider;
+    /**
+     * Resolves `true` once a `statement_submit` request has gone out and been
+     * answered, or gone out on a connection the core then closed itself (as it
+     * does for a fire-and-forget submit), or `false` after `timeoutMs`. Call it
+     * before the action that submits, so the request cannot be missed.
+     */
+    nextStatementSubmit(timeoutMs: number): Promise<boolean>;
+    /** Close every socket, including one still connecting, and refuse new ones. */
+    closeAll(): void;
+}
+
+function requestId(message: string): unknown {
+    try {
+        return (JSON.parse(message) as { id?: unknown }).id;
+    } catch {
+        return undefined;
+    }
+}
+
 /** Connect each chain the core asks for to the endpoint its genesis hash names, in any case. */
-export function createChainProvider(endpointByGenesis: ReadonlyMap<string, string>): ChainProvider {
+export function createChainProvider(
+    endpointByGenesis: ReadonlyMap<string, string>,
+    openSocket?: (url: string) => SocketLike,
+): TerminalChains {
     const endpoints = new Map(
         [...endpointByGenesis].map(([hash, endpoint]) => [hash.toLowerCase(), endpoint]),
     );
+    const sockets = new Set<SocketLike>();
+    const submitWaiters = new Set<() => void>();
+    let closedAll = false;
+    const submitted = () => {
+        for (const notify of submitWaiters) notify();
+    };
+
+    // Tracked per connection, so one closing cannot stand in for a submit sent on another.
+    function connectionHooks(): ConnectionHooks {
+        const pendingSubmits = new Set<unknown>();
+        return {
+            created(socket) {
+                sockets.add(socket);
+                socket.addEventListener("close", () => sockets.delete(socket));
+            },
+            sent(request) {
+                if (submitWaiters.size > 0 && request.includes('"statement_submit"')) {
+                    pendingSubmits.add(requestId(request));
+                }
+            },
+            received(response) {
+                if (pendingSubmits.size > 0 && pendingSubmits.delete(requestId(response)))
+                    submitted();
+            },
+            closing() {
+                if (pendingSubmits.size === 0) return;
+                pendingSubmits.clear();
+                submitted();
+            },
+        };
+    }
+
     return {
-        async connect(genesisHash) {
-            const hex = toHex(genesisHash);
-            const endpoint = endpoints.get(hex);
-            if (!endpoint) throw new Error(`No RPC endpoint configured for chain ${hex}`);
-            return openJsonRpcConnection(endpoint);
+        provider: {
+            async connect(genesisHash) {
+                if (closedAll) throw new Error("The terminal adapter is destroyed");
+                const hex = toHex(genesisHash);
+                const endpoint = endpoints.get(hex);
+                if (!endpoint) throw new Error(`No RPC endpoint configured for chain ${hex}`);
+                return openJsonRpcConnection(endpoint, openSocket, connectionHooks());
+            },
+        },
+        nextStatementSubmit(timeoutMs) {
+            return new Promise((resolve) => {
+                const settle = (answered: boolean) => {
+                    clearTimeout(timer);
+                    submitWaiters.delete(onAnswered);
+                    resolve(answered);
+                };
+                const onAnswered = () => settle(true);
+                const timer = setTimeout(() => settle(false), timeoutMs);
+                submitWaiters.add(onAnswered);
+            });
+        },
+        closeAll() {
+            closedAll = true;
+            for (const socket of sockets) socket.close();
+            sockets.clear();
         },
     };
 }
@@ -144,17 +236,79 @@ if (import.meta.vitest) {
     describe("createChainProvider", () => {
         test("refuses a chain it has no endpoint for, naming the genesis hash", async () => {
             await expect(
-                createChainProvider(new Map()).connect(new Uint8Array([0xab])),
+                createChainProvider(new Map()).provider.connect(new Uint8Array([0xab])),
             ).rejects.toThrow(/0xab/);
         });
 
         // A custom network may spell its genesis hashes in upper case.
         test("matches a genesis hash configured in upper case", async () => {
             await expect(
-                createChainProvider(new Map([["0xAB", "ws://127.0.0.1:9"]])).connect(
+                createChainProvider(new Map([["0xAB", "ws://127.0.0.1:9"]])).provider.connect(
                     new Uint8Array([0xab]),
                 ),
             ).rejects.toThrow("Could not connect to ws://127.0.0.1:9");
+        });
+
+        // Logout waits on this, so the wallet's notice is not cut off by teardown.
+        test("reports a statement_submit once it is answered, and times out without one", async () => {
+            const { socket, sent } = fakeSocket();
+            const chains = createChainProvider(
+                new Map([["0xab", "wss://x"]]),
+                () => socket as never,
+            );
+            const connecting = chains.provider.connect(new Uint8Array([0xab]));
+            socket.emit("open");
+            const connection = await connecting;
+            const answered = chains.nextStatementSubmit(5_000);
+            connection.send(JSON.stringify({ id: 7, method: "chain_getBlockHash", params: [] }));
+            connection.send(
+                JSON.stringify({ id: 8, method: "statement_submit", params: ["0x00"] }),
+            );
+            socket.emit("message", { data: JSON.stringify({ id: 7, result: "0x01" }) });
+            const beforeAnswer = await Promise.race([answered, Promise.resolve("pending")]);
+            socket.emit("message", { data: JSON.stringify({ id: 8, result: { status: "new" } }) });
+            expect({
+                sent: sent.length,
+                beforeAnswer,
+                answered: await answered,
+                unanswered: await chains.nextStatementSubmit(10),
+            }).toEqual({ sent: 2, beforeAnswer: "pending", answered: true, unanswered: false });
+        });
+
+        test("counts a statement_submit as delivered when the core closes its connection after sending", async () => {
+            const sockets: ReturnType<typeof fakeSocket>[] = [fakeSocket(), fakeSocket()];
+            let next = 0;
+            const chains = createChainProvider(
+                new Map([["0xab", "wss://x"]]),
+                () => sockets[next++]!.socket as never,
+            );
+            const other = chains.provider.connect(new Uint8Array([0xab]));
+            sockets[0]!.socket.emit("open");
+            const submitting = chains.provider.connect(new Uint8Array([0xab]));
+            sockets[1]!.socket.emit("open");
+            const [otherConnection, submitConnection] = await Promise.all([other, submitting]);
+            const delivered = chains.nextStatementSubmit(5_000);
+            submitConnection.send(
+                JSON.stringify({ id: "truapi:0", method: "statement_submit", params: ["0x00"] }),
+            );
+            otherConnection.close();
+            const afterOtherClosed = await Promise.race([delivered, Promise.resolve("pending")]);
+            submitConnection.close();
+            expect([afterOtherClosed, await delivered]).toEqual(["pending", true]);
+        });
+
+        test("closeAll closes a socket still connecting and refuses new connections", async () => {
+            const { socket } = fakeSocket();
+            const chains = createChainProvider(
+                new Map([["0xab", "wss://x"]]),
+                () => socket as never,
+            );
+            const connecting = chains.provider.connect(new Uint8Array([0xab]));
+            chains.closeAll();
+            await expect(connecting).rejects.toThrow("Could not connect to wss://x");
+            await expect(chains.provider.connect(new Uint8Array([0xab]))).rejects.toThrow(
+                "The terminal adapter is destroyed",
+            );
         });
     });
 }
