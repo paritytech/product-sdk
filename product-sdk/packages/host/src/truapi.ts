@@ -14,7 +14,7 @@
  * @module
  */
 
-import { scale } from "@parity/truapi";
+import { RequestTimeoutError, scale } from "@parity/truapi";
 import type {
     AllocatableResource,
     AllocationOutcome,
@@ -29,8 +29,10 @@ import {
     type HostErrorPayload,
     HostCallFailedError,
     HostResponseDecodeError,
+    type HostTimeoutError,
     HostUnavailableError,
     formatHostError,
+    hostRejectionError,
 } from "./errors.js";
 import { type Result, err, ok } from "./result.js";
 import { getClient, subscribeWithInterrupt } from "./transport.js";
@@ -39,30 +41,31 @@ import type { HostSubscription, Statement, StatementProof } from "./types.js";
 const log = createLogger("host");
 
 /**
- * `result.match(onOk, onErr)`, but a decode-time rejection is routed through
- * `onDecode` instead of rejecting the returned promise.
+ * `result.match(onOk, onErr)`, but a rejection is routed through `onRejected`
+ * instead of rejecting the returned promise.
  *
  * The truapi client decodes each response inside the value it resolves, and
  * wraps the whole call with `ResultAsync.fromSafePromise`, which installs no
- * rejection handler. So when the host's reply doesn't match the client's codec
- * — a protocol-version skew, or a channel that closed mid-call — the resulting
+ * rejection handler. So when the host's reply doesn't match the client's codec,
+ * from a protocol-version skew or a channel that closed mid-call, the resulting
  * rejection escapes the `Result` channel entirely and `.match` never sees it,
- * surfacing as a raw `RangeError` rather than reaching `onErr`. Catching the
- * `.match` promise re-homes that rejection as a typed
- * {@link HostResponseDecodeError} that names the call. Both
- * {@link unwrapHostResult} and {@link mapHostResult} route through here, so
- * every boundary — throwing and Result-returning — is covered, not just the
- * accounts adapter.
+ * surfacing as a raw `RangeError` rather than reaching `onErr`. A call the host
+ * never answers rejects the same way, with the client's `RequestTimeoutError`.
+ * Catching the `.match` promise turns the rejection into a typed
+ * {@link HostTimeoutError} or {@link HostResponseDecodeError} that names the
+ * call. Both {@link unwrapHostResult} and {@link mapHostResult} route through
+ * here, so every boundary, throwing and Result-returning, is covered, not just
+ * the accounts adapter.
  */
 async function matchGuarded<T, E, A, B>(
     result: ResultAsync<T, E>,
     label: string,
     onOk: (value: T) => A,
     onErr: (error: E) => B,
-    onDecode: (error: HostResponseDecodeError) => B,
+    onRejected: (error: HostResponseDecodeError) => B,
 ): Promise<A | B> {
     // `.match` rejects for two reasons: the underlying `ResultAsync` rejected (a
-    // decode failure — what we want to catch), or `onOk`/`onErr` themselves threw
+    // timeout or an undecodable reply, which we want to catch), or `onOk`/`onErr` threw
     // (e.g. `unwrapHostResult`'s err path deliberately throws). Wrap the handler
     // throws in a sentinel so the `catch` can tell them apart and only re-home a
     // genuine underlying rejection; a handler throw is rethrown unchanged.
@@ -85,11 +88,7 @@ async function matchGuarded<T, E, A, B>(
         );
     } catch (cause) {
         if (cause instanceof HandlerThrow) throw cause.thrown;
-        return onDecode(
-            cause instanceof HostResponseDecodeError
-                ? cause
-                : new HostResponseDecodeError(label, cause),
-        );
+        return onRejected(hostRejectionError(label, cause));
     }
 }
 
@@ -117,10 +116,10 @@ export function unwrapHostResult<T, E>(result: ResultAsync<T, E>, label: string)
         (error: E) => {
             throw new Error(`${label}: ${formatHostError(error)}`, { cause: error });
         },
-        // A response the client can't decode would otherwise reject with a raw
-        // `RangeError`; throw it as a typed, named error instead.
-        (decodeError) => {
-            throw decodeError;
+        // A timeout or an undecodable response would otherwise reject with the
+        // client's raw error; throw it as a typed, named error instead.
+        (rejection) => {
+            throw rejection;
         },
     );
 }
@@ -137,15 +136,15 @@ export function mapHostResult<T, U>(
     map: (value: T) => U,
     label: string,
 ): Promise<Result<U, HostError>> {
-    // A response the client can't decode would otherwise reject this promise
-    // with a raw `RangeError`; return it as a typed err instead, matching the
-    // `Result` contract these flat public operations advertise.
+    // A timeout or an undecodable response would otherwise reject this promise
+    // with the client's raw error; return it as a typed err instead, matching
+    // the `Result` contract these flat public operations advertise.
     return matchGuarded<T, HostErrorPayload, Result<U, HostError>, Result<U, HostError>>(
         result,
         label,
         (value) => ok(map(value)),
         (error) => err(new HostCallFailedError(label, error)),
-        (decodeError) => err(decodeError),
+        (rejection) => err(rejection),
     );
 }
 
@@ -464,6 +463,24 @@ if (import.meta.vitest) {
             }
         });
 
+        test("a timeout becomes err(HostTimeoutError), not a decode error", async () => {
+            const cause = new RequestTimeoutError("p:17", 12, 0, 390_000);
+            const result = await mapHostResult(
+                rejectLike(cause),
+                (value) => value,
+                "requestResourceAllocation",
+            );
+            expect(result).toMatchObject({
+                ok: false,
+                error: {
+                    name: "HostTimeoutError",
+                    call: "requestResourceAllocation",
+                    message: "The host did not answer requestResourceAllocation within 390s.",
+                    cause,
+                },
+            });
+        });
+
         test("an ok value maps through", async () => {
             const result = await mapHostResult(okLike(41), (v: number) => v + 1, "getUserId");
             expect(result.ok && result.value).toBe(42);
@@ -491,6 +508,15 @@ if (import.meta.vitest) {
 
         test("an ok value passes through", async () => {
             expect(await unwrapHostResult(okLike("hi"), "getUserId")).toBe("hi");
+        });
+
+        test("a timeout throws HostTimeoutError naming the call", async () => {
+            const cause = new RequestTimeoutError("p:3", 3, 1, 120_000);
+            await expect(unwrapHostResult(rejectLike(cause), "signRaw")).rejects.toMatchObject({
+                name: "HostTimeoutError",
+                call: "signRaw",
+                cause,
+            });
         });
 
         test("a typed host err still throws a diagnostic Error, not a decode error", async () => {
