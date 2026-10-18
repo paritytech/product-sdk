@@ -10,6 +10,10 @@
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
         },
+        "./host": {
+            "types": "./dist/host.d.ts",
+            "import": "./dist/host.js"
+        },
         "./testing": {
             "types": "./dist/testing.d.ts",
             "import": "./dist/testing.js"
@@ -39,8 +43,22 @@
         "@scure/sr25519": "^2.2.0",
         "polkadot-api": "catalog:"
     },
+    "peerDependencies": {
+        "@parity/product-sdk-host": "workspace:^",
+        "@parity/product-sdk-tx": "workspace:^"
+    },
+    "peerDependenciesMeta": {
+        "@parity/product-sdk-host": {
+            "optional": true
+        },
+        "@parity/product-sdk-tx": {
+            "optional": true
+        }
+    },
     "devDependencies": {
         "@parity/product-sdk-descriptors": "workspace:*",
+        "@parity/product-sdk-host": "workspace:*",
+        "@parity/product-sdk-tx": "workspace:*",
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

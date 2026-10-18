@@ -687,6 +687,12 @@ importers:
       '@parity/product-sdk-descriptors':
         specifier: workspace:*
         version: link:../descriptors
+      '@parity/product-sdk-host':
+        specifier: workspace:*
+        version: link:../host
+      '@parity/product-sdk-tx':
+        specifier: workspace:*
+        version: link:../tx
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)

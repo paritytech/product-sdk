@@ -54,6 +54,7 @@ import { bytesToHex } from "@parity/product-sdk-utils";
 import { ProductIndividualityError } from "./errors.js";
 import type { GameChain } from "./game-read.js";
 import { readAt, readPinned, type ReadAt } from "./pinned.js";
+import { sameAccount } from "./same-account.js";
 import type { BlockAt, FinalizedSnapshot } from "./types.js";
 import {
     ringCollectionId,
@@ -209,14 +210,6 @@ const LITE_MEMBER_KEY_BYTES = 32;
 /** Lowercase, unprefixed — the one shape two hex spellings can be compared in. */
 function normalizedHex(value: string): string {
     return (value.startsWith("0x") ? value.slice(2) : value).toLowerCase();
-}
-
-/** The chain's SS58 prefix need not be the caller's. */
-function sameAccount(left: string, right: string): boolean {
-    const codec = AccountId();
-    const a = codec.enc(left);
-    const b = codec.enc(right);
-    return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }
 
 /**

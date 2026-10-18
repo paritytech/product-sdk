@@ -472,6 +472,58 @@ export type {
 // and the participant arm of Game.report, from a 0-balance account.
 export { withScoreParticipant } from "./as-score-participant-signer.js";
 
+// Registering for the game in one call, from any product: the game account every
+// product names, the seat (which route, and whether it can go now, by the chain's
+// clock), the lite bind, and the sign-up with its draw entries. Every failure is a
+// `GameRegistrationError` naming its step and whether a retry can help, and every
+// outcome carries a report for telemetry. The host side comes in as capabilities;
+// `@parity/product-sdk-individuality/host` builds them from a host and `tx`.
+export { GAME_ACCOUNT_INDEX, GAME_PRODUCT_NAME, gameProductId } from "./game-account.js";
+export { DEFAULT_FEE_HEADROOM, deriveSeat, readGameSeat, seatRequired } from "./seat.js";
+export type {
+    GameSeat,
+    GameSeatChain,
+    ReadGameSeatOptions,
+    Seat,
+    SeatFacts,
+    SeatPath,
+    SeatRoute,
+} from "./seat.js";
+export {
+    bindGameSeat,
+    GAME_REGISTRATION_RETRY_MS,
+    GameRegistrationError,
+    GameSeatBindError,
+    holdsLiteKey,
+    registerForGame,
+    registrationRetryDelay,
+} from "./register-game.js";
+export type {
+    BindGameSeatOptions,
+    BindGameSeatOutcome,
+    DrawOutcome,
+    DrawSkipKind,
+    DrawWaitOptions,
+    GameAccount,
+    GameRegistrationCapabilities,
+    GameRegistrationChain,
+    GameRegistrationReport,
+    GameRegistrationStage,
+    GameRegistrationStep,
+    GameSeatBindChain,
+    GameSeatBindRefusal,
+    PersonhoodKey,
+    PersonhoodProofContext,
+    PersonhoodProver,
+    PersonhoodRing,
+    RegisterForGameOptions,
+    RegisterForGameOutcome,
+    SignUpSubmitOptions,
+    SignUpSubmitResult,
+    SignUpTransaction,
+    SubmitSignUp,
+} from "./register-game.js";
+
 // The metadata-driven pieces underneath stay internal on purpose, even though
 // `withLiteAlias` proves they generalise: widening a surface later never breaks
 // anyone, narrowing one after it ships does. Export them when something outside
