@@ -48,6 +48,10 @@
             "import": "./dist/individuality/index.js",
             "types": "./dist/individuality/index.d.ts"
         },
+        "./individuality/host": {
+            "import": "./dist/individuality/host.js",
+            "types": "./dist/individuality/host.d.ts"
+        },
         "./nfts": {
             "import": "./dist/nfts/index.js",
             "types": "./dist/nfts/index.d.ts"
