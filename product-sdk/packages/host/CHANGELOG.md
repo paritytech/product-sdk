@@ -1,5 +1,34 @@
 # @parity/product-sdk-host
 
+## 0.28.0
+
+### Minor Changes
+
+- 45dc779: **A host call that gets no answer in time fails with `HostTimeoutError`, whose message no longer blames a protocol-version skew.**
+
+  A truapi `RequestTimeoutError` becomes `HostTimeoutError`, which names the call and how long the client waited, and keeps the original error as `cause`. It is a subclass of `HostResponseDecodeError`, so existing `instanceof HostResponseDecodeError` checks and `WithDecodeError<E>` still cover it; check `instanceof HostTimeoutError` to tell a timeout apart.
+
+### Patch Changes
+
+- 45dc779: A host call that rejects now answers PAPI with a JSON-RPC error. truapi
+  rejects a call on a timeout, a closed transport or an abort, and the chain
+  provider answered only from the two arms of `.match`, which a rejection never
+  reaches. A timed-out `chainHead_v1_storage`, `chainHead_v1_call` or
+  `chainHead_v1_unpin` therefore stayed unsettled for good, and a best-block
+  watch that waited on it stopped with no error.
+
+  The provider now answers through the new `matchHostResult`, which runs on the
+  same `matchGuarded` path as `unwrapHostResult` and `mapHostResult`. A
+  rejection reaches the error arm as a `HostResponseDecodeError`.
+
+- 45dc779: Pace the stop the PAPI provider synthesizes when a host follow stream is
+  interrupted. polkadot-api refollows on a stop at once, so while the host's
+  chain connection is down every interrupt used to turn into an immediate new
+  follow, in a tight loop. The synthetic stop now waits 250 ms, doubling to a
+  4 s cap, and the delay resets when a follow delivers `Initialized`. A genuine
+  `Stop` item from the host is still forwarded at once. Unfollow and disconnect
+  cancel a pending stop, and a disconnected provider ignores further requests.
+
 ## 0.27.1
 
 ### Patch Changes

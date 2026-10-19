@@ -1,39 +1,45 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * The two collection-listing reads, and the one distinction between them.
+ * Scarcity collections.
  *
- * There is one kind of collection. `Scarcity.Collections` says a collection
- * exists. `NftClaims.CollectionMinters` is the map of a *second pallet*,
- * whose entry means the owner opted in via `set_collection_minter`, and which
- * records how a claim picks an item. Its keys are a subset of the first map's.
+ * A collection is a set of item definitions that NFTs are minted from. The
+ * chain keeps two records about each one, in two different pallets:
  *
- * - `getClaimableCollections` is the subset. Driven by the registry, so every
- *   entry has a `selection`. What a picker wants. Four reads a page, and bytes
- *   proportional to the page.
- * - `getCollections` is the superset. Driven by the records, with `selection`
- *   `null` where no registration exists. What a browser or an audit wants. Four
- *   reads a page.
+ * - `Scarcity.Collections` says the collection exists: who owns it, how many
+ *   items it defines, and so on.
+ * - `NftClaims.CollectionMinters` says the owner has opened it to claims, so a
+ *   player can spend a claim credit on it. The entry also says how a claim
+ *   picks the item: at random, or by asking a contract. Only the owner can
+ *   create it (`set_collection_minter`).
  *
- * Both are paged, and neither has an unpaged mode: `limit` defaults to
- * {@link DEFAULT_PAGE_LIMIT} and caps at {@link MAX_PAGE_LIMIT}, and `nextId`
- * carries the walk to the end. Ids are allocated sequentially and never reused,
- * so a page costs four storage reads whatever the chain holds.
+ * That gives two lists, and two reads:
  *
- * They page over the same id space and differ only in what makes an id
- * interesting. For `getClaimableCollections` the gaps are unregistered
- * collections rather than deleted ones, so its pages come back short on a chain
- * that registers little of what it carries. Follow `nextId` rather than reading
- * a short page as the end. Prefer this read whenever only claimable collections
- * belong in the answer.
+ * - `getCollections` returns every collection, with `selection` set to null
+ *   for the ones not open to claims. Use it to browse or audit.
+ * - `getClaimableCollections` returns only the ones open to claims. Use it
+ *   when a player is about to pick where a credit goes.
  *
- * How much the distinction removes is per deployment: one carries six
- * collections and registers one, another registers most of what it carries, so
- * neither read can be assumed to stand in for the other.
+ * Both reads page through the collection ids. Ids are handed out in order and
+ * never reused, so a page is a fixed window of ids, and costs four storage
+ * reads however many collections the chain holds. `limit` sets the page size
+ * (default {@link DEFAULT_PAGE_LIMIT}, at most {@link MAX_PAGE_LIMIT}), and
+ * the result's `nextId` says where the next page starts. There is no way to
+ * ask for everything at once, because nothing limits how many collections can
+ * exist.
  *
- * Both are named for what they return rather than for the pallet they read. A
- * single collection, registered or not, comes from `getCollectionItems`. That
- * read applies no registry filter either.
+ * One thing to know about `getClaimableCollections`: ids that are not open to
+ * claims are skipped, so a page can come back with fewer entries than `limit`
+ * while there are still more to find. A short page is not the end. Keep going
+ * until `nextId` is null.
+ *
+ * To read one specific collection and its items, use `getCollectionItems`. It
+ * does not care whether the collection is open to claims.
+ *
+ * Being open to claims is not the same as being offered to players. Anyone can
+ * open their own collection, so the apps show only an approved set.
+ * `getApprovedCollections` returns that set for a network. It is a fixed list
+ * that ships with this package.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
 import { blockHolds, pinBlock, readAt, type NftsChain } from "./chain.js";
@@ -49,6 +55,34 @@ import type {
     RawMinter,
     ReadAt,
 } from "./types.js";
+
+/** Collection ids by network, in the order apps offer them. */
+const APPROVED_COLLECTIONS: ReadonlyMap<string, readonly number[]> = new Map([
+    // Paseo Asset Hub Next: Coffee and Tea, Jobs, Sports.
+    ["paseo", Object.freeze([27, 28, 26])],
+]);
+
+const NONE: readonly number[] = Object.freeze([]);
+
+/**
+ * The collections the apps offer for claims on a network.
+ *
+ * Returns collection ids, in the order the apps show them. The list ships
+ * with this package and changes with a release. A network with no list gets
+ * an empty array.
+ *
+ * @param network - The network name, as `getChainAPI` takes it, such as `"paseo"`.
+ *
+ * @example
+ * ```ts
+ * import { getApprovedCollections } from "@parity/product-sdk-nfts";
+ *
+ * const offered = getApprovedCollections("paseo");
+ * ```
+ */
+export function getApprovedCollections(network: string): readonly number[] {
+    return APPROVED_COLLECTIONS.get(network) ?? NONE;
+}
 
 /** What one `getClaimableCollections` call returns. */
 export interface ClaimableCollectionsResult {
@@ -474,7 +508,7 @@ if (import.meta.vitest) {
 
     const utf8 = (text: string) => new TextEncoder().encode(text);
     const BLOCK = { hash: `0x${"77".repeat(32)}`, number: 42 };
-    const { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } = await import("./paging.js");
+    const { DEFAULT_PAGE_LIMIT, isValidId, MAX_PAGE_LIMIT } = await import("./paging.js");
 
     function fakeChain(overrides: {
         minters?: Array<{ keyArgs: [number]; value: RawMinter }>;
@@ -1479,6 +1513,36 @@ if (import.meta.vitest) {
             expect(result.ok).toBe(false);
             if (result.ok) return;
             expect(result.error).toBeInstanceOf(ProductNftsError);
+        });
+    });
+
+    describe("getApprovedCollections", () => {
+        test("paseo has a list", () => {
+            expect(getApprovedCollections("paseo").length).toBeGreaterThan(0);
+        });
+
+        test("a network without a list offers nothing", () => {
+            for (const network of ["previewnet", "devnet", "polkadot", "kusama", "nowhere"]) {
+                expect(getApprovedCollections(network)).toEqual([]);
+            }
+        });
+
+        test("a name every object inherits is not a network", () => {
+            for (const network of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+                expect(getApprovedCollections(network)).toEqual([]);
+            }
+        });
+
+        test("no caller can change the list another app reads", () => {
+            expect(Object.isFrozen(getApprovedCollections("paseo"))).toBe(true);
+            expect(Object.isFrozen(getApprovedCollections("nowhere"))).toBe(true);
+        });
+
+        test("every listed id is a valid collection id, listed once", () => {
+            for (const ids of APPROVED_COLLECTIONS.values()) {
+                expect(ids.every(isValidId)).toBe(true);
+                expect(new Set(ids).size).toBe(ids.length);
+            }
         });
     });
 }

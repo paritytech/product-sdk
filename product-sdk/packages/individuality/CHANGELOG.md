@@ -1,5 +1,35 @@
 # @parity/product-sdk-individuality
 
+## 0.11.0
+
+### Minor Changes
+
+- 45dc779: Add game registration in one call, so every product that signs players up for the weekly game (the game's app and chat, the personhood product) runs the same steps and gives the same answers.
+
+  - `registerForGame(chain, capabilities, options)` reads the seat, binds the lite alias when the free route needs it, decides the prize-draw entries at the best block, then hands the call, signed under the origin its route needs, to a `submit` capability. Registration is judged by the chain's clock, and the sign-up resolves at the best block unless `waitFor: "finalized"` is asked for. The draws never block the sign-up: a draw that is not open yet, or a read that fails, costs the tickets, and the outcome says why. An abort before the broadcast sends nothing.
+  - Every outcome, and every `GameRegistrationError`, carries a report and names the step that failed and whether a retry can help; `registrationRetryDelay` gives the backoff. A declined signature is never asked for again. A failure's `code` is always a name (the chain's error name, or one of `GameRegistrationOwnCode` such as `Timeout`, `Network` or `HostRefused`), never free text; what the error said is in `message` and `cause`.
+  - `readGameSeat` and the pure `deriveSeat` give the route (`returning`, `free`, `deposit` or `unfunded`), so every product shows the same answer.
+  - `bindGameSeat` runs the bind on its own: a current binding and a bind that cannot succeed ask for no proof, the `Game.LiteInvites` pin is checked before it goes out, and a bind no block holds within `timeoutMs` fails with `landingUnknown`.
+  - `GAME_PRODUCT_NAME`, `GAME_ACCOUNT_INDEX` and `gameProductId` name the game account in one place.
+  - The new `@parity/product-sdk-individuality/host` entry builds the capabilities from a host with `hostGameRegistrationCapabilities({ tld, accountIndex? })`, submitting through `@parity/product-sdk-tx`; `accountIndex` defaults to `GAME_ACCOUNT_INDEX`. It finds the personhood keys by chain and collection id, whatever pallet index the host lists them under, so no index is hard-coded. The main entry imports neither. The umbrella reaches it as `@parity/product-sdk/individuality/host`.
+
+### Patch Changes
+
+- 45dc779: **Reads no longer fail with `Block 0x… is not pinned` after the host reconnects.**
+
+  The reads in this package pin a finalized block and read at its hash. When the host loses its chain connection, for example while an iOS app is in the background, PAPI starts a new follow and forgets the old blocks. A read still running at one of them failed with `is not pinned (stop-storage)`. PAPI retries reads that don't name a block, but not reads at a fixed hash.
+
+  Such a read now pins again and runs at the new block, up to three runs in all. If pinning again returns the block that was dropped, it returns the error instead.
+
+  - If you pass a block with `at: { blockHash, blockNumber }`, the read stays on it and returns the error instead of moving to a new block.
+  - Every value in a result still comes from one block.
+
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+  - @parity/product-sdk-host@0.28.0
+  - @parity/product-sdk-tx@0.5.3
+
 ## 0.10.0
 
 ### Minor Changes

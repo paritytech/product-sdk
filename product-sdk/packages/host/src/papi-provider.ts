@@ -50,6 +50,7 @@ import { createLogger } from "@parity/product-sdk-logger";
 
 import { formatHostError } from "./errors.js";
 import { subscribeWithInterrupt, type TransportSubscription } from "./transport.js";
+import { matchHostResult } from "./truapi.js";
 
 const log = createLogger("host:papi");
 
@@ -228,6 +229,16 @@ export function createHostPapiProvider(
         const activeBroadcasts = new Set<string>();
         const followOperations = new Map<string, Map<string, BufferedOperation>>();
         const pendingOperationStarts = new Map<string, number>();
+        // Transport failures are synthesized as Stop below. PAPI retries Stop
+        // synchronously, so pace only that synthetic path (not genuine Stop).
+        let disconnected = false;
+        let transportRetryDelay = 250;
+        const interruptedFollows = new Map<string, { timer?: ReturnType<typeof setTimeout> }>();
+        function cancelTransportStop(subscription: string): void {
+            const pending = interruptedFollows.get(subscription);
+            interruptedFollows.delete(subscription);
+            if (pending?.timer !== undefined) clearTimeout(pending.timer);
+        }
 
         function sendJsonRpcResponse(id: JsonRpcRequest["id"], result: unknown): void {
             onMessage({ jsonrpc: "2.0", id, result } as JsonRpcMessage);
@@ -356,7 +367,15 @@ export function createHostPapiProvider(
                         followSubscriptionId: string,
                         item: RemoteChainHeadFollowItem,
                     ) => {
+                        if (
+                            disconnected ||
+                            activeFollows.get(followSubscriptionId) !== ref.handle ||
+                            interruptedFollows.has(followSubscriptionId)
+                        )
+                            return;
+                        if (item.tag === "Initialized") transportRetryDelay = 250;
                         if (item.tag === "Stop" && activeFollows.delete(followSubscriptionId)) {
+                            cancelTransportStop(followSubscriptionId);
                             ref.handle?.unsubscribe();
                             followOperations.delete(followSubscriptionId);
                             pendingOperationStarts.delete(followSubscriptionId);
@@ -387,11 +406,30 @@ export function createHostPapiProvider(
                     // A transport interrupt/close ends the stream without a Stop
                     // item; synthesize one so the consumer refollows.
                     ref.handle.onInterrupt(() => {
+                        if (
+                            disconnected ||
+                            activeFollows.get(followSubscriptionId) !== ref.handle ||
+                            interruptedFollows.has(followSubscriptionId)
+                        )
+                            return;
                         followOperations.delete(followSubscriptionId);
                         pendingOperationStarts.delete(followSubscriptionId);
-                        if (activeFollows.delete(followSubscriptionId)) {
+                        const pending: { timer?: ReturnType<typeof setTimeout> } = {};
+                        interruptedFollows.set(followSubscriptionId, pending);
+                        const delay = transportRetryDelay;
+                        transportRetryDelay = Math.min(transportRetryDelay * 2, 4000);
+                        pending.timer = setTimeout(() => {
+                            // clearTimeout cannot recall a callback already queued.
+                            if (
+                                disconnected ||
+                                interruptedFollows.get(followSubscriptionId) !== pending ||
+                                activeFollows.get(followSubscriptionId) !== ref.handle
+                            )
+                                return;
+                            interruptedFollows.delete(followSubscriptionId);
+                            activeFollows.delete(followSubscriptionId);
                             sendFollowEvent(followSubscriptionId, { event: "stop" });
-                        }
+                        }, delay);
                     });
                     activeFollows.set(followSubscriptionId, ref.handle);
                     followOperations.set(followSubscriptionId, new Map());
@@ -405,10 +443,9 @@ export function createHostPapiProvider(
                 case "chainHead_v1_unfollow": {
                     const [followSubId] = params as [string];
                     const follow = activeFollows.get(followSubId);
-                    if (follow) {
-                        follow.unsubscribe();
-                        activeFollows.delete(followSubId);
-                    }
+                    cancelTransportStop(followSubId);
+                    activeFollows.delete(followSubId);
+                    if (follow) follow.unsubscribe();
                     followOperations.delete(followSubId);
                     pendingOperationStarts.delete(followSubId);
                     sendJsonRpcResponse(id, null);
@@ -416,20 +453,23 @@ export function createHostPapiProvider(
                 }
                 case "chainHead_v1_header": {
                     const [followSubscriptionId, hash] = params as [string, HexString];
-                    chain
-                        .getHeadHeader({ genesisHash, followSubscriptionId, hash })
-                        .match(
-                            (response) => sendJsonRpcResponse(id, response.header ?? null),
-                            hostError(id),
-                        );
+                    matchHostResult(
+                        chain.getHeadHeader({ genesisHash, followSubscriptionId, hash }),
+                        method,
+                        (response) => sendJsonRpcResponse(id, response.header ?? null),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainHead_v1_body": {
                     const [followSubscriptionId, hash] = params as [string, HexString];
                     const bodyStart = startOperationRequest(id, followSubscriptionId);
-                    chain
-                        .getHeadBody({ genesisHash, followSubscriptionId, hash })
-                        .match(bodyStart.ok, bodyStart.err);
+                    matchHostResult(
+                        chain.getHeadBody({ genesisHash, followSubscriptionId, hash }),
+                        method,
+                        bodyStart.ok,
+                        bodyStart.err,
+                    );
                     break;
                 }
                 case "chainHead_v1_storage": {
@@ -444,8 +484,8 @@ export function createHostPapiProvider(
                         queryType: convertStorageType(item.type),
                     }));
                     const storageStart = startOperationRequest(id, followSubscriptionId);
-                    chain
-                        .getHeadStorage({
+                    matchHostResult(
+                        chain.getHeadStorage({
                             genesisHash,
                             followSubscriptionId,
                             hash,
@@ -456,8 +496,11 @@ export function createHostPapiProvider(
                             // the inner Hex codec on `null`, which throws
                             // (`null.startsWith`). Coerce `null` → `undefined`.
                             childTrie: childTrie ?? undefined,
-                        })
-                        .match(storageStart.ok, storageStart.err);
+                        }),
+                        method,
+                        storageStart.ok,
+                        storageStart.err,
+                    );
                     break;
                 }
                 case "chainHead_v1_call": {
@@ -468,15 +511,18 @@ export function createHostPapiProvider(
                         HexString,
                     ];
                     const callStart = startOperationRequest(id, followSubscriptionId);
-                    chain
-                        .callHead({
+                    matchHostResult(
+                        chain.callHead({
                             genesisHash,
                             followSubscriptionId,
                             hash,
                             function: fn,
                             callParameters,
-                        })
-                        .match(callStart.ok, callStart.err);
+                        }),
+                        method,
+                        callStart.ok,
+                        callStart.err,
+                    );
                     break;
                 }
                 case "chainHead_v1_unpin": {
@@ -485,71 +531,93 @@ export function createHostPapiProvider(
                         HexString | HexString[],
                     ];
                     const hashes = Array.isArray(hashOrHashes) ? hashOrHashes : [hashOrHashes];
-                    chain
-                        .unpinHead({ genesisHash, followSubscriptionId, hashes })
-                        .match(() => sendJsonRpcResponse(id, null), hostError(id));
+                    matchHostResult(
+                        chain.unpinHead({ genesisHash, followSubscriptionId, hashes }),
+                        method,
+                        () => sendJsonRpcResponse(id, null),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainHead_v1_continue": {
                     const [followSubscriptionId, operationId] = params as [string, string];
-                    chain
-                        .continueHead({ genesisHash, followSubscriptionId, operationId })
-                        .match(() => sendJsonRpcResponse(id, null), hostError(id));
+                    matchHostResult(
+                        chain.continueHead({ genesisHash, followSubscriptionId, operationId }),
+                        method,
+                        () => sendJsonRpcResponse(id, null),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainHead_v1_stopOperation": {
                     const [followSubscriptionId, operationId] = params as [string, string];
-                    chain
-                        .stopHeadOperation({ genesisHash, followSubscriptionId, operationId })
-                        .match(() => {
+                    matchHostResult(
+                        chain.stopHeadOperation({ genesisHash, followSubscriptionId, operationId }),
+                        method,
+                        () => {
                             followOperations.get(followSubscriptionId)?.delete(operationId);
                             sendJsonRpcResponse(id, null);
-                        }, hostError(id));
+                        },
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainSpec_v1_genesisHash": {
-                    chain
-                        .getSpecGenesisHash({ genesisHash })
-                        .match(
-                            (response) => sendJsonRpcResponse(id, response.genesisHash),
-                            hostError(id),
-                        );
+                    matchHostResult(
+                        chain.getSpecGenesisHash({ genesisHash }),
+                        method,
+                        (response) => sendJsonRpcResponse(id, response.genesisHash),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainSpec_v1_chainName": {
-                    chain
-                        .getSpecChainName({ genesisHash })
-                        .match(
-                            (response) => sendJsonRpcResponse(id, response.chainName),
-                            hostError(id),
-                        );
+                    matchHostResult(
+                        chain.getSpecChainName({ genesisHash }),
+                        method,
+                        (response) => sendJsonRpcResponse(id, response.chainName),
+                        hostError(id),
+                    );
                     break;
                 }
                 case "chainSpec_v1_properties": {
-                    chain.getSpecProperties({ genesisHash }).match((response) => {
-                        try {
-                            sendJsonRpcResponse(id, JSON.parse(response.properties));
-                        } catch {
-                            sendJsonRpcResponse(id, response.properties);
-                        }
-                    }, hostError(id));
+                    matchHostResult(
+                        chain.getSpecProperties({ genesisHash }),
+                        method,
+                        (response) => {
+                            try {
+                                sendJsonRpcResponse(id, JSON.parse(response.properties));
+                            } catch {
+                                sendJsonRpcResponse(id, response.properties);
+                            }
+                        },
+                        hostError(id),
+                    );
                     break;
                 }
                 case "transaction_v1_broadcast": {
                     const [transaction] = params as [HexString];
-                    chain.broadcastTransaction({ genesisHash, transaction }).match((response) => {
-                        const operationId = response.operationId ?? null;
-                        if (operationId !== null) activeBroadcasts.add(operationId);
-                        sendJsonRpcResponse(id, operationId);
-                    }, hostError(id));
+                    matchHostResult(
+                        chain.broadcastTransaction({ genesisHash, transaction }),
+                        method,
+                        (response) => {
+                            const operationId = response.operationId ?? null;
+                            if (operationId !== null) activeBroadcasts.add(operationId);
+                            sendJsonRpcResponse(id, operationId);
+                        },
+                        hostError(id),
+                    );
                     break;
                 }
                 case "transaction_v1_stop": {
                     const [operationId] = params as [string];
                     activeBroadcasts.delete(operationId);
-                    chain
-                        .stopTransaction({ genesisHash, operationId })
-                        .match(() => sendJsonRpcResponse(id, null), hostError(id));
+                    matchHostResult(
+                        chain.stopTransaction({ genesisHash, operationId }),
+                        method,
+                        () => sendJsonRpcResponse(id, null),
+                        hostError(id),
+                    );
                     break;
                 }
                 default:
@@ -564,6 +632,7 @@ export function createHostPapiProvider(
 
         return {
             send(message) {
+                if (disconnected) return;
                 // A synchronous throw inside a handler (e.g. a malformed positional
                 // param) must not leave the JSON-RPC request unsettled — the caller
                 // would hang. Surface it as an error response for the request id.
@@ -580,15 +649,19 @@ export function createHostPapiProvider(
                 }
             },
             disconnect() {
-                for (const handle of activeFollows.values()) {
-                    handle.unsubscribe();
-                }
+                disconnected = true;
+                for (const subscription of interruptedFollows.keys())
+                    cancelTransportStop(subscription);
+                const handles = [...activeFollows.values()];
                 activeFollows.clear();
+                for (const handle of handles) handle.unsubscribe();
                 followOperations.clear();
                 pendingOperationStarts.clear();
                 for (const operationId of activeBroadcasts) {
                     // Fire-and-forget: the transport may already be torn down.
-                    chain.stopTransaction({ genesisHash, operationId }).match(
+                    matchHostResult(
+                        chain.stopTransaction({ genesisHash, operationId }),
+                        "transaction_v1_stop",
                         () => {},
                         () => {},
                     );
@@ -600,7 +673,17 @@ export function createHostPapiProvider(
 }
 
 if (import.meta.vitest) {
-    const { test, expect, vi } = import.meta.vitest;
+    const { test, expect, vi, afterEach } = import.meta.vitest;
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    type FollowObserver = {
+        next: (i: unknown) => void;
+        error: (e: unknown) => void;
+        complete: () => void;
+    };
 
     // A minimal fake of the truapi chain domain. ResultAsync is approximated by a
     // `.match(ok, err)` thenable; the follow subscription is a hand-driven
@@ -610,6 +693,8 @@ if (import.meta.vitest) {
         responses?: Record<string, unknown>;
         /** Methods named here resolve to their `.match` error arm carrying the given value. */
         errors?: Record<string, unknown>;
+        /** Methods named here reject, the way truapi rejects a call that timed out. */
+        rejections?: Record<string, unknown>;
         /** Capture selected successful matches so tests can resolve them after follow events. */
         deferMatch?: (method: string, resolve: () => unknown) => boolean;
         /** Unsubscribe spy used by the follow subscription (defaults to a fresh `vi.fn()`). */
@@ -621,8 +706,8 @@ if (import.meta.vitest) {
             error: (e: unknown) => void;
             complete: () => void;
         }) => void;
-        /** Transport request id assigned to the follow subscription. */
-        subscriptionId?: string;
+        /** Transport request id assigned to the follow subscription (a function: one per follow). */
+        subscriptionId?: string | (() => string);
     }) {
         const errMatch = (error: unknown) => ({
             match: (_ok: (v: unknown) => unknown, err: (e: unknown) => unknown) => err(error),
@@ -631,6 +716,8 @@ if (import.meta.vitest) {
             opts.onCall?.(name, args);
             const errors = opts.errors ?? {};
             if (name in errors) return errMatch(errors[name]);
+            const rejections = opts.rejections ?? {};
+            if (name in rejections) return { match: () => Promise.reject(rejections[name]) };
             return {
                 match: (ok: (value: unknown) => unknown, _err: (error: unknown) => unknown) => {
                     const resolve = () => ok(response);
@@ -652,7 +739,10 @@ if (import.meta.vitest) {
                             observer.next(opts.initialItem);
                         }
                         return {
-                            subscriptionId: opts.subscriptionId ?? "p:41",
+                            subscriptionId:
+                                typeof opts.subscriptionId === "function"
+                                    ? opts.subscriptionId()
+                                    : (opts.subscriptionId ?? "p:41"),
                             unsubscribe: opts.unsubscribe ?? vi.fn(),
                         };
                     },
@@ -1009,10 +1099,9 @@ if (import.meta.vitest) {
         expect(messages[0]).toMatchObject({ id: 9, error: { code: -32601 } });
     });
 
-    test("a transport interrupt synthesizes a stop follow-event", () => {
-        let observer:
-            | { next: (i: unknown) => void; error: (e: unknown) => void; complete: () => void }
-            | undefined;
+    test("a transport interrupt synthesizes a stop follow-event after a delay", () => {
+        vi.useFakeTimers();
+        let observer: FollowObserver | undefined;
         const client = makeFakeClient({
             captureObserver: (o) => {
                 observer = o;
@@ -1024,13 +1113,181 @@ if (import.meta.vitest) {
 
         conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
         // The stream ends via transport close (no Stop item) — the consumer must
-        // still see a stop so its substrate-client refollows.
+        // still see a stop so its substrate-client refollows, but not synchronously:
+        // the refollow is immediate, so an unpaced stop retries in a tight loop.
         observer?.complete();
+        expect(messages).toHaveLength(1);
+        vi.advanceTimersByTime(250);
         expect(messages[1]).toEqual({
             jsonrpc: "2.0",
             method: "chainHead_v1_followEvent",
             params: { subscription: "p:41", result: { event: "stop" } },
         });
+    });
+
+    /** Follows that each get their own subscription id and captured observer. */
+    function interruptibleFollows() {
+        const observers: FollowObserver[] = [];
+        let count = 0;
+        const unsubscribe = vi.fn();
+        const client = makeFakeClient({
+            subscriptionId: () => `p:${++count}`,
+            unsubscribe,
+            captureObserver: (o) => observers.push(o),
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((m) => messages.push(m));
+        let id = 0;
+        const follow = () => {
+            conn.send({ jsonrpc: "2.0", id: ++id, method: "chainHead_v1_follow", params: [true] });
+            return { subscription: `p:${count}`, observer: observers[observers.length - 1]! };
+        };
+        const unfollow = (subscription: string) =>
+            conn.send({
+                jsonrpc: "2.0",
+                id: ++id,
+                method: "chainHead_v1_unfollow",
+                params: [subscription],
+            });
+        const stops = () =>
+            messages.filter(
+                (m) =>
+                    (m as { params?: { result?: { event?: string } } }).params?.result?.event ===
+                    "stop",
+            ).length;
+        return { conn, follow, unfollow, stops, messages, observers, unsubscribe };
+    }
+
+    test("synthetic stops back off from 250 ms, doubling to a 4000 ms cap", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        let expected = 0;
+        for (const delay of [250, 500, 1000, 2000, 4000, 4000]) {
+            const { observer } = f.follow();
+            observer.error(new Error("transport closed"));
+            // A second interrupt of the same stream schedules nothing more.
+            observer.complete();
+            expect(vi.getTimerCount()).toBe(1);
+            vi.advanceTimersByTime(delay - 1);
+            expect(f.stops()).toBe(expected);
+            vi.advanceTimersByTime(1);
+            expect(f.stops()).toBe(++expected);
+            expect(vi.getTimerCount()).toBe(0);
+        }
+    });
+
+    test("an Initialized item resets the backoff; other items do not", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        f.follow().observer.complete();
+        vi.advanceTimersByTime(250);
+        expect(f.stops()).toBe(1);
+
+        const second = f.follow();
+        second.observer.next({ tag: "BestBlockChanged", value: { bestBlockHash: "0x01" } });
+        second.observer.complete();
+        vi.advanceTimersByTime(499);
+        expect(f.stops()).toBe(1);
+        vi.advanceTimersByTime(1);
+        expect(f.stops()).toBe(2);
+
+        const third = f.follow();
+        third.observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+        third.observer.complete();
+        vi.advanceTimersByTime(250);
+        expect(f.stops()).toBe(3);
+    });
+
+    test("a genuine Stop item is forwarded at once and does not back off", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        const { observer } = f.follow();
+        observer.next({ tag: "Stop" });
+        expect(f.stops()).toBe(1);
+        expect(f.unsubscribe).toHaveBeenCalledTimes(1);
+        // The host closing the ended stream afterwards adds no second stop.
+        observer.complete();
+        expect(vi.getTimerCount()).toBe(0);
+
+        f.follow().observer.complete();
+        vi.advanceTimersByTime(250);
+        expect(f.stops()).toBe(2);
+    });
+
+    test("unfollow cancels a pending synthetic stop", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        const { subscription, observer } = f.follow();
+        observer.complete();
+        expect(vi.getTimerCount()).toBe(1);
+        f.unfollow(subscription);
+        expect(vi.getTimerCount()).toBe(0);
+        vi.advanceTimersByTime(4000);
+        expect(f.stops()).toBe(0);
+        expect(f.messages[f.messages.length - 1]).toEqual({ jsonrpc: "2.0", id: 2, result: null });
+    });
+
+    test("disconnect cancels every pending synthetic stop and ignores later requests", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        f.follow().observer.complete();
+        f.follow().observer.complete();
+        expect(vi.getTimerCount()).toBe(2);
+        f.conn.disconnect();
+        expect(vi.getTimerCount()).toBe(0);
+        vi.advanceTimersByTime(4000);
+        f.follow();
+        expect(f.observers).toHaveLength(2);
+        expect(f.stops()).toBe(0);
+    });
+
+    /** Fake timers, plus the callbacks they were given: a callback can then run after its clearTimeout. */
+    function captureTimerCallbacks() {
+        vi.useFakeTimers();
+        const spy = vi.spyOn(globalThis, "setTimeout");
+        return {
+            callbacks: () => spy.mock.calls.map(([callback]) => callback as () => void),
+            restore: () => spy.mockRestore(),
+        };
+    }
+
+    test("a synthetic-stop callback already queued when unfollow cleared it emits nothing", () => {
+        const timers = captureTimerCallbacks();
+        const f = interruptibleFollows();
+        const { subscription, observer } = f.follow();
+        observer.complete();
+        const [queued] = timers.callbacks();
+        expect(queued).toBeDefined();
+        f.unfollow(subscription);
+        expect(vi.getTimerCount()).toBe(0);
+        // clearTimeout cannot recall a callback the event loop already queued: run it anyway.
+        queued!();
+        observer.complete();
+        expect(f.stops()).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+        timers.restore();
+    });
+
+    test("synthetic-stop callbacks already queued when disconnect cleared them emit nothing", () => {
+        const timers = captureTimerCallbacks();
+        const f = interruptibleFollows();
+        const first = f.follow();
+        first.observer.complete();
+        const second = f.follow();
+        second.observer.complete();
+        const queued = timers.callbacks();
+        expect(queued).toHaveLength(2);
+        f.conn.disconnect();
+        expect(vi.getTimerCount()).toBe(0);
+        for (const callback of queued) callback();
+        first.observer.complete();
+        second.observer.complete();
+        f.follow();
+        // No stop event, and no new host follow subscription.
+        expect(f.stops()).toBe(0);
+        expect(f.observers).toHaveLength(2);
+        expect(vi.getTimerCount()).toBe(0);
+        timers.restore();
     });
 
     test("a host error becomes a JSON-RPC -32603 with the formatted reason", () => {
@@ -1048,6 +1305,44 @@ if (import.meta.vitest) {
             id: 4,
             error: { code: -32603, message: "no such block" },
         });
+    });
+
+    test("a host call that rejects still answers PAPI once, so a timed-out query cannot stall it", async () => {
+        const timedOut = new Error("TrUAPI request host:9 (wire 3, 3) timed out after 120000ms");
+        const client = makeFakeClient({
+            rejections: { getHeadStorage: timedOut, unpinHead: timedOut, getHeadHeader: timedOut },
+        });
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(client, "0xfeed")((message) => messages.push(message));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [false] });
+        messages.length = 0;
+
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_storage",
+            params: ["p:41", "0xhash", [{ key: "0x01", type: "value" }], null],
+        });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "chainHead_v1_unpin",
+            params: ["p:41", ["0xhash"]],
+        });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 4,
+            method: "chainHead_v1_header",
+            params: ["p:41", "0xhash"],
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const error = { code: -32603, message: expect.stringContaining(timedOut.message) };
+        expect(messages).toEqual([
+            { jsonrpc: "2.0", id: 2, error },
+            { jsonrpc: "2.0", id: 3, error },
+            { jsonrpc: "2.0", id: 4, error },
+        ]);
     });
 
     test("disconnect unsubscribes active follows and stops active broadcasts", () => {

@@ -472,6 +472,64 @@ export type {
 // and the participant arm of Game.report, from a 0-balance account.
 export { withScoreParticipant } from "./as-score-participant-signer.js";
 
+// Registering for the game in one call, from any product: the game account every
+// product names, the seat (which route, and whether it can go now, by the chain's
+// clock), the lite bind, and the sign-up with its draw entries. Every failure is a
+// `GameRegistrationError` naming its step and whether a retry can help, and every
+// outcome carries a report for telemetry. The host side comes in as capabilities;
+// `@parity/product-sdk-individuality/host` builds them from a host and `tx`.
+export { GAME_ACCOUNT_INDEX, GAME_PRODUCT_NAME, gameProductId } from "./game-account.js";
+export { DEFAULT_FEE_HEADROOM, deriveSeat, readGameSeat, seatRequired } from "./seat.js";
+export type {
+    GameSeat,
+    GameSeatChain,
+    ReadGameSeatOptions,
+    Seat,
+    SeatFacts,
+    SeatPath,
+    SeatRoute,
+    TimestampChain,
+} from "./seat.js";
+export { bindGameSeat, holdsLiteKey } from "./bind-game-seat.js";
+export type { BindGameSeatOptions } from "./bind-game-seat.js";
+export {
+    GAME_REGISTRATION_RETRY_MS,
+    GameRegistrationError,
+    GameSeatBindError,
+    registrationRetryDelay,
+} from "./register-game-errors.js";
+export type { GameRegistrationCode, GameRegistrationOwnCode } from "./register-game-errors.js";
+export { registerForGame } from "./register-game.js";
+export type {
+    DrawWaitOptions,
+    RegisterForGameOptions,
+    RegisterForGameOutcome,
+} from "./register-game.js";
+export type {
+    BindGameSeatOutcome,
+    DrawOutcome,
+    DrawSkipKind,
+    GameAccount,
+    GameRegistrationCapabilities,
+    GameRegistrationChain,
+    GameRegistrationReport,
+    GameRegistrationStage,
+    GameRegistrationStep,
+    GameSeatBindChain,
+    GameSeatBindRefusal,
+    PersonhoodKey,
+    PersonhoodProofContext,
+    PersonhoodProver,
+    PersonhoodRing,
+    RawSubmitChain,
+    SignUpSubmitOptions,
+    SignUpSubmitResult,
+    SignUpTransaction,
+    SubmitSignUp,
+    TxWatch,
+    TxWatchEvent,
+} from "./register-game-types.js";
+
 // The metadata-driven pieces underneath stay internal on purpose, even though
 // `withLiteAlias` proves they generalise: widening a surface later never breaks
 // anyone, narrowing one after it ships does. Export them when something outside

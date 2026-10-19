@@ -69,7 +69,7 @@ import {
 } from "./airdrop-ids.js";
 import type { AirdropEvent } from "./airdrop-types.js";
 import { IndividualityDecodeError, ProductIndividualityError } from "./errors.js";
-import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type PinnedChain, type ReadAt } from "./pinned.js";
 import { ringCollectionId } from "./rings.js";
 import type { BlockAt, BlockSnapshot } from "./types.js";
 
@@ -237,77 +237,96 @@ export async function readPeopleAirdropsStanding(
     options: ReadPeopleAirdropsOptions,
 ): Promise<Result<PeopleAirdropsStanding, ProductIndividualityError>> {
     try {
-        const { account, signal } = options;
-        const snapshot = await pinBlock(chain, signal, options.at ?? "best");
-        const at = readAt(snapshot, signal);
-        const query = chain.individuality.query;
-
-        const [{ alias }, entries] = await Promise.all([
-            runAliasRead(chain, account, at),
-            query.Airdrop.Events.getEntries(at),
-        ]);
-
-        const draws: Array<{ drawIndex: bigint; event: AirdropEvent }> = [];
-        for (const { keyArgs, value } of entries) {
-            const drawIndex = parsePeopleAirdropsEventId(keyArgs[0]);
-            if (drawIndex === null) continue;
-            draws.push({ drawIndex, event: toAirdropEvent(keyArgs[0], value) });
-        }
-        draws.sort((a, b) => (a.drawIndex < b.drawIndex ? -1 : a.drawIndex > b.drawIndex ? 1 : 0));
-
-        const bound = alias.binding.tag === "Bound" ? alias.binding.alias : null;
-        if (bound === null || draws.length === 0) {
-            return ok({
-                at: snapshot,
-                account,
-                alias,
-                draws: draws.map((d) => ({ ...d, slot: null, registered: null, won: null })),
-            });
-        }
-
-        const eventIds = draws.map((d) => d.event.eventId);
-        const [salts, winners] = await Promise.all([
-            query.PeopleAirdrops.DrawSalts.getValues(
-                eventIds.map((id) => [id] as [string]),
-                at,
-            ),
-            query.Airdrop.Winners.getValues(
-                eventIds.map(
-                    (id) =>
-                        [id, { type: "Alias", value: { alias: bound } }] as [
-                            string,
-                            RawRegistrationEntry,
-                        ],
-                ),
-                at,
-            ),
-        ]);
-        const slots = eventIds.map((id, i) => {
-            const salt = salts[i];
-            return salt === undefined ? null : derivePeopleAirdropsSlot(id, salt[0], bound);
-        });
-        const keys: Array<[string, string]> = [];
-        for (const [i, slot] of slots.entries()) {
-            if (slot !== null) keys.push([eventIds[i] as string, slot]);
-        }
-        const registrations =
-            keys.length === 0 ? [] : await query.Airdrop.Registrations.getValues(keys, at);
-        const registered = new Map(keys.map(([id], i) => [id, registrations[i] !== undefined]));
-
-        return ok({
-            at: snapshot,
-            account,
-            alias,
-            draws: draws.map((d, i) => ({
-                ...d,
-                slot: slots[i] ?? null,
-                registered: registered.get(d.event.eventId) ?? null,
-                won: winners[i] !== undefined,
-            })),
-        });
+        return ok(await runStandingRead(chain, options));
     } catch (cause) {
         return err(normalizeError(cause, ProductIndividualityError));
     }
+}
+
+/** Throws; {@link readPeopleAirdropsStanding} owns the `Result` boundary. */
+async function runStandingRead(
+    chain: PeopleAirdropsChain,
+    options: ReadPeopleAirdropsOptions,
+): Promise<PeopleAirdropsStanding> {
+    const { account, signal } = options;
+    return readPinned(chain, signal, options.at ?? "best", (snapshot) =>
+        readStandingAt(chain, account, snapshot, signal),
+    );
+}
+
+/** The reads of {@link readPeopleAirdropsStanding}, all at `snapshot`. */
+async function readStandingAt(
+    chain: PeopleAirdropsChain,
+    account: string,
+    snapshot: BlockSnapshot,
+    signal: AbortSignal | undefined,
+): Promise<PeopleAirdropsStanding> {
+    const at = readAt(snapshot, signal);
+    const query = chain.individuality.query;
+
+    const [{ alias }, entries] = await Promise.all([
+        runAliasRead(chain, account, at),
+        query.Airdrop.Events.getEntries(at),
+    ]);
+
+    const draws: Array<{ drawIndex: bigint; event: AirdropEvent }> = [];
+    for (const { keyArgs, value } of entries) {
+        const drawIndex = parsePeopleAirdropsEventId(keyArgs[0]);
+        if (drawIndex === null) continue;
+        draws.push({ drawIndex, event: toAirdropEvent(keyArgs[0], value) });
+    }
+    draws.sort((a, b) => (a.drawIndex < b.drawIndex ? -1 : a.drawIndex > b.drawIndex ? 1 : 0));
+
+    const bound = alias.binding.tag === "Bound" ? alias.binding.alias : null;
+    if (bound === null || draws.length === 0) {
+        return {
+            at: snapshot,
+            account,
+            alias,
+            draws: draws.map((d) => ({ ...d, slot: null, registered: null, won: null })),
+        };
+    }
+
+    const eventIds = draws.map((d) => d.event.eventId);
+    const [salts, winners] = await Promise.all([
+        query.PeopleAirdrops.DrawSalts.getValues(
+            eventIds.map((id) => [id] as [string]),
+            at,
+        ),
+        query.Airdrop.Winners.getValues(
+            eventIds.map(
+                (id) =>
+                    [id, { type: "Alias", value: { alias: bound } }] as [
+                        string,
+                        RawRegistrationEntry,
+                    ],
+            ),
+            at,
+        ),
+    ]);
+    const slots = eventIds.map((id, i) => {
+        const salt = salts[i];
+        return salt === undefined ? null : derivePeopleAirdropsSlot(id, salt[0], bound);
+    });
+    const keys: Array<[string, string]> = [];
+    for (const [i, slot] of slots.entries()) {
+        if (slot !== null) keys.push([eventIds[i] as string, slot]);
+    }
+    const registrations =
+        keys.length === 0 ? [] : await query.Airdrop.Registrations.getValues(keys, at);
+    const registered = new Map(keys.map(([id], i) => [id, registrations[i] !== undefined]));
+
+    return {
+        at: snapshot,
+        account,
+        alias,
+        draws: draws.map((d, i) => ({
+            ...d,
+            slot: slots[i] ?? null,
+            registered: registered.get(d.event.eventId) ?? null,
+            won: winners[i] !== undefined,
+        })),
+    };
 }
 
 /** Which `withAsPerson` origin a `PeopleAirdrops` call can ride for this account now. */
@@ -335,30 +354,40 @@ export async function readPeopleAirdropsSigning(
     options: ReadPeopleAirdropsOptions,
 ): Promise<Result<PeopleAirdropsSigning, ProductIndividualityError>> {
     try {
-        const snapshot = await pinBlock(chain, options.signal, options.at ?? "best");
-        const at = readAt(snapshot, options.signal);
-        const { alias, raw } = await runAliasRead(chain, options.account, at);
+        return ok(await runSigningRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readPeopleAirdropsSigning} owns the `Result` boundary. */
+async function runSigningRead(
+    chain: PeopleAirdropsChain,
+    options: ReadPeopleAirdropsOptions,
+): Promise<PeopleAirdropsSigning> {
+    const { account, signal } = options;
+    return readPinned(chain, signal, options.at ?? "best", async (snapshot) => {
+        const at = readAt(snapshot, signal);
+        const { alias, raw } = await runAliasRead(chain, account, at);
         const { binding } = alias;
         if (binding.tag === "Unbound")
-            return ok({ tag: "Unbound", airdropsContext: alias.airdropsContext });
-        if (binding.tag === "OtherContext") return ok(binding);
+            return { tag: "Unbound", airdropsContext: alias.airdropsContext };
+        if (binding.tag === "OtherContext") return binding;
 
         const root = await chain.individuality.query.Members.Root.getValue(
             `0x${bytesToHex(ringCollectionId("people"))}`,
             binding.ring,
             at,
         );
-        if (root === undefined) return ok({ tag: "RingUnavailable", ring: binding.ring });
-        if (root.revision === binding.revision) return ok({ tag: "Bound", alias: binding.alias });
-        return ok({
+        if (root === undefined) return { tag: "RingUnavailable", ring: binding.ring };
+        if (root.revision === binding.revision) return { tag: "Bound", alias: binding.alias };
+        return {
             tag: "Revised",
             alias: binding.alias,
             aliasContext: (raw as RawPeopleAccountAlias).ca.context,
             ring: binding.ring,
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 /** The chain surface {@link peopleAirdropsRegisterCalls} needs. */

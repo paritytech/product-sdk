@@ -17,7 +17,7 @@ import { hexToBytes } from "@parity/product-sdk-utils";
 import { creditHash } from "./credits.js";
 import { IndividualityDecodeError, ProductIndividualityError } from "./errors.js";
 import { toCurrentGame, type RawGameInfo } from "./game-decode.js";
-import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type PinnedChain, type ReadAt } from "./pinned.js";
 import type { PlayerKey } from "./player-key.js";
 import { IDENTIFIER_KEY_BYTES } from "./signup.js";
 import type { FinalizedSnapshot } from "./types.js";
@@ -123,15 +123,24 @@ export async function readPlayerIndices(
     options: ReadPlayerIndicesOptions,
 ): Promise<Result<PlayerIndicesResult, ProductIndividualityError>> {
     try {
-        const snapshot = await pinBlock(chain, options.signal);
+        return ok(await runPlayerIndicesRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readPlayerIndices} owns the `Result` boundary. */
+async function runPlayerIndicesRead(
+    chain: RosterChain,
+    options: ReadPlayerIndicesOptions,
+): Promise<PlayerIndicesResult> {
+    return readPinned(chain, options.signal, undefined, async (snapshot) => {
         const indices = await chain.individuality.query.Game.PlayerToIndex.getValue(
             options.player,
             readAt(snapshot, options.signal),
         );
-        return ok({ at: snapshot, indices: indices ?? null });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        return { at: snapshot, indices: indices ?? null };
+    });
 }
 
 /** Options for {@link readGroupMembers}. */
@@ -163,21 +172,30 @@ export async function readGroupMembers(
     options: ReadGroupMembersOptions,
 ): Promise<Result<GroupMembersResult, ProductIndividualityError>> {
     try {
-        const { round, ownIndex, playerCount, maxGroupSize, signal } = options;
-        const indices = occupiedSeats(ownIndex, playerCount, maxGroupSize);
-        const snapshot = await pinBlock(chain, signal);
+        return ok(await runGroupMembersRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readGroupMembers} owns the `Result` boundary. */
+async function runGroupMembersRead(
+    chain: RosterChain,
+    options: ReadGroupMembersOptions,
+): Promise<GroupMembersResult> {
+    const { round, ownIndex, playerCount, maxGroupSize, signal } = options;
+    const indices = occupiedSeats(ownIndex, playerCount, maxGroupSize);
+    return readPinned(chain, signal, undefined, async (snapshot) => {
         const players = await playersAt(
             chain,
             indices.map((index) => ({ round, index })),
             readAt(snapshot, signal),
         );
-        return ok({
+        return {
             at: snapshot,
             members: indices.map((index, i) => ({ index, player: players[i] })),
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 /** The occupied seats of the group of `ownIndex`, which has to hold a seat itself. */
@@ -234,7 +252,18 @@ export async function readCommunicationIdentifier(
     options: ReadCommunicationIdentifierOptions,
 ): Promise<Result<CommunicationIdentifierResult, ProductIndividualityError>> {
     try {
-        const snapshot = await pinBlock(chain, options.signal);
+        return ok(await runCommunicationIdentifierRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readCommunicationIdentifier} owns the `Result` boundary. */
+async function runCommunicationIdentifierRead(
+    chain: RosterChain,
+    options: ReadCommunicationIdentifierOptions,
+): Promise<CommunicationIdentifierResult> {
+    return readPinned(chain, options.signal, undefined, async (snapshot) => {
         const raw = await chain.individuality.query.Game.CommunicationIdentifiers.getValue(
             options.account,
             readAt(snapshot, options.signal),
@@ -242,13 +271,11 @@ export async function readCommunicationIdentifier(
         if (raw !== undefined && !IDENTIFIER_HEX.test(raw)) {
             throw new IndividualityDecodeError("communication identifier is not 65 bytes of hex");
         }
-        return ok({
+        return {
             at: snapshot,
             identifier: raw === undefined ? null : hexToBytes(raw.slice(2)),
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 /** One credit the attestee could earn this game: a co-player of one round, and the hash. */
@@ -289,9 +316,20 @@ export async function readCreditCandidates(
     options: ReadCreditCandidatesOptions,
 ): Promise<Result<CreditCandidatesResult, ProductIndividualityError>> {
     try {
-        const { attestee, signal } = options;
-        const query = chain.individuality.query.Game;
-        const snapshot = await pinBlock(chain, signal);
+        return ok(await runCreditCandidatesRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readCreditCandidates} owns the `Result` boundary. */
+async function runCreditCandidatesRead(
+    chain: CreditCandidatesChain,
+    options: ReadCreditCandidatesOptions,
+): Promise<CreditCandidatesResult> {
+    const { attestee, signal } = options;
+    const query = chain.individuality.query.Game;
+    return readPinned(chain, signal, undefined, async (snapshot) => {
         const at = readAt(snapshot, signal);
 
         const [raw, indices] = await Promise.all([
@@ -301,10 +339,10 @@ export async function readCreditCandidates(
         const game = raw === undefined ? null : toCurrentGame(raw);
         const playerCount = game?.playerCount ?? null;
         if (game === null || playerCount === null) {
-            return ok({ at: snapshot, gameIndex: null, candidates: [] });
+            return { at: snapshot, gameIndex: null, candidates: [] };
         }
         if (indices === undefined) {
-            return ok({ at: snapshot, gameIndex: game.index, candidates: [] });
+            return { at: snapshot, gameIndex: game.index, candidates: [] };
         }
 
         const seats = indices.slice(0, game.rounds).flatMap((ownIndex, round) =>
@@ -314,7 +352,7 @@ export async function readCreditCandidates(
         );
         const attesters = await playersAt(chain, seats, at);
 
-        return ok({
+        return {
             at: snapshot,
             gameIndex: game.index,
             candidates: seats.map((seat, i) => {
@@ -331,10 +369,8 @@ export async function readCreditCandidates(
                     }),
                 };
             }),
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 if (import.meta.vitest) {

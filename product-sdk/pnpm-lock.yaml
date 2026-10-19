@@ -702,6 +702,12 @@ importers:
       '@parity/product-sdk-errors':
         specifier: workspace:*
         version: link:../errors
+      '@parity/product-sdk-host':
+        specifier: workspace:*
+        version: link:../host
+      '@parity/product-sdk-tx':
+        specifier: workspace:*
+        version: link:../tx
       '@parity/product-sdk-utils':
         specifier: workspace:*
         version: link:../utils

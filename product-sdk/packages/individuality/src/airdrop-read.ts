@@ -28,7 +28,7 @@ import type {
     AirdropRegistrant,
 } from "./airdrop-types.js";
 import { ProductIndividualityError } from "./errors.js";
-import { pinBlock, readAt, type PinnedChain, type ReadAt } from "./pinned.js";
+import { readAt, readPinned, type PinnedChain, type ReadAt } from "./pinned.js";
 import type { BlockAt, FinalizedSnapshot } from "./types.js";
 
 /**
@@ -148,31 +148,32 @@ export async function runDrawRead(
     const { eventId, registrant, signal } = options;
     const query = chain.individuality.query.Airdrop;
 
-    const snapshot = await pinBlock(chain, signal, pinned);
-    const at: ReadAt = readAt(snapshot, signal);
+    return readPinned(chain, signal, pinned, async (snapshot) => {
+        const at: ReadAt = readAt(snapshot, signal);
 
-    // One round trip, three entries, one block. The winner lookup is a point
-    // read rather than a scan because `Winners` hashes the registration entry —
-    // which is why an identity is all it takes.
-    const [rawEvent, ticket, entropy] = await Promise.all([
-        query.Events.getValue(eventId, at),
-        registrant === undefined
-            ? Promise.resolve(undefined)
-            : query.Winners.getValue(eventId, toRawRegistrationEntry(registrant), at),
-        query.EventEntropy.getValue(eventId, at),
-    ]);
+        // All three entries are read at the same block in one round trip. `Winners`
+        // is keyed by the registration entry, so checking whether this registrant
+        // won is a single lookup, not a scan of every winner.
+        const [rawEvent, ticket, entropy] = await Promise.all([
+            query.Events.getValue(eventId, at),
+            registrant === undefined
+                ? Promise.resolve(undefined)
+                : query.Winners.getValue(eventId, toRawRegistrationEntry(registrant), at),
+            query.EventEntropy.getValue(eventId, at),
+        ]);
 
-    const event = rawEvent === undefined ? null : toAirdropEvent(eventId, rawEvent);
+        const event = rawEvent === undefined ? null : toAirdropEvent(eventId, rawEvent);
 
-    return {
-        at: snapshot,
-        eventId,
-        // "Gone" is the absence of the row, not a status the chain reports.
-        phase: event?.phase ?? "Gone",
-        event,
-        outcome: toOutcome(registrant, ticket),
-        entropy: entropy ?? null,
-    };
+        return {
+            at: snapshot,
+            eventId,
+            // "Gone" is the absence of the row, not a status the chain reports.
+            phase: event?.phase ?? "Gone",
+            event,
+            outcome: toOutcome(registrant, ticket),
+            entropy: entropy ?? null,
+        };
+    });
 }
 
 function toOutcome(
@@ -214,8 +215,19 @@ export async function readDrawRegistration(
     options: { eventId: string; registrant: AirdropRegistrant; signal?: AbortSignal },
 ): Promise<Result<DrawRegistration, ProductIndividualityError>> {
     try {
-        const { eventId, registrant, signal } = options;
-        const snapshot = await pinBlock(chain, signal);
+        return ok(await runDrawRegistrationRead(chain, options));
+    } catch (cause) {
+        return err(normalizeError(cause, ProductIndividualityError));
+    }
+}
+
+/** Throws; {@link readDrawRegistration} owns the `Result` boundary. */
+async function runDrawRegistrationRead(
+    chain: AirdropChain,
+    options: { eventId: string; registrant: AirdropRegistrant; signal?: AbortSignal },
+): Promise<DrawRegistration> {
+    const { eventId, registrant, signal } = options;
+    return readPinned(chain, signal, undefined, async (snapshot) => {
         const entries = await chain.individuality.query.Airdrop.Registrations.getEntries(
             eventId,
             readAt(snapshot, signal),
@@ -227,16 +239,14 @@ export async function readDrawRegistration(
         const matches = matcherFor(toRawRegistrationEntry(registrant));
         const match = entries.find(matches);
 
-        return ok({
+        return {
             at: snapshot,
             eventId,
             // keyArgs is [eventId, slot], so the slot is the second key.
             slot: match?.keyArgs[1] ?? null,
             entriesScanned: entries.length,
-        });
-    } catch (cause) {
-        return err(normalizeError(cause, ProductIndividualityError));
-    }
+        };
+    });
 }
 
 /**

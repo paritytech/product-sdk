@@ -11,8 +11,10 @@ description: >
   productContext, personhoodContext, peopleRing, litePeopleRing and readScoreContext for the
   ring-VRF proof contexts; withAsPerson, withLiteAlias and the RestrictOrigins requirement
   that otherwise fails every call; the two-transaction lite personhood bind then sign-up
-  flow with buildLiteAliasBindTx, readLiteSignUpRequirement and signUpWithLiteInviteTx; and full-personhood registration with registerMessage, Score.register and
-  withScoreParticipant.
+  flow with buildLiteAliasBindTx, readLiteSignUpRequirement and signUpWithLiteInviteTx; game
+  registration in one call with registerForGame, readGameSeat, deriveSeat, bindGameSeat and the
+  /host entry's hostGameRegistrationCapabilities; and full-personhood registration with
+  registerMessage, Score.register and withScoreParticipant.
 ---
 
 # Product SDK Individuality
@@ -428,6 +430,54 @@ The first four stop the extrinsic; the last three stop only the draw entry. `can
 - **A rejected sign-up costs a fee.** `Pays::No` applies on success only, and the airdrop registration rides inside the same extrinsic, so one bad VRF entry loses the game sign-up too. Read the blockers before submitting.
 - **No local VRF verification exists.** One bad entry fails everything, but schnorrkel verification is not in this workspace. What it would catch is the wrong key, which the transcript already binds.
 
+### Registering in One Call
+
+Every product that signs a player up takes the same steps: read the seat, bind the lite alias when the free route needs it, decide the draw entries, sign up. `registerForGame` runs them in that order, so the game's app, its chat worker and the personhood product all sign players up the same way. Reach for the pieces above only when you need a step on its own.
+
+```ts
+import { fromPapi, readGameSeat, registerForGame, registrationRetryDelay } from "@parity/product-sdk-individuality";
+import { hostGameRegistrationCapabilities } from "@parity/product-sdk-individuality/host";
+
+const caps = await hostGameRegistrationCapabilities({ tld: "paseo" });
+if (!caps.ok) return;
+
+const outcome = await registerForGame(fromPapi(client, api), caps.value, {
+  tld: "paseo",
+  identifierKey,                       // 65-byte P-256 key the game uses at game time
+  onStage: (stage) => show(stage),     // "seat" | "bind" | "draws" | "sign" | "broadcast"
+});
+if (!outcome.ok) {
+  const e = outcome.error;             // GameRegistrationError (GameSeatBindError for the bind)
+  send(e.report);                      // how far it got, for telemetry
+  if (e.retryable) retryIn(registrationRetryDelay(failures));  // the call resumes where it stopped
+  return;
+}
+send(outcome.value.report);
+switch (outcome.value.kind) {
+  case "registered":         // route + what the draws carried
+  case "already-registered": // also what a race with another product ends in
+  case "not-open":           // no game, or past registration, by the chain's clock
+  case "unfunded":           // deposit route, `missing` short
+}
+```
+
+| Step | What runs | Notes |
+|---|---|---|
+| Seat | `readGameSeat`: `readLiteSignUpRequirement` + `readSignUpFunds` at best, judged by `Timestamp.Now`, folded by `deriveSeat` | Route `returning`, `free`, `deposit` or `unfunded`. Show it with `readGameSeat` alone |
+| Bind | `bindGameSeat`: a current binding resolves at once, and a stale one is bound again with a fresh proof (`registerForGame` never binds a stale one: the sign-up's revised leg re-points it); a lite person's own account, a binding in another context, a pinned seat or an underivable context are refused before any proof; otherwise `buildLiteAliasBindTx`, the `Game.LiteInvites` pin check, a raw submit | `AliasAccountAlreadySet` counts as bound. A bind no block holds after `timeoutMs` (120 s) fails with `Timeout` and `landingUnknown`. A permanent refusal seats the player on the account route instead |
+| Draws | The requirement's `eventIds` and `airdropsScheduled`, each draw's status decoded with `statusTag`/`airdropPhase` at best; waits a block at a time for a draw not open yet, never into the last 15 s of registration | A refused ticket or proof is not asked for again: the sign-up goes without it, and `DrawOutcome.kind` says why |
+| Sign | `signUpWithLiteInviteTx` under `withLiteAlias` (`AliasWithAccountRevised` on a stale binding), or `signUpWithAccountTx` under `withScoreParticipant` / plain, handed to `submit` | Resolves at the best block by default, as `tx` does; pass `waitFor: "finalized"` when the answer must not be undone. `AlreadyRegistered` from the chain is success |
+
+> **RETRY BY CALLING AGAIN.** Every step reads the chain before it acts, so a second call resumes: a bind that landed is not sent again and a sign-up that landed is `already-registered`. Check `retryable` first (a declined signature, a closed registration or a pinned seat never are), wait `registrationRetryDelay(failures)` (5 s, 15 s, 45 s, 2 min, 5 min), and never pass a cached `seat` on a retry.
+
+> **ONE ACCOUNT FOR EVERY PRODUCT.** The game account is `gameProductId(tld)` at `GAME_ACCOUNT_INDEX` (0, the host's default product account). The host adapter asks for that unless you pass `accountIndex`; every product that signs the same player up must use the same index, or they sign up two different accounts. A product other than the game product signs as it only under the game product's `context` grant, and proves with the personhood keys only under the personhood product's.
+
+> **THE IDENTIFIER IS WHOEVER REGISTERS.** `identifierKey` is rewritten on every sign-up, and no call changes it afterwards. A product that registers for the game must pass a key whose private half the game product can use at game time.
+
+> **CAPABILITIES, NOT A HOST.** The main entry imports neither `@parity/product-sdk-host` nor `@parity/product-sdk-tx`. `GameRegistrationCapabilities` carries the account, its signer, `submit`, `signVrf`, an optional `verifyVrf`, and the personhood prover. `hostGameRegistrationCapabilities` builds them with `tx`'s `submitAndWatch` as `submit`; a worker that cannot load `tx` passes its own. Through the umbrella it is `@parity/product-sdk/individuality/host`.
+
+> **A CODE IS A NAME, NEVER FREE TEXT.** A `GameRegistrationError`'s `code` (and the report's `signUp.code` and bind `code`) is the chain's own error name (`NoRegistration`, `AccountInUse`, `Custom(172)`) or one of the package's: `Timeout`, `Aborted`, `SigningRejected`, `HostRefused`, `Network`, `Dropped`, `InvalidSignUp`, `StaleAliasNeedsLiteKey`, `NoPersonhoodProver`, `Unknown`. Group telemetry and branch on it; what the error said is in `message`, the original in `cause`.
+
 ## Proof Contexts and Ring Locations
 
 Before a product mints any ring-VRF proof it needs two things the chain will not hand it: the **32-byte context** the proof must be minted in, and the **ring** the proof comes from. Both are pure derivations — no client, no host, no round trip — so a product can predict them offline and compare against what the host actually returned.
@@ -475,6 +525,8 @@ const ring = litePeopleRing(genesisHash);
 ```
 
 No `PalletInstance` junction is emitted, and that is deliberate: every host resolves the `Members` pallet by name, and treats the junction as an optional cross-check when present.
+
+> **A LISTED KEY MAY SPELL ITS RING THE OTHER WAY.** `listRingVrfKeys` returns each key's rings as declared, and the Android host declares the personhood keys with the `Members` pallet's index in front, read from its runtime. `findRingVrfKeyHandle` compares exactly, so a bare ring misses them. The `/host` adapter matches on chain and `CollectionId` instead, prefers an exact match, picks no key when the matches name two different pallets, and proves under the ring as the key declares it. Never hard-code the pallet index: it moves with the runtime.
 
 ### Checking the chain agrees
 

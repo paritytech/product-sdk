@@ -46,6 +46,9 @@ import type {
     FeeEstimable,
     GameChain,
     GamePlayersChain,
+    GameRegistrationChain,
+    GameSeatBindChain,
+    GameSeatChain,
     IndividualityChain,
     LegacySuffixChain,
     LiteAliasBindChain,
@@ -540,6 +543,38 @@ type FromPapiSatisfiesBindContract = Assert<
 >;
 type RejectsBogusBindClient = Assert<
     ClientWithoutIndividuality extends LiteAliasBindChain ? false : true
+>;
+
+// Registering for the game in one call composes every read and builder above
+// with the two submission methods PAPI hands back (`createSubmitAndWatch` on a
+// transaction, `submitAndWatch` on the client) and `Timestamp.Now`. These are
+// the contracts the game's app, its chat worker and the personhood product pass
+// a `fromPapi` chain to, so a descriptor change that breaks any of them fails here.
+type PaseoSatisfiesGameSeatContract = Assert<PaseoClient extends GameSeatChain ? true : false>;
+type PreviewnetSatisfiesGameSeatContract = Assert<
+    PreviewnetClient extends GameSeatChain ? true : false
+>;
+type PaseoSatisfiesSeatBindContract = Assert<PaseoClient extends GameSeatBindChain ? true : false>;
+type PreviewnetSatisfiesSeatBindContract = Assert<
+    PreviewnetClient extends GameSeatBindChain ? true : false
+>;
+type PaseoSatisfiesRegistrationContract = Assert<
+    PaseoClient extends GameRegistrationChain ? true : false
+>;
+type PreviewnetSatisfiesRegistrationContract = Assert<
+    PreviewnetClient extends GameRegistrationChain ? true : false
+>;
+type FromPapiSatisfiesRegistrationContract = Assert<
+    PapiIndividualityChain<
+        PaseoClient["individuality"],
+        PaseoClient["raw"]["individuality"]
+    > extends GameRegistrationChain
+        ? true
+        : false
+>;
+type DevnetPredatesRegistration = Assert<DevnetClient extends GameRegistrationChain ? false : true>;
+type RejectsBogusRegistrationClient = Assert<
+    ClientWithoutIndividuality extends GameRegistrationChain ? false : true
 >;
 
 // Pinned by name for the same reason `sign_up_with_account`'s are: PAPI encodes
