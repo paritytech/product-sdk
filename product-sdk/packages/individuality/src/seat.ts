@@ -1,32 +1,20 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Which sign-up route a player takes for the weekly game, and whether it can be
- * taken now: the one answer every product that shows or starts a sign-up has to
- * agree on.
+ * Which sign-up route a player takes for the weekly game, so every product shows
+ * the same answer:
  *
- * The chain offers several routes, and a player is shown one, chosen from their
- * situation:
+ * - `"returning"`: a player record exists (`AlreadyPlaying`); no deposit, and
+ *   `withScoreParticipant` waives the fee.
+ * - `"free"`: a lite person, on `sign_up_with_account_lite_invite` with a zero
+ *   balance. Ready once the lite alias is bound (a stale binding counts).
+ * - `"deposit"`: anyone else who can pay the deposit and the fee.
+ * - `"unfunded"`: anyone else who cannot. Nothing can be signed.
  *
- * - `"returning"`: a player record already exists (`AlreadyPlaying`). The
- *   account call is free for them, with no deposit, and `withScoreParticipant`
- *   waives the fee.
- * - `"free"`: a lite person takes `sign_up_with_account_lite_invite`, `Pays::No`,
- *   valid on a zero balance. The seat is ready once the lite alias is bound to
- *   the account. A binding the ring has moved past (`StaleAlias`) is still
- *   ready, because the sign-up re-points it.
- * - `"deposit"`: nobody the chain knows, with enough funds. The account call
- *   holds the play deposit until the player leaves.
- * - `"unfunded"`: nobody the chain knows, who cannot pay the deposit and the fee.
- *   Nothing can be signed.
+ * The full person's `sign_up_with_alias` is never chosen yet. Game-phase
+ * blockers do not change the route; {@link GameSeat} carries them separately.
  *
- * The full person's route, `sign_up_with_alias`, cannot be assembled yet, so it
- * is never chosen. Game-phase blockers (`NoGameRunning`, `NotInRegistration`,
- * `AlreadyRegistered`, …) do not change the route, only whether a sign-up can
- * go out now; {@link GameSeat} carries those separately.
- *
- * Ported from jollity-next `packages/protocol/src/seat.ts`, which the game's app
- * and chat worker used before this.
+ * Ported from jollity-next `packages/protocol/src/seat.ts`.
  */
 import { err, normalizeError, ok, type Result } from "@parity/result";
 

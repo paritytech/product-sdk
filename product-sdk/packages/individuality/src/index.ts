@@ -490,21 +490,24 @@ export type {
     SeatRoute,
     TimestampChain,
 } from "./seat.js";
+export { bindGameSeat, holdsLiteKey } from "./bind-game-seat.js";
+export type { BindGameSeatOptions } from "./bind-game-seat.js";
 export {
-    bindGameSeat,
     GAME_REGISTRATION_RETRY_MS,
     GameRegistrationError,
     GameSeatBindError,
-    holdsLiteKey,
-    registerForGame,
     registrationRetryDelay,
+} from "./register-game-errors.js";
+export { registerForGame } from "./register-game.js";
+export type {
+    DrawWaitOptions,
+    RegisterForGameOptions,
+    RegisterForGameOutcome,
 } from "./register-game.js";
 export type {
-    BindGameSeatOptions,
     BindGameSeatOutcome,
     DrawOutcome,
     DrawSkipKind,
-    DrawWaitOptions,
     GameAccount,
     GameRegistrationCapabilities,
     GameRegistrationChain,
@@ -518,15 +521,13 @@ export type {
     PersonhoodProver,
     PersonhoodRing,
     RawSubmitChain,
-    RegisterForGameOptions,
-    RegisterForGameOutcome,
     SignUpSubmitOptions,
     SignUpSubmitResult,
     SignUpTransaction,
     SubmitSignUp,
     TxWatch,
     TxWatchEvent,
-} from "./register-game.js";
+} from "./register-game-types.js";
 
 // The metadata-driven pieces underneath stay internal on purpose, even though
 // `withLiteAlias` proves they generalise: widening a surface later never breaks

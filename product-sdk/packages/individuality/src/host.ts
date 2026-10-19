@@ -49,13 +49,13 @@ import { AccountId } from "polkadot-api";
 
 import { ProductIndividualityError } from "./errors.js";
 import { GAME_ACCOUNT_INDEX, gameProductId } from "./game-account.js";
-import {
-    errorName,
-    type GameRegistrationCapabilities,
-    type PersonhoodProver,
-    type PersonhoodRing,
-    type SubmitSignUp,
-} from "./register-game.js";
+import { errorName } from "./register-game-errors.js";
+import type {
+    GameRegistrationCapabilities,
+    PersonhoodProver,
+    PersonhoodRing,
+    SubmitSignUp,
+} from "./register-game-types.js";
 import type { RingLocation } from "./rings.js";
 
 /**
