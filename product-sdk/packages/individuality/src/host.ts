@@ -50,7 +50,7 @@ import { AccountId } from "polkadot-api";
 
 import { ProductIndividualityError } from "./errors.js";
 import { GAME_ACCOUNT_INDEX, gameProductId } from "./game-account.js";
-import { errorName } from "./register-game-errors.js";
+import { errorName, isTrackingStopped } from "./register-game-errors.js";
 import type {
     GameRegistrationCapabilities,
     PersonhoodProver,
@@ -210,7 +210,7 @@ export const hostSubmitSignUp: SubmitSignUp = async (tx, signer, options) => {
         ok: false,
         code: errorName(error),
         ...said,
-        ...(/tracking stopped/i.test(error.message) ? { landingUnknown: true } : {}),
+        ...(isTrackingStopped(error) ? { landingUnknown: true } : {}),
     };
 };
 

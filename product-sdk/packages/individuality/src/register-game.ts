@@ -93,6 +93,40 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
 }
 
 /**
+ * Asks `decide` for the draw entries again every `retryMs` while it says to
+ * wait, until `maxMs` from `startedAt` or until `closing` says registration is
+ * about to close. Giving up keeps the skip and says why.
+ */
+async function waitForDraws(
+    decide: () => Promise<DrawEntries>,
+    closing: () => Promise<boolean>,
+    wait: { startedAt: number; maxMs: number; retryMs: number },
+    signal: AbortSignal | undefined,
+): Promise<{ draws: DrawEntries; retries: number }> {
+    let retries = 0;
+    let draws = await decide();
+    while (draws.entries === undefined && draws.wait) {
+        const isClosing = await closing();
+        if (Date.now() - wait.startedAt >= wait.maxMs || isClosing) {
+            const why = isClosing ? ": registration is closing" : "";
+            return {
+                draws: {
+                    ...draws,
+                    skipped: `${draws.skipped} (gave up waiting${why})`,
+                    wait: false,
+                    ...(isClosing ? { kind: "closing" as const } : {}),
+                },
+                retries,
+            };
+        }
+        await sleep(wait.retryMs, signal);
+        retries += 1;
+        draws = await decide();
+    }
+    return { draws, retries };
+}
+
+/**
  * The signer, made to drop a signature that arrives after `signal` aborts. The
  * transaction goes out only with the signed bytes, so an abort while the signing
  * prompt is open sends nothing. Fee estimates (mocked signatures) pass through.
@@ -349,7 +383,6 @@ async function runRegistration(
         const retryMs = wait.retryMs ?? DEFAULT_DRAW_RETRY_MS;
         const closingSeconds = wait.closingSeconds ?? DEFAULT_DRAW_CLOSING_S;
         const startedAt = Date.now();
-        let retries = 0;
         // The origin the route signs under; a read below may revise it (a stale binding).
         let signer =
             route === "free"
@@ -434,22 +467,12 @@ async function runRegistration(
             }
         };
 
-        let draws = await decide();
-        while (draws.entries === undefined && draws.wait) {
-            const isClosing = await closing();
-            if (Date.now() - startedAt >= maxMs || isClosing) {
-                draws = {
-                    ...draws,
-                    skipped: `${draws.skipped} (gave up waiting${isClosing ? ": registration is closing" : ""})`,
-                    wait: false,
-                    ...(isClosing ? { kind: "closing" as const } : {}),
-                };
-                break;
-            }
-            await sleep(retryMs, signal);
-            retries += 1;
-            draws = await decide();
-        }
+        const { draws, retries } = await waitForDraws(
+            decide,
+            closing,
+            { startedAt, maxMs, retryMs },
+            signal,
+        );
         // An abort during the minting comes back as a skip; it is an abort.
         signal?.throwIfAborted();
         const outcome: DrawOutcome = {

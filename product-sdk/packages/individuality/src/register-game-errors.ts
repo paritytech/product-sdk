@@ -145,6 +145,10 @@ export const GAME_REGISTRATION_RETRY_MS: readonly number[] = [
     5_000, 15_000, 45_000, 120_000, 300_000,
 ];
 
+/**
+ * For a product that retries a failed registration itself: nothing in this
+ * package calls it, since `registerForGame` never retries.
+ */
 export function registrationRetryDelay(failures: number): number {
     const index =
         Math.min(Math.max(Math.floor(failures), 1), GAME_REGISTRATION_RETRY_MS.length) - 1;
@@ -198,6 +202,11 @@ function ownCode(error: unknown): GameRegistrationOwnCode {
 export function errorDetail(error: unknown): string | undefined {
     if (error instanceof Error) return error.message || undefined;
     return typeof error === "string" && error ? error : undefined;
+}
+
+/** PAPI's words when a watch lost its blocks before the transaction's fate was known. */
+export function isTrackingStopped(error: unknown): boolean {
+    return error instanceof Error && /tracking stopped/i.test(error.message);
 }
 
 export function asRegistrationError(

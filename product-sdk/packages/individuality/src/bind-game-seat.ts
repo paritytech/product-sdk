@@ -15,6 +15,7 @@ import {
     errorDetail,
     errorName,
     GameSeatBindError,
+    isTrackingStopped,
     type GameRegistrationCode,
 } from "./register-game-errors.js";
 import type {
@@ -91,11 +92,6 @@ export async function holdsLiteKey(
 type Settled =
     | { ok: true }
     | { ok: false; error: GameRegistrationCode; message?: string; landingUnknown?: boolean };
-
-/** PAPI's words when a watch lost its blocks before the transaction's fate was known. */
-function isTrackingStopped(error: unknown): boolean {
-    return error instanceof Error && /tracking stopped/i.test(error.message);
-}
 
 /** How long the bind waits for a best block to hold it, from submission. */
 const DEFAULT_BIND_TIMEOUT_MS = 120_000;
