@@ -149,6 +149,23 @@ export function mapHostResult<T, U>(
     );
 }
 
+/**
+ * Hand a host `ResultAsync` to callbacks, and reach `onErr` when the call rejects too.
+ *
+ * truapi rejects a call that times out or loses its transport instead of
+ * resolving it to an `Err`, and a rejection runs neither arm of `.match`. A
+ * caller that answers from callbacks, such as the PAPI provider, would then
+ * never answer. A rejection arrives here as a {@link HostResponseDecodeError}.
+ */
+export function matchHostResult<T, E>(
+    result: ResultAsync<T, E>,
+    label: string,
+    onOk: (value: T) => void,
+    onErr: (error: E | HostResponseDecodeError) => void,
+): void {
+    void matchGuarded(result, label, onOk, onErr, onErr);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hex helpers
 // ─────────────────────────────────────────────────────────────────────────────
