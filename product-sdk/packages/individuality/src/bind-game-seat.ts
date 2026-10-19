@@ -10,7 +10,13 @@ import { err, normalizeError, ok, type Result } from "@parity/result";
 import { buildLiteAliasBindTx, type LiteAliasBindChain } from "./bind-lite-alias.js";
 import { ProductIndividualityError } from "./errors.js";
 import type { CreateRingVRFProof, RingVRFProof } from "./origin-extension.js";
-import { asRegistrationError, errorName, GameSeatBindError } from "./register-game-errors.js";
+import {
+    asRegistrationError,
+    errorDetail,
+    errorName,
+    GameSeatBindError,
+    type GameRegistrationCode,
+} from "./register-game-errors.js";
 import type {
     BindGameSeatOutcome,
     GameRegistrationCapabilities,
@@ -81,8 +87,10 @@ export async function holdsLiteKey(
 
 // ── submission of the raw bind ───────────────────────────────────────────────
 
-/** Where a raw submission settled. */
-type Settled = { ok: true } | { ok: false; error: string; landingUnknown?: boolean };
+/** Where a raw submission settled: a code, and what the error said beside it. */
+type Settled =
+    | { ok: true }
+    | { ok: false; error: GameRegistrationCode; message?: string; landingUnknown?: boolean };
 
 /** PAPI's words when a watch lost its blocks before the transaction's fate was known. */
 function isTrackingStopped(error: unknown): boolean {
@@ -148,6 +156,7 @@ function settleRaw(
                     resolve({
                         ok: false,
                         error: errorName(error),
+                        message: errorDetail(error),
                         ...(isTrackingStopped(error) ? { landingUnknown: true } : {}),
                     }),
                 ),
@@ -155,7 +164,8 @@ function settleRaw(
                 finish(() =>
                     resolve({
                         ok: false,
-                        error: "the watch ended before any block held the transaction",
+                        error: "Dropped",
+                        message: "the watch ended before any block held the transaction",
                     }),
                 ),
         });
@@ -300,6 +310,7 @@ export async function runBind(
     if (result.error === "AliasAccountAlreadySet") return "already-bound";
     throw new GameSeatBindError("rejected", result.error, undefined, {
         landingUnknown: result.landingUnknown,
+        detail: result.message,
     });
 }
 
@@ -435,6 +446,19 @@ if (import.meta.vitest) {
             });
         });
 
+        test("a refused bind keeps the code and puts what the chain said in the message", async () => {
+            const { steps } = bindSteps({
+                submitRaw: vi.fn(async () => ({
+                    ok: false as const,
+                    error: "Network",
+                    message: "WebSocket closed",
+                })),
+            });
+            const error = await bind(prover(), steps).catch((e: GameSeatBindError) => e);
+            expect(error).toMatchObject({ code: "Network", retryable: true });
+            expect((error as Error).message).toContain("WebSocket closed");
+        });
+
         test("a bind no block held in time is retryable, and may still land", async () => {
             const { steps } = bindSteps({
                 submitRaw: vi.fn(async () => ({
@@ -493,14 +517,25 @@ if (import.meta.vitest) {
             expect(result).toEqual({ ok: true });
         });
 
-        test("a watch that ends with no block is a failure, not a hang", async () => {
+        test("a watch that ends with no block is a failure, not a hang, coded Dropped", async () => {
             const result = await settleRaw(
                 watch((observer) => {
                     observer.next({ type: "broadcasted" });
                     observer.complete?.();
                 }),
             );
-            expect(result.ok).toBe(false);
+            expect(result).toMatchObject({ ok: false, error: "Dropped" });
+        });
+
+        test("a watch that fails keeps a code, and what the error said beside it", async () => {
+            const result = await settleRaw(
+                watch((observer) => observer.error(new Error("WebSocket closed at 0x12…"))),
+            );
+            expect(result).toEqual({
+                ok: false,
+                error: "Network",
+                message: "WebSocket closed at 0x12…",
+            });
         });
 
         test("a lost watch says the landing is unknown", async () => {

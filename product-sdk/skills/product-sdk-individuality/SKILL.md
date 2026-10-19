@@ -470,11 +470,13 @@ switch (outcome.value.kind) {
 
 > **RETRY BY CALLING AGAIN.** Every step reads the chain before it acts, so a second call resumes: a bind that landed is not sent again and a sign-up that landed is `already-registered`. Check `retryable` first (a declined signature, a closed registration or a pinned seat never are), wait `registrationRetryDelay(failures)` (5 s, 15 s, 45 s, 2 min, 5 min), and never pass a cached `seat` on a retry.
 
-> **ONE ACCOUNT FOR EVERY PRODUCT.** The game account is `gameProductId(tld)` at `GAME_ACCOUNT_INDEX` (0, the host's default product account). The host adapter asks for exactly that. A product other than the game product signs as it only under the game product's `context` grant, and proves with the personhood keys only under the personhood product's.
+> **ONE ACCOUNT FOR EVERY PRODUCT.** The game account is `gameProductId(tld)` at `GAME_ACCOUNT_INDEX` (0, the host's default product account). The host adapter asks for that unless you pass `accountIndex`; every product that signs the same player up must use the same index, or they sign up two different accounts. A product other than the game product signs as it only under the game product's `context` grant, and proves with the personhood keys only under the personhood product's.
 
 > **THE IDENTIFIER IS WHOEVER REGISTERS.** `identifierKey` is rewritten on every sign-up, and no call changes it afterwards. A product that registers for the game must pass a key whose private half the game product can use at game time.
 
-> **CAPABILITIES, NOT A HOST.** The main entry imports neither `@parity/product-sdk-host` nor `@parity/product-sdk-tx`. `GameRegistrationCapabilities` carries the account, its signer, `submit`, `signVrf`, an optional `verifyVrf`, and the personhood prover. `hostGameRegistrationCapabilities` builds them with `tx`'s `submitAndWatch` as `submit`; a worker that cannot load `tx` passes its own.
+> **CAPABILITIES, NOT A HOST.** The main entry imports neither `@parity/product-sdk-host` nor `@parity/product-sdk-tx`. `GameRegistrationCapabilities` carries the account, its signer, `submit`, `signVrf`, an optional `verifyVrf`, and the personhood prover. `hostGameRegistrationCapabilities` builds them with `tx`'s `submitAndWatch` as `submit`; a worker that cannot load `tx` passes its own. Through the umbrella it is `@parity/product-sdk/individuality/host`.
+
+> **A CODE IS A NAME, NEVER FREE TEXT.** A `GameRegistrationError`'s `code` (and the report's `signUp.code` and bind `code`) is the chain's own error name (`NoRegistration`, `AccountInUse`, `Custom(172)`) or one of the package's: `Timeout`, `Aborted`, `SigningRejected`, `HostRefused`, `Network`, `Dropped`, `InvalidSignUp`, `StaleAliasNeedsLiteKey`, `NoPersonhoodProver`, `Unknown`. Group telemetry and branch on it; what the error said is in `message`, the original in `cause`.
 
 ## Proof Contexts and Ring Locations
 
@@ -523,6 +525,8 @@ const ring = litePeopleRing(genesisHash);
 ```
 
 No `PalletInstance` junction is emitted, and that is deliberate: every host resolves the `Members` pallet by name, and treats the junction as an optional cross-check when present.
+
+> **A LISTED KEY MAY SPELL ITS RING THE OTHER WAY.** `listRingVrfKeys` returns each key's rings as declared, and the Android host declares the personhood keys with the `Members` pallet's index in front, read from its runtime. `findRingVrfKeyHandle` compares exactly, so a bare ring misses them. The `/host` adapter matches on chain and `CollectionId` instead, prefers an exact match, picks no key when the matches name two different pallets, and proves under the ring as the key declares it. Never hard-code the pallet index: it moves with the runtime.
 
 ### Checking the chain agrees
 

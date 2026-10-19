@@ -40,6 +40,7 @@ import {
 import { ProductIndividualityError } from "./errors.js";
 import {
     asRegistrationError,
+    errorDetail,
     errorName,
     GameRegistrationError,
     GameSeatBindError,
@@ -391,12 +392,17 @@ async function runRegistration(
                             "the binding is stale, and nothing here can make the proof that re-points it",
                     });
                 }
+                // The re-point's proof is made when the signer asks for it, so
+                // the personhood read it needs can only fail the sign step,
+                // never the draws.
+                const prover = capabilities.personhood;
                 signer = withLiteAlias(
                     capabilities.signer,
-                    stale
+                    stale && prover
                         ? {
                               tag: "AliasWithAccountRevised",
-                              createProof: liteProof(capabilities.personhood!, await facts()),
+                              createProof: async (message) =>
+                                  liteProof(prover, await facts())(message),
                           }
                         : { tag: "AliasWithAccount" },
                 );
@@ -478,6 +484,7 @@ async function runRegistration(
         } catch (error) {
             throw new GameRegistrationError("sign", "InvalidSignUp", {
                 retryable: false,
+                detail: errorDetail(error),
                 cause: error,
             });
         }
@@ -502,11 +509,14 @@ async function runRegistration(
             report.signUp = {
                 outcome: "failed",
                 code: result.code,
+                ...(result.message ? { message: result.message } : {}),
                 ...(result.landingUnknown ? { landingUnknown: true } : {}),
             };
             throw new GameRegistrationError("sign", result.code, {
                 retryable: result.refused !== true && !NOT_RETRYABLE_SIGN_UP.has(result.code),
                 landingUnknown: result.landingUnknown,
+                detail: result.message,
+                cause: result.cause,
             });
         }
         report.signUp = { outcome: "registered" };
@@ -639,7 +649,7 @@ if (import.meta.vitest) {
                 expect.objectContaining({ litePerson: false }),
             );
             expect(outcome).toMatchObject({ kind: "registered", route: "deposit" });
-            expect(outcome.report.liteKeyLookupFailed).toBe("Rejected");
+            expect(outcome.report.liteKeyLookupFailed).toBe("HostRefused");
             expect(calls).toHaveLength(1);
         });
 
@@ -699,6 +709,31 @@ if (import.meta.vitest) {
                 code: "StaleAliasNeedsLiteKey",
                 retryable: false,
             });
+        });
+
+        test("a stale binding asks for its proof only when signing, so a failed personhood read never fails the draws", async () => {
+            const facts = vi.fn(async (): Promise<PersonhoodFacts> => {
+                throw new Error("score context unreadable");
+            });
+            const onDraws = vi.fn();
+            const { submit, calls } = fakeSubmit();
+            const personhood = { holds: async () => true, prove: vi.fn() };
+            const outcome = await run(
+                capabilities({ submit, personhood }),
+                {
+                    seat: async () => seatOf({ path: "free" }),
+                    requirement: async () => drawRequirement({ blockers: tagged("StaleAlias") }),
+                    facts,
+                },
+                { onDraws },
+            );
+            expect(onDraws).toHaveBeenCalledOnce();
+            expect(outcome.kind).toBe("registered");
+            // read once by the seat step's lite-key check (absorbed there), never by the
+            // draws: the fake submit never signs, so the proof's own read never ran
+            expect(facts).toHaveBeenCalledOnce();
+            expect(outcome.report.liteKeyLookupFailed).toBeDefined();
+            expect(calls[0]!.call).toBe("sign_up_with_account_lite_invite");
         });
 
         test("reads the requirement by the chain's clock", async () => {
@@ -890,6 +925,25 @@ if (import.meta.vitest) {
             const abort = new AbortController();
             await run(capabilities({ submit }), {}, { signal: abort.signal });
             expect(calls[0]!.options.signal).toBe(abort.signal);
+        });
+
+        test("a failed sign-up keeps its code a name, and what the host said in the message and report", async () => {
+            const cause = new Error("WebSocket closed at 0x12…");
+            const { submit } = fakeSubmit({
+                ok: false,
+                code: "Network",
+                message: "WebSocket closed at 0x12…",
+                cause,
+            });
+            const error = await failure(run(capabilities({ submit })));
+            expect(error).toMatchObject({ stage: "sign", code: "Network", retryable: true });
+            expect(error.message).toContain("WebSocket closed at 0x12…");
+            expect(error.cause).toBe(cause);
+            expect(error.report?.signUp).toMatchObject({
+                outcome: "failed",
+                code: "Network",
+                message: "WebSocket closed at 0x12…",
+            });
         });
 
         test("passes waitFor through when asked", async () => {

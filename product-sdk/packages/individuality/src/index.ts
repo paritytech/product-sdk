@@ -498,6 +498,7 @@ export {
     GameSeatBindError,
     registrationRetryDelay,
 } from "./register-game-errors.js";
+export type { GameRegistrationCode, GameRegistrationOwnCode } from "./register-game-errors.js";
 export { registerForGame } from "./register-game.js";
 export type {
     DrawWaitOptions,

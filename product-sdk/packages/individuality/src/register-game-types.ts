@@ -10,6 +10,7 @@ import type { AirdropChain } from "./airdrop-read.js";
 import type { LiteAliasBindChain } from "./bind-lite-alias.js";
 import type { GameChain } from "./game-read.js";
 import type { RingVRFProof } from "./origin-extension.js";
+import type { GameRegistrationCode } from "./register-game-errors.js";
 import type { RingLocation, ScoreContextChain } from "./rings.js";
 import type { SeatPath, SeatRoute, TimestampChain } from "./seat.js";
 import type {
@@ -118,8 +119,12 @@ export type SignUpSubmitResult =
     | { ok: true }
     | {
           ok: false;
-          /** The chain's error name, or what stopped it before the chain. */
-          code: string;
+          /** The chain's error name, or one of the package's own codes: never free text. */
+          code: GameRegistrationCode;
+          /** What the error said, for a log: kept out of `code`. */
+          message?: string;
+          /** The error itself. */
+          cause?: unknown;
           /** The player declined to sign. Never retried. */
           refused?: boolean;
           /** The watch lost track of it: it may still land. Read the seat before trying again. */
@@ -227,12 +232,19 @@ export interface GameRegistrationReport {
     liteKeyLookupFailed?: string;
     bind?:
         | { outcome: BindGameSeatOutcome }
-        | { outcome: "refused"; refusal: GameSeatBindRefusal; code: string; permanent: boolean };
+        | {
+              outcome: "refused";
+              refusal: GameSeatBindRefusal;
+              code: GameRegistrationCode;
+              permanent: boolean;
+          };
     route?: SeatRoute;
     draws?: DrawOutcome;
     signUp?: {
         outcome: "registered" | "already-registered" | "failed";
-        code?: string;
+        code?: GameRegistrationCode;
+        /** What the failure said, for a log: never a tag */
+        message?: string;
         landingUnknown?: boolean;
     };
 }

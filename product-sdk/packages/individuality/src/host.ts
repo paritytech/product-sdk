@@ -34,6 +34,7 @@ import {
     getAccountsProvider,
     type AccountsProvider,
     type ProductProofContext,
+    type RegisteredRingVrfKey,
     type RingLocation as HostRingLocation,
     type RingVrfKeyHandle,
 } from "@parity/product-sdk-host";
@@ -58,50 +59,70 @@ import type {
 } from "./register-game-types.js";
 import type { RingLocation } from "./rings.js";
 
-/**
- * The `Members` pallet's index on the People chain. A host may hold a ring key
- * declared with a `PalletInstance` junction in front of the collection id, or
- * without one (`rings.ts` builds it without), so a key is looked up under both
- * shapes. Carried over from jollity-next, where both shapes were met.
- */
-export const MEMBERS_PALLET_INSTANCE = 67;
-
 /** Options for {@link hostGameRegistrationCapabilities}. */
 export interface HostGameRegistrationOptions {
     /** The network's DotNS TLD, such as `"paseo"`. */
     tld: string;
     /** Defaults to `getAccountsProvider()`. */
     accounts?: AccountsProvider;
-    /** Defaults to {@link MEMBERS_PALLET_INSTANCE}. */
-    membersPalletInstance?: number;
+    /**
+     * The game account's derivation index. Defaults to {@link GAME_ACCOUNT_INDEX}
+     * (0, the host's default product account); every product that signs the
+     * same player up must pass the same one.
+     */
+    accountIndex?: number;
 }
 
 function hostError(what: string, cause: unknown): ProductIndividualityError {
     return new ProductIndividualityError(`${what}: ${formatHostError(cause)}`, { cause });
 }
 
-/** The shapes a host may hold a personhood ring under. */
-function ringShapes(ring: RingLocation, palletInstance: number): RingLocation[] {
-    if (ring.junctions.some((junction) => junction.tag === "PalletInstance")) return [ring];
-    return [
-        ring,
-        {
-            chainId: ring.chainId,
-            junctions: [{ tag: "PalletInstance", value: palletInstance }, ...ring.junctions],
-        },
-    ];
+type FoundKey = { handle: RingVrfKeyHandle; location: HostRingLocation };
+
+/** A ring's chain and collection id, the part every host spells the same way. */
+function ringId(ring: HostRingLocation): string | undefined {
+    const collection = ring.junctions.find((junction) => junction.tag === "CollectionId");
+    return collection && `${ring.chainId}|${collection.value}`.toLowerCase();
+}
+
+function palletOf(ring: HostRingLocation): number | undefined {
+    const pallet = ring.junctions.find((junction) => junction.tag === "PalletInstance");
+    return pallet?.tag === "PalletInstance" ? pallet.value : undefined;
 }
 
 /**
- * The personhood keys the host holds, looked up by owner and ring. A key that
- * was found is kept for the life of the prover, so a sign-up's draw proofs ask
- * the host to list keys once; a lookup that finds nothing or fails is not kept.
+ * The key to prove with for `ring`, and the location to prove under, which is
+ * always the ring as the key declares it. A key declared exactly as asked wins.
+ * Otherwise a key declared on the same chain and collection id matches whatever
+ * `PalletInstance` is in front of it: one host spells the `Members` ring with
+ * the pallet's index (read from its runtime), another without, and the index
+ * moves when the runtime does. Keys that name two different pallets are
+ * ambiguous, and none is picked.
  */
-export function hostPersonhoodProver(
-    accounts: AccountsProvider,
-    palletInstance: number = MEMBERS_PALLET_INSTANCE,
-): PersonhoodProver {
-    type Found = { handle: RingVrfKeyHandle; location: HostRingLocation } | null;
+function findPersonhoodKey(keys: RegisteredRingVrfKey[], ring: RingLocation): FoundKey | null {
+    const asked = ring as HostRingLocation;
+    const exact = findRingVrfKeyHandle(keys, asked);
+    if (exact) return { handle: exact, location: asked };
+    const id = ringId(asked);
+    if (!id) return null;
+    const matches = keys.flatMap((key) =>
+        key.rings
+            .filter((declared) => ringId(declared) === id)
+            .map((location) => ({ handle: key.handle, location })),
+    );
+    const pallets = new Set(matches.map((match) => palletOf(match.location)));
+    pallets.delete(undefined);
+    return pallets.size > 1 ? null : (matches[0] ?? null);
+}
+
+/**
+ * The personhood keys the host holds, looked up by owner and ring, with no
+ * pallet index of its own. A key that was found is kept for the life of the
+ * prover, so a sign-up's draw proofs ask the host to list keys once; a lookup
+ * that finds nothing or fails is not kept.
+ */
+export function hostPersonhoodProver(accounts: AccountsProvider): PersonhoodProver {
+    type Found = FoundKey | null;
     const found = new Map<string, Promise<Found>>();
 
     const lookUp = async (ring: PersonhoodRing): Promise<Found> => {
@@ -111,12 +132,7 @@ export function hostPersonhoodProver(
                 throw hostError(`the host could not list the keys of ${ring.owner}`, cause);
             },
         );
-        for (const shape of ringShapes(ring.ring, palletInstance)) {
-            const location = shape as HostRingLocation;
-            const handle = findRingVrfKeyHandle(keys, location);
-            if (handle) return { handle, location };
-        }
-        return null;
+        return findPersonhoodKey(keys, ring.ring);
     };
     const keyFor = (ring: PersonhoodRing): Promise<Found> => {
         const cacheKey = `${ring.owner}|${JSON.stringify(ring.ring)}`;
@@ -179,25 +195,29 @@ export const hostSubmitSignUp: SubmitSignUp = async (tx, signer, options) => {
             : { ok: false, code: errorName(result.value.dispatchError) };
     }
     const error = result.error;
+    // the code is a name; what the error said goes beside it
+    const said = { message: error.message, cause: error };
     if (error instanceof TxSigningRejectedError) {
-        return { ok: false, code: "SigningRejected", refused: true };
+        return { ok: false, code: "SigningRejected", refused: true, ...said };
     }
     if (error instanceof TxTimeoutError)
-        return { ok: false, code: "Timeout", landingUnknown: true };
+        return { ok: false, code: "Timeout", landingUnknown: true, ...said };
     if (error instanceof TxDispatchError)
-        return { ok: false, code: errorName(error.dispatchError) };
-    if (error instanceof TxValidityError) return { ok: false, code: errorName(error.reason) };
+        return { ok: false, code: errorName(error.dispatchError), ...said };
+    if (error instanceof TxValidityError)
+        return { ok: false, code: errorName(error.reason), ...said };
     return {
         ok: false,
         code: errorName(error),
+        ...said,
         ...(/tracking stopped/i.test(error.message) ? { landingUnknown: true } : {}),
     };
 };
 
 /**
  * The capabilities a sign-up needs, from a host: the game account
- * (`dim2.<tld>` at `GAME_ACCOUNT_INDEX`) and its signer, `tx`'s submission, the
- * draw tickets, and the personhood keys.
+ * (`dim2.<tld>` at `accountIndex`, by default `GAME_ACCOUNT_INDEX`) and its
+ * signer, `tx`'s submission, the draw tickets, and the personhood keys.
  */
 export async function hostGameRegistrationCapabilities(
     options: HostGameRegistrationOptions,
@@ -208,10 +228,11 @@ export async function hostGameRegistrationCapabilities(
             throw new ProductIndividualityError("no host accounts: not inside a Polkadot host");
         }
         const product = gameProductId(options.tld);
-        const account = await accounts.getProductAccount(product, GAME_ACCOUNT_INDEX).match(
+        const index = options.accountIndex ?? GAME_ACCOUNT_INDEX;
+        const account = await accounts.getProductAccount(product, index).match(
             (value) => value,
             (cause) => {
-                throw hostError(`the host would not name ${product}/${GAME_ACCOUNT_INDEX}`, cause);
+                throw hostError(`the host would not name ${product}/${index}`, cause);
             },
         );
         return ok({
@@ -225,7 +246,7 @@ export async function hostGameRegistrationCapabilities(
                         throw hostError("the host refused the draw ticket", cause);
                     },
                 ),
-            personhood: hostPersonhoodProver(accounts, options.membersPalletInstance),
+            personhood: hostPersonhoodProver(accounts),
         });
     } catch (cause) {
         return err(normalizeError(cause, ProductIndividualityError));
@@ -277,6 +298,14 @@ if (import.meta.vitest) {
             expect(caps.submit).toBe(hostSubmitSignUp);
         });
 
+        test("asks for another index when the product passes one", async () => {
+            const accounts = provider();
+            unwrapOk(
+                await hostGameRegistrationCapabilities({ tld: "paseo", accounts, accountIndex: 3 }),
+            );
+            expect(accounts.getProductAccount).toHaveBeenCalledWith("dim2.paseo", 3);
+        });
+
         test("reports a host that will not name the account on the err channel", async () => {
             const accounts = {
                 ...provider(),
@@ -293,13 +322,49 @@ if (import.meta.vitest) {
             expect(await hostPersonhoodProver(provider(keys)).holds(LITE)).toBe(true);
         });
 
-        test("finds a key held under the ring with the pallet in front", async () => {
-            const withPallet = {
-                chainId: RING.chainId,
-                junctions: [{ tag: "PalletInstance", value: 67 }, ...RING.junctions],
-            };
-            const keys = [{ handle: "h1", rings: [withPallet] }];
-            expect(await hostPersonhoodProver(provider(keys)).holds(LITE)).toBe(true);
+        /** The ring as a host spells it with a pallet index in front. */
+        const withPallet = (index: number, chainId: string = RING.chainId) => ({
+            chainId,
+            junctions: [{ tag: "PalletInstance", value: index }, ...RING.junctions],
+        });
+        const CONTEXT = { productId: "peopl.paseo", suffix: { tag: "Index" as const, value: 0 } };
+
+        test("finds a key held with any pallet in front, and proves under that ring", async () => {
+            const accounts = provider([{ handle: "h1", rings: [withPallet(68)] }]);
+            await hostPersonhoodProver(accounts).prove(LITE, CONTEXT, new Uint8Array());
+            expect(accounts.createRingVRFProof).toHaveBeenCalledWith(
+                "h1",
+                CONTEXT,
+                withPallet(68),
+                new Uint8Array(),
+            );
+        });
+
+        test("prefers the key declared exactly as asked", async () => {
+            const accounts = provider([
+                { handle: "h1", rings: [withPallet(67)] },
+                { handle: "h2", rings: [RING] },
+            ]);
+            await hostPersonhoodProver(accounts).prove(LITE, CONTEXT, new Uint8Array());
+            expect(accounts.createRingVRFProof).toHaveBeenCalledWith(
+                "h2",
+                CONTEXT,
+                RING,
+                new Uint8Array(),
+            );
+        });
+
+        test("picks none when the keys name two different pallets", async () => {
+            const keys = [
+                { handle: "h1", rings: [withPallet(67)] },
+                { handle: "h2", rings: [withPallet(68)] },
+            ];
+            expect(await hostPersonhoodProver(provider(keys)).holds(LITE)).toBe(false);
+        });
+
+        test("never matches the same collection on another chain", async () => {
+            const keys = [{ handle: "h1", rings: [withPallet(67, "0x02")] }];
+            expect(await hostPersonhoodProver(provider(keys)).holds(LITE)).toBe(false);
         });
 
         test("lists the keys once for many proofs", async () => {
@@ -360,6 +425,55 @@ if (import.meta.vitest) {
             expect(onBroadcast).toHaveBeenCalledOnce();
         });
 
+        /** A transaction whose watch fails with `error` before any block. */
+        const txFailing = (error: unknown) =>
+            ({
+                getEstimatedFees: async () => 0n,
+                createSubmitAndWatch: () => ({
+                    subscribe(handlers: { error: (e: unknown) => void }) {
+                        handlers.error(error);
+                        return { unsubscribe() {} };
+                    },
+                }),
+            }) as unknown as Parameters<SubmitSignUp>[0];
+
+        test("a declined signature is refused, never retried", async () => {
+            const result = await hostSubmitSignUp(
+                txFailing(new Error("User rejected the request")),
+                signer,
+                { waitFor: "best-block" },
+            );
+            expect(result).toMatchObject({ ok: false, code: "SigningRejected", refused: true });
+        });
+
+        test("a validity error is named by its reason", async () => {
+            const validity = { type: "Invalid", value: { type: "BadProof" } };
+            const invalid = Object.assign(new Error(JSON.stringify(validity)), {
+                name: "InvalidTxError",
+                error: validity,
+            });
+            const result = await hostSubmitSignUp(txFailing(invalid), signer, {
+                waitFor: "best-block",
+            });
+            expect(result).toMatchObject({ ok: false, code: "BadProof" });
+        });
+
+        test("a lost watch may still land, coded Network with what it said beside it", async () => {
+            const result = await hostSubmitSignUp(
+                txFailing(new Error("Tracking stopped")),
+                signer,
+                {
+                    waitFor: "best-block",
+                },
+            );
+            expect(result).toMatchObject({
+                ok: false,
+                code: "Network",
+                landingUnknown: true,
+                message: "Tracking stopped",
+            });
+        });
+
         test("names a refused dispatch by the pallet's error", async () => {
             const result = await hostSubmitSignUp(
                 txOf([
@@ -378,7 +492,7 @@ if (import.meta.vitest) {
                 signer,
                 { waitFor: "finalized" },
             );
-            expect(result).toEqual({ ok: false, code: "AlreadyRegistered" });
+            expect(result).toMatchObject({ ok: false, code: "AlreadyRegistered" });
         });
     });
 }
