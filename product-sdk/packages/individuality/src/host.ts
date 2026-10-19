@@ -7,7 +7,8 @@
  * The main entry stays free of `@parity/product-sdk-host` and
  * `@parity/product-sdk-tx` on purpose; this entry is the one place that wires a
  * host's accounts and `tx`'s submission into {@link GameRegistrationCapabilities}.
- * It declares both packages as optional peer dependencies.
+ * Both are dependencies of the package, so a product that never imports this
+ * entry bundles neither.
  *
  * ```ts
  * import { fromPapi, registerForGame } from "@parity/product-sdk-individuality";

@@ -208,6 +208,13 @@ export interface SignUpSubmitOptions {
     waitFor: "best-block" | "finalized";
     /** Called once the transaction is on the wire, for an optimistic UI. */
     onBroadcast?: () => void;
+    /**
+     * The caller's abort. The flow already drops a signature that is still being
+     * made when it aborts, so nothing reaches the wire; a `submit` that can stop
+     * earlier should. Once the transaction is broadcast it may land, so the answer
+     * still comes.
+     */
+    signal?: AbortSignal;
 }
 
 /** Signs and submits the built sign-up. The host adapter wraps `tx`'s `submitAndWatch`. */
@@ -317,6 +324,11 @@ export interface GameRegistrationReport {
     /** When the sign-up went on the wire. */
     broadcastAt?: number;
     seat?: { path: SeatPath; ready: boolean; registered: boolean; open: boolean };
+    /**
+     * Why the host's lite key could not be looked up, when it could not: the
+     * player was seated without the free route.
+     */
+    liteKeyLookupFailed?: string;
     bind?:
         | { outcome: BindGameSeatOutcome }
         | { outcome: "refused"; refusal: GameSeatBindRefusal; code: string; permanent: boolean };
@@ -394,10 +406,12 @@ export class GameSeatBindError extends GameRegistrationError {
         code: string,
         /** For `"pinned-elsewhere"`, the account the seat is pinned to. */
         readonly account?: string,
+        options: { landingUnknown?: boolean } = {},
     ) {
         const permanent = bindIsPermanent(refusal, code);
         super("bind", code, {
             retryable: !permanent,
+            landingUnknown: options.landingUnknown,
             message:
                 refusal === "pinned-elsewhere"
                     ? `lite bind refused: the person's free seat is on ${account ?? "another account"}`
@@ -447,17 +461,23 @@ export function registrationRetryDelay(failures: number): number {
 
 /**
  * The name of a chain error, wherever PAPI or `tx` nests it: the innermost
- * `type` of a dispatch or validity error, else the error's message.
+ * `type` of a dispatch or validity error, else the error's message. PAPI's
+ * `InvalidTxError` keeps the validity error under `error`, and its message is
+ * that error as JSON, so it is read through.
  *
  * Internal: shared with the host adapter.
  */
 export function errorName(error: unknown): string {
     let node: unknown = error;
     let name: string | undefined;
-    while (node !== null && typeof node === "object") {
-        const { type, value } = node as { type?: unknown; value?: unknown };
+    for (let depth = 0; depth < 8 && node !== null && typeof node === "object"; depth += 1) {
+        const {
+            type,
+            value,
+            error: inner,
+        } = node as { type?: unknown; value?: unknown; error?: unknown };
         if (typeof type === "string") name = type;
-        node = value;
+        node = value !== undefined ? value : inner;
     }
     if (name) return name;
     if (error instanceof Error && error.message) return error.message;
@@ -540,14 +560,24 @@ function isTrackingStopped(error: unknown): boolean {
     return error instanceof Error && /tracking stopped/i.test(error.message);
 }
 
+/** How long the bind waits for a best block to hold it, from submission. */
+const DEFAULT_BIND_TIMEOUT_MS = 120_000;
+
 /**
  * Drive the raw bind's watch to the best block that holds it. An invalid
  * transaction arrives on the error channel and settles as a failure, never a
  * throw; a watch that completes with no block holding it settles as a failure
  * too. An abort before `broadcasted` rejects with the signal's reason; after it
- * the transaction may land, so the abort is ignored.
+ * the transaction may land, so the abort is ignored. A watch that has not
+ * settled after `timeoutMs` settles as a `Timeout` whose landing is unknown: a
+ * transaction the pool dropped would otherwise hold the call until its
+ * mortality ran out.
  */
-function settleRaw(watch: TxWatch, signal?: AbortSignal): Promise<Settled> {
+function settleRaw(
+    watch: TxWatch,
+    signal?: AbortSignal,
+    timeoutMs: number = DEFAULT_BIND_TIMEOUT_MS,
+): Promise<Settled> {
     return new Promise<Settled>((resolve, reject) => {
         if (signal?.aborted) {
             reject(signal.reason);
@@ -555,11 +585,16 @@ function settleRaw(watch: TxWatch, signal?: AbortSignal): Promise<Settled> {
         }
         let settled = false;
         let broadcast = false;
+        const timer = setTimeout(
+            () => finish(() => resolve({ ok: false, error: "Timeout", landingUnknown: true })),
+            timeoutMs,
+        );
         // biome-ignore lint/style/useConst: PAPI can emit during `subscribe`, and `finish` reads `sub` then; a `const` would still be in its temporal dead zone.
         let sub: { unsubscribe(): void } | undefined;
         const finish = (done: () => void) => {
             if (settled) return;
             settled = true;
+            clearTimeout(timer);
             signal?.removeEventListener("abort", onAbort);
             sub?.unsubscribe();
             done();
@@ -610,6 +645,12 @@ function settleRaw(watch: TxWatch, signal?: AbortSignal): Promise<Settled> {
 export interface BindGameSeatOptions {
     tld: string;
     signal?: AbortSignal;
+    /**
+     * How long to wait for a best block to hold the bind, from submission.
+     * Default 120 000 ms; past it the bind fails with `Timeout` and
+     * `landingUnknown`, and running it again reads the binding first.
+     */
+    timeoutMs?: number;
 }
 
 /** The reads and the submission the bind makes, swappable so its decisions can be tested alone. */
@@ -636,6 +677,7 @@ interface BindSteps {
         chain: GameSeatBindChain,
         transaction: Uint8Array,
         signal?: AbortSignal,
+        timeoutMs?: number,
     ): Promise<Settled>;
 }
 
@@ -653,8 +695,8 @@ const BIND_STEPS: BindSteps = {
             at: "best",
             signal,
         }),
-    submitRaw: (chain, transaction, signal) =>
-        settleRaw(chain.raw.individuality.submitAndWatch(transaction), signal),
+    submitRaw: (chain, transaction, signal, timeoutMs) =>
+        settleRaw(chain.raw.individuality.submitAndWatch(transaction), signal, timeoutMs),
 };
 
 /**
@@ -665,9 +707,11 @@ const BIND_STEPS: BindSteps = {
  * Reads before it builds, because the binding is the only replay protection and
  * a retry after a timeout may follow a bind that landed:
  *
- * - **Already bound** in the score context, current or stale, resolves
- *   `already-bound` with nothing asked for. A stale binding is re-pointed by the
- *   sign-up's revised leg.
+ * - **Already bound** in the score context, and current, resolves
+ *   `already-bound` with nothing asked for. A **stale** binding (the lite ring
+ *   has moved past it) is bound again with a fresh proof. {@link registerForGame}
+ *   never asks for that: its seat counts a stale binding as ready, and the
+ *   sign-up's revised leg re-points it in the same transaction.
  * - **A bind that cannot succeed** (the account is a lite person's own, it is
  *   bound in another context, the seat is pinned elsewhere, or no host can mint
  *   the proof) is refused before any proof is requested.
@@ -739,10 +783,12 @@ async function runBind(
         }
     }
     signal?.throwIfAborted();
-    const result = await steps.submitRaw(chain, built.transaction, signal);
+    const result = await steps.submitRaw(chain, built.transaction, signal, options.timeoutMs);
     if (result.ok) return "bound";
     if (result.error === "AliasAccountAlreadySet") return "already-bound";
-    throw new GameSeatBindError("rejected", result.error);
+    throw new GameSeatBindError("rejected", result.error, undefined, {
+        landingUnknown: result.landingUnknown,
+    });
 }
 
 // ── step 3: the draw entries ─────────────────────────────────────────────────
@@ -963,6 +1009,34 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
     });
 }
 
+/**
+ * The signer, made to drop a signature still being made when `signal` aborts,
+ * and to refuse one asked for after it. The transaction goes on the wire only
+ * once the signer hands back the signed bytes, so an abort while the host's
+ * signing prompt is open sends nothing. A build with a mocked signature (a fee
+ * estimate) is passed through.
+ *
+ * Ported from jollity-next `withAbort` (#577).
+ */
+function abortable(signer: CommonSignerTxCreator, signal: AbortSignal): CommonSignerTxCreator {
+    const create = (...args: Parameters<CommonSignerTxCreator>): Promise<string> => {
+        const [, , , mockedSignature] = args;
+        if (mockedSignature) return signer(...args);
+        if (signal.aborted) return Promise.reject(signal.reason);
+        return new Promise<string>((resolve, reject) => {
+            const onAbort = () => reject(signal.reason);
+            signal.addEventListener("abort", onAbort, { once: true });
+            signer(...args)
+                .then(resolve, reject)
+                .finally(() => signal.removeEventListener("abort", onAbort));
+        });
+    };
+    return Object.assign(create, {
+        publicKey: signer.publicKey,
+        signBytes: (data: Uint8Array) => signer.signBytes(data),
+    }) as CommonSignerTxCreator;
+}
+
 // ── the flow ─────────────────────────────────────────────────────────────────
 
 /** Options for {@link registerForGame}. */
@@ -987,7 +1061,11 @@ export interface RegisterForGameOptions {
     drawWait?: DrawWaitOptions;
     /** Passed to {@link readGameSeat}. */
     feeHeadroom?: number;
-    /** Stops the flow. Ignored once the sign-up is broadcast: it may still land. */
+    /**
+     * Stops the flow, up to the broadcast: a signature still being made is
+     * dropped, so nothing goes out. Ignored once the sign-up is broadcast: it may
+     * still land.
+     */
     signal?: AbortSignal;
     onStage?(stage: GameRegistrationStage): void;
     onSeat?(seat: GameSeat): void;
@@ -1148,9 +1226,17 @@ async function runRegistration(
         if (!seat) {
             let litePerson = false;
             if (capabilities.personhood) {
-                const personhood = await facts();
-                litePerson =
-                    personhood.derived && (await capabilities.personhood.holds(personhood.lite));
+                try {
+                    const personhood = await facts();
+                    litePerson =
+                        personhood.derived &&
+                        (await capabilities.personhood.holds(personhood.lite));
+                } catch (error) {
+                    signal?.throwIfAborted();
+                    // A host that cannot list the keys (no grant, not connected)
+                    // closes the free route, never the others.
+                    report.liteKeyLookupFailed = errorName(error);
+                }
             }
             seat = await readSeat(litePerson);
         }
@@ -1184,6 +1270,10 @@ async function runRegistration(
                 recordSeat(seat);
             }
             end("bind");
+            // The bind can take a while (the proof prompt): the game may have closed,
+            // or another product signed the player up, in the meantime.
+            if (seat.registered) return { kind: "already-registered", report };
+            if (!seat.open) return { kind: "not-open", seat, report };
         }
         if (seat.path === "unfunded") {
             return { kind: "unfunded", seat, missing: seat.required - seat.funds.free, report };
@@ -1199,18 +1289,39 @@ async function runRegistration(
         const closingSeconds = wait.closingSeconds ?? DEFAULT_DRAW_CLOSING_S;
         const startedAt = Date.now();
         let retries = 0;
-        let signer = capabilities.signer;
+        // The origin the route signs under; a read below may revise it (a stale binding).
+        let signer =
+            route === "free"
+                ? withLiteAlias(capabilities.signer, { tag: "AliasWithAccount" })
+                : route === "returning"
+                  ? withScoreParticipant(capabilities.signer)
+                  : capabilities.signer;
         let registrationEnds: number | null = null;
+        let scheduled = 0;
 
         const decide = async (): Promise<DrawEntries> => {
-            const now = await steps.now(chain, signal);
-            const requirement = await steps.requirement(chain, route, {
-                account,
-                tld,
-                now,
-                signal,
-            });
+            let requirement: DrawRequirement;
+            try {
+                const now = await steps.now(chain, signal);
+                requirement = await steps.requirement(chain, route, {
+                    account,
+                    tld,
+                    now,
+                    signal,
+                });
+            } catch (error) {
+                signal?.throwIfAborted();
+                // The draws never block the sign-up: wait a block and ask again,
+                // and if the read does not come back, sign up without tickets.
+                return {
+                    skipped: `the sign-up requirement could not be read: ${errorName(error)}`,
+                    scheduled,
+                    wait: true,
+                    kind: "read-failed",
+                };
+            }
             registrationEnds = requirement.registrationEnds;
+            scheduled = requirement.airdropsScheduled;
             if (route === "free") {
                 const stale = requirement.blockers.some((blocker) => blocker.tag === "StaleAlias");
                 if (stale && !capabilities.personhood) {
@@ -1273,6 +1384,8 @@ async function runRegistration(
             retries += 1;
             draws = await decide();
         }
+        // An abort during the minting comes back as a skip; it is an abort.
+        signal?.throwIfAborted();
         const outcome: DrawOutcome = {
             entered: draws.entries ? entryCount(draws.entries) : 0,
             scheduled: draws.scheduled,
@@ -1308,14 +1421,18 @@ async function runRegistration(
                 cause: error,
             });
         }
-        const result = await capabilities.submit(tx, signer, {
+        const result = await capabilities.submit(tx, signal ? abortable(signer, signal) : signer, {
             waitFor: options.waitFor ?? "best-block",
             onBroadcast: () => {
                 report.broadcastAt = Date.now();
                 options.onStage?.("broadcast");
             },
+            ...(signal ? { signal } : {}),
         });
         end("sign");
+        // A signature dropped by the abort reads as a refusal to the submitter; it is
+        // an abort, and nothing went out.
+        if (!result.ok && report.broadcastAt === undefined) signal?.throwIfAborted();
         if (!result.ok) {
             // Another product may have signed the same account up a moment earlier.
             if (result.code === "AlreadyRegistered") {
@@ -1486,6 +1603,25 @@ if (import.meta.vitest) {
             expect(calls).toEqual([]);
         });
 
+        test("a host that cannot list the lite keys closes only the free route", async () => {
+            const { submit, calls } = fakeSubmit();
+            const seat = vi.fn(async () => seatOf());
+            const personhood = {
+                holds: async () => {
+                    throw new Error("Rejected");
+                },
+                prove: vi.fn(),
+            };
+            const outcome = await run(capabilities({ submit, personhood }), { seat });
+            expect(seat).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ litePerson: false }),
+            );
+            expect(outcome).toMatchObject({ kind: "registered", route: "deposit" });
+            expect(outcome.report.liteKeyLookupFailed).toBe("Rejected");
+            expect(calls).toHaveLength(1);
+        });
+
         test("a seat read that fails is a retryable failure of the seat step, with the report", async () => {
             const error = await failure(
                 run(capabilities(), {
@@ -1596,6 +1732,24 @@ if (import.meta.vitest) {
             expect(calls[0]!.call).toBe("sign_up_with_account");
         });
 
+        test("after a refused bind, a seat that is now registered or closed signs nothing", async () => {
+            for (const [after, kind] of [
+                [seatOf({ registered: true }), "already-registered"],
+                [seatOf({ open: false }), "not-open"],
+            ] as const) {
+                const { submit, calls } = fakeSubmit();
+                const seats = [seatOf({ path: "free", ready: false }), after];
+                const outcome = await run(capabilities({ submit, personhood }), {
+                    seat: async () => seats.shift()!,
+                    bind: async () => {
+                        throw new GameSeatBindError("dead-end", "AliasBoundElsewhere");
+                    },
+                });
+                expect(outcome.kind).toBe(kind);
+                expect(calls).toEqual([]);
+            }
+        });
+
         test("a bind that may pass next time fails the bind step, retryable", async () => {
             const { submit, calls } = fakeSubmit();
             const error = await failure(
@@ -1644,6 +1798,77 @@ if (import.meta.vitest) {
             const { submit } = fakeSubmit({ ok: false, code: "Timeout", landingUnknown: true });
             const error = await failure(run(capabilities({ submit })));
             expect(error).toMatchObject({ stage: "sign", retryable: true, landingUnknown: true });
+        });
+
+        /** A signer that signs only once `release` is called. */
+        const slowSigner = () => {
+            let release!: () => void;
+            const signed = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const signer = Object.assign(
+                async () => {
+                    await signed;
+                    return "0x51";
+                },
+                { publicKey: PUBLIC_KEY, signBytes: async () => new Uint8Array(64) },
+            ) as unknown as CommonSignerTxCreator;
+            return { signer, release };
+        };
+        /** A `submit` that broadcasts only what its signer hands back, as `tx` does. */
+        const signingSubmit = (onSigning: () => void): SubmitSignUp => {
+            return async (_tx, signer, options) => {
+                const signing = signer({} as never, {} as never, {} as never, false);
+                onSigning();
+                try {
+                    await signing;
+                } catch {
+                    return { ok: false, code: "SigningRejected", refused: true };
+                }
+                options.onBroadcast?.();
+                return { ok: true };
+            };
+        };
+
+        test("an abort while the signature is being made sends nothing, and is an abort", async () => {
+            const abort = new AbortController();
+            const { signer, release } = slowSigner();
+            const stages: string[] = [];
+            const submit = signingSubmit(() => {
+                abort.abort();
+                release();
+            });
+            const error = await failure(
+                run(
+                    capabilities({ signer, submit }),
+                    {},
+                    {
+                        signal: abort.signal,
+                        onStage: (stage) => stages.push(stage),
+                    },
+                ),
+            );
+            expect(error).toMatchObject({ stage: "sign", code: "Aborted", retryable: true });
+            expect(stages).not.toContain("broadcast");
+            expect(error.report?.broadcastAt).toBeUndefined();
+        });
+
+        test("an abort after the broadcast is ignored: the sign-up may land", async () => {
+            const abort = new AbortController();
+            const submit: SubmitSignUp = async (_tx, _signer, options) => {
+                options.onBroadcast?.();
+                abort.abort();
+                return { ok: true };
+            };
+            const outcome = await run(capabilities({ submit }), {}, { signal: abort.signal });
+            expect(outcome.kind).toBe("registered");
+        });
+
+        test("hands the submitter the caller's signal", async () => {
+            const { submit, calls } = fakeSubmit();
+            const abort = new AbortController();
+            await run(capabilities({ submit }), {}, { signal: abort.signal });
+            expect(calls[0]!.options.signal).toBe(abort.signal);
         });
 
         test("passes waitFor through when asked", async () => {
@@ -1697,6 +1922,76 @@ if (import.meta.vitest) {
                 "gave up waiting",
             );
             expect(calls).toHaveLength(1);
+        });
+
+        test("a requirement read that fails waits a block and asks again", async () => {
+            const { submit } = fakeSubmit();
+            const reads = [
+                async (): Promise<DrawRequirement> => {
+                    throw new Error("socket closed");
+                },
+                async () => drawRequirement(),
+            ];
+            const draws = vi.fn(
+                async (): Promise<DrawEntries> => ({ entries: [TICKET], scheduled: 1 }),
+            );
+            const outcome = await run(
+                capabilities({ submit }),
+                { requirement: () => reads.shift()!(), draws },
+                { drawWait: { retryMs: 1 } },
+            );
+            expect(draws).toHaveBeenCalledOnce();
+            expect(outcome).toMatchObject({
+                kind: "registered",
+                draws: { entered: 1, retries: 1 },
+            });
+        });
+
+        test("a requirement that cannot be read costs the tickets, never the sign-up", async () => {
+            const { submit, calls } = fakeSubmit();
+            const personhood = { holds: async () => true, prove: vi.fn() };
+            const outcome = await run(
+                capabilities({ submit, personhood }),
+                {
+                    seat: async () => seatOf({ path: "free" }),
+                    requirement: async () => {
+                        throw new Error("socket closed");
+                    },
+                },
+                { drawWait: { maxMs: 0, retryMs: 1 } },
+            );
+            expect(outcome).toMatchObject({
+                kind: "registered",
+                draws: { entered: 0, kind: "read-failed" },
+            });
+            // the free route still signs under the lite alias
+            expect(calls[0]!.call).toBe("sign_up_with_account_lite_invite");
+            expect(calls[0]!.signer).not.toBe(baseSigner);
+        });
+
+        test("an abort while the tickets are minted fails the draws step, with no draw outcome", async () => {
+            const abort = new AbortController();
+            const onDraws = vi.fn();
+            const { submit, calls } = fakeSubmit();
+            const error = await failure(
+                run(
+                    capabilities({ submit }),
+                    {
+                        draws: async () => {
+                            abort.abort();
+                            return {
+                                skipped: "the tickets were not signed",
+                                scheduled: 1,
+                                kind: "signature",
+                            };
+                        },
+                    },
+                    { signal: abort.signal, onDraws },
+                ),
+            );
+            expect(error).toMatchObject({ stage: "draws", code: "Aborted" });
+            expect(onDraws).not.toHaveBeenCalled();
+            expect(calls).toEqual([]);
         });
 
         test("never waits into the last seconds of registration, by the chain's clock", async () => {
@@ -1892,7 +2187,12 @@ if (import.meta.vitest) {
         test("sends the bytes raw and resolves once a block holds the bind", async () => {
             const { steps, submitRaw } = bindSteps();
             expect(await bind(prover(), steps)).toBe("bound");
-            expect(submitRaw).toHaveBeenCalledWith(expect.anything(), BUILT.transaction, undefined);
+            expect(submitRaw).toHaveBeenCalledWith(
+                expect.anything(),
+                BUILT.transaction,
+                undefined,
+                undefined,
+            );
         });
 
         test("resolves at once, asking for no proof, when the account is bound already", async () => {
@@ -1972,6 +2272,21 @@ if (import.meta.vitest) {
             });
         });
 
+        test("a bind no block held in time is retryable, and may still land", async () => {
+            const { steps } = bindSteps({
+                submitRaw: vi.fn(async () => ({
+                    ok: false as const,
+                    error: "Timeout",
+                    landingUnknown: true,
+                })),
+            });
+            await expect(bind(prover(), steps)).rejects.toMatchObject({
+                code: "Timeout",
+                retryable: true,
+                landingUnknown: true,
+            });
+        });
+
         test("without a lite key it fails for good, submitting nothing", async () => {
             const { steps, submitRaw } = bindSteps();
             await expect(bind(undefined, steps)).rejects.toMatchObject({
@@ -2031,6 +2346,29 @@ if (import.meta.vitest) {
             );
             expect(result).toMatchObject({ ok: false, landingUnknown: true });
         });
+
+        test("a watch no block answers gives up at the deadline, and lets go of it", async () => {
+            vi.useFakeTimers();
+            try {
+                const unsubscribe = vi.fn();
+                const silent: TxWatch = {
+                    subscribe(observer) {
+                        observer.next({ type: "broadcasted" });
+                        return { unsubscribe };
+                    },
+                };
+                const settling = settleRaw(silent, undefined, 1_000);
+                await vi.advanceTimersByTimeAsync(1_000);
+                expect(await settling).toEqual({
+                    ok: false,
+                    error: "Timeout",
+                    landingUnknown: true,
+                });
+                expect(unsubscribe).toHaveBeenCalledOnce();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
     });
 
     describe("registrationRetryDelay", () => {
@@ -2051,6 +2389,15 @@ if (import.meta.vitest) {
                 }),
             ).toBe("NoRegistration");
             expect(errorName(new Error("socket closed"))).toBe("socket closed");
+        });
+
+        test("reads PAPI's InvalidTxError through its error, not its JSON message", () => {
+            const validity = { type: "Invalid", value: { type: "BadProof" } };
+            const invalid = Object.assign(new Error(JSON.stringify(validity, null, 2)), {
+                name: "InvalidTxError",
+                error: validity,
+            });
+            expect(errorName(invalid)).toBe("BadProof");
         });
     });
 

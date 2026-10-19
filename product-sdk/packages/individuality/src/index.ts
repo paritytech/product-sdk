@@ -488,6 +488,7 @@ export type {
     SeatFacts,
     SeatPath,
     SeatRoute,
+    TimestampChain,
 } from "./seat.js";
 export {
     bindGameSeat,
@@ -516,12 +517,15 @@ export type {
     PersonhoodProofContext,
     PersonhoodProver,
     PersonhoodRing,
+    RawSubmitChain,
     RegisterForGameOptions,
     RegisterForGameOutcome,
     SignUpSubmitOptions,
     SignUpSubmitResult,
     SignUpTransaction,
     SubmitSignUp,
+    TxWatch,
+    TxWatchEvent,
 } from "./register-game.js";
 
 // The metadata-driven pieces underneath stay internal on purpose, even though
