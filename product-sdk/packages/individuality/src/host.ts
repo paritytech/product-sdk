@@ -283,7 +283,7 @@ if (import.meta.vitest) {
                 getProductAccount: () => errAsync(new Error("denied")),
             } as unknown as AccountsProvider;
             const result = await hostGameRegistrationCapabilities({ tld: "paseo", accounts });
-            expect(unwrapErr(result).message).toContain("dim2.paseo/1");
+            expect(unwrapErr(result).message).toContain(`dim2.paseo/${GAME_ACCOUNT_INDEX}`);
         });
     });
 

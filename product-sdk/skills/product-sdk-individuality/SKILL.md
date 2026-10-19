@@ -470,7 +470,7 @@ switch (outcome.value.kind) {
 
 > **RETRY BY CALLING AGAIN.** Every step reads the chain before it acts, so a second call resumes: a bind that landed is not sent again and a sign-up that landed is `already-registered`. Check `retryable` first (a declined signature, a closed registration or a pinned seat never are), wait `registrationRetryDelay(failures)` (5 s, 15 s, 45 s, 2 min, 5 min), and never pass a cached `seat` on a retry.
 
-> **ONE ACCOUNT FOR EVERY PRODUCT.** The game account is `gameProductId(tld)` at `GAME_ACCOUNT_INDEX` (1 while the native iOS game holds 0). The host adapter asks for exactly that. A product other than the game product signs as it only under the game product's `context` grant, and proves with the personhood keys only under the personhood product's.
+> **ONE ACCOUNT FOR EVERY PRODUCT.** The game account is `gameProductId(tld)` at `GAME_ACCOUNT_INDEX` (0, the host's default product account). The host adapter asks for exactly that. A product other than the game product signs as it only under the game product's `context` grant, and proves with the personhood keys only under the personhood product's.
 
 > **THE IDENTIFIER IS WHOEVER REGISTERS.** `identifierKey` is rewritten on every sign-up, and no call changes it afterwards. A product that registers for the game must pass a key whose private half the game product can use at game time.
 

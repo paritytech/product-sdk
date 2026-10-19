@@ -17,14 +17,12 @@ import { ProductIndividualityError } from "./errors.js";
 export const GAME_PRODUCT_NAME = "dim2";
 
 /**
- * The derivation index of the game account.
- *
- * 1, not the host default 0, while the native iOS game still plays its own
- * game on index 0 (jollity-next#85): a sign-up on index 0 makes the native app
- * start its game over this one. Move it to 0 once the native game is retired,
- * in one release for every product.
+ * The derivation index of the game account: 0, the host's default product
+ * account (RFC-0022 `//product//dim2/0`). Every product must use the same one,
+ * because a lite person's free seat is pinned to a single account for good
+ * (`Game.LiteInvites`).
  */
-export const GAME_ACCOUNT_INDEX = 1;
+export const GAME_ACCOUNT_INDEX = 0;
 
 /**
  * The game product's DotNS id on a network, such as `"dim2.paseo"`: the id a
@@ -43,6 +41,12 @@ export function gameProductId(tld: string): string {
 
 if (import.meta.vitest) {
     const { describe, expect, test } = import.meta.vitest;
+
+    describe("GAME_ACCOUNT_INDEX", () => {
+        test("is the host's default product account", () => {
+            expect(GAME_ACCOUNT_INDEX).toBe(0);
+        });
+    });
 
     describe("gameProductId", () => {
         test("joins the game product to the TLD", () => {
