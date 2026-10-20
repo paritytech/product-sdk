@@ -1,10 +1,8 @@
 # @parity/product-sdk-terminal
 
-> Migrated from `@polkadot-apps/terminal` v0.3.0 (`paritytech/polkadot-apps`).
+QR login and signing for CLI and terminal apps, through the Polkadot mobile wallet.
 
-QR code login, attestation, and transaction signing for CLI/terminal apps via the Polkadot mobile wallet.
-
-Wraps the [`@novasamatech/host-papp`](https://www.npmjs.com/package/@novasamatech/host-papp) SDK with Node.js-compatible adapters (file-based storage, WebSocket transport) so the full SSO protocol works outside the browser.
+The terminal runs the truapi core, the same Rust pairing host every Polkadot host runs, in a Node worker thread (`@parity/truapi-host/node`). The core owns pairing, the session, allowances and signing. This package gives it what only a terminal has: files on disk, WebSocket chain connections, the pairing QR and the answers to the core's approval prompts.
 
 ## Installation
 
@@ -12,384 +10,99 @@ Wraps the [`@novasamatech/host-papp`](https://www.npmjs.com/package/@novasamatec
 pnpm add @parity/product-sdk-terminal
 ```
 
-## Setup
+Requires Node ≥22, for the global `WebSocket` and `node:worker_threads`. Do not bundle the package into one file: the core's worker and WASM load from files beside it.
 
-**Requires Node ≥21.** The package relies on the global `WebSocket` exposed by Node 21+ (via `@polkadot-api/ws-provider@0.9`). On older Node versions the WebSocket connection fails at runtime with `WebSocket is not defined`.
-
-> **Note (≥0.3):** The `@parity/product-sdk-terminal/register` WASM loader hook has been removed. It existed only to patch `verifiablejs` (a browser-only inline-WASM dependency of `@novasamatech/host-papp`). host-papp ≥0.7.9 no longer uses `verifiablejs` — its sr25519 primitives are pure JS — so no loader hook is needed. Drop any `--import @parity/product-sdk-terminal/register` flags from your `node`/`tsx` invocations.
-
-## Quick Start
+## Quick start
 
 ```ts
-import { createTerminalAdapter, renderQrCode, waitForSessions } from "@parity/product-sdk-terminal";
+import { createSessionSigner, createTerminalAdapter, renderQrCode } from "@parity/product-sdk-terminal";
 
-// 1. Create the adapter
-const adapter = createTerminalAdapter({
-    appId: "my-terminal-app",
-});
+const adapter = await createTerminalAdapter({ appId: "my-cli.dot" });
+try {
+    // Restores a stored session, or pairs: print the QR and wait for the phone.
+    await adapter.login({
+        reason: "Sign in to my-cli",
+        onPairing: async (deeplink) => console.log(await renderQrCode(deeplink)),
+    });
 
-// 2. Subscribe to pairing status to show the QR code
-adapter.sso.pairingStatus.subscribe(async (status) => {
-    if (status.step === "pairing") {
-        console.log(await renderQrCode(status.payload));
-        console.log("Scan with the Polkadot mobile app...");
-    }
-});
-
-// 3. Authenticate (QR pairing + on-chain attestation)
-const result = await adapter.sso.authenticate();
-
-result.match(
-    (session) => console.log("Logged in!", session?.id),
-    (error) => console.error("Failed:", error.message),
-);
-
-// 4. Wait for sessions to load (they load asynchronously from disk)
-const sessions = await waitForSessions(adapter, 2000);
-
-// 5. Sign messages via the paired wallet
-if (sessions.length > 0) {
-    const session = sessions[0];
-    const signer = await createSessionSigner(session, adapter);
-    // use signer with polkadot-api transactions
+    // A polkadot-api transaction creator for the product account my-cli.dot/0.
+    const signer = await createSessionSigner(adapter);
+    const signed = await api.tx.System.remark({ remark }).create(signer);
+} finally {
+    // The core's thread keeps the process alive until it is stopped.
+    await adapter.destroy();
 }
 ```
 
 ## API
 
-### `createTerminalAdapter(options): TerminalAdapter`
+### `createTerminalAdapter(options): Promise<TerminalAdapter>`
 
-Creates a terminal adapter backed by the host-papp SDK.
+| Option | Default | |
+|---|---|---|
+| `appId` | required | The product this CLI acts as: a dotNS id ending in `.dot`, `.paseo` or `.testnet`, e.g. `"my-cli.dot"`, or `localhost`. Scopes accounts and storage. |
+| `network` | `"paseo-next-v2"` | A name from `TerminalNetworks`, or your own `{ name, people, bulletin, assetHub }` with genesis hashes and endpoints. |
+| `storageDir` | `~/.polkadot-apps/<appId>` | This app's own directory. The session lives in `core/` and the product's storage in `product/`, written atomically with mode `0600`. |
+| `hostMetadata` | `{ name: appId }` | Name, version and icon shown on the phone while pairing. |
+| `approvals` | `approveAll` | Answers the core's approval prompts (see below). |
+| `requestTimeoutMs` | `300_000` | Per-call timeout. Pairing alone takes 80 to 110 s on Paseo. |
+| `logLevel` | `off` | The core's log level: `error`, `warn`, `info`, `debug` or `trace`. |
 
-**Options:**
-- `appId` -- unique app identifier (used as storage namespace)
-- `endpoints?` -- statement store WebSocket endpoints (defaults to `StatementStoreNetworks.paseo`)
-- `hostMetadata?` -- optional host environment info
-- `storageDir?` -- override the on-disk session directory (defaults to `~/.polkadot-apps/`). Useful in tests and containerised environments.
+The adapter exposes:
 
-**Returns** a `TerminalAdapter` with:
-- `appId` -- the value you passed in (re-exposed so `createSessionSigner` can pull the productId from the adapter)
-- `sso` -- auth component (`.authenticate()`, `.abortAuthentication()`, status subscriptions)
-- `sessions` -- session manager (signing, disconnect)
-- `destroy()` -- disconnect the WebSocket and release resources. Idempotent. Drops `@novasamatech/statement-store`'s benign `Statement subscription error: Client destroyed` line, which it emits synchronously while disconnecting a live subscription — only that line; every other `console.error` passes through.
+- `session`: the paired session (root key, identity, usernames), or `undefined`.
+- `authState` and `onAuthStateChange(listener)`: the core's auth state.
+- `login({ reason?, onPairing? })`: resolves with the session, pairing first when there is none.
+- `logout()`: ends the session and tells the wallet. Rejects when the wallet could not be reached within 30 s; the local session is cleared either way.
+- `client(productId?)`: a `@parity/truapi` client for anything not wrapped here.
+- `runtime`: the underlying `WorkerPairingHostRuntime`.
+- `destroy()`: stops the core. Idempotent.
 
-### `StatementStoreNetworks`
+### Signing
 
-The statement store endpoints terminal can pair against, keyed by network.
+- `createSessionSigner(adapter, publicKey?, options?)`: a `CommonSignerTxCreator` for `appId`, account `0`.
+- `createSessionSignerForAccount(adapter, { productId, derivationIndex, publicKey? }, options?)`: the same, for any product account.
 
-| Key | Network | Endpoint |
-| --- | --- | --- |
-| `paseo` | Paseo Next v2 | `wss://paseo-people-next-system-rpc.polkadot.io` |
-| `previewnet` | zombienet, a step ahead of paseo | whatever host-papp's `SS_PREVIEW_STAGE_ENDPOINTS` resolves to, today `wss://previewnet.substrate.dev/people` |
+Transactions go to the core's `signing.createTransaction` with every extension unchanged, including chain-specific ones such as `AsPgas`. The wallet builds and shows the real extrinsic. `signBytes` goes to `signing.signRaw` with the `Bytes` tag, so the wallet adds the `<Bytes>` wrap once. Signing requests reach the wallet over the statement store, so a failure naming a lapsed allowance throws `AllowanceExpiredError` for it; other refusals throw `Error`.
 
-Keyed the same way as `BULLETIN_RPCS` in `@parity/product-sdk-host`. There is deliberately no
-`devnet` key: that people chain has a statement store, but no endpoint for it is published here, and
-no phone build pairs against it. Pass `endpoints` explicitly to reach one.
+### Accounts and entropy
 
-Pairing only works when the terminal and the phone are on the **same** people chain, and the phone
-picks its chain per build flavour. The Polkadot app's nightly build uses `paseo`, which is why that
-is the default; a preview-flavour phone needs `endpoints: StatementStoreNetworks.previewnet`.
+- `deriveProductPublicKey(adapter, ref)`: the product account's public key, derived from the subtree key the wallet shares.
+- `sessionRootPublicKey(session)`: the wallet's root key.
+- `deriveEntropy(adapter, productId, key)`: 32 bytes, stable per wallet, product and key (RFC-0007). The core lowercases and NFC-normalises `productId` first.
 
-`SS_STABLE_STAGE_ENDPOINTS` is also exported. It is internal to the Parity network and does not
-answer from outside it.
+### Allowances, statements and Bulletin
 
-### `isBenignTeardownError(error): boolean`
+- `requestResourceAllocation(adapter, resources, { productId? })`: asks the wallet for allowances. Each outcome is `"Allocated"`, `"Rejected"` or `"NotAvailable"`.
+- `getStatementStoreProver(adapter, productId?)` and `submitStatement(adapter, statement, productId?)`: prove statements with the product's statement-store allowance, then submit them.
+- `submitPreimage(adapter, data, productId?)`: store data on Bulletin with the product's Bulletin allowance. Returns the preimage key.
 
-Whether `error` is the benign teardown noise above (`Client destroyed`, matched on the message so it never swallows another package's `DestroyedError`). `destroy()` already drops it during its own teardown; export it so a consumer with its own `console.error` guard can drop the same line without reinventing the match.
+The allowance keys stay in the core.
 
-### `createSessionSigner(session, adapter, publicKey?, options?): Promise<CommonSignerTxCreator>`
+### Approvals
 
-Creates a `CommonSignerTxCreator` backed by a QR-paired mobile wallet session, using the **default account** of the session (`derivationIndex: 0`) under the adapter's `appId`. This is the right entry point for ~all CLI flows.
-
-Async because the signer needs the product's subtree public key (RFC-0022), which only the paired wallet holds. That is one consent-free round trip the first time a product is seen; afterwards it is served from a cache on disk.
-
-```ts
-const [session] = adapter.sessions.sessions.read();
-const signer = await createSessionSigner(session, adapter);
-await contract.publish.tx(domain, cid, { signer, origin });
-```
-
-### `createSessionSignerForAccount(session, ref, options?): Promise<CommonSignerTxCreator>`
-
-Escape hatch for signing as a non-default sub-account of a paired session, or as a `productId` that differs from the adapter's `appId`. Most callers don't need this.
-
-`ref` is `{ productId: string; derivationIndex: number }`:
-- `productId` -- dotNS-style identifier of the requesting product. In normal usage this equals the adapter's `appId`; pass a different value only if you have an explicit reason.
-- `derivationIndex` -- child-key index within the product's subtree. `0` is the default account; non-zero indices reach additional sub-accounts of the same product.
+The core asks before it shares the product account, submits to a chain, or signs raw bytes. A terminal has no dialog, so by default `approveAll` approves each prompt once. To ask the user, pass your own:
 
 ```ts
-const subSigner = await createSessionSignerForAccount(session, {
-    productId: "my-product",
-    derivationIndex: 3,
+const adapter = await createTerminalAdapter({
+    appId: "my-cli.dot",
+    approvals: async (request) =>
+        request.kind === "review"
+            ? await confirm(`Allow ${request.review.tag}?`)
+            : await confirm(`Grant ${request.permission}?`),
 });
 ```
 
-Both factories accept `SessionSignerOptions`, extending `ProductSubtreeOptions` with optional `txExtVersion`. It is the pipeline version to prefer when the transaction names none, and defaults to `0`. When that pipeline does not declare every extension the caller supplied, for example in `customSignedExtensions`, the signer uses the lowest version that does, and refuses a transaction no pipeline can carry. A wrapper that writes its own extensions, such as `withAsPerson`, sets the version on the PAPI 3 payload itself, and that version always wins.
+Device permissions (camera, location and the like) are always refused.
 
-> **Wire format note:** `@novasamatech/host-papp` expects `productAccountId: [productId, { tag: "Index", value: derivationIndex }]` in `SigningRawRequest`. Both functions above hide that tuple — pass an adapter for the default case or a named-fields object for the escape hatch.
+### `defaultStorageDir(appId): string`
 
-### `getProductSubtreePublicKey(session, productId, options?): Promise<Uint8Array>`
-
-Fetches the sr25519 public key of `//product//{productId}` from the paired wallet (RFC-0022). Both signer factories call it for you; reach for it directly to warm the cache before going offline, or to derive a product address without building a signer.
-
-The request is consent-free, so it raises no prompt on the phone, but it does need the phone reachable. The result is cached in memory and on disk, so only a cold cache reaches the wallet.
-
-```ts
-await getProductSubtreePublicKey(session, adapter.appId, { appId: adapter.appId });
-```
-
-`options` is `ProductSubtreeOptions`:
-- `appId` -- names the cache file (`~/.polkadot-apps/${appId}_ProductSubtrees.json`). Defaults to `productId`. **Pass your app id.** Anything that sweeps `~/.polkadot-apps/` by app-id prefix, such as a sign-out that clears local state, only finds the file if it is named after the app.
-- `storageDir` -- overrides `~/.polkadot-apps/`, matching `createTerminalAdapter({ storageDir })`.
-
-The cache file is written with mode `0600` and keyed by session and product, so re-pairing or switching wallet account does not reuse a stale key.
+The directory an adapter uses when no `storageDir` is given: `~/.polkadot-apps/<appId>`, with characters outside `[A-Za-z0-9_.-]` replaced by `_`.
 
 ### `renderQrCode(data, options?): Promise<string>`
 
-Render a string as a QR code using Unicode half-block characters for terminal display.
+Renders a string as a QR code from Unicode blocks, for printing to a terminal.
 
-### `createNodeStorageAdapter(appId, storageDir?): StorageAdapter`
+## Upgrading from 0.13
 
-File-based storage adapter for Node.js. Data persists in `storageDir` (defaults to `~/.polkadot-apps/`).
-
-### `waitForSessions(adapter, timeoutMs?): Promise<UserSession[]>`
-
-Waits for the session list to emit at least one entry, or resolves with `[]` after `timeoutMs`.
-
-### `deriveEntropy(session, productId, key): Uint8Array`
-
-Derives 32 bytes of deterministic entropy from a paired session, scoped to a product and a caller key (RFC-0007, host-spec §C.8). The bytes match what an in-container app gets from `@parity/product-sdk-host`'s `deriveEntropy` for the same wallet + product + key, so keys derived from them interoperate across web and terminal clients. Computed locally from the session's `rootEntropySource` — no round trip to the wallet.
-
-```ts
-const entropy = deriveEntropy(session, "my-cli.dot", new TextEncoder().encode("repo-key"));
-```
-
-- `productId` -- the identifier the in-container deployment is served under: the same value you pass as `productId` to `getBulletinSigner`, **not** `adapter.appId`. Used verbatim and case-sensitively, and scoped per deployment — production, PR previews and `localhost:<port>` all derive different entropy.
-- `key` -- caller key, 1..32 bytes.
-
-Throws if the session predates RFC-0007 (no `rootEntropySource`; re-pair to fix). With several paired sessions, pin the intended wallet with `sessionRootPublicKey` first: the wrong session yields valid entropy for a different wallet. The result is raw key material — don't log it or persist it unwrapped.
-
-## Allowance signers — the canonical path
-
-For CLIs that need to write to Bulletin or publish to the Statement Store: ask the paired wallet for an allowance slot, get a `CommonSignerTxCreator` back, sign extrinsics with it. This is what most consumers want.
-
-```ts
-import {
-    createTerminalAdapter,
-    getBulletinSigner,
-    getStatementStoreProver,
-    waitForSessions,
-} from "@parity/product-sdk-terminal";
-
-const adapter = createTerminalAdapter({ appId: "my-cli" });
-
-// ...QR pair the phone, wait for the session...
-await waitForSessions(adapter);
-
-// First call prompts the wallet for an allowance slot; subsequent calls
-// return the cached slot key — no wire round-trip.
-const bulletinSigner = await getBulletinSigner(adapter, "my-cli.dot");
-await bulletinClient.tx.TransactionStorage.store({ data }).createAndSubmit(bulletinSigner);
-
-// Same idea, returns a StatementProver for `@novasamatech/statement-store` writes.
-const prover = await getStatementStoreProver(adapter, "my-cli.dot");
-```
-
-### `getBulletinSigner(adapter, productId, sessionId?): Promise<CommonSignerTxCreator>`
-
-### `getStatementStoreProver(adapter, productId, sessionId?): Promise<StatementProver>`
-
-Both default `sessionId` to the only paired session. With zero or more than one paired sessions and no explicit id, both throw `AllowanceError` with `reason: 'NoSession'`. Pass an explicit `sessionId` to disambiguate.
-
-Failures from the host (`Rejected`, `NotAvailable`, codec drift) surface as `AllowanceError`:
-
-```ts
-import { AllowanceError } from "@parity/product-sdk-terminal";
-
-try {
-    const signer = await getBulletinSigner(adapter, "my-cli.dot");
-} catch (err) {
-    if (err instanceof AllowanceError && err.reason === "Rejected") {
-        // user denied the allowance request on the phone
-    }
-    throw err;
-}
-```
-
-Behind the scenes both helpers wrap `adapter.allowance` (inherited from host-papp's `PappAdapter`) and unwrap its neverthrow `ResultAsync` into a throwing `Promise`. If you want to keep neverthrow's `.match()` / `.mapErr()` ergonomics or need explicit multi-session handling, call `adapter.allowance.getBulletinSigner(sessionId, productId)` / `getStatementStoreProver(...)` directly.
-
-### Cache-only probes — `hasBulletinAllowance` / `hasStatementStoreAllowance`
-
-For paths that must run silently — login health checks, "would calling `getBulletinSigner` prompt the phone?" decisions, readiness probes — use the cache-only variants. They read host-papp's on-disk allowance file directly and **never** trigger a wallet prompt.
-
-```ts
-import {
-    getBulletinSigner,
-    hasBulletinAllowance,
-} from "@parity/product-sdk-terminal";
-
-if (await hasBulletinAllowance(adapter, "my-cli.dot")) {
-    // happy path — fetch the signer without risking a wallet prompt
-    const signer = await getBulletinSigner(adapter, "my-cli.dot");
-} else {
-    // tell the user a wallet prompt will fire, then call getBulletinSigner
-    console.log("Approve the allowance request on your phone…");
-    const signer = await getBulletinSigner(adapter, "my-cli.dot");
-}
-```
-
-#### `hasBulletinAllowance(adapter, productId, sessionId?): Promise<boolean>`
-
-#### `hasStatementStoreAllowance(adapter, productId, sessionId?): Promise<boolean>`
-
-Resolves `true` when a slot key for `(sessionId, productId, resource)` is already cached on disk; `false` when it is not (file absent, or present with no matching entry). Same `sessionId` defaulting as the fetching helpers: defaults to the only paired session, throws `AllowanceError('NoSession')` for zero or multiple paired sessions without an explicit id.
-
-Rejects only on decrypt or decode failures — a corrupted cache file is a real failure, not a "no allowance" signal.
-
-> The cache-only check uses an internal mirror of host-papp's `AllowanceRepository` codec because host-papp doesn't expose a public probe today. We'll switch to the upstream API when one ships; the public surface (`hasBulletinAllowance` / `hasStatementStoreAllowance`) won't change.
-
-## Allowance management — manual cache + AP control (`./host` subpath)
-
-For CLIs that need finer control — pre-allocating multiple resources in one wallet prompt, inspecting the cache before round-tripping, or building a signer over a cached key without consulting the wallet — the `@parity/product-sdk-terminal/host` subpath exposes the lower-level Host-runner surface (the [RFC-10](https://github.com/paritytech/triangle-js-sdks/blob/valentunn-rfc-0010/docs/rfcs/0010-allowance.md) Accounts Protocol companion, an on-disk allowance-key cache, and a local sr25519 signer over the cached keys). Most CLIs don't need this — start with `getBulletinSigner` / `getStatementStoreProver` above.
-
-```ts
-import {
-    ensureSlotAccountSigner,
-    requestResourceAllocation,
-    getCachedAllocation,
-    createSlotAccountSigner,
-} from "@parity/product-sdk-terminal/host";
-
-// First call prompts the wallet; subsequent calls are wire-free.
-const signer = await ensureSlotAccountSigner(session, adapter, {
-    tag: "BulletInAllowance",
-    value: undefined,
-});
-await bulletinTx.submitAndWatch(signer);
-```
-
-### `ensureSlotAccountSigner(session, adapter, resource): Promise<CommonSignerTxCreator>`
-
-The one call most CLIs want. Cache hit → returns signer; cache miss → allocates via the wallet, then returns signer. Throws on `Rejected` / `NotAvailable`. Slot-table resources only (`BulletInAllowance`, `StatementStoreAllowance`).
-
-### `requestResourceAllocation(session, adapter, resources, options?): Promise<ApAllocationOutcome[]>`
-
-Lower-level: pre-allocate any combination of resources. Granted keys cached at `{storageDir}/{appId}_AllowanceKeys.json` (`0o600`, atomic write). `onExisting` auto-picks `Ignore`/`Increase` based on cache state; override via `options.onExisting`.
-
-### `getCachedAllocation(adapter, resource): Promise<CachedAllocation | null>`
-
-Read-only cache lookup; no wire round-trip.
-
-### `createSlotAccountSigner(adapter, resource): Promise<CommonSignerTxCreator | null>`
-
-Build a `CommonSignerTxCreator` from the cached slot key without round-tripping. Returns `null` if nothing is cached (use `ensureSlotAccountSigner` for the round-trip-if-missing flow).
-
-> **Caveats.** `AutoSigning` currently returns `NotAvailable` on both Android and iOS wallets. Slot renewal at expiry depends on [paritytech/individuality#931](https://github.com/paritytech/individuality/pull/931) (open) — first-time allocation works end-to-end today.
-
-## Migration from `@polkadot-apps/terminal`
-
-For consumers moving from `@polkadot-apps/terminal` v0.2.0 / v0.3.0. Existing sessions on disk (`~/.polkadot-apps/`) carry over — same `appId`, same path. No re-pairing required for the migration itself.
-
-| Concern | `@polkadot-apps/terminal` | `@parity/product-sdk-terminal` |
-| --- | --- | --- |
-| Package name | `@polkadot-apps/terminal` | `@parity/product-sdk-terminal` |
-| WASM loader hook | `--import @polkadot-apps/terminal/register` (required) | **removed** — no `--import` needed (host-papp ≥0.7.9 dropped `verifiablejs`) |
-| `createTerminalAdapter` | `async` — returned `Promise<TerminalAdapter>` | **sync** — returns `TerminalAdapter` directly. Drop the `await`. |
-| Default account signer | `createSessionSigner(session)` | `await createSessionSigner(session, adapter)` — pass the adapter as second arg, and await it |
-| Non-default sub-account signer | not exposed | `await createSessionSignerForAccount(session, { productId, derivationIndex })` |
-| Override session storage dir | not supported (hard-coded `~/.polkadot-apps/`) | `createTerminalAdapter({ ..., storageDir })` option |
-| E2E test helper for sessions | none | `createTestSession` from `@parity/product-sdk-terminal/testing` |
-| Node version | any (bundled `ws`) | **≥21** (uses global `WebSocket`) |
-| `destroy()` shutdown noise | emitted `Statement subscription error` to stderr | only the benign `Client destroyed` line dropped (synchronously, during disconnect); other `console.error` untouched |
-
-### Why the signer API changed
-
-`@novasamatech/host-papp` 0.7 replaced `SigningRawRequest.address` with `productAccountId: [productId, derivationIndex]`, and 0.10 made the index a tagged `Index | Raw` selector. The wire format requires both fields, so a session-only argument is no longer enough — the signer needs to know *which sub-account of which product is asking*. We split that into two functions to keep the common case ergonomic:
-
-- `createSessionSigner(session, adapter)` for the default account (uses `[adapter.appId, { tag: "Index", value: 0 }]`)
-- `createSessionSignerForAccount(session, { productId, derivationIndex })` for everything else
-
-Both return a promise since RFC-0022: a product account hangs off `//product//{productId}`, whose two hard junctions no public key can cross, so the subtree key has to be fetched from the paired wallet once per product.
-
-The single-argument `createSessionSigner(session)` from `@polkadot-apps/terminal` no longer works against host-papp 0.7 regardless of which package you use.
-
-### Migration steps
-
-1. **Replace the dep**: `pnpm remove @polkadot-apps/terminal && pnpm add @parity/product-sdk-terminal`
-2. **Remove the `--import @.../register` flag** from your `node` / `tsx` invocations or `package.json` scripts — the WASM loader hook no longer exists (and is no longer needed).
-3. **Drop `await`** in front of `createTerminalAdapter(...)` calls.
-4. **Update each `createSessionSigner` call site**: change `createSessionSigner(session)` → `await createSessionSigner(session, adapter)`.
-5. **Verify Node version** is ≥21 (`node --version`).
-
-If your existing sessions don't appear after migrating, double-check that the `appId` is identical to what you used in `@polkadot-apps/terminal` — the on-disk file names depend on it.
-
-## Testing
-
-The `@parity/product-sdk-terminal/testing` subpath exports `createTestSession`, a helper that synthesizes a valid persisted session on disk. E2E tests can inject a known-good session without going through QR pairing + attestation:
-
-```ts
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createTerminalAdapter, waitForSessions } from "@parity/product-sdk-terminal";
-import { createTestSession } from "@parity/product-sdk-terminal/testing";
-
-const storageDir = mkdtempSync(join(tmpdir(), "e2e-"));
-const { sessionId } = await createTestSession({
-    appId: "my-terminal-app",
-    storageDir,
-});
-
-const adapter = createTerminalAdapter({
-    appId: "my-terminal-app",
-    storageDir,
-});
-const sessions = await waitForSessions(adapter);
-// sessions[0].id === sessionId
-```
-
-**Limits and usage notes.**
-
-- **Signing does not round-trip.** Both `session.signRaw` and `session.signPayload` go out over the statement store and expect a real phone to respond. Use this helper for flows that test session discovery, persistence, and logout — not happy-path signing.
-- **Expiry tests still work.** The synthesized local account was never registered on the People chain, so any statement-store write from this session fails with `NoAllowanceError`. That's the same error the CLI sees when a previously valid session's on-chain attestation has expired.
-- **No `expiresAt` option.** The on-disk codec has no expiry field; validity lives on chain.
-- **Corrupted-session cases** don't need a helper — `fs.writeFile("<storageDir>/<appId>_SsoSessions.json", "not-hex")` from the test is enough.
-
-## Signing
-
-After login and attestation, the paired wallet can sign both transactions and raw messages via the statement store. The `CommonSignerTxCreator` returned by `createSessionSigner` routes each path to the right host-papp method:
-
-- **Transactions** (the creator itself, used by `submitAndWatch`, `createSubmitAndWatch`, and contract calls) go through `session.createTransaction`. The signer forwards the account, call data, `txExtVersion`, and the encoded `extra` and `additionalSigned` bytes of every extension, including unknown extensions such as `AsPgas`. The version is one whose pipeline declares every supplied extension, so `AsPgas` on Asset Hub runtime 3004000 goes out on version 1. The wallet decodes the transaction for display and returns the signed extrinsic.
-- **Raw bytes** (`signBytes`) go through `session.signRaw` with the `Bytes` tag. Mobile applies the standard `<Bytes>...</Bytes>` anti-phishing wrap before signing — appropriate for arbitrary data, the same behavior `signRaw` has across all Polkadot wallets.
-
-> **Note on previous bugs.** Versions prior to `0.1.1` routed *all* signing through `signRaw` with no tag distinction, producing `BadProof`-rejected signatures. Versions `0.1.1` through `0.2.x` then used `polkadot-api/pjs-signer`, which threw `PJS does not support this signed-extension: <name>` on any extension outside its eight built-in mappers (notably `AsPgas`). The current path bypasses both pitfalls.
-
-## Notes
-
-### WebSocket transport
-
-The adapter uses `@polkadot-api/ws-provider@0.9`, which relies on the global `WebSocket` exposed by Node ≥21. Older Node versions (18, 20) will fail at connect time with `WebSocket is not defined` — upgrade Node, or pass an explicit `websocketClass` from the [`ws`](https://www.npmjs.com/package/ws) package.
-
-The default WebSocket is constructed without `followRedirects: true`, so endpoints behind an HTTP redirect will fail to connect. If you must point at an endpoint that does, supply the resolved URL directly via the `endpoints` option.
-
-## How It Works
-
-1. **QR Pairing** -- generates Sr25519 + P256 keypairs, encodes a `polkadotapp://pair?handshake=0x...` deep link, subscribes to the statement store
-2. **Attestation** -- registers the local account on the People chain so it can publish statements
-3. **Signing** -- sends encrypted signing requests to the wallet via the statement store, receives signed responses
-
-Sessions are persisted to `~/.polkadot-apps/` and survive across restarts. The SDK loads them asynchronously on startup — subscribe to `adapter.sessions.sessions` and wait for the first emission.
-
-## Dependencies
-
-- `@novasamatech/host-papp` -- Polkadot host-product SDK (auth, attestation, signing)
-- `@novasamatech/statement-store` -- statement store client and session management
-- `@polkadot-api/ws-provider` -- WebSocket JSON-RPC provider
-- `neverthrow` -- Result type for error handling
-- `qrcode` -- QR code generation
-
-## Future Work
-
-- **`KvStore`↔`StorageAdapter` bridge.** This package implements its own file-backed `StorageAdapter` for Node.js (`createNodeStorageAdapter`). Once `@parity/product-sdk-local-storage` grows a file backend with the same `read/write/clear/subscribe` `ResultAsync` shape, replace `node-storage.ts` with a thin adapter over it.
-- **Codec re-exports from `@parity/product-sdk-statement-store`.** `testing.ts` imports session-account codec helpers (`AccountIdCodec`, `LocalSessionAccountCodec`, etc.) directly from `@novasamatech/statement-store`. Re-exporting them through the in-monorepo wrapper would let this package depend only on workspace siblings.
-- **`@noble/*` major version drift.** This package pins `@noble/{ciphers,curves,hashes}: ^2.x` because upstream `@polkadot-apps/terminal` did, and the `testing.ts` codec helpers use the v2 import paths (`@noble/hashes/blake2.js`, `@noble/curves/nist.js`). The rest of the monorepo is on `^1.x`. Both majors coexist in the lockfile; not a runtime problem today but worth a coordinated bump. Either move the whole monorepo to v2, or rewrite `testing.ts` against v1 paths (`@noble/hashes/blake2b.js` etc.).
+The terminal moved from `@novasamatech/host-papp` to the truapi core in 0.14.0. Users pair once more. See the 0.14.0 entry in [CHANGELOG.md](./CHANGELOG.md) for every API change.

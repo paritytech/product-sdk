@@ -11,14 +11,6 @@
         ".": {
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
-        },
-        "./testing": {
-            "types": "./dist/testing.d.ts",
-            "import": "./dist/testing.js"
-        },
-        "./host": {
-            "types": "./dist/host.d.ts",
-            "import": "./dist/host.js"
         }
     },
     "files": ["dist"],
@@ -33,32 +25,26 @@
         "typecheck": "tsc -p tsconfig.typecheck.json"
     },
     "dependencies": {
-        "@noble/ciphers": "^2.1.0",
-        "@noble/curves": "^2.0.1",
-        "@noble/hashes": "^2.2.0",
-        "@novasamatech/host-papp": "0.12.0",
-        "@novasamatech/statement-store": "0.12.0",
         "@parity/product-sdk-host": "workspace:*",
         "@parity/product-sdk-keys": "workspace:*",
         "@parity/product-sdk-logger": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
+        "@parity/truapi": "catalog:",
+        "@parity/truapi-host": "catalog:",
         "@polkadot-api/signers-common": "catalog:",
         "@polkadot-api/utils": "^0.4.0",
-        "@polkadot-api/ws-provider": "^0.9.1",
-        "@polkadot-labs/hdkd-helpers": "catalog:",
-        "nanoid": "^5.1.7",
         "neverthrow": "^8.2.0",
-        "polkadot-api": "catalog:",
-        "qrcode": "^1.5.4",
-        "scale-ts": "^1.6.1"
+        "qrcode": "^1.5.4"
     },
     "devDependencies": {
-        "@novasamatech/substrate-slot-sr25519-wasm": "0.12.0",
-        "@polkadot-api/substrate-bindings": "catalog:",
         "@types/qrcode": "^1.5.5",
+        "polkadot-api": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
     },
-    "license": "Apache-2.0"
+    "license": "Apache-2.0",
+    "engines": {
+        "node": ">=22"
+    }
 }

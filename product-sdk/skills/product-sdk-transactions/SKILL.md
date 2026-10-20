@@ -250,15 +250,14 @@ signer.
 
 ```ts
 import { createAuthClient, resolveSigner } from "@parity/product-sdk-auth";
-import { StatementStoreNetworks } from "@parity/product-sdk-terminal";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 
 // 1. Bind an auth client to your product's config (inject per-product values).
 const authClient = createAuthClient({
-  dappId: "playground",              // scopes ~/.polkadot-apps/${dappId}_* + SSO pairing
-  productId: "playground.dot",       // derives the product account
+  dappId: "playground",              // the CLI's id; the session lives in ~/.polkadot-apps/playground/{core,product}
+  productId: "playground.dot",       // dotNS id the CLI acts as; derives the product account
   derivationIndex: 0,                // 0 = default product account
-  peopleEndpoints: StatementStoreNetworks.paseo, // or .previewnet
+  network: "paseo-next-v2",          // optional; the default. Or a TerminalNetworks entry / custom network
 });
 
 // 2. Get a transaction creator: the dev SURI if provided, else the persisted QR session.
@@ -269,9 +268,9 @@ const resolved = await resolveSigner(authClient, { suri: process.env.SURI }); //
 try {
   const result = await submitAndWatch(tx, resolved.signer);
   // resolved.address / resolved.addresses (root/product/H160) / resolved.source ("dev" | "session")
-  // resolved.userSession is present only for QR/mobile sessions (undefined for dev signers).
+  // resolved.session is present only for QR/mobile sessions (undefined for dev signers).
 } finally {
-  resolved.destroy();                // REQUIRED: releases the session WebSocket
+  resolved.destroy();                // REQUIRED: stops the session's core thread
 }
 ```
 
@@ -302,7 +301,8 @@ import { renderLoginStatus, renderLogoutStatus, renderQrCode } from "@parity/pro
 ### Sign-out (logout)
 
 Mirror image of the login flow: find the paired session, disconnect it (notifies
-the mobile app), and clear the local `${dappId}_*` files.
+the mobile app), and clear the session's `core/` and `product/` folders in
+`~/.polkadot-apps/<dappId>/`.
 
 ```ts
 const handle = await authClient.findSession();
@@ -318,16 +318,23 @@ if (!handle) {
 
 A fresh session needs allowances before it can sign (statement store / Bulletin /
 smart-contract sponsoring). The mobile wallet prompts the user to approve. By
-default `requestAllocation` requests `DEFAULT_RESOURCES` — `BulletInAllowance`,
+default `requestAllocation` requests `DEFAULT_RESOURCES` — `BulletinAllowance`,
 `StatementStoreAllowance`, and `SmartContractAllowance` for the default (index 0)
-product account.
+product account. Each outcome is `"Allocated"`, `"Rejected"` or `"NotAvailable"`.
 
 ```ts
 import { DEFAULT_RESOURCES, summarizeOutcomes } from "@parity/product-sdk-auth";
 
-// resolved.userSession is only set for QR/mobile sessions (not dev signers).
-const outcomes = await authClient.requestAllocation(resolved.userSession!); // DEFAULT_RESOURCES, onExisting "Ignore"
-const { granted, rejected, unavailable } = summarizeOutcomes(outcomes, DEFAULT_RESOURCES);
+// requestAllocation takes the SessionHandle from getSessionSigner() (null when not signed in).
+const handle = await authClient.getSessionSigner();
+if (handle) {
+  try {
+    const outcomes = await authClient.requestAllocation(handle); // DEFAULT_RESOURCES
+    const { granted, rejected, unavailable } = summarizeOutcomes(outcomes, DEFAULT_RESOURCES);
+  } finally {
+    handle.destroy();
+  }
+}
 ```
 
 > **When to use which:** `SignerManager.getProductAccount()` is for **in-host / web**
@@ -368,14 +375,18 @@ const info = await skm.getOrCreate();
 ## deriveProductAccountPublicKey: RFC-0022 Product-Account Derivation
 
 ```ts
-import { getProductSubtreePublicKey } from "@parity/product-sdk-terminal";
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
+import { deriveProductPublicKey } from "@parity/product-sdk-terminal";
 
-const subtree = await getProductSubtreePublicKey(session, "playground.dot");
-const derivedPubKey = deriveProductAccountPublicKey(subtree, { tag: "Index", value: 0 });
+// Pure step: the product's subtree key (shared by the wallet) + index -> product account key.
+const derivedPubKey = deriveProductAccountPublicKey(productSubtreePublicKey, { tag: "Index", value: 0 });
+
+// In a CLI: fetch the subtree key through the paired adapter and derive in one call.
+// `handle` is a SessionHandle from authClient.getSessionSigner().
+const publicKey = await deriveProductPublicKey(handle.adapter, { productId: "playground.dot", derivationIndex: 0 });
 ```
 
-The subtree key comes from the wallet because `//product//{productId}` is hard; a root account key will not work. In a CLI, `deriveProductPublicKey(session, ref)` does both steps. See `references/keys-api.md`.
+The subtree key comes from the wallet because `//product//{productId}` is hard; a root account key will not work. `deriveProductPublicKey` is also exported by `@parity/product-sdk-auth`. See `references/keys-api.md`.
 
 ## Common Mistakes
 
@@ -389,9 +400,9 @@ The subtree key comes from the wallet because `//product//{productId}` is hard; 
 
 5. **Forgetting account mapping** - EVM contract interactions on Asset Hub require calling `ensureAccountMapped` first.
 
-6. **Not calling `resolved.destroy()`** (auth) - session signers own a WebSocket that keeps the Node event loop alive; the CLI won't exit cleanly until it's torn down. Call it in a `finally`.
+6. **Not calling `resolved.destroy()`** (auth) - session signers run the truapi core in a worker thread that keeps the Node process alive; the CLI won't exit cleanly until it's torn down. Call it in a `finally`.
 
-7. **Signing on a fresh session without allocations** (auth) - per the package's own note, RFC-0010 allowances are needed before a fresh session can sign (statement store / Bulletin / smart-contract). Run `authClient.requestAllocation(session)` once after first login and let the user approve it on the phone.
+7. **Signing on a fresh session without allocations** (auth) - per the package's own note, RFC-0010 allowances are needed before a fresh session can sign (statement store / Bulletin / smart-contract). Run `authClient.requestAllocation(handle)` (the `SessionHandle` from `getSessionSigner()`) once after first login and let the user approve it on the phone.
 
 8. **Submitting a person-origin call with a plain signer** (individuality) - a call that must dispatch as a *person* rather than an account needs the `AsPerson` transaction extension, which no plain signer sets. Wrap the signer with `withAsPerson` from `@parity/product-sdk-individuality` and pass it to `submitAndWatch` as usual; see the `product-sdk-individuality` skill. Doing it by hand fails `Invalid.Call` before dispatch for a reason that is not in the error.
 
