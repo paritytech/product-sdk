@@ -22,8 +22,18 @@ import type {
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
-import { unwrapHostResult } from "./truapi.js";
+import { toHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
+
+/**
+ * A fresh 32-byte id for a payment or top-up session. truapi 0.26 made the
+ * caller own the id, so a reload can keep watching an in-flight session and a
+ * retry is idempotent (`AlreadyExists` is refused). Callers that need those
+ * guarantees pass their own id; the default is a random one.
+ */
+function randomId(): HexString {
+    return toHex(crypto.getRandomValues(new Uint8Array(32)));
+}
 
 /**
  * Payment manager handle. Exposes balance subscription, top-up, payment
@@ -38,10 +48,20 @@ export interface PaymentManager {
         callback: (balance: HostPaymentBalanceSubscribeItem) => void,
         purse?: number,
     ): HostSubscription;
-    topUp(amount: bigint, source: PaymentTopUpSource, into?: number): Promise<void>;
-    requestPayment(amount: bigint, destination: HexString, from?: number): Promise<{ id: string }>;
+    topUp(
+        amount: bigint,
+        source: PaymentTopUpSource,
+        into?: number,
+        id?: HexString,
+    ): Promise<{ id: HexString }>;
+    requestPayment(
+        amount: bigint,
+        destination: HexString,
+        from?: number,
+        id?: HexString,
+    ): Promise<{ id: HexString }>;
     subscribePaymentStatus(
-        paymentId: string,
+        id: HexString,
         callback: (status: HostPaymentStatusSubscribeItem) => void,
     ): HostSubscription;
 }
@@ -56,24 +76,24 @@ function adaptPaymentManager(client: TrUApiClient): PaymentManager {
                 callback,
             );
         },
-        topUp(amount, source, into) {
-            return unwrapHostResult(
-                payment.topUp({ into, amount, source }),
+        async topUp(amount, source, into, id) {
+            const topUpId = id ?? randomId();
+            await unwrapHostResult(
+                payment.topUp({ id: topUpId, into, amount, source }),
                 "payment topUp failed",
             );
+            return { id: topUpId };
         },
-        async requestPayment(amount, destination, from) {
-            const response = await unwrapHostResult(
-                payment.request({ from, amount, destination }),
+        async requestPayment(amount, destination, from, id) {
+            const paymentId = id ?? randomId();
+            await unwrapHostResult(
+                payment.request({ id: paymentId, from, amount, destination }),
                 "payment requestPayment failed",
             );
-            return { id: response.id };
+            return { id: paymentId };
         },
-        subscribePaymentStatus(paymentId, callback) {
-            return subscribeWithInterrupt(
-                payment.statusSubscribe({ request: { paymentId } }),
-                callback,
-            );
+        subscribePaymentStatus(id, callback) {
+            return subscribeWithInterrupt(payment.statusSubscribe({ request: { id } }), callback);
         },
     };
 }
@@ -93,6 +113,7 @@ function adaptPaymentManager(client: TrUApiClient): PaymentManager {
  *   const sub = payments.subscribeBalance((b) => { ... });
  *   await payments.topUp(1_000_000n, { tag: "ProductAccount", value: { derivationIndex: { tag: "Index", value: 0 } } });
  *   const { id } = await payments.requestPayment(500n, "0x…");
+ *   const status = payments.subscribePaymentStatus(id, (s) => { ... });
  *   sub.unsubscribe();
  * }
  * ```

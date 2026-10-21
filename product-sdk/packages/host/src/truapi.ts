@@ -396,6 +396,7 @@ if (import.meta.vitest) {
             | { tag: "ChainSubmit"; value?: undefined }
             | { tag: "PreimageSubmit"; value?: undefined }
             | { tag: "StatementSubmit"; value?: undefined }
+            | { tag: "BalanceAccess"; value?: undefined }
         >
     >;
 
