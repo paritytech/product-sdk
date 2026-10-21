@@ -1,0 +1,21 @@
+{
+    "name": "@parity/product-sdk-reputation-example",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "demo": "pnpm build && node dist/main.js"
+    },
+    "dependencies": {
+        "@parity/product-sdk-contracts": "workspace:*",
+        "@parity/product-sdk-reputation": "workspace:*",
+        "@parity/result": "workspace:*",
+        "viem": "catalog:"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "typescript": "catalog:"
+    }
+}

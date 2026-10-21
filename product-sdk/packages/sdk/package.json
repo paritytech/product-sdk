@@ -56,6 +56,10 @@
             "import": "./dist/nfts/index.js",
             "types": "./dist/nfts/index.d.ts"
         },
+        "./reputation": {
+            "import": "./dist/reputation/index.js",
+            "types": "./dist/reputation/index.d.ts"
+        },
         "./react": {
             "import": "./dist/react/index.js",
             "types": "./dist/react/index.d.ts"
@@ -97,6 +101,7 @@
         "@parity/product-sdk-errors": "workspace:*",
         "@parity/result": "workspace:*",
         "@parity/product-sdk-nfts": "workspace:*",
+        "@parity/product-sdk-reputation": "workspace:*",
         "@parity/product-sdk-signer": "workspace:*",
         "@parity/product-sdk-local-storage": "workspace:*",
         "@parity/product-sdk-renderer": "workspace:*",
