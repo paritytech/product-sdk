@@ -1,5 +1,83 @@
 # @parity/product-sdk
 
+## 0.40.0
+
+### Minor Changes
+
+- e9bfd25: **Pair with a truapi 0.26.0 host.** `@parity/truapi` moves from `^0.25.0` to `^0.26.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `3c45e49b26c1ab97` to `5f68beddf80f7b9a`, so the schema a product speaks no longer matches a host still on 0.25.0. Every host surface has to move in the same window.
+
+  **Surface changes carried through `@parity/product-sdk-host`.** truapi 0.26 makes the caller own the id for a payment and a top-up, so a reload can keep watching an in-flight session and a retry is idempotent. `PaymentManager.requestPayment` and `topUp` now take an optional `id` (a random 32-byte hex by default) and both return `{ id }`; `subscribePaymentStatus`'s first argument is that same `id`. truapi also adds a `funding` domain (modeled as not-supported by the testing fake) and a `BalanceAccess` remote permission, which passes through `requestPermission` unchanged.
+
+### Patch Changes
+
+- Updated dependencies [e9bfd25]
+  - @parity/product-sdk-host@0.29.0
+  - @parity/product-sdk-renderer@0.8.0
+  - @parity/product-sdk-chain-client@0.13.4
+  - @parity/product-sdk-cloud-storage@0.13.4
+  - @parity/product-sdk-individuality@0.11.1
+  - @parity/product-sdk-local-storage@0.3.20
+  - @parity/product-sdk-signer@0.17.4
+  - @parity/product-sdk-keys@0.5.4
+  - @parity/product-sdk-contracts@0.11.4
+  - @parity/product-sdk-tx@0.5.4
+
+## 0.39.0
+
+### Minor Changes
+
+- 45dc779: **A host call that gets no answer in time fails with `HostTimeoutError`, whose message no longer blames a protocol-version skew.**
+
+  A truapi `RequestTimeoutError` becomes `HostTimeoutError`, which names the call and how long the client waited, and keeps the original error as `cause`. It is a subclass of `HostResponseDecodeError`, so existing `instanceof HostResponseDecodeError` checks and `WithDecodeError<E>` still cover it; check `instanceof HostTimeoutError` to tell a timeout apart.
+
+- 45dc779: Add game registration in one call, so every product that signs players up for the weekly game (the game's app and chat, the personhood product) runs the same steps and gives the same answers.
+
+  - `registerForGame(chain, capabilities, options)` reads the seat, binds the lite alias when the free route needs it, decides the prize-draw entries at the best block, then hands the call, signed under the origin its route needs, to a `submit` capability. Registration is judged by the chain's clock, and the sign-up resolves at the best block unless `waitFor: "finalized"` is asked for. The draws never block the sign-up: a draw that is not open yet, or a read that fails, costs the tickets, and the outcome says why. An abort before the broadcast sends nothing.
+  - Every outcome, and every `GameRegistrationError`, carries a report and names the step that failed and whether a retry can help; `registrationRetryDelay` gives the backoff. A declined signature is never asked for again. A failure's `code` is always a name (the chain's error name, or one of `GameRegistrationOwnCode` such as `Timeout`, `Network` or `HostRefused`), never free text; what the error said is in `message` and `cause`.
+  - `readGameSeat` and the pure `deriveSeat` give the route (`returning`, `free`, `deposit` or `unfunded`), so every product shows the same answer.
+  - `bindGameSeat` runs the bind on its own: a current binding and a bind that cannot succeed ask for no proof, the `Game.LiteInvites` pin is checked before it goes out, and a bind no block holds within `timeoutMs` fails with `landingUnknown`.
+  - `GAME_PRODUCT_NAME`, `GAME_ACCOUNT_INDEX` and `gameProductId` name the game account in one place.
+  - The new `@parity/product-sdk-individuality/host` entry builds the capabilities from a host with `hostGameRegistrationCapabilities({ tld, accountIndex? })`, submitting through `@parity/product-sdk-tx`; `accountIndex` defaults to `GAME_ACCOUNT_INDEX`. It finds the personhood keys by chain and collection id, whatever pallet index the host lists them under, so no index is hard-coded. The main entry imports neither. The umbrella reaches it as `@parity/product-sdk/individuality/host`.
+
+- 45dc779: Add `getApprovedCollections(network)`, the collections apps offer for claims on a network, as plain ids. Any owner can register a collection for claims, so which ones to offer players is a product decision, now kept in one place instead of in each app.
+
+### Patch Changes
+
+- 45dc779: A host call that rejects now answers PAPI with a JSON-RPC error. truapi
+  rejects a call on a timeout, a closed transport or an abort, and the chain
+  provider answered only from the two arms of `.match`, which a rejection never
+  reaches. A timed-out `chainHead_v1_storage`, `chainHead_v1_call` or
+  `chainHead_v1_unpin` therefore stayed unsettled for good, and a best-block
+  watch that waited on it stopped with no error.
+
+  The provider now answers through the new `matchHostResult`, which runs on the
+  same `matchGuarded` path as `unwrapHostResult` and `mapHostResult`. A
+  rejection reaches the error arm as a `HostResponseDecodeError`.
+
+- 45dc779: Pace the stop the PAPI provider synthesizes when a host follow stream is
+  interrupted. polkadot-api refollows on a stop at once, so while the host's
+  chain connection is down every interrupt used to turn into an immediate new
+  follow, in a tight loop. The synthetic stop now waits 250 ms, doubling to a
+  4 s cap, and the delay resets when a follow delivers `Initialized`. A genuine
+  `Stop` item from the host is still forwarded at once. Unfollow and disconnect
+  cancel a pending stop, and a disconnected provider ignores further requests.
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+  - @parity/product-sdk-host@0.28.0
+  - @parity/product-sdk-individuality@0.11.0
+  - @parity/product-sdk-nfts@0.4.0
+  - @parity/product-sdk-chain-client@0.13.3
+  - @parity/product-sdk-cloud-storage@0.13.3
+  - @parity/product-sdk-local-storage@0.3.19
+  - @parity/product-sdk-signer@0.17.3
+  - @parity/product-sdk-keys@0.5.3
+  - @parity/product-sdk-contracts@0.11.3
+  - @parity/product-sdk-tx@0.5.3
+
 ## 0.38.0
 
 ### Minor Changes
