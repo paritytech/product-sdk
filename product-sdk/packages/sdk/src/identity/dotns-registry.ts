@@ -204,14 +204,18 @@ export interface SetRecordArgs {
  */
 const tldCache: RuntimeCache<DotNsTld> = new WeakMap();
 
-/** An empty-payload revert: the contract ran and refused, telling us nothing. */
-function isEmptyRevert(value: unknown): boolean {
+/** A revert: the contract ran and refused, as opposed to a dispatch failure. */
+function isRevert(value: unknown): boolean {
     return (
         typeof value === "object" &&
         value !== null &&
-        (value as { type?: unknown }).type === "ContractRevertedWithPayload" &&
-        (value as { data?: unknown }).data === "0x"
+        (value as { type?: unknown }).type === "ContractRevertedWithPayload"
     );
+}
+
+/** An empty-payload revert: the contract ran and refused, telling us nothing. */
+function isEmptyRevert(value: unknown): boolean {
+    return isRevert(value) && (value as { data?: unknown }).data === "0x";
 }
 
 /**
@@ -498,7 +502,8 @@ export async function reverseDotNs(
  * DotNS release: up to 1.0.0 the reservation's holder may still register it, and
  * from 1.1.0 nobody may, so it is taken only through a gateway claim. PopRules'
  * quote for the holder applies the connected release's rule. On a valid label the
- * quote reverts only when the name's band is closed to sale, so a revert means
+ * quote reverts only when the name's band is closed to sale (`_requireShortNamesOpen`:
+ * a base under 9 characters while `shortNamesEnabled` is off), so a revert means
  * nobody can register it either. Any other failure (a trap, an unmapped origin)
  * says nothing about the name and is an error.
  */
@@ -522,9 +527,7 @@ async function reservationLeavesNameOpen(
     if (!isReserved) return ok(true);
     const quote = await popRules.priceWithoutCheck.query(label, reservationOwner, { origin });
     if (!quote.success) {
-        if ((quote.value as { type?: unknown } | null)?.type === "ContractRevertedWithPayload") {
-            return ok(false);
-        }
+        if (isRevert(quote.value)) return ok(false);
         return err(
             new DotNsError("RegistryCall", "PopRules.priceWithoutCheck failed", {
                 cause: quote.value,
