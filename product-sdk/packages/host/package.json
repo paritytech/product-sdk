@@ -12,6 +12,10 @@
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
         },
+        "./funding-provider": {
+            "import": "./dist/funding-provider.js",
+            "types": "./dist/funding-provider.d.ts"
+        },
         "./testing": {
             "import": "./dist/testing.js",
             "types": "./dist/testing.d.ts"
@@ -29,8 +33,10 @@
         "typecheck": "tsc -p tsconfig.typecheck.json"
     },
     "dependencies": {
-        "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-address": "workspace:*",
+        "@parity/product-sdk-crypto": "workspace:*",
         "@parity/product-sdk-errors": "workspace:*",
+        "@parity/product-sdk-logger": "workspace:*",
         "@parity/result": "workspace:*",
         "@parity/truapi": "catalog:",
         "@polkadot-api/json-rpc-provider": "catalog:",

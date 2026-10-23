@@ -18,18 +18,21 @@
  * option. Not modeled: the rest of the PAPI `chain` JSON-RPC surface behind
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
  * selection — the `system` domain's `info`, and the
- * `chat` / `coinPayment` / `contacts` / `entropy` / `expandedCard` /
- * `funding` / `game` / `locale` / `notifications` / `payment` / `permissions` / `pocket` /
- * `renderer` / `resourceAllocation` / `scanner` / `theme` / `worker` domains.
+ * `chat` / `coinPayment` / `contacts` / `entropy` / `expandedCard` / `game` /
+ * `locale` / `notifications` / `payment` / `permissions` / `pocket` /
+ * `renderer` / `resourceAllocation` / `scanner` / `theme` / `worker` domains,
+ * and `funding` / `fundingProvider`. A funding provider's worker is tested
+ * against `createFakeFundingHost` instead, which models the funding core.
  * Touching an unmodeled domain throws a descriptive error
  * rather than failing with `undefined is not a function`.
  *
  * @packageDocumentation
  */
-import type { ObservableLike, Observer, Subscription, TrUApiClient } from "@parity/truapi";
+import type { ObservableLike, Subscription, TrUApiClient } from "@parity/truapi";
 import { errAsync, okAsync } from "neverthrow";
 
 import type { HostChainIdentifier } from "./chain-discovery.js";
+import { makeObservable } from "./fake-observable.js";
 
 import { type HostConnectionStatus, emitConnectionStatus, setTruApiClient } from "./transport.js";
 
@@ -61,24 +64,6 @@ type LocalStorageWatcher = (value?: `0x${string}`) => void;
 
 function fakeSubscription(): Subscription {
     return { unsubscribe: () => {}, subscriptionId: "fake-subscription" };
-}
-
-/**
- * Wrap a `subscribe` implementation into a full `ObservableLike`. The
- * `Symbol.observable` interop member only lands on the object when the symbol
- * is polyfilled (e.g. by rxjs) — same as the generated client — and nothing in
- * the SDK reads it; it exists to satisfy the interface.
- */
-function makeObservable<Item, Reason = never>(
-    subscribe: (observer?: Partial<Observer<Item, Reason>>) => Subscription,
-): ObservableLike<Item, Reason> {
-    const observable: ObservableLike<Item, Reason> = {
-        subscribe,
-        [Symbol.observable]() {
-            return observable;
-        },
-    };
-    return observable;
 }
 
 /** An `ObservableLike` that never emits. Drive statement delivery with `createFakeStatementTransport`. */
@@ -341,7 +326,6 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         contacts: notModeled("contacts"),
         entropy: notModeled("entropy"),
         expandedCard: notModeled("expandedCard"),
-        funding: notModeled("funding"),
         game: notModeled("game"),
         locale: notModeled("locale"),
         notifications: notModeled("notifications"),
@@ -353,6 +337,9 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         scanner: notModeled("scanner"),
         theme: notModeled("theme"),
         worker: notModeled("worker"),
+        // Served by `createFakeFundingHost`, which builds on this client.
+        funding: notModeled("funding"),
+        fundingProvider: notModeled("fundingProvider"),
     };
 
     // A plain downcast, not an `unknown` bridge: each generated class is
@@ -434,6 +421,25 @@ export function createFakeHost(options?: CreateFakeTruApiClientOptions): FakeHos
         [Symbol.dispose]: dispose,
     };
 }
+
+// The funding core fake, for a funding provider's worker.
+export {
+    FAST_FUNDING_TIMING,
+    createFakeFundingHost,
+    resumeAtEveryCheckpoint,
+} from "./funding/fake.js";
+export type {
+    FakeCancelConfirmation,
+    FakeCancelOutcome,
+    FakeFundingCall,
+    FakeFundingCancel,
+    FakeFundingHost,
+    FakeFundingHostOptions,
+    FakeFundingLogEntry,
+    FakeFundingSession,
+    ResumeDriver,
+    ResumeExpectation,
+} from "./funding/fake.js";
 
 if (import.meta.vitest) {
     // Round-trip guard: drive the fake through the *real* host accessors.
