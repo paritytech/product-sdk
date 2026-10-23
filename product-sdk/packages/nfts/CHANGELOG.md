@@ -1,5 +1,11 @@
 # @parity/product-sdk-nfts
 
+## 0.4.1
+
+### Patch Changes
+
+- f508532: `getApprovedCollections("previewnet")` lists the demo collections on Previewnet Asset Hub: Coffee and Tea, Jobs and Sports. Previewnet answered an empty list before.
+
 ## 0.4.0
 
 ### Minor Changes
