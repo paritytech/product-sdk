@@ -1,5 +1,27 @@
 # @parity/product-sdk
 
+## 0.41.0
+
+### Minor Changes
+
+- f508532: `PaymentManager` follows the host's payments by id. `topUp({ id, amount, source, into? })` and `requestPayment({ id, amount, destination, from? })` take a 32-byte id the product chooses, so starting one again after a restart is answered `AlreadyExists` instead of moving funds twice. `requestPayment` resolves with nothing, `subscribePaymentStatus(id, …)` follows a payment by that id, and the new `subscribeTopUpStatus(id, …)` follows a top-up to `Claimed { finalized: true }`, `ClaimedPartially` or `NotClaimed`. `newPaymentId()` makes a random id for a product with nothing to derive one from. Breaking: the positional `topUp(amount, source, into?)` and `requestPayment(amount, destination, from?)` signatures and the `{ id }` response are gone. Needs the `@parity/truapi` release that carries payments by id; `RemotePermission` gains `BalanceAccess` with it. `subscribeBalance` needs `BalanceAccess`: the balance is the user's, per purse, and a grant revoked while subscribed ends the subscription with `PermissionDenied`.
+
+### Patch Changes
+
+- f508532: `getApprovedCollections("previewnet")` lists the demo collections on Previewnet Asset Hub: Coffee and Tea, Jobs and Sports. Previewnet answered an empty list before.
+- Updated dependencies [f508532]
+- Updated dependencies [f508532]
+  - @parity/product-sdk-host@0.30.0
+  - @parity/product-sdk-nfts@0.4.1
+  - @parity/product-sdk-chain-client@0.13.5
+  - @parity/product-sdk-cloud-storage@0.13.5
+  - @parity/product-sdk-individuality@0.11.2
+  - @parity/product-sdk-local-storage@0.3.21
+  - @parity/product-sdk-signer@0.17.5
+  - @parity/product-sdk-keys@0.5.5
+  - @parity/product-sdk-contracts@0.11.5
+  - @parity/product-sdk-tx@0.5.5
+
 ## 0.40.0
 
 ### Minor Changes
