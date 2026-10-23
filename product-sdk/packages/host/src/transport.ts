@@ -12,7 +12,8 @@
  * @module
  */
 
-import type { ObservableLike, TrUApiClient } from "@parity/truapi";
+import { SubscriptionError } from "@parity/truapi";
+import type { ObservableLike, Observer, TrUApiClient } from "@parity/truapi";
 import {
     type ConnectionStatus,
     getClientSync as sandboxGetClientSync,
@@ -204,22 +205,35 @@ export function subscribeConnectionStatus(
  * subscription server-side — which the generated client surfaces as either
  * `complete` (a host interrupt frame) or `error` (transport close). Shared by
  * the statement-store and preimage adapters, which both expose this shape.
+ *
+ * An interrupt is terminal and is delivered exactly once. A caller can only
+ * register for it after this returns, so one that lands during `subscribe` —
+ * the host connection already gone — is held and replayed on registration
+ * rather than dropped, which would leave the caller treating a dead
+ * subscription as live.
  */
 export function subscribeWithInterrupt<Item, Reason = never>(
     observable: ObservableLike<Item, Reason>,
     onNext: (item: Item) => void,
 ): TransportSubscription {
     let interruptCallback: ((reason?: unknown) => void) | undefined;
+    let interrupt: { reason?: unknown } | undefined;
+    const interrupted = (reason?: unknown) => {
+        if (interrupt) return;
+        interrupt = { reason };
+        interruptCallback?.(reason);
+    };
     const sub = observable.subscribe({
         next: onNext,
-        error: (reason) => interruptCallback?.(reason),
-        complete: () => interruptCallback?.(),
+        error: (reason) => interrupted(reason),
+        complete: () => interrupted(),
     });
     return {
         subscriptionId: sub.subscriptionId,
         unsubscribe: () => sub.unsubscribe(),
         onInterrupt: (callback) => {
             interruptCallback = callback;
+            if (interrupt) callback(interrupt.reason);
             return () => {
                 if (interruptCallback === callback) interruptCallback = undefined;
             };
@@ -401,5 +415,76 @@ if (import.meta.vitest) {
         const subscription = subscribeWithInterrupt(observable, () => {});
 
         expect(subscription.subscriptionId).toBe("p:17");
+    });
+
+    // The caller cannot register `onInterrupt` until `subscribeWithInterrupt`
+    // has returned, so a transport that is already gone ends the stream first.
+    // Dropping that leaves the caller believing the subscription is live.
+    test("subscribeWithInterrupt reports an error that landed before onInterrupt", () => {
+        const observable = {
+            subscribe: (observer: Partial<Observer<never, string>>) => {
+                observer.error?.(
+                    new SubscriptionError("Subscription interrupted", {
+                        reason: "the transport was already gone",
+                    }),
+                );
+                return { subscriptionId: "p:18", unsubscribe: () => {} };
+            },
+            [Symbol.observable]() {
+                return this;
+            },
+        } as ObservableLike<never, string>;
+
+        const subscription = subscribeWithInterrupt(observable, () => {});
+        const reasons: unknown[] = [];
+        subscription.onInterrupt((reason) =>
+            reasons.push((reason as SubscriptionError<string>).reason),
+        );
+
+        expect(reasons).toEqual(["the transport was already gone"]);
+    });
+
+    test("subscribeWithInterrupt reports a completion that landed before onInterrupt", () => {
+        const observable = {
+            subscribe: (observer: Partial<Observer<never, never>>) => {
+                observer.complete?.();
+                return { subscriptionId: "p:19", unsubscribe: () => {} };
+            },
+            [Symbol.observable]() {
+                return this;
+            },
+        } as ObservableLike<never>;
+
+        const subscription = subscribeWithInterrupt(observable, () => {});
+        let interrupted = false;
+        subscription.onInterrupt(() => {
+            interrupted = true;
+        });
+
+        expect(interrupted).toBe(true);
+    });
+
+    test("subscribeWithInterrupt reports a later interrupt only once", () => {
+        let fail: ((reason: string) => void) | undefined;
+        const observable = {
+            subscribe: (observer: Partial<Observer<never, string>>) => {
+                fail = (reason) =>
+                    observer.error?.(new SubscriptionError("Subscription interrupted", { reason }));
+                return { subscriptionId: "p:20", unsubscribe: () => {} };
+            },
+            [Symbol.observable]() {
+                return this;
+            },
+        } as ObservableLike<never, string>;
+
+        const subscription = subscribeWithInterrupt(observable, () => {});
+        const reasons: unknown[] = [];
+        subscription.onInterrupt((reason) =>
+            reasons.push((reason as SubscriptionError<string>).reason),
+        );
+        fail?.("gone");
+        fail?.("gone again");
+
+        expect(reasons).toEqual(["gone"]);
     });
 }
