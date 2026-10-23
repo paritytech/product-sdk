@@ -1,5 +1,11 @@
 # @parity/product-sdk-nfts
 
+## 0.4.0
+
+### Minor Changes
+
+- 45dc779: Add `getApprovedCollections(network)`, the collections apps offer for claims on a network, as plain ids. Any owner can register a collection for claims, so which ones to offer players is a product decision, now kept in one place instead of in each app.
+
 ## 0.3.0
 
 ### Minor Changes

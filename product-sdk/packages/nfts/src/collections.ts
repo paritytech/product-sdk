@@ -60,6 +60,8 @@ import type {
 const APPROVED_COLLECTIONS: ReadonlyMap<string, readonly number[]> = new Map([
     // Paseo Asset Hub Next: Coffee and Tea, Jobs, Sports.
     ["paseo", Object.freeze([27, 28, 26])],
+    // Previewnet Asset Hub: Coffee and Tea, Jobs, Sports.
+    ["previewnet", Object.freeze([0, 2, 1])],
 ]);
 
 const NONE: readonly number[] = Object.freeze([]);
@@ -1517,12 +1519,13 @@ if (import.meta.vitest) {
     });
 
     describe("getApprovedCollections", () => {
-        test("paseo has a list", () => {
+        test("paseo and previewnet have a list", () => {
             expect(getApprovedCollections("paseo").length).toBeGreaterThan(0);
+            expect(getApprovedCollections("previewnet").length).toBeGreaterThan(0);
         });
 
         test("a network without a list offers nothing", () => {
-            for (const network of ["previewnet", "devnet", "polkadot", "kusama", "nowhere"]) {
+            for (const network of ["devnet", "polkadot", "kusama", "nowhere"]) {
                 expect(getApprovedCollections(network)).toEqual([]);
             }
         });

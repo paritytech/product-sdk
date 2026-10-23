@@ -1,5 +1,25 @@
 # @parity/product-sdk-terminal
 
+## 0.13.4
+
+### Patch Changes
+
+- Updated dependencies [e9bfd25]
+  - @parity/product-sdk-host@0.29.0
+  - @parity/product-sdk-signer@0.17.4
+  - @parity/product-sdk-keys@0.5.4
+
+## 0.13.3
+
+### Patch Changes
+
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+  - @parity/product-sdk-host@0.28.0
+  - @parity/product-sdk-signer@0.17.3
+  - @parity/product-sdk-keys@0.5.3
+
 ## 0.13.2
 
 ### Patch Changes
