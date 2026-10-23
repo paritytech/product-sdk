@@ -154,11 +154,12 @@ export type {
 } from "./pocket.js";
 
 // Payments (RFC-0006)
-export { getPaymentManager } from "./payments.js";
-export type { PaymentManager } from "./payments.js";
+export { getPaymentManager, newPaymentId } from "./payments.js";
+export type { PaymentManager, PaymentRequest, TopUpRequest } from "./payments.js";
 export type {
     HostPaymentBalanceSubscribeItem,
     HostPaymentStatusSubscribeItem,
+    HostPaymentTopUpStatusSubscribeItem,
     PaymentTopUpSource,
 } from "@parity/truapi";
 
