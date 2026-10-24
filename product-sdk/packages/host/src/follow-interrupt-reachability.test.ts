@@ -37,7 +37,7 @@ function brittlePipe() {
                 inbound = undefined;
             };
         },
-        disconnect() {
+        dispose() {
             inbound = undefined;
         },
     };
