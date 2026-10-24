@@ -1,0 +1,64 @@
+---
+title: Rooms, feed and previews
+description: Declare rooms, push changes to their messages within the host's rate, and keep their place in the chat list.
+---
+
+# Rooms, feed and previews
+
+## Declaring a room
+
+```ts
+const declarations = new RoomDeclarations(rooms);
+await declarations.declare("support", {
+  name: "Support",
+  config: { productSource: true, reactionDetails: true, reportSeen: true },
+  metadata: { name: "Support", description: "Ask us anything" },
+  features: { hopAttachments: false },
+  footer: "TextInput",
+});
+await declarations.forget("support"); // deleteRoom
+```
+
+`declare` creates or finds the room, declares the configuration first (as the RFC asks, right after `create_room`),
+then each other part. A product cannot read what the host holds, so it declares each room once per run, and
+`RoomDeclarations` sends a part again only when it changed. `create_room` on a room that exists answers `Exists` and
+keeps every declaration the host stored.
+
+## Pushing changes
+
+`update_feed` takes at most 20 updates per second per room. `FeedSender` keeps one ordered queue per room, spaces the
+sends to that rate, sends a `RateLimited` update again after a pause, and folds consecutive edits of one message into
+the newest.
+
+```ts
+const feed = new FeedSender(rooms);
+feed.push("support", { tag: "New", value: message({ messageId, from: "product", timestamp, body: text("Hi") }) });
+feed.push("support", { tag: "StatusChanged", value: { messageId, status: "Read" } });
+await feed.flushed();
+```
+
+To stream a long answer, use `streamMessage`: `New` with `Preparing`, `Edited` as text arrives, then `Sent`.
+
+## Messages and bodies
+
+`message`, `text`, `richText`, `event`, `call`, `payment` and `replyPreview` build what the host draws. The host draws
+everything in its own theme: a product sends no colours, fonts or layout. Reactions are kept per participant and turned
+into summaries with `reactionSummaries`, into `reactions_query` answers with `reactionDetails`, and into feed updates
+between two states with `reactionChanges`. `editHistory` turns an original and its revisions into the answer of
+`edit_history`.
+
+## The chat list
+
+A product-source room's place in the chat list is as fresh as its last `set_room_preview`, because the chat list never
+starts the worker. `PreviewScheduler` sends one preview per burst of changes (at most 5 per second per room), and
+`buildPreview` makes it:
+
+```ts
+const previews = new PreviewScheduler(rooms);
+previews.schedule("support", async () =>
+  buildPreview({ newest: await newestMessage(), unread: await unreadCount() }),
+);
+```
+
+The newest event orders the room: the newest reaction when it is newer than the newest message. Leaving `unread` out
+keeps the host's own count.

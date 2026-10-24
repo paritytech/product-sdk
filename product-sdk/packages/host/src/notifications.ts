@@ -14,6 +14,7 @@
 
 import type { HostPushNotificationRequest, TrUApiClient } from "@parity/truapi";
 
+import { roomDeeplink } from "./chat-rooms.js";
 import { getClient } from "./transport.js";
 import { unwrapHostResult } from "./truapi.js";
 
@@ -47,23 +48,39 @@ export type PushNotificationInput = HostPushNotificationRequest;
 
 /**
  * Host notification manager handle. Exposes `push(input)` (resolves to a
- * {@link NotificationId}) and `cancel(id)`.
+ * {@link NotificationId}), `pushRoom(roomId, text)` for a notification of one
+ * of the product's chat rooms, and `cancel(id)`.
  */
 export interface NotificationManager {
     push(input: PushNotificationInput): Promise<NotificationId>;
+    /**
+     * A notification of one of the product's chat rooms. The host titles it with
+     * the room's name (or contact), so `text` carries the message alone, not the
+     * sender's name before it. It shows as the in-app banner while the app is in
+     * the foreground, except while that room is on screen, and a tap opens the room.
+     */
+    pushRoom(
+        roomId: string,
+        text: string,
+        options?: Pick<PushNotificationInput, "scheduledAt">,
+    ): Promise<NotificationId>;
     cancel(id: NotificationId): Promise<void>;
 }
 
 /** Build a {@link NotificationManager} over a TruAPI client's `notifications` domain. */
 function adaptNotificationManager(client: TrUApiClient): NotificationManager {
     const notifications = client.notifications;
+    const push = async (input: PushNotificationInput) => {
+        const response = await unwrapHostResult(
+            notifications.sendPushNotification(input),
+            "notification push failed",
+        );
+        return response.id;
+    };
     return {
-        async push(input) {
-            const response = await unwrapHostResult(
-                notifications.sendPushNotification(input),
-                "notification push failed",
-            );
-            return response.id;
+        push,
+        pushRoom(roomId, text, options) {
+            return push({ text, deeplink: roomDeeplink(roomId), ...options });
         },
         async cancel(id) {
             await unwrapHostResult(
@@ -111,5 +128,22 @@ if (import.meta.vitest) {
 
     test("getNotificationManager returns null outside a container", async () => {
         expect(await getNotificationManager()).toBeNull();
+    });
+
+    test("pushRoom sends the room's deeplink", async () => {
+        const { okAsync } = await import("neverthrow");
+        const sent: PushNotificationInput[] = [];
+        const manager = adaptNotificationManager({
+            notifications: {
+                sendPushNotification: (input: PushNotificationInput) => {
+                    sent.push(input);
+                    return okAsync({ id: 7 });
+                },
+            },
+        } as unknown as TrUApiClient);
+        expect(await manager.pushRoom("support", "We answered", { scheduledAt: 5n })).toBe(7);
+        expect(sent).toEqual([
+            { text: "We answered", deeplink: "/-/chat/support", scheduledAt: 5n },
+        ]);
     });
 }

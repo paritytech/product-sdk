@@ -1,0 +1,25 @@
+{
+    "name": "@parity/product-sdk-chat-room-demo",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Worker example: a chat product whose rooms the host draws, with a stored room a bot answers in, a host-store room, opened links and room notifications",
+    "scripts": {
+        "build": "pnpm bundle && node ../../scripts/check-worker-bundle.mjs dist/worker.js",
+        "bundle": "esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --target=es2022 --platform=neutral --main-fields=module,main --conditions=import --minify --charset=ascii",
+        "test": "vitest run",
+        "typecheck": "tsc -p tsconfig.json"
+    },
+    "dependencies": {
+        "@parity/product-sdk-chat": "workspace:*",
+        "@parity/product-sdk-host": "workspace:*",
+        "@parity/product-sdk-local-storage": "workspace:*"
+    },
+    "devDependencies": {
+        "@parity/product-sdk-utils": "workspace:*",
+        "@types/node": "^22.0.0",
+        "esbuild": "^0.28.1",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}

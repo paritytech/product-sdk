@@ -14,6 +14,7 @@
     "format:check": "biome format .",
     "lint:biome": "biome lint .",
     "check": "biome check .",
+    "check:worker": "node scripts/check-worker-bundle.mjs --package packages/utils --package packages/chat --package packages/chat-protocol",
     "bench": "node scripts/bench-bundle.mjs measure --out bundle-size.json --md bundle-size.md",
     "bench:update": "node scripts/bench-bundle.mjs measure --out bundle-size.json --md bundle-size.md",
     "bench:compare": "node scripts/bench-bundle.mjs compare --base bundle-size.base.json --head bundle-size.json --md bundle-size.diff.md --strict"

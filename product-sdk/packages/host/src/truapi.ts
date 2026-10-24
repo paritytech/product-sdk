@@ -19,6 +19,7 @@ import type {
     AllocatableResource,
     AllocationOutcome,
     HexString,
+    NftPurseOwner,
     RemotePermission,
     TrUApiClient,
 } from "@parity/truapi";
@@ -35,7 +36,7 @@ import {
     hostRejectionError,
 } from "./errors.js";
 import { type Result, err, ok } from "./result.js";
-import { getClient, subscribeWithInterrupt } from "./transport.js";
+import { getClient, getClientSync, subscribeWithInterrupt } from "./transport.js";
 import type { HostSubscription, Statement, StatementProof } from "./types.js";
 
 const log = createLogger("host");
@@ -220,6 +221,18 @@ export async function getTruApi(): Promise<TruApi | null> {
 }
 
 /**
+ * {@link getTruApi}, synchronously: the client the host injected or a client over
+ * the message port it gave, or `null` outside a container.
+ *
+ * A worker needs the client before its first `await`, to register the handlers of
+ * host-initiated calls (chat queries, render requests) before the host's first
+ * start arrives.
+ */
+export function getTruApiSync(): TruApi | null {
+    return getClientSync();
+}
+
+/**
  * Preimage manager handle for bulletin chain operations, backed by
  * `truApi.preimage.*`. `lookup` opens a {@link HostSubscription} (`unsubscribe`
  * + `onInterrupt`) that delivers the preimage bytes — or `null` until the host
@@ -397,12 +410,17 @@ if (import.meta.vitest) {
             | { tag: "PreimageSubmit"; value?: undefined }
             | { tag: "StatementSubmit"; value?: undefined }
             | { tag: "BalanceAccess"; value?: undefined }
+            | { tag: "NftPurseRead"; value: { owner: NftPurseOwner } }
         >
     >;
 
     test("getTruApi returns null outside a container", async () => {
         const api = await getTruApi();
         expect(api === null || typeof api === "object").toBe(true);
+    });
+
+    test("getTruApiSync returns null outside a container", () => {
+        expect(getTruApiSync()).toBeNull();
     });
 
     test("getPreimageManager returns manager or null", async () => {

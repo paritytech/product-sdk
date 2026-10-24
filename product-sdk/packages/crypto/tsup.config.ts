@@ -3,7 +3,11 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-    entry: ["src/index.ts"],
+    // One output per module, so a bundler drops the modules a consumer does not
+    // import. A worker that never calls NaCl then never loads tweetnacl, whose
+    // Node `require("crypto")` cannot resolve in a worker.
+    entry: ["src/*.ts"],
+    splitting: true,
     format: ["esm"],
     dts: true,
     sourcemap: true,

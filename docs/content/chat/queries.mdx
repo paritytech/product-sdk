@@ -1,0 +1,53 @@
+---
+title: Answering the host
+description: Pages, user actions, reactions, search and edit history of product-source rooms.
+---
+
+# Answering the host
+
+The host asks a product-source room's product through queries: one question, one answer. `serveRooms` routes every
+query to the `RoomSource` of its room; a room without one is `UnknownRoom`, and a question a source does not answer
+gets the RFC's default (`NotAvailable`, or `Rejected` for a user action).
+
+```ts
+interface RoomSource {
+  messages(anchor: ChatPageAnchor, pageSize: number): Promise<ProductChatMessagesQueryItem>;
+  userAction?(action: ChatUserAction): Promise<ProductChatUserActionItem>;
+  reactions?(messageId: string): Promise<ChatReactionDetail[]>;
+  search?(text: string, cursor: string | undefined, pageSize: number): Promise<ProductChatSearchQueryItem>;
+  editHistory?(messageId: string): Promise<ChatMessageRevision[]>;
+}
+```
+
+`StoredRoom` is a complete `RoomSource`. To serve a room from a backend, write one with these helpers:
+
+## Pages
+
+A room screen opens with `Before { cursor: None }` (the newest page), asks `Before` with the returned cursor as the user
+scrolls up, and `After` when a jump to a message needs newer pages. `page` answers from any ordered source with opaque
+cursors (at most 1 KiB):
+
+```ts
+messages: (anchor, pageSize) => page(backend.ordered(roomId), numberCursor, anchor, pageSize),
+```
+
+## User actions
+
+`userActions` builds a `userAction` from one handler per action. The host draws a sent message as `Preparing` at once
+and replaces it with the answer; it may choose the message id and ask again with it after a time-out, so a repeated
+`NewMessage` (or `SendPayment`) answers what `existing` returns instead of sending twice.
+
+```ts
+userAction: userActions({
+  newMessage: ({ body, messageId, timestamp }) => backend.send(roomId, body, messageId, timestamp),
+  existing: (messageId) => backend.find(roomId, messageId),
+  seen: ({ messageId }) => backend.markSeen(roomId, messageId),
+}),
+```
+
+Throw `UserActionRejectedError` to refuse with a reason the user reads.
+
+## Search and edit history
+
+`searchPage` pages matches newest first (up to 50 per page), and `matchesText` matches a text or caption ignoring case,
+as the native chat-list search does. The host asks search and edit history only of product-source rooms.

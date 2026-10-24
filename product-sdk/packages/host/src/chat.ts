@@ -13,6 +13,7 @@ import { okAsync } from "neverthrow";
 
 import type {
     ChatBotRegistrationStatus,
+    ChatRoomFooter,
     ChatRoomRegistrationStatus,
     HostChatActionSubscribeItem,
     HostChatCreateRoomRequest,
@@ -88,6 +89,8 @@ export interface ChatManager {
         payload: ChatMessageContent,
         options?: ChatSendMessageOptions,
     ): Promise<{ messageId: string }>;
+    /** Set what a room shows below its messages: the text input, or nothing for a room driven through actions alone. */
+    setRoomFooter(roomId: string, footer: ChatRoomFooter): Promise<void>;
     subscribeChatList(callback: (rooms: ChatRoom[]) => void): HostSubscription;
     subscribeAction(callback: (action: ChatReceivedAction) => void): HostSubscription;
     onCustomMessageRenderingRequest(
@@ -206,6 +209,12 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
             );
             return { messageId: response.messageId };
         },
+        async setRoomFooter(roomId, footer) {
+            await unwrapHostResult(
+                chat.setRoomFooter({ roomId, footer }),
+                "chat setRoomFooter failed",
+            );
+        },
         subscribeChatList(callback) {
             return subscribeWithInterrupt(chat.listSubscribe(), (item) => callback(item.rooms));
         },
@@ -311,6 +320,15 @@ if (import.meta.vitest) {
             payload,
             alt: "Week 12 results",
         });
+    });
+
+    test("setRoomFooter passes the footer to the host", async () => {
+        const setRoomFooter = vi.fn(() => okAsync(undefined));
+        const manager = adaptChatManager({ chat: { setRoomFooter } } as unknown as TrUApiClient);
+
+        await manager.setRoomFooter("room-1", "Empty");
+
+        expect(setRoomFooter).toHaveBeenCalledWith({ roomId: "room-1", footer: "Empty" });
     });
 
     test("sendMessage without options passes no alt to the host", async () => {

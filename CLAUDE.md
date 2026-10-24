@@ -96,5 +96,6 @@ When the user's question matches a skill, invoke it via the `Skill` tool rather 
 - `product-sdk-nfts` — Scarcity collection and item-catalogue reads, the claims a player holds with the proof a mint spends, what a claim reveals through `previewClaim`, verified artwork, the descriptor entries they need, and the open metadata schema.
 - `product-sdk-individuality` — personhood / membership state reads, the account to username read, the game and its prize draws, the account and lite sign-up paths, the two-transaction lite bind flow, full-personhood registration, ring-VRF proof contexts and ring locations, and the person, lite-alias and score-participant origin extensions.
 - `product-sdk-pocket-cards` — Pocket cards: writing a face in JSX, checking it, and drawing it from a worker.
+- `product-sdk-chat` — chat products on Chat Extension v2: rooms, feed, previews, queries, stored rooms, calls, links, the person-to-person protocol.
 - `product-sdk-utilities` — address, crypto, logger, local-storage, utils.
 - `migrating-to-product-sdk` — porting from legacy stacks.

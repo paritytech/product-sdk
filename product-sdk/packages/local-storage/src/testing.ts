@@ -10,6 +10,8 @@
  */
 import type { HostLocalStorage } from "@parity/product-sdk-host";
 
+import type { ByteStore } from "./journal.js";
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -107,6 +109,59 @@ export function createFakeHostLocalStorage(
             store.delete(key);
         },
     } satisfies FakeHostLocalStorage;
+}
+
+/** Thrown by a {@link MemoryByteStore} once its write budget is spent: the worker stopped mid-change. */
+export class WorkerStoppedError extends Error {
+    constructor() {
+        super("the worker stopped");
+        this.name = "WorkerStoppedError";
+    }
+}
+
+/**
+ * An in-memory {@link ByteStore}. With a write `budget` it simulates a worker the
+ * host stopped after that many writes; {@link MemoryByteStore.snapshot} is what the
+ * next start of the worker reads.
+ */
+export class MemoryByteStore implements ByteStore {
+    readonly data = new Map<string, Uint8Array>();
+    /** Writes and clears made so far. */
+    writes = 0;
+    reads = 0;
+    /** Writes and clears allowed before {@link WorkerStoppedError}. */
+    budget = Number.POSITIVE_INFINITY;
+    /** Delay of each read, as a round trip to a real host takes. */
+    readLatencyMs = 0;
+
+    async read(key: string): Promise<Uint8Array | undefined> {
+        this.reads++;
+        if (this.readLatencyMs > 0)
+            await new Promise((resolve) => setTimeout(resolve, this.readLatencyMs));
+        return this.data.get(key);
+    }
+
+    async write(key: string, value: Uint8Array): Promise<void> {
+        this.spend();
+        this.data.set(key, value.slice());
+    }
+
+    async clear(key: string): Promise<void> {
+        this.spend();
+        this.data.delete(key);
+    }
+
+    /** A copy of the stored data, as the next start after a stop sees it. */
+    snapshot(): MemoryByteStore {
+        const copy = new MemoryByteStore();
+        for (const [key, value] of this.data) copy.data.set(key, value);
+        return copy;
+    }
+
+    private spend(): void {
+        if (this.writes >= this.budget) throw new WorkerStoppedError();
+        this.writes++;
+    }
 }
 
 if (import.meta.vitest) {

@@ -9,6 +9,7 @@ export default {
     },
   },
   "getting-started": "Getting Started",
+  chat: "Chat",
   api: "API Reference",
   migrations: "Migrations",
 };

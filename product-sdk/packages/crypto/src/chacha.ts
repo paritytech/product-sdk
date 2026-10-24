@@ -20,14 +20,16 @@ function validateKey(key: Uint8Array): void {
 /**
  * Encrypt binary data with ChaCha20-Poly1305 (RFC 8439).
  *
- * Uses a random 12-byte nonce. Callers must ensure a given key is not reused
- * for more than ~2^32 encryptions to avoid nonce collision. For high-volume
- * random-nonce use cases, prefer {@link xchachaEncrypt} (24-byte nonce).
+ * Uses a random 12-byte nonce unless one is given. Callers must ensure a given key is not reused
+ * for more than ~2^32 encryptions to avoid nonce collision, and must never reuse a nonce they
+ * choose under the same key. For high-volume random-nonce use cases, prefer
+ * {@link xchachaEncrypt} (24-byte nonce).
  *
  * @param data - Binary data to encrypt.
  * @param key - 32-byte encryption key.
+ * @param nonce - 12-byte nonce; random when omitted. Pass one only to reproduce a known encoding.
  * @returns Object containing the `ciphertext` (with 16-byte Poly1305 tag appended) and `nonce`.
- * @throws If `key` is not exactly 32 bytes.
+ * @throws If `key` is not exactly 32 bytes or `nonce` is not exactly 12 bytes.
  *
  * @example
  * ```ts
@@ -41,9 +43,12 @@ function validateKey(key: Uint8Array): void {
 export function chachaEncrypt(
     data: Uint8Array,
     key: Uint8Array,
+    nonce: Uint8Array = randomBytes(CHACHA_NONCE_LENGTH),
 ): { ciphertext: Uint8Array; nonce: Uint8Array } {
     validateKey(key);
-    const nonce = randomBytes(CHACHA_NONCE_LENGTH);
+    if (nonce.length !== CHACHA_NONCE_LENGTH) {
+        throw new Error(`ChaCha20-Poly1305 requires a 12-byte nonce, got ${nonce.length}`);
+    }
     const cipher = chacha20poly1305(key, nonce);
     const ciphertext = cipher.encrypt(data);
     return { ciphertext, nonce };
@@ -98,6 +103,56 @@ export function chachaDecryptText(
     nonce: Uint8Array,
 ): string {
     return new TextDecoder().decode(chachaDecrypt(ciphertext, key, nonce));
+}
+
+/**
+ * Encrypt with ChaCha20-Poly1305 and prepend the nonce to the ciphertext.
+ *
+ * Output format: `nonce(12) || ciphertext || tag(16)`, the sealed-blob layout of the
+ * person-to-person chat protocol.
+ *
+ * @param data - Binary data to encrypt.
+ * @param key - 32-byte encryption key.
+ * @param nonce - 12-byte nonce; random when omitted.
+ * @returns The packed buffer.
+ *
+ * @example
+ * ```ts
+ * const packed = chachaEncryptPacked(data, key);
+ * const plaintext = chachaDecryptPacked(packed, key);
+ * ```
+ */
+export function chachaEncryptPacked(
+    data: Uint8Array,
+    key: Uint8Array,
+    nonce?: Uint8Array,
+): Uint8Array {
+    const encrypted = chachaEncrypt(data, key, nonce);
+    const result = new Uint8Array(CHACHA_NONCE_LENGTH + encrypted.ciphertext.length);
+    result.set(encrypted.nonce, 0);
+    result.set(encrypted.ciphertext, CHACHA_NONCE_LENGTH);
+    return result;
+}
+
+/**
+ * Decrypt a packed ChaCha20-Poly1305 buffer (nonce prepended to ciphertext).
+ *
+ * Input format: `nonce(12) || ciphertext || tag(16)`.
+ *
+ * @param packed - The packed buffer to decrypt.
+ * @param key - 32-byte encryption key.
+ * @returns The decrypted plaintext.
+ * @throws If the packed data is too short, key is invalid, or authentication fails.
+ */
+export function chachaDecryptPacked(packed: Uint8Array, key: Uint8Array): Uint8Array {
+    if (packed.length < CHACHA_NONCE_LENGTH + 16) {
+        throw new Error("Packed data too short");
+    }
+    return chachaDecrypt(
+        packed.subarray(CHACHA_NONCE_LENGTH),
+        key,
+        packed.subarray(0, CHACHA_NONCE_LENGTH),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +313,37 @@ if (import.meta.vitest) {
 
     test("chacha rejects non-32-byte key", () => {
         expect(() => chachaEncrypt(randomBytes(10), randomBytes(16))).toThrow("32-byte key");
+    });
+
+    test("chacha packed with a chosen nonce matches the chat-spec Appendix D vector", async () => {
+        const { bytesToHex, hexToBytes } = await import("@noble/hashes/utils.js");
+        const key = hexToBytes("dc5774cb6f12055709d3faed4fbe6b36f192c9a610a9fa0ad748c9f89975083f");
+        const nonce = Uint8Array.from({ length: 12 }, (_, index) => index);
+        const packed = chachaEncryptPacked(new TextEncoder().encode("hello"), key, nonce);
+        expect(bytesToHex(packed)).toBe(
+            "000102030405060708090a0bef989ebdc534cef9b7f8d7cc5db39d153422b0831c",
+        );
+        expect(new TextDecoder().decode(chachaDecryptPacked(packed, key))).toBe("hello");
+    });
+
+    test("chacha packed round-trip with a random nonce", () => {
+        const key = randomBytes(32);
+        const data = randomBytes(40);
+        const packed = chachaEncryptPacked(data, key);
+        expect(packed.length).toBe(12 + 40 + 16);
+        expect(chachaDecryptPacked(packed, key)).toEqual(data);
+    });
+
+    test("chacha rejects a nonce that is not 12 bytes", () => {
+        expect(() => chachaEncrypt(randomBytes(4), randomBytes(32), randomBytes(24))).toThrow(
+            "12-byte nonce",
+        );
+    });
+
+    test("chacha packed rejects truncated data", () => {
+        expect(() => chachaDecryptPacked(new Uint8Array(20), randomBytes(32))).toThrow(
+            "Packed data too short",
+        );
     });
 
     // XChaCha20-Poly1305

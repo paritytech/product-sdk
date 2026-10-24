@@ -1,0 +1,27 @@
+---
+title: Testing
+description: Run a chat product against a stand-in for the host's side of the chat.
+---
+
+# Testing
+
+`createChatTestbed()` from `@parity/product-sdk-chat/testing` gives a test the host's side of the chat, a fake client
+over it, the product's `ChatRooms`, and one manual clock:
+
+```ts
+const { host, client, rooms, clock } = createChatTestbed();
+serveRoomsOn(client, { resolve: (roomId) => myRooms.get(roomId) });
+
+await host.openRoom("support");                    // messages_query { Before: None }
+await host.userSends("support", text("hi"));       // user_action NewMessage under a host-chosen id
+await host.search("support", "refund");
+host.room("support").feed;                         // every feed update the host accepted
+host.room("support").preview;                      // the last chat-list preview
+```
+
+The double applies the RFCs' room rules, bounds, rates and capability gating as the core does (a product-source room
+refuses `postMessage`, a host-store room refuses writing as the user, `contact_rooms` only for
+`personChatProduct: true`), drives every query, and models call media (with the user's consent), worker operations and
+notifications. `createFakeChatHost` is the double alone; pass it to `createFakeTruApiClient({ chatHost })`.
+
+Advance the clock after letting pending work run: `await settle(); await clock.advance(ms)`.

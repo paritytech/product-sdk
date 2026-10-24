@@ -27,6 +27,10 @@ overrides:
   # affects >=8.0.0 <8.21.0). Pulled transitively by smoldot (`^8.8.1`, satisfied)
   # and viem (pinned `8.20.1`, overridden). All major-8, so a patched minor.
   "ws": "^8.21.0"
+  # LOCAL ONLY, drop before merging: the Chat Extension v2, CallMedia and PersonChat surface is in no
+  # published @parity/truapi yet. This points at a trinity-user-agents checkout beside this repo
+  # (the chat-product superproject's vendor/ tree) whose branch carries it on top of 0.26.0.
+  "@parity/truapi": "file:../../trinity-user-agents/js/packages/truapi"
 
 onlyBuiltDependencies:
   - "@biomejs/biome"

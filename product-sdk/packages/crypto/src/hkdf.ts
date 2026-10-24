@@ -50,6 +50,16 @@ if (import.meta.vitest) {
         expect(a.length).toBe(32);
     });
 
+    test("empty salt and info give the chat-spec Appendix D session key", async () => {
+        const { bytesToHex, hexToBytes } = await import("@noble/hashes/utils.js");
+        const shared = hexToBytes(
+            "9e004098efc091d4ec2663b4e9f5cfd4d7064571690b4bea97ab146ab9f35056",
+        );
+        expect(bytesToHex(deriveKey(shared, new Uint8Array(0), new Uint8Array(0)))).toBe(
+            "dc5774cb6f12055709d3faed4fbe6b36f192c9a610a9fa0ad748c9f89975083f",
+        );
+    });
+
     test("deriveKey accepts string and Uint8Array params", () => {
         const ikm = new Uint8Array(32).fill(0xcd);
         const saltBytes = new TextEncoder().encode("salt");

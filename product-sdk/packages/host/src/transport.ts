@@ -12,7 +12,13 @@
  * @module
  */
 
-import type { ObservableLike, TrUApiClient } from "@parity/truapi";
+import {
+    type ObservableLike,
+    type TrUApiClient,
+    createClient,
+    createMessagePortProvider,
+    createTransport,
+} from "@parity/truapi";
 import {
     type ConnectionStatus,
     getClientSync as sandboxGetClientSync,
@@ -76,12 +82,36 @@ export function setTruApiClient(client: TrUApiClient | null): void {
     }
 }
 
+// The client of a worker whose host puts the message port on the global object
+// rather than on `window`, as the CLI host's runner does. The sandbox looks at
+// `window` only, so without this such a worker would find no host.
+let globalPortClient: { port: MessagePort; client: TrUApiClient } | null = null;
+
+function globalPort(): MessagePort | undefined {
+    if (typeof window !== "undefined") return undefined;
+    return (globalThis as { __HOST_API_PORT__?: MessagePort }).__HOST_API_PORT__;
+}
+
+function globalPortClientSync(): TrUApiClient | null {
+    const port = globalPort();
+    if (!port) return null;
+    if (globalPortClient?.port !== port) {
+        globalPortClient = {
+            port,
+            client: createClient(createTransport(createMessagePortProvider(port))),
+        };
+    }
+    return globalPortClient.client;
+}
+
 /**
  * Synchronous TruAPI client accessor. Returns the injected test client when one
- * is set, otherwise the sandbox client (`null` outside a host container).
+ * is set, otherwise the sandbox client, otherwise a client over a message port the
+ * host put on the global object of a worker without `window` (`null` outside a
+ * host container).
  */
 export function getClientSync(): TrUApiClient | null {
-    return clientOverride ?? sandboxGetClientSync();
+    return clientOverride ?? sandboxGetClientSync() ?? globalPortClientSync();
 }
 
 /**
@@ -89,7 +119,7 @@ export function getClientSync(): TrUApiClient | null {
  * sandbox heuristic (iframe / webview marker / injected message port).
  */
 export function isCorrectEnvironment(): boolean {
-    return clientOverride !== null || sandboxIsCorrectEnvironment();
+    return clientOverride !== null || sandboxIsCorrectEnvironment() || globalPort() !== undefined;
 }
 
 /**
@@ -241,6 +271,23 @@ if (import.meta.vitest) {
 
     test("getClient resolves null outside a container", async () => {
         expect(await getClient()).toBeNull();
+    });
+
+    test("a worker without window finds a port its host put on the global object", () => {
+        const channel = new MessageChannel();
+        const global = globalThis as { __HOST_API_PORT__?: MessagePort };
+        global.__HOST_API_PORT__ = channel.port1;
+        try {
+            expect(isCorrectEnvironment()).toBe(true);
+            const client = getClientSync();
+            expect(client).not.toBeNull();
+            expect(getClientSync()).toBe(client);
+        } finally {
+            global.__HOST_API_PORT__ = undefined;
+            channel.port1.close();
+            channel.port2.close();
+        }
+        expect(getClientSync()).toBeNull();
     });
 
     test("setTruApiClient overrides the client and container detection", async () => {

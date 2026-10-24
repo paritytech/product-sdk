@@ -30,6 +30,7 @@
     },
     "dependencies": {
         "@parity/product-sdk-logger": "workspace:*",
+        "@parity/product-sdk-utils": "workspace:*",
         "@parity/product-sdk-errors": "workspace:*",
         "@parity/result": "workspace:*",
         "@parity/truapi": "catalog:",

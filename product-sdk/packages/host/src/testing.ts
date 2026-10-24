@@ -18,22 +18,36 @@
  * option. Not modeled: the rest of the PAPI `chain` JSON-RPC surface behind
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
  * selection — the `system` domain's `info`, and the
- * `chat` / `coinPayment` / `contacts` / `entropy` / `expandedCard` /
- * `funding` / `game` / `locale` / `notifications` / `payment` / `permissions` / `pocket` /
- * `renderer` / `resourceAllocation` / `scanner` / `theme` / `worker` domains.
+ * `coinPayment` / `contacts` / `entropy` / `expandedCard` /
+ * `funding` / `game` / `locale` / `payment` / `permissions` / `pocket` /
+ * `renderer` / `resourceAllocation` / `scanner` / `theme` domains. The `chat`,
+ * `callMedia`, `worker` and `notifications` domains are modeled by a
+ * {@link createFakeChatHost} passed as the `chatHost` option, and are unmodeled
+ * without one.
  * Touching an unmodeled domain throws a descriptive error
  * rather than failing with `undefined is not a function`.
  *
  * @packageDocumentation
  */
-import type { ObservableLike, Observer, Subscription, TrUApiClient } from "@parity/truapi";
+import type { ObservableLike, Subscription, TrUApiClient } from "@parity/truapi";
 import { errAsync, okAsync } from "neverthrow";
 
 import type { HostChainIdentifier } from "./chain-discovery.js";
 
+import type { FakeChatHost } from "./testing-chat.js";
+import { makeObservable } from "./testing-observable.js";
 import { type HostConnectionStatus, emitConnectionStatus, setTruApiClient } from "./transport.js";
 
 export { setTruApiClient, emitConnectionStatus };
+export { createFakeChatHost } from "./testing-chat.js";
+export type {
+    ChatCapability,
+    FakeCallMediaCall,
+    FakeChatHost,
+    FakeChatHostOptions,
+    FakeChatRoom,
+    FakeQueryOutcome,
+} from "./testing-chat.js";
 
 /**
  * The public surface of a generated truapi domain client. `keyof` skips private
@@ -61,24 +75,6 @@ type LocalStorageWatcher = (value?: `0x${string}`) => void;
 
 function fakeSubscription(): Subscription {
     return { unsubscribe: () => {}, subscriptionId: "fake-subscription" };
-}
-
-/**
- * Wrap a `subscribe` implementation into a full `ObservableLike`. The
- * `Symbol.observable` interop member only lands on the object when the symbol
- * is polyfilled (e.g. by rxjs) — same as the generated client — and nothing in
- * the SDK reads it; it exists to satisfy the interface.
- */
-function makeObservable<Item, Reason = never>(
-    subscribe: (observer?: Partial<Observer<Item, Reason>>) => Subscription,
-): ObservableLike<Item, Reason> {
-    const observable: ObservableLike<Item, Reason> = {
-        subscribe,
-        [Symbol.observable]() {
-            return observable;
-        },
-    };
-    return observable;
 }
 
 /** An `ObservableLike` that never emits. Drive statement delivery with `createFakeStatementTransport`. */
@@ -171,6 +167,11 @@ export interface CreateFakeTruApiClientOptions {
      * resolves `null` and `getChainAPI` needs an explicit environment.
      */
     chainInfo?: FakeChainInfo;
+    /**
+     * The host's side of Chat Extension v2: models the `chat`, `callMedia`,
+     * `worker` and `notifications` domains. See {@link createFakeChatHost}.
+     */
+    chatHost?: FakeChatHost;
 }
 
 /**
@@ -336,7 +337,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
                 return okAsync({ network: chainInfo.network, chain, genesisHash });
             },
         }),
-        chat: notModeled("chat"),
+        chat: options?.chatHost?.chat ?? notModeled("chat"),
         coinPayment: notModeled("coinPayment"),
         contacts: notModeled("contacts"),
         entropy: notModeled("entropy"),
@@ -344,15 +345,18 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         funding: notModeled("funding"),
         game: notModeled("game"),
         locale: notModeled("locale"),
-        notifications: notModeled("notifications"),
+        nftPurse: notModeled("nftPurse"),
+        notifications: options?.chatHost?.notifications ?? notModeled("notifications"),
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),
+        personChat: notModeled("personChat"),
         pocket: notModeled("pocket"),
         renderer: notModeled("renderer"),
         resourceAllocation: notModeled("resourceAllocation"),
         scanner: notModeled("scanner"),
+        callMedia: options?.chatHost?.callMedia ?? notModeled("callMedia"),
         theme: notModeled("theme"),
-        worker: notModeled("worker"),
+        worker: options?.chatHost?.worker ?? notModeled("worker"),
     };
 
     // A plain downcast, not an `unknown` bridge: each generated class is

@@ -1,0 +1,57 @@
+---
+title: Limits and lifecycle
+description: The bounds the core enforces, how long the host waits, when the worker runs, and what only the person chat product gets.
+---
+
+# Limits and lifecycle
+
+## Bounds
+
+The core enforces these before a host sees a value; `ROOM_LIMITS`, `ROOM_RATES` and `checkMessage` let a product find
+out first.
+
+| Value | Bound |
+| --- | --- |
+| Identifiers (`room_id`, `message_id`, `participant_id`, `call_id`) | 256 bytes |
+| Display text (`name`, `alt`, `file_name`, emoji) | 256 bytes |
+| Room description | 1 KiB |
+| Message text | 16 KiB |
+| Media per message | 32 |
+| Reaction summaries per message | 64 |
+| Page size / search page size | 1 to 100 / 1 to 50 |
+| Cursor | 1 KiB |
+| Edit history | 100 texts |
+| Opened link payload | 1 byte to 8 KiB |
+| `update_feed` / `set_room_preview` / `set_room_call` / `set_room_contact` | 20 / 5 / 2 / 5 per second per room |
+
+## How long the host waits
+
+| Query | Wait | Then |
+| --- | --- | --- |
+| `messages_query` | 10 s | keeps what it shows, offers a retry |
+| `user_action` with `NewMessage` or `SendPayment` | 30 s | marks the message `Failed` |
+| any other `user_action` | 10 s | reverts the change |
+| `reactions_query`, `edit_history` | 5 s | applies its default |
+| `search_query` | 10 s | shows no matches |
+| `open_link` | 90 s | logs the failure |
+
+`QUERY_WAITS_MS` carries them.
+
+## When the worker runs
+
+The host runs the worker while something holds it: a room on screen, a query, a call that rings or runs. A message,
+action or room event sent while no screen holds it, a chat push for one of its rooms (at most 12 per hour) and the
+product's first start each hold it for 30 seconds: a **wake**. There are no scheduled wakeups. Work that must not be cut
+off runs inside `holdWorker(label).around(...)`, which the operating system may still end on a phone.
+
+A host-initiated query that arrives while the product is starting is answered "unavailable" and asked once more after
+a second.
+
+## What only the person chat product gets
+
+The core serves these to the `chat` product only, and refuses them to any other with a `FeatureUnavailableError`:
+
+- contact rooms (`setContact`, the contact states, banners and bubbles, the contact actions);
+- HOP media (`hop_attachments`, opening a `ChatResource::Hop`). A media item has no other resource today, so a
+  third-party chat carries no media;
+- `PersonChat` (the person chat's identity keys, statement proofs, delivery slots, push routes and history).

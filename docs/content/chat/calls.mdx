@@ -1,0 +1,42 @@
+---
+title: Calls, links and notifications
+description: Call buttons and the host's call engine, opened links, and room notifications.
+---
+
+# Calls, links and notifications
+
+## Calls
+
+The chat side of a call is a room state (`Ringing`, `Active`) and events the user produces; the audio and video run in
+the host's call engine. Declare `features: { calls: { audio: true, video: true } }` for the header buttons (the host
+must list `call_buttons`), then let `RoomCalls` run the call:
+
+```ts
+const calls = new RoomCalls({ rooms, media: await getCallMedia(), signalling: myChannel });
+rooms.subscribeRoomEvents((item) => void calls.onRoomEvent(item));
+myChannel.onRing((roomId, ring) => calls.remoteRing(roomId, ring));
+```
+
+How the call travels to the other side (the ring, the acceptance, the engine's opaque signals, the end) is the
+product's own encrypted channel, `CallSignalling`. In the default flow (`offers: "answerer"`) the side that accepts
+makes the media offer; with `offers: "caller"` the caller's engine starts at once and its first signal rings the other
+side, as the native person chat does. Call media starts only within 180 seconds of the user's press or acceptance in
+that room.
+
+## Opened links
+
+The host gives a chat product what the user opened from one of its entry points and only the product reads:
+
+```ts
+const links = openLinks().on("contact:", async (account) => ({ roomId: await roomOf(account) }));
+serveRooms({ resolve, openLink: links.handle });
+```
+
+The payload can come from anyone. Treat it as untrusted input, and ask the user before an effect the user did not ask
+for.
+
+## Room notifications
+
+`NotificationManager.pushRoom(roomId, text)` (or `StoredRoom.post(…, { notify: true })`) sends a notification whose
+deeplink names the room. The host titles it with the room's name, shows it as its in-app banner except while that room
+is on screen, and opens the room on a tap, so send the message alone, for every event the user must know about.

@@ -1,0 +1,81 @@
+---
+title: Build a chat product
+description: Serve chat rooms the host draws with its own native elements, from your product's worker.
+---
+
+# Build a chat product
+
+Through Chat Extension v2, a product's **worker** owns the data of its chat rooms (which rooms exist, how they
+appear in the chat list, which messages they hold and who reacted to them) and the **host** draws all of it with
+native elements. A product that only creates a room and posts into it already gets a complete chat; everything else
+is opt-in per room.
+
+| Package | Import | Purpose |
+| --- | --- | --- |
+| chat | `@parity/product-sdk-chat` | declare rooms, push changes, answer the host, keep messages, calls, links |
+| host | `@parity/product-sdk-host` | the bindings underneath: `getChatRooms`, `serveChatQueries`, `getCallMedia` |
+| chat-protocol | `@parity/product-sdk-chat-protocol` | the person-to-person protocol over the statement store (experimental) |
+
+`@parity/product-sdk-chat` re-exports the bindings and every Chat Extension v2 type, and the umbrella exposes it as
+`@parity/product-sdk/chat`.
+
+## Two kinds of room
+
+- A **host-store room** keeps its messages in the host. The product posts with `postMessage` and hears what the
+  user writes through `action_subscribe`. It is what a new room is until the product declares otherwise.
+- A **product-source room** keeps its messages in the product: on its backend, on a chain, in a peer-to-peer
+  protocol, or in host storage. The host keeps only a page cache and asks the product for pages, user actions,
+  reactions, searches and edit histories.
+
+## The shape of a chat product
+
+```ts filename="worker.ts"
+import {
+  FeedSender,
+  MemoryRoomMessageStore,
+  PreviewScheduler,
+  RoomDeclarations,
+  StoredRoom,
+  createChatRooms,
+  defineChatWorker,
+  text,
+} from "@parity/product-sdk-chat";
+
+defineChatWorker({
+  async start({ client }) {
+    const rooms = createChatRooms(client);
+    const feed = new FeedSender(rooms);
+    const previews = new PreviewScheduler(rooms);
+    await new RoomDeclarations(rooms).declare("support", {
+      name: "Support",
+      config: { productSource: true, reactionDetails: true, reportSeen: true },
+    });
+    const support = new StoredRoom({
+      roomId: "support",
+      store: new MemoryRoomMessageStore(),
+      feed,
+      previews,
+      onUserMessage: async (message) => backend.send(message),
+    });
+    await support.post({ messageId: "welcome", body: text("How can we help?") });
+    return { resolve: (roomId) => (roomId === "support" ? support : undefined) };
+  },
+});
+```
+
+1. `defineChatWorker` registers the handlers of every host query at the top level, before any `await`: the host
+   sends its first query only after the bundle's top-level evaluation, and until `start` resolves it is answered
+   "unavailable", which the host asks again once.
+2. `RoomDeclarations` creates the room and declares what it serves. The host keeps every declaration, so the chat
+   list draws the room without starting the worker.
+3. `StoredRoom` answers pages, actions, reactions, search and edit history from its store, and pushes the feed update
+   and schedules the chat-list preview on every write.
+
+A complete worker is in `examples/chat-room-demo/`.
+
+## Coming from `getChatManager`
+
+`getChatManager()` keeps the first Chat surface: rooms, bots, `sendMessage`, the room list, actions and custom
+renderers, and now `setRoomFooter`. Everything Chat Extension v2 adds is on `getChatRooms()` (or
+`createChatRooms(client)`), whose calls return a `Result`: a refusal such as `RateLimited` arrives as a `ChatRoomError`
+with the host's `failure`, and a feature the host does not serve as a `FeatureUnavailableError`.

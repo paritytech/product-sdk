@@ -6,8 +6,9 @@
  * Provides general-purpose byte encoding/decoding (`bytesToHex`, `hexToBytes`, `utf8ToBytes`,
  * `concatBytes`), 32-byte hash functions (`blake2b256`, `sha256`, `keccak256`),
  * Substrate token formatting (`formatPlanck`, `parseToPlanck`, `formatBalance`),
- * typed balance queries (`getBalance`), and the RFC-0022 derivation index
- * (`derivationIndexBytes`).
+ * typed balance queries (`getBalance`), the RFC-0022 derivation index
+ * (`derivationIndexBytes`), and the injectable `Clock` and `IdSource` that
+ * time-dependent code takes (with `ManualClock` in `@parity/product-sdk-utils/testing`).
  * All functions are framework-agnostic.
  *
  * @packageDocumentation
@@ -17,3 +18,4 @@ export * from "./hashing.js";
 export * from "./planck.js";
 export * from "./balance.js";
 export * from "./derivation.js";
+export * from "./time.js";

@@ -35,6 +35,7 @@ export { BULLETIN_RPCS, DEFAULT_BULLETIN_ENDPOINT } from "./chains.js";
 // TruAPI - @parity/truapi client accessor + convenience wrappers.
 export {
     getTruApi,
+    getTruApiSync,
     getPreimageManager,
     createHostPreimageManager,
     requestResourceAllocation,
@@ -130,6 +131,82 @@ export type {
     ChatCustomMessageRenderingRegistration,
     ChatSendMessageOptions,
 } from "./chat.js";
+
+// Chat Extension v2: rooms, the host's queries, call media
+export { chatHostFeatures, createChatRooms, getChatRooms, roomDeeplink } from "./chat-rooms.js";
+export type {
+    ChatCallClose,
+    ChatCallRecord,
+    ChatContactEvent,
+    ChatContactState,
+    ChatFeedUpdate,
+    ChatHostFeatures,
+    ChatMediaItem,
+    ChatMediaMeta,
+    ChatMessageBody,
+    ChatMessageOrigin,
+    ChatMessageRevision,
+    ChatMessageStatus,
+    ChatPageAnchor,
+    ChatPaymentRecord,
+    ChatPreviewReaction,
+    ChatReactionDetail,
+    ChatReactionSummary,
+    ChatReplyPreview,
+    ChatResource,
+    ChatRoomBadge,
+    ChatRoomCall,
+    ChatRoomCalls,
+    ChatRoomConfig,
+    ChatRoomContact,
+    ChatRoomEvent,
+    ChatRoomFeatures,
+    ChatRoomFooter,
+    ChatRoomMessage,
+    ChatRoomMetadata,
+    ChatRoomPreview,
+    ChatRoomRegistrationStatus,
+    ChatRooms,
+    ChatUserAction,
+    HostChatCreateRoomRequest,
+    HostChatRoomEventsSubscribeItem,
+    ProductChatEditHistoryQueryItem,
+    ProductChatEditHistoryQueryRequest,
+    ProductChatMessagesQueryItem,
+    ProductChatMessagesQueryRequest,
+    ProductChatOpenLinkItem,
+    ProductChatOpenLinkRequest,
+    ProductChatReactionsQueryItem,
+    ProductChatReactionsQueryRequest,
+    ProductChatSearchQueryItem,
+    ProductChatSearchQueryRequest,
+    ProductChatUserActionItem,
+    ProductChatUserActionRequest,
+} from "./chat-rooms.js";
+export { serveChatQueries, serveChatQueriesOn } from "./chat-queries.js";
+export type { ChatQueryHandlers, ChatQueryRegistration } from "./chat-queries.js";
+export {
+    ChatRoomError,
+    FeatureUnavailableError,
+    NotAvailableError,
+    UnknownMessageError,
+    UnknownRoomError,
+    UserActionRejectedError,
+} from "./chat-errors.js";
+export type { ChatRoomFailure } from "./chat-errors.js";
+export { CallMediaNotAllowedError, createCallMedia, getCallMedia } from "./call-media.js";
+export type { CallMedia } from "./call-media.js";
+
+// Worker: operation holds, identity changes, finalized storage
+export { OPERATION_GRACE_MS, OperationHold, holdWorker } from "./worker.js";
+export { IDENTITY_CHECK_MS, watchIdentity } from "./identity-watch.js";
+export type { SignedInIdentity, WatchIdentityOptions } from "./identity-watch.js";
+export {
+    FINALIZED_READ_TIMEOUT_MS,
+    createFinalizedStorageReader,
+    getFinalizedStorageReader,
+} from "./finalized-storage.js";
+export type { FinalizedStorageReader } from "./finalized-storage.js";
 
 // Renderer (the shared `onRender` slot)
 export { getRendererManager, registerRenderContext, renderFailure } from "./renderer.js";

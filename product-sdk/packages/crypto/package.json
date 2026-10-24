@@ -11,6 +11,38 @@
         ".": {
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
+        },
+        "./aes": {
+            "import": "./dist/aes.js",
+            "types": "./dist/aes.d.ts"
+        },
+        "./chacha": {
+            "import": "./dist/chacha.js",
+            "types": "./dist/chacha.d.ts"
+        },
+        "./encoding": {
+            "import": "./dist/encoding.js",
+            "types": "./dist/encoding.d.ts"
+        },
+        "./hashing": {
+            "import": "./dist/hashing.js",
+            "types": "./dist/hashing.d.ts"
+        },
+        "./hkdf": {
+            "import": "./dist/hkdf.js",
+            "types": "./dist/hkdf.d.ts"
+        },
+        "./nacl": {
+            "import": "./dist/nacl.js",
+            "types": "./dist/nacl.d.ts"
+        },
+        "./sr25519": {
+            "import": "./dist/sr25519.js",
+            "types": "./dist/sr25519.d.ts"
+        },
+        "./x25519": {
+            "import": "./dist/x25519.js",
+            "types": "./dist/x25519.d.ts"
         }
     },
     "files": ["dist", "src"],
@@ -21,9 +53,10 @@
         "typecheck": "tsc -p tsconfig.typecheck.json"
     },
     "dependencies": {
-        "@noble/ciphers": "^1.2.1",
-        "@noble/curves": "^1.8.0",
-        "@noble/hashes": "^2.2.0",
+        "@noble/ciphers": "^2.4.0",
+        "@noble/curves": "^2.4.0",
+        "@noble/hashes": "^2.4.0",
+        "@scure/sr25519": "^2.4.0",
         "tweetnacl": "^1.0.3"
     },
     "devDependencies": {

@@ -1,0 +1,34 @@
+---
+title: Stored rooms
+description: Keep a room's messages on the device and serve the room from them.
+---
+
+# Stored rooms
+
+`StoredRoom` serves one product-source room from a `RoomMessageStore`. The product decides what to write; the room
+keeps the host in step.
+
+| Call | Store | Host |
+| --- | --- | --- |
+| `post(input, { notify })` | stores the message | `New`, preview, and the room's notification with `notify` |
+| `edit(messageId, body)` | adds a revision | `Edited`, preview |
+| `react(messageId, participantId, emoji, placed)` | sets the reactions | `ReactionPlaced` / `ReactionRemoved` |
+| `setStatus(messageId, status)` | stores the status | `StatusChanged`, preview |
+
+What the user sends is stored under the host's id and handed to `onUserMessage`; a throw there rejects the send.
+
+## Keeping messages in host storage
+
+`JournaledRoomMessageStore` keeps the messages in host storage on the journaled store of
+`@parity/product-sdk-local-storage`: a change to several keys lands whole or not at all, opening reads the indexes
+only, and a message is read when first asked for. A room of 10,000 messages opens in 42 reads and pages 50 messages in
+50 more.
+
+```ts
+const scope = await sessionScope("my-chat/data/v1"); // per signed-in identity
+const kv = await getHostByteStore();
+const store = await JournaledRoomMessageStore.open(await openJournaledStore(kv, `my-chat/${scope.value}`));
+```
+
+`PagedIndex`, `ClaimSet`, `openJournaledStore` and `MemoryByteStore` (to simulate a worker the host stops mid-change)
+are in `@parity/product-sdk-local-storage` for records of a product's own.

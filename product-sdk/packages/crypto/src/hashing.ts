@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { blake2b } from "@noble/hashes/blake2.js";
 import { sha256 as _sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex as _bytesToHex } from "@noble/hashes/utils.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 
 /**
@@ -10,8 +9,11 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
  *
  * This is the default hash algorithm used by the Polkadot ecosystem and the
  * Bulletin Chain. Deterministic: same input always produces the same output.
+ * With a `key` it is keyed BLAKE2b (MAC mode), which the chat protocol uses to
+ * derive topics and channels from a shared secret.
  *
  * @param data - Arbitrary bytes to hash.
+ * @param key - Optional key of 1 to 64 bytes.
  * @returns 32-byte BLAKE2b-256 digest.
  *
  * @example
@@ -22,8 +24,31 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
  * console.log(bytesToHex(hash)); // 64-char hex string
  * ```
  */
-export function blake2b256(data: Uint8Array): Uint8Array {
-    return blake2b(data, { dkLen: 32 });
+export function blake2b256(data: Uint8Array, key?: Uint8Array): Uint8Array {
+    return key ? blake2b(data, { dkLen: 32, key }) : blake2b(data, { dkLen: 32 });
+}
+
+/**
+ * BLAKE2b with a chosen digest length, keyed when `key` is given.
+ *
+ * @param data - Arbitrary bytes to hash.
+ * @param options - `length` of the digest in bytes (1 to 64), and an optional `key` of 1 to 64 bytes.
+ * @returns The digest.
+ *
+ * @example
+ * ```ts
+ * import { blake2bHash } from "@parity/product-sdk-crypto";
+ *
+ * blake2bHash(account, { length: 16 }); // the Blake2_128 half of a Blake2_128Concat storage key
+ * ```
+ */
+export function blake2bHash(
+    data: Uint8Array,
+    options: { length: number; key?: Uint8Array },
+): Uint8Array {
+    return options.key
+        ? blake2b(data, { dkLen: options.length, key: options.key })
+        : blake2b(data, { dkLen: options.length });
 }
 
 /**
@@ -70,6 +95,7 @@ export function keccak256(data: Uint8Array): Uint8Array {
 
 if (import.meta.vitest) {
     const { describe, test, expect } = import.meta.vitest;
+    const { bytesToHex: _bytesToHex } = await import("@noble/hashes/utils.js");
 
     describe("blake2b256", () => {
         test("produces a 32-byte hash", () => {
@@ -92,6 +118,27 @@ if (import.meta.vitest) {
         test("empty input produces valid 32-byte hash", () => {
             const hash = blake2b256(new Uint8Array(0));
             expect(hash.length).toBe(32);
+        });
+
+        test("a key changes the digest, and the same key reproduces it", () => {
+            const data = new TextEncoder().encode("request");
+            const key = new Uint8Array(32).fill(9);
+            expect(blake2b256(data, key)).not.toEqual(blake2b256(data));
+            expect(blake2b256(data, key)).toEqual(blake2b256(data, key));
+        });
+    });
+
+    describe("blake2bHash", () => {
+        test("gives the requested length", () => {
+            expect(blake2bHash(new Uint8Array([1]), { length: 16 }).length).toBe(16);
+            expect(blake2bHash(new Uint8Array([1]), { length: 64 }).length).toBe(64);
+        });
+
+        test("at 32 bytes it is blake2b256, keyed or not", () => {
+            const data = new Uint8Array([1, 2, 3]);
+            const key = new Uint8Array([4]);
+            expect(blake2bHash(data, { length: 32 })).toEqual(blake2b256(data));
+            expect(blake2bHash(data, { length: 32, key })).toEqual(blake2b256(data, key));
         });
 
         test("matches direct @noble/hashes import", () => {

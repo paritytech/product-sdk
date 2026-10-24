@@ -71,6 +71,7 @@ Or open a new Claude Code session and ask "build me a Polkadot app" — the `pro
 | `product-sdk-individuality` | Personhood / membership state reads, the account to username read, the game and its prize draws, the account and lite sign-up paths, the two-transaction lite bind flow, full-personhood registration, ring-VRF proof contexts and ring locations, and the person, lite-alias and score-participant origin extensions |
 | `product-sdk-nfts` | Scarcity collections and item catalogues, the claims a player holds with the proof a mint spends, what a claim reveals through `previewClaim`, and verified artwork |
 | `product-sdk-pocket-cards` | Pocket cards: building a face, checking it, and drawing it from a worker |
+| `product-sdk-chat` | Chat products: rooms the host draws, feed and previews, answering the host's queries, stored rooms, calls, links, and the person-to-person protocol |
 | `product-sdk-utilities` | Addresses, crypto, encoding, token formatting, logging |
 | `migrating-to-product-sdk` | Porting an existing codebase from legacy stacks |
 

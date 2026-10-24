@@ -1,0 +1,27 @@
+---
+title: The person-to-person protocol
+description: The chat protocol of the Polkadot apps over the statement store, behind ports. Experimental.
+---
+
+# The person-to-person protocol
+
+`@parity/product-sdk-chat-protocol` is the protocol the iOS and Android apps and the person chat product run over the
+statement store: codecs, key and topic derivations, the pairwise and multi-device session lanes, the session state
+machine and its runtime, chat requests, HOP compaction, push payloads and call signalling. It is experimental.
+
+Everything that reaches the network goes through ports:
+
+| Port | What | Over the host |
+| --- | --- | --- |
+| `StatementsPort` | submit and subscribe statements | `hostStatementsPort(client)` from `./host` |
+| `StatementProver` | sign statements as one account | `keypairProver` from `./keys`, or the host's |
+| `DirectoryPort` | usernames and chat keys | `hostDirectory(reader)` from `./host` |
+| `ChatKeysPort` | the identity's chat profile and secrets | `selfCustodiedChatKeys` from `./keys` |
+| `HopPort` | files and compaction batches on HOP | the person chat product's |
+
+`./rooms` turns received contents into Chat Extension v2 bodies (`contentBody`, `attachmentItem`, call facts), and
+`./testing` has stand-ins for every port and the spec's Appendix D vectors as data (`checkVectors()`).
+
+A product other than the person chat runs the protocol under an identity of its own: peers find a person's chat key on
+Asset Hub only for the person chat, so such an identity talks to the users of that product, not to native person chat
+users. Codecs that nest the package's codecs must be built from its re-exported `scale-ts` combinators.
