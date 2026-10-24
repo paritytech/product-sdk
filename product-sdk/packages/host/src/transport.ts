@@ -19,8 +19,11 @@ import {
     isCorrectEnvironment as sandboxIsCorrectEnvironment,
     subscribeConnectionStatus as sandboxSubscribeConnectionStatus,
 } from "@parity/truapi/sandbox";
+import { createLogger } from "@parity/product-sdk-logger";
 
 import type { HostSubscription } from "./types.js";
+
+const log = createLogger("host");
 
 /** A {@link HostSubscription} carrying the transport-assigned subscription id. */
 export interface TransportSubscription extends HostSubscription {
@@ -81,7 +84,10 @@ export function setTruApiClient(client: TrUApiClient | null): void {
  * is set, otherwise the sandbox client (`null` outside a host container).
  */
 export function getClientSync(): TrUApiClient | null {
-    return clientOverride ?? sandboxGetClientSync();
+    if (clientOverride !== null) return clientOverride;
+    const client = sandboxGetClientSync();
+    if (client !== null) watchLink();
+    return client;
 }
 
 /**
@@ -138,6 +144,30 @@ function notifyLocalStatusListeners(status: HostConnectionStatus): void {
     for (const listener of [...localStatusListeners]) listener(status);
 }
 
+let linkWatched = false;
+let linkUp = false;
+let linkLostAt: number | null = null;
+
+function recordLinkStatus(status: HostConnectionStatus): void {
+    if (status === "connected") {
+        if (linkLostAt !== null) log.warn(`host link back after ${Date.now() - linkLostAt} ms`);
+        linkUp = true;
+        linkLostAt = null;
+    } else if (status === "disconnected" && linkUp) {
+        linkUp = false;
+        linkLostAt = Date.now();
+        log.warn("host link lost");
+    }
+}
+
+// Started where the client is built, not at import, because the package
+// declares itself free of side effects.
+function watchLink(): void {
+    if (linkWatched) return;
+    linkWatched = true;
+    sandboxSubscribeConnectionStatus(recordLinkStatus);
+}
+
 /**
  * Test-only: push `status` to every {@link subscribeConnectionStatus} subscriber,
  * so a product can exercise its reconnecting / offline UI. The host-side
@@ -190,6 +220,7 @@ export function subscribeConnectionStatus(
         return () => void localStatusListeners.delete(onLocal);
     }
 
+    watchLink();
     const unsubscribeSandbox = sandboxSubscribeConnectionStatus((status) => deliver(status, true));
     return () => {
         localStatusListeners.delete(onLocal);
@@ -228,9 +259,23 @@ export function subscribeWithInterrupt<Item, Reason = never>(
 }
 
 if (import.meta.vitest) {
-    const { test, expect, afterEach } = import.meta.vitest;
+    const { test, expect, afterEach, vi } = import.meta.vitest;
+    const { configure } = await import("@parity/product-sdk-logger");
 
     afterEach(() => setTruApiClient(null));
+    afterEach(() => vi.useRealTimers());
+
+    function captureNewLinkLog(): string[] {
+        linkWatched = false;
+        linkUp = false;
+        linkLostAt = null;
+        const lines: string[] = [];
+        configure({
+            level: "warn",
+            handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
+        });
+        return lines;
+    }
 
     // Environment detection and client building are covered by `@parity/truapi`'s
     // own sandbox tests; here we only assert the local glue degrades outside a
@@ -355,6 +400,69 @@ if (import.meta.vitest) {
 
         expect(statuses).toEqual(["connected"]);
         unsubscribe();
+    });
+
+    test("a link drop and its return are logged at warn with the gap", () => {
+        vi.useFakeTimers();
+        const lines = captureNewLinkLog();
+
+        recordLinkStatus("connecting");
+        recordLinkStatus("connected");
+        recordLinkStatus("disconnected");
+        recordLinkStatus("connecting");
+        vi.advanceTimersByTime(140);
+        recordLinkStatus("connected");
+
+        expect(lines).toEqual(["warn: host link lost", "warn: host link back after 140 ms"]);
+    });
+
+    test("a second drop before the link is back is logged once, with the gap from the first", () => {
+        vi.useFakeTimers();
+        const lines = captureNewLinkLog();
+        recordLinkStatus("connected");
+
+        recordLinkStatus("disconnected");
+        recordLinkStatus("connecting");
+        vi.advanceTimersByTime(250);
+        recordLinkStatus("disconnected");
+        recordLinkStatus("connecting");
+        vi.advanceTimersByTime(1_000);
+        recordLinkStatus("connected");
+
+        expect(lines).toEqual(["warn: host link lost", "warn: host link back after 1250 ms"]);
+    });
+
+    test("a connect with no drop before it is not logged", () => {
+        const lines = captureNewLinkLog();
+
+        recordLinkStatus("disconnected");
+        recordLinkStatus("connecting");
+        recordLinkStatus("connected");
+        recordLinkStatus("connecting");
+        recordLinkStatus("connected");
+
+        expect(lines).toEqual([]);
+    });
+
+    test("subscribing to the status starts the link log once", () => {
+        captureNewLinkLog();
+
+        const unsubscribe = subscribeConnectionStatus(() => {});
+        const second = subscribeConnectionStatus(() => {});
+
+        expect(linkWatched).toBe(true);
+        unsubscribe();
+        second();
+    });
+
+    test("a status pushed through the test seam is not logged", () => {
+        const lines = captureNewLinkLog();
+
+        emitConnectionStatus("connected");
+        emitConnectionStatus("disconnected");
+        emitConnectionStatus("connected");
+
+        expect(lines).toEqual([]);
     });
 
     test("a listener that unsubscribes itself mid-notification is safe", () => {
