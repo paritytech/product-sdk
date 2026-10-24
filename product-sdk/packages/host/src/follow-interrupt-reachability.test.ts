@@ -13,6 +13,11 @@
  * pipe, whose `postMessage` throws the way a closed provider does. Nothing on
  * the path under test is a stand-in.
  *
+ * Both the latch in `transport.ts` and the registration order in
+ * `papi-provider.ts` are load-bearing. Reverting either one on its own fails
+ * this test with `follow accepted as {"result":"p:1"} with no stop ever sent`,
+ * which is the stranded state itself: PAPI holding an id nothing will answer.
+ *
  * @module
  */
 
