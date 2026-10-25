@@ -440,6 +440,20 @@ export function createHostPapiProvider(
                     activeFollows.set(followSubscriptionId, ref.handle);
                     followOperations.set(followSubscriptionId, new Map());
                     pendingOperationStarts.set(followSubscriptionId, 0);
+                    const startedAt = Date.now();
+                    followAges.set(followSubscriptionId, {
+                        startedAt,
+                        events: 0,
+                        lastEventAt: startedAt,
+                    });
+                    if (stoppedAt === null) {
+                        log.info(`chainHead follow ${followSubscriptionId} started`);
+                    } else {
+                        log.warn(
+                            `chainHead follow ${followSubscriptionId} restarted ${startedAt - stoppedAt} ms after the stop`,
+                        );
+                    }
+                    stoppedAt = null;
                     // A transport interrupt/close ends the stream without a Stop
                     // item; synthesize one so the consumer refollows.
                     ref.handle.onInterrupt((reason) => {
@@ -477,20 +491,6 @@ export function createHostPapiProvider(
                         }, delay);
                     });
                     sendJsonRpcResponse(id, followSubscriptionId);
-                    const startedAt = Date.now();
-                    followAges.set(followSubscriptionId, {
-                        startedAt,
-                        events: 0,
-                        lastEventAt: startedAt,
-                    });
-                    if (stoppedAt === null) {
-                        log.info(`chainHead follow ${followSubscriptionId} started`);
-                    } else {
-                        log.warn(
-                            `chainHead follow ${followSubscriptionId} restarted ${startedAt - stoppedAt} ms after the stop`,
-                        );
-                    }
-                    stoppedAt = null;
                     for (const item of pendingItems) {
                         forwardItem(followSubscriptionId, item);
                     }
