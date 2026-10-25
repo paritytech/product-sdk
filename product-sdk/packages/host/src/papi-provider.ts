@@ -432,6 +432,14 @@ export function createHostPapiProvider(
                         );
                         break;
                     }
+                    // Registered before `onInterrupt`, because an interrupt that
+                    // landed while the stream was starting is replayed into it:
+                    // the guards below read this follow back, so a follow still
+                    // waiting to be recorded would read as a superseded one and
+                    // the stop that makes the consumer refollow would be lost.
+                    activeFollows.set(followSubscriptionId, ref.handle);
+                    followOperations.set(followSubscriptionId, new Map());
+                    pendingOperationStarts.set(followSubscriptionId, 0);
                     // A transport interrupt/close ends the stream without a Stop
                     // item; synthesize one so the consumer refollows.
                     ref.handle.onInterrupt((reason) => {
@@ -468,9 +476,6 @@ export function createHostPapiProvider(
                             sendFollowEvent(followSubscriptionId, { event: "stop" });
                         }, delay);
                     });
-                    activeFollows.set(followSubscriptionId, ref.handle);
-                    followOperations.set(followSubscriptionId, new Map());
-                    pendingOperationStarts.set(followSubscriptionId, 0);
                     sendJsonRpcResponse(id, followSubscriptionId);
                     const startedAt = Date.now();
                     followAges.set(followSubscriptionId, {
@@ -1185,6 +1190,30 @@ if (import.meta.vitest) {
         // the refollow is immediate, so an unpaced stop retries in a tight loop.
         observer?.complete();
         expect(messages).toHaveLength(1);
+        vi.advanceTimersByTime(250);
+        expect(messages[1]).toEqual({
+            jsonrpc: "2.0",
+            method: "chainHead_v1_followEvent",
+            params: { subscription: "p:41", result: { event: "stop" } },
+        });
+    });
+
+    test("a follow whose transport is already gone still synthesizes a stop", () => {
+        vi.useFakeTimers();
+        // The host connection dies while the follow is being set up, so the
+        // stream ends inside `subscribe`, before this follow can register for
+        // the interrupt. Losing it would leave PAPI holding a dead follow id
+        // and never refollowing, so every later read fails for good.
+        const client = makeFakeClient({
+            captureObserver: (o) => o.complete(),
+        });
+        const provider = createHostPapiProvider(client, "0xfeed");
+        const messages: JsonRpcMessage[] = [];
+        const conn = provider((m) => messages.push(m));
+
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
+
+        expect(messages[0]).toEqual({ jsonrpc: "2.0", id: 1, result: "p:41" });
         vi.advanceTimersByTime(250);
         expect(messages[1]).toEqual({
             jsonrpc: "2.0",
