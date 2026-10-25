@@ -471,6 +471,7 @@ export function createHostPapiProvider(
                     activeFollows.set(followSubscriptionId, ref.handle);
                     followOperations.set(followSubscriptionId, new Map());
                     pendingOperationStarts.set(followSubscriptionId, 0);
+                    sendJsonRpcResponse(id, followSubscriptionId);
                     const startedAt = Date.now();
                     followAges.set(followSubscriptionId, {
                         startedAt,
@@ -485,7 +486,6 @@ export function createHostPapiProvider(
                         );
                     }
                     stoppedAt = null;
-                    sendJsonRpcResponse(id, followSubscriptionId);
                     for (const item of pendingItems) {
                         forwardItem(followSubscriptionId, item);
                     }
