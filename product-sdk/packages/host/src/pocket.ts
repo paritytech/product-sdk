@@ -31,7 +31,7 @@ import type {
 } from "@parity/truapi";
 
 import { registerRenderContext, renderFailure } from "./renderer.js";
-import { getClient, getClientSync, subscribeWithInterrupt } from "./transport.js";
+import { getClient, getClientSync, subscribeAcrossResets } from "./transport.js";
 import { unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -177,20 +177,24 @@ function registerRenderer(client: TrUApiClient, registry: PocketRegistry): void 
     });
 }
 
-/** Open the one action stream this client needs, once. */
+/** Open the one action stream this client needs, unless it is already open. */
 function subscribeActions(client: TrUApiClient, registry: PocketRegistry): void {
     if (registry.actionsSubscribed) return;
     registry.actionsSubscribed = true;
 
-    const subscription = subscribeWithInterrupt(client.renderer.actionSubscribe(), (action) => {
-        if (action.context.tag !== "PocketCard") return;
-        const listeners = registry.listeners.get(action.context.value.cardId);
-        if (listeners === undefined) return;
-        // Copied, because a listener is allowed to unsubscribe from inside itself.
-        for (const listener of [...listeners]) listener(action);
-    });
+    const subscription = subscribeAcrossResets(
+        () => client.renderer.actionSubscribe(),
+        (action) => {
+            if (action.context.tag !== "PocketCard") return;
+            const listeners = registry.listeners.get(action.context.value.cardId);
+            if (listeners === undefined) return;
+            // Copied, because a listener is allowed to unsubscribe from inside itself.
+            for (const listener of [...listeners]) listener(action);
+        },
+    );
 
     subscription.onInterrupt((reason) => {
+        registry.actionsSubscribed = false;
         for (const handler of [...registry.interrupted]) handler(reason);
     });
 }
@@ -310,8 +314,9 @@ function adaptPocketManager(client: TrUApiClient): PocketManager {
             };
         },
         subscribeCards(callback) {
-            return subscribeWithInterrupt(client.pocket.listSubscribe(), (item) =>
-                callback(item.cards),
+            return subscribeAcrossResets(
+                () => client.pocket.listSubscribe(),
+                (item) => callback(item.cards),
             );
         },
         async removeCard(cardId) {
@@ -840,5 +845,21 @@ if (import.meta.vitest) {
 
         actions.interrupt("host went away");
         expect(reasons).toEqual(["host went away"]);
+    });
+
+    // An ended stream that stayed marked open would leave every card deaf to
+    // presses until the product restarted.
+    test("a card that subscribes after the action stream ended opens it again", async () => {
+        const actions = stream();
+        setTruApiClient({
+            renderer: { actionSubscribe: () => actions.observable },
+        } as unknown as TrUApiClient);
+
+        const pocket = await getPocketManager();
+        pocket?.subscribeCardAction("loyalty", () => {});
+        actions.interrupt("host went away");
+        pocket?.subscribeCardAction("loyalty", () => {});
+
+        expect(actions.opened).toBe(2);
     });
 }
