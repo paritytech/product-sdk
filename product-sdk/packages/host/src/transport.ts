@@ -273,23 +273,23 @@ export function subscribeWithInterrupt<Item, Reason = never>(
 }
 
 if (import.meta.vitest) {
-    const { test, expect, afterEach, vi } = import.meta.vitest;
+    const { test, expect, afterEach, beforeEach, vi } = import.meta.vitest;
     const { configure } = await import("@parity/product-sdk-logger");
 
     afterEach(() => setTruApiClient(null));
     afterEach(() => vi.useRealTimers());
 
-    function captureNewLinkLog(): string[] {
+    const lines: string[] = [];
+    configure({
+        level: "warn",
+        handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
+    });
+    beforeEach(() => {
+        lines.length = 0;
         linkWatched = false;
         linkUp = false;
         linkLostAt = null;
-        const lines: string[] = [];
-        configure({
-            level: "warn",
-            handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
-        });
-        return lines;
-    }
+    });
 
     // Environment detection and client building are covered by `@parity/truapi`'s
     // own sandbox tests; here we only assert the local glue degrades outside a
@@ -418,7 +418,6 @@ if (import.meta.vitest) {
 
     test("a link drop and its return are logged at warn with the gap", () => {
         vi.useFakeTimers();
-        const lines = captureNewLinkLog();
 
         recordLinkStatus("connecting");
         recordLinkStatus("connected");
@@ -432,7 +431,6 @@ if (import.meta.vitest) {
 
     test("a second drop before the link is back is logged once, with the gap from the first", () => {
         vi.useFakeTimers();
-        const lines = captureNewLinkLog();
         recordLinkStatus("connected");
 
         recordLinkStatus("disconnected");
@@ -447,8 +445,6 @@ if (import.meta.vitest) {
     });
 
     test("a connect with no drop before it is not logged", () => {
-        const lines = captureNewLinkLog();
-
         recordLinkStatus("disconnected");
         recordLinkStatus("connecting");
         recordLinkStatus("connected");
@@ -459,8 +455,6 @@ if (import.meta.vitest) {
     });
 
     test("subscribing to the status starts the link log once", () => {
-        captureNewLinkLog();
-
         const unsubscribe = subscribeConnectionStatus(() => {});
         const second = subscribeConnectionStatus(() => {});
 
@@ -470,8 +464,6 @@ if (import.meta.vitest) {
     });
 
     test("a status pushed through the test seam is not logged", () => {
-        const lines = captureNewLinkLog();
-
         emitConnectionStatus("connected");
         emitConnectionStatus("disconnected");
         emitConnectionStatus("connected");

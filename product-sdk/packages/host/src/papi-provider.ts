@@ -736,21 +736,21 @@ export function createHostPapiProvider(
 }
 
 if (import.meta.vitest) {
-    const { test, expect, vi, afterEach } = import.meta.vitest;
+    const { test, expect, vi, afterEach, beforeEach } = import.meta.vitest;
     const { configure } = await import("@parity/product-sdk-logger");
 
     afterEach(() => {
         vi.useRealTimers();
     });
 
-    function captureWarnings(): string[] {
-        const lines: string[] = [];
-        configure({
-            level: "warn",
-            handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
-        });
-        return lines;
-    }
+    const lines: string[] = [];
+    configure({
+        level: "warn",
+        handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
+    });
+    beforeEach(() => {
+        lines.length = 0;
+    });
 
     type FollowObserver = {
         next: (i: unknown) => void;
@@ -1313,7 +1313,6 @@ if (import.meta.vitest) {
 
     test("a cut follow logs its state and the stop it schedules, and the refollow logs the gap", () => {
         vi.useFakeTimers();
-        const lines = captureWarnings();
         let observer: FollowObserver | undefined;
         let count = 0;
         const client = makeFakeClient({
@@ -1353,7 +1352,6 @@ if (import.meta.vitest) {
 
     test("a Stop from the host and an unfollow log the follow's state; the first follow is no warning", () => {
         vi.useFakeTimers();
-        const lines = captureWarnings();
         const f = interruptibleFollows();
         const first = f.follow();
         vi.advanceTimersByTime(6000);

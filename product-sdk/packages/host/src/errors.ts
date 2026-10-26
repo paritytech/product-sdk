@@ -258,17 +258,17 @@ export function isHostError(error: unknown): error is HostError {
 }
 
 if (import.meta.vitest) {
-    const { test, expect, describe } = import.meta.vitest;
+    const { test, expect, describe, beforeEach } = import.meta.vitest;
     const { configure } = await import("@parity/product-sdk-logger");
 
-    function captureHostLog(): string[] {
-        const lines: string[] = [];
-        configure({
-            level: "warn",
-            handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
-        });
-        return lines;
-    }
+    const lines: string[] = [];
+    configure({
+        level: "warn",
+        handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
+    });
+    beforeEach(() => {
+        lines.length = 0;
+    });
 
     describe("host error classes", () => {
         test("HostError is the base class", () => {
@@ -367,7 +367,6 @@ if (import.meta.vitest) {
         });
 
         test("a call the reset rejected is logged at warn with its label and the close reason", () => {
-            const lines = captureHostLog();
             const closed = new Error("websocket closed (ws://127.0.0.1:9955)");
             const reset = new ConnectionResetError({ cause: closed });
             const bundledReset = Object.assign(new Error("TrUAPI host connection interrupted"), {
@@ -387,7 +386,6 @@ if (import.meta.vitest) {
         });
 
         test("a timeout, a decode failure or an already typed rejection is not logged", () => {
-            const lines = captureHostLog();
             const causes = [
                 new RequestTimeoutError("p:1", 12, 0, 120_000),
                 new RangeError("Offset is outside the bounds of the DataView"),
