@@ -239,6 +239,25 @@ export function createHostPapiProvider(
             interruptedFollows.delete(subscription);
             if (pending?.timer !== undefined) clearTimeout(pending.timer);
         }
+        const followAges = new Map<
+            string,
+            { startedAt: number; events: number; lastEventAt: number }
+        >();
+        let stoppedAt: number | null = null;
+
+        function followState(subscription: string): string {
+            const age = followAges.get(subscription);
+            if (!age) return "unknown to this provider";
+            const now = Date.now();
+            const events =
+                age.events === 0
+                    ? "no events"
+                    : `${age.events} ${age.events === 1 ? "event" : "events"}, the last ${now - age.lastEventAt} ms ago`;
+            const inFlight =
+                (followOperations.get(subscription)?.size ?? 0) +
+                (pendingOperationStarts.get(subscription) ?? 0);
+            return `up ${now - age.startedAt} ms, ${events}, ${inFlight} operations in flight`;
+        }
 
         function sendJsonRpcResponse(id: JsonRpcRequest["id"], result: unknown): void {
             onMessage({ jsonrpc: "2.0", id, result } as JsonRpcMessage);
@@ -374,7 +393,17 @@ export function createHostPapiProvider(
                         )
                             return;
                         if (item.tag === "Initialized") transportRetryDelay = 250;
+                        const age = followAges.get(followSubscriptionId);
+                        if (age !== undefined && item.tag !== "Stop") {
+                            age.events += 1;
+                            age.lastEventAt = Date.now();
+                        }
                         if (item.tag === "Stop" && activeFollows.delete(followSubscriptionId)) {
+                            log.warn(
+                                `chainHead follow ${followSubscriptionId} stopped by the host: ${followState(followSubscriptionId)}`,
+                            );
+                            stoppedAt = Date.now();
+                            followAges.delete(followSubscriptionId);
                             cancelTransportStop(followSubscriptionId);
                             ref.handle?.unsubscribe();
                             followOperations.delete(followSubscriptionId);
@@ -411,21 +440,41 @@ export function createHostPapiProvider(
                     activeFollows.set(followSubscriptionId, ref.handle);
                     followOperations.set(followSubscriptionId, new Map());
                     pendingOperationStarts.set(followSubscriptionId, 0);
+                    const startedAt = Date.now();
+                    followAges.set(followSubscriptionId, {
+                        startedAt,
+                        events: 0,
+                        lastEventAt: startedAt,
+                    });
+                    if (stoppedAt === null) {
+                        log.info(`chainHead follow ${followSubscriptionId} started`);
+                    } else {
+                        log.warn(
+                            `chainHead follow ${followSubscriptionId} restarted ${startedAt - stoppedAt} ms after the stop`,
+                        );
+                    }
+                    stoppedAt = null;
                     // A transport interrupt/close ends the stream without a Stop
                     // item; synthesize one so the consumer refollows.
-                    ref.handle.onInterrupt(() => {
+                    ref.handle.onInterrupt((reason) => {
                         if (
                             disconnected ||
                             activeFollows.get(followSubscriptionId) !== ref.handle ||
                             interruptedFollows.has(followSubscriptionId)
                         )
                             return;
+                        const state = followState(followSubscriptionId);
                         followOperations.delete(followSubscriptionId);
                         pendingOperationStarts.delete(followSubscriptionId);
                         const pending: { timer?: ReturnType<typeof setTimeout> } = {};
                         interruptedFollows.set(followSubscriptionId, pending);
                         const delay = transportRetryDelay;
                         transportRetryDelay = Math.min(transportRetryDelay * 2, 4000);
+                        const cause =
+                            reason === undefined ? "ended by the host" : formatHostError(reason);
+                        log.warn(
+                            `chainHead follow ${followSubscriptionId} interrupted (${cause}): ${state}, stop in ${delay} ms`,
+                        );
                         pending.timer = setTimeout(() => {
                             // clearTimeout cannot recall a callback already queued.
                             if (
@@ -436,6 +485,8 @@ export function createHostPapiProvider(
                                 return;
                             interruptedFollows.delete(followSubscriptionId);
                             activeFollows.delete(followSubscriptionId);
+                            stoppedAt = Date.now();
+                            followAges.delete(followSubscriptionId);
                             sendFollowEvent(followSubscriptionId, { event: "stop" });
                         }, delay);
                     });
@@ -448,6 +499,12 @@ export function createHostPapiProvider(
                 case "chainHead_v1_unfollow": {
                     const [followSubId] = params as [string];
                     const follow = activeFollows.get(followSubId);
+                    if (follow) {
+                        log.warn(
+                            `chainHead follow ${followSubId} unfollowed: ${followState(followSubId)}`,
+                        );
+                    }
+                    followAges.delete(followSubId);
                     cancelTransportStop(followSubId);
                     activeFollows.delete(followSubId);
                     if (follow) follow.unsubscribe();
@@ -662,6 +719,7 @@ export function createHostPapiProvider(
                 for (const handle of handles) handle.unsubscribe();
                 followOperations.clear();
                 pendingOperationStarts.clear();
+                followAges.clear();
                 for (const operationId of activeBroadcasts) {
                     // Fire-and-forget: the transport may already be torn down.
                     matchHostResult(
@@ -678,10 +736,20 @@ export function createHostPapiProvider(
 }
 
 if (import.meta.vitest) {
-    const { test, expect, vi, afterEach } = import.meta.vitest;
+    const { test, expect, vi, afterEach, beforeEach } = import.meta.vitest;
+    const { configure } = await import("@parity/product-sdk-logger");
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    const lines: string[] = [];
+    configure({
+        level: "warn",
+        handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
+    });
+    beforeEach(() => {
+        lines.length = 0;
     });
 
     type FollowObserver = {
@@ -1241,6 +1309,63 @@ if (import.meta.vitest) {
         f.follow().observer.complete();
         vi.advanceTimersByTime(250);
         expect(f.stops()).toBe(2);
+    });
+
+    test("a cut follow logs its state and the stop it schedules, and the refollow logs the gap", () => {
+        vi.useFakeTimers();
+        let observer: FollowObserver | undefined;
+        let count = 0;
+        const client = makeFakeClient({
+            subscriptionId: () => `p:${++count}`,
+            captureObserver: (o) => {
+                observer = o;
+            },
+            deferMatch: (method) => method === "getHeadStorage",
+        });
+        const conn = createHostPapiProvider(client, "0xfeed")(() => {});
+
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
+        vi.advanceTimersByTime(1000);
+        observer?.next({ tag: "BestBlockChanged", value: { bestBlockHash: "0x01" } });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "chainHead_v1_call",
+            params: ["p:1", "0x01", "Core_version", "0x"],
+        });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "chainHead_v1_storage",
+            params: ["p:1", "0x01", [{ key: "0x00", type: "value" }], null],
+        });
+        vi.advanceTimersByTime(2000);
+        observer?.error(new Error("transport closed"));
+        vi.advanceTimersByTime(350);
+        conn.send({ jsonrpc: "2.0", id: 4, method: "chainHead_v1_follow", params: [true] });
+
+        expect(lines).toEqual([
+            "warn: chainHead follow p:1 interrupted (transport closed): up 3000 ms, 1 event, the last 2000 ms ago, 2 operations in flight, stop in 250 ms",
+            "warn: chainHead follow p:2 restarted 100 ms after the stop",
+        ]);
+    });
+
+    test("a Stop from the host and an unfollow log the follow's state; the first follow is no warning", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        const first = f.follow();
+        vi.advanceTimersByTime(6000);
+        first.observer.next({ tag: "Stop" });
+        vi.advanceTimersByTime(10);
+        const second = f.follow();
+        vi.advanceTimersByTime(500);
+        f.unfollow(second.subscription);
+
+        expect(lines).toEqual([
+            "warn: chainHead follow p:1 stopped by the host: up 6000 ms, no events, 0 operations in flight",
+            "warn: chainHead follow p:2 restarted 10 ms after the stop",
+            "warn: chainHead follow p:2 unfollowed: up 500 ms, no events, 0 operations in flight",
+        ]);
     });
 
     test("unfollow cancels a pending synthetic stop", () => {
