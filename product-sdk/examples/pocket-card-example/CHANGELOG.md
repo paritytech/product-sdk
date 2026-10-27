@@ -1,5 +1,13 @@
 # @parity/product-sdk-pocket-card-example
 
+## 0.0.13
+
+### Patch Changes
+
+- Updated dependencies [f33ca4f]
+- Updated dependencies [f33ca4f]
+  - @parity/product-sdk-host@0.30.1
+
 ## 0.0.12
 
 ### Patch Changes

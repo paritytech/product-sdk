@@ -1,5 +1,35 @@
 # @parity/product-sdk
 
+## 0.41.1
+
+### Patch Changes
+
+- f33ca4f: `isDotNsAvailable` reports a name under a live PopRules reservation as unavailable when PopRules refuses it to everyone. From DotNS 1.1.0 a reservation keeps the name off public registration for every account, its holder included, so a reserved name read as available while `prepareDotNsRegistration` failed with `NameReserved`. Up to DotNS 1.0.0 the holder may still register it, and the name stays available.
+- f33ca4f: A follow whose host connection dies while it is still starting now reports that loss, so PAPI refollows. The interrupt is held until the caller registers for it and is delivered exactly once, and the follow is recorded before that registration so the replay is not read as belonging to a superseded follow. Without this the product kept a follow id the host had already dropped, and every chain read bound to it failed until the product was restarted.
+- f33ca4f: **The host package logs at warn when its link to the host drops and when it comes back, names each host call that a reset of the link rejected, and follows the life of each PAPI chainHead follow subscription.**
+
+  - `[host] host link lost`
+  - `[host] host link back after <ms> ms`
+  - `[host] <call>: the host link was reset mid-call (<close reason>)`
+  - `[host:papi] chainHead follow <id> interrupted (<cause>): up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight, stop in <ms> ms`
+  - `[host:papi] chainHead follow <id> stopped by the host: up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight`
+  - `[host:papi] chainHead follow <id> restarted <ms> ms after the stop`
+  - `[host:papi] chainHead follow <id> unfollowed: up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight`
+
+  The first follow of a provider logs `chainHead follow <id> started` at info.
+
+- Updated dependencies [f33ca4f]
+- Updated dependencies [f33ca4f]
+  - @parity/product-sdk-host@0.30.1
+  - @parity/product-sdk-chain-client@0.13.6
+  - @parity/product-sdk-cloud-storage@0.13.6
+  - @parity/product-sdk-individuality@0.11.3
+  - @parity/product-sdk-local-storage@0.3.22
+  - @parity/product-sdk-signer@0.17.6
+  - @parity/product-sdk-keys@0.5.6
+  - @parity/product-sdk-contracts@0.11.6
+  - @parity/product-sdk-tx@0.5.6
+
 ## 0.41.0
 
 ### Minor Changes

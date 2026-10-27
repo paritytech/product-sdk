@@ -1,5 +1,13 @@
 # @parity/product-sdk-contracts
 
+## 0.11.6
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.17.6
+- @parity/product-sdk-keys@0.5.6
+- @parity/product-sdk-tx@0.5.6
+
 ## 0.11.5
 
 ### Patch Changes
