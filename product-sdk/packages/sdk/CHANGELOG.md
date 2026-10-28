@@ -1,5 +1,32 @@
 # @parity/product-sdk
 
+## 0.42.0
+
+### Minor Changes
+
+- a413d28: Add schema-based attestation reads, writes, revocations, and Honour tally reads. Expose the package through `@parity/product-sdk/reputation`.
+- a413d28: **Pair with a truapi 0.27.0 host.** `@parity/truapi` moves from `^0.26.0` to `^0.27.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `5f68beddf80f7b9a` to `72bf858138ead26e`, so the schema a product speaks no longer matches a host still on 0.26.0. Every host surface has to move in the same window.
+
+  **Surface changes carried through `@parity/product-sdk-host`.** truapi 0.27 adds an `nftPurse` domain, modeled as not-supported by the testing fake. The change is additive, so nothing the host package already exposed changes.
+
+### Patch Changes
+
+- a413d28: Chat and Pocket streams survive a host connection reset in native hosts, where the container reconnects to the host after the connection drops. The chat action stream, the renderer action streams for chat messages and Pocket cards, and the chat room and Pocket card lists are opened again once the host is connected again, and their listeners are not interrupted. The host holds actions while no stream is open, so presses and messages sent during the reset still arrive. Before this, a reset interrupted the chat action stream and both lists, left buttons in chat messages unresponsive until a message was rendered again, and left buttons in Pocket cards unresponsive until the product restarted. In a sandbox-hosted product, a closed connection still ends these streams and reaches `onInterrupt`. A Pocket card that subscribes after its action stream ended for another reason also opens it again.
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+  - @parity/product-sdk-reputation@0.1.0
+  - @parity/product-sdk-host@0.31.0
+  - @parity/product-sdk-renderer@0.9.0
+  - @parity/product-sdk-chain-client@0.13.7
+  - @parity/product-sdk-cloud-storage@0.13.7
+  - @parity/product-sdk-individuality@0.11.4
+  - @parity/product-sdk-local-storage@0.3.23
+  - @parity/product-sdk-signer@0.17.7
+  - @parity/product-sdk-keys@0.5.7
+  - @parity/product-sdk-contracts@0.11.7
+  - @parity/product-sdk-tx@0.5.7
+
 ## 0.41.1
 
 ### Patch Changes
