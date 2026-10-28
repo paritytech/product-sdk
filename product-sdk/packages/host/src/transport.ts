@@ -272,6 +272,110 @@ export function subscribeWithInterrupt<Item, Reason = never>(
     };
 }
 
+/**
+ * Like {@link subscribeWithInterrupt}, but a stream that a host connection reset
+ * ends is opened again with `open` once the host is connected again. Only for
+ * streams that lose nothing in between: the action streams, whose items the
+ * host holds while no stream is open, and the list streams, which open with the
+ * current list. Any other interrupt still ends the subscription and reaches
+ * `onInterrupt`.
+ *
+ * It is opened again on the first `"connected"` after a status that is not,
+ * counting the status current when the stream ends. `@parity/truapi` reports a
+ * status other than `"connected"` between a reset and the next connection, but
+ * may fail the stream before that status arrives, while the old connection
+ * still reads `"connected"`. Opening on that status would dial a host that is
+ * not listening yet. This never dials the host itself; the client reconnects
+ * on its own.
+ */
+export function subscribeAcrossResets<Item, Reason = never>(
+    open: () => ObservableLike<Item, Reason>,
+    onNext: (item: Item) => void,
+): HostSubscription {
+    let current: HostSubscription | undefined;
+    let stopWaiting: (() => void) | undefined;
+    let stopped = false;
+    let interruptCallback: ((reason?: unknown) => void) | undefined;
+    let interrupt: { reason?: unknown } | undefined;
+
+    const end = (reason?: unknown) => {
+        interrupt = { reason };
+        interruptCallback?.(reason);
+    };
+
+    const start = () => {
+        const subscription = subscribeWithInterrupt(open(), onNext);
+        // `unsubscribe` can run before this stream is recorded: from an item it
+        // delivers while opening, or from a status listener that a status change
+        // still calls after `unsubscribe` removed it.
+        if (stopped) {
+            subscription.unsubscribe();
+            return;
+        }
+        current = subscription;
+        subscription.onInterrupt((reason) => {
+            if (stopped || current !== subscription) return;
+            current = undefined;
+            if (isConnectionReset(reason)) waitForReconnect();
+            else end(reason);
+        });
+    };
+
+    const waitForReconnect = () => {
+        let lost = false;
+        let reconnected = false;
+        const unsubscribe = subscribeConnectionStatus((status) => {
+            if (status !== "connected") {
+                lost = true;
+                return;
+            }
+            if (!lost || reconnected) return;
+            reconnected = true;
+            stopWaiting?.();
+            stopWaiting = undefined;
+            try {
+                start();
+            } catch (error) {
+                end(error);
+            }
+        });
+        if (reconnected) unsubscribe();
+        else stopWaiting = unsubscribe;
+    };
+
+    start();
+    return {
+        unsubscribe() {
+            stopped = true;
+            stopWaiting?.();
+            stopWaiting = undefined;
+            current?.unsubscribe();
+            current = undefined;
+        },
+        onInterrupt(callback) {
+            interruptCallback = callback;
+            if (interrupt) callback(interrupt.reason);
+            return () => {
+                if (interruptCallback === callback) interruptCallback = undefined;
+            };
+        },
+    };
+}
+
+/**
+ * Whether a stream ended because the host connection was reset. The injected
+ * client can come from the container's own copy of `@parity/truapi`, whose error
+ * classes are not this bundle's, so the reset is recognised by name.
+ */
+function isConnectionReset(reason: unknown): boolean {
+    let error: unknown = reason;
+    while (error instanceof Error) {
+        if (error.name === "ConnectionResetError") return true;
+        error = error.cause;
+    }
+    return false;
+}
+
 if (import.meta.vitest) {
     const { test, expect, afterEach, beforeEach, vi } = import.meta.vitest;
     const { configure } = await import("@parity/product-sdk-logger");

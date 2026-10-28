@@ -31,7 +31,7 @@ import type {
 } from "@parity/truapi";
 
 import { registerRenderContext, renderFailure } from "./renderer.js";
-import { getClient, getClientSync, subscribeWithInterrupt } from "./transport.js";
+import { getClient, getClientSync, subscribeAcrossResets } from "./transport.js";
 import { unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -177,21 +177,32 @@ function registerRenderer(client: TrUApiClient, registry: PocketRegistry): void 
     });
 }
 
-/** Open the one action stream this client needs, once. */
+/** Open the one action stream this client needs, unless it is already open. */
 function subscribeActions(client: TrUApiClient, registry: PocketRegistry): void {
     if (registry.actionsSubscribed) return;
     registry.actionsSubscribed = true;
 
-    const subscription = subscribeWithInterrupt(client.renderer.actionSubscribe(), (action) => {
-        if (action.context.tag !== "PocketCard") return;
-        const listeners = registry.listeners.get(action.context.value.cardId);
-        if (listeners === undefined) return;
-        // Copied, because a listener is allowed to unsubscribe from inside itself.
-        for (const listener of [...listeners]) listener(action);
-    });
+    const subscription = subscribeAcrossResets(
+        () => client.renderer.actionSubscribe(),
+        (action) => {
+            if (action.context.tag !== "PocketCard") return;
+            const listeners = registry.listeners.get(action.context.value.cardId);
+            if (listeners === undefined) return;
+            // Copied, because a listener is allowed to unsubscribe from inside itself.
+            for (const listener of [...listeners]) listener(action);
+        },
+    );
 
     subscription.onInterrupt((reason) => {
-        for (const handler of [...registry.interrupted]) handler(reason);
+        // An interrupt ends every card subscription. Kept callbacks would hear the
+        // next stream beside the ones that subscribe again, kept handlers would be
+        // called again by it, and on a closed transport a handler that subscribes
+        // again would fail that stream at once and recurse.
+        const handlers = [...registry.interrupted];
+        registry.interrupted.clear();
+        registry.listeners.clear();
+        registry.actionsSubscribed = false;
+        for (const handler of handlers) handler(reason);
     });
 }
 
@@ -299,7 +310,11 @@ function adaptPocketManager(client: TrUApiClient): PocketManager {
             return {
                 unsubscribe() {
                     listeners.delete(callback);
-                    if (listeners.size === 0) registry.listeners.delete(cardId);
+                    // An interrupt may have dropped this set, and a later
+                    // subscription put a new one under the same id.
+                    if (listeners.size === 0 && registry.listeners.get(cardId) === listeners) {
+                        registry.listeners.delete(cardId);
+                    }
                 },
                 onInterrupt(handler) {
                     registry.interrupted.add(handler);
@@ -310,8 +325,9 @@ function adaptPocketManager(client: TrUApiClient): PocketManager {
             };
         },
         subscribeCards(callback) {
-            return subscribeWithInterrupt(client.pocket.listSubscribe(), (item) =>
-                callback(item.cards),
+            return subscribeAcrossResets(
+                () => client.pocket.listSubscribe(),
+                (item) => callback(item.cards),
             );
         },
         async removeCard(cardId) {
@@ -346,9 +362,18 @@ if (import.meta.vitest) {
 
     type Observer = { next?: (item: unknown) => void; error?: (reason?: unknown) => void };
 
-    /** A stream a test can push items into, counting how many were opened. */
+    /**
+     * A stream a test can push items into, counting how many were opened. Like
+     * the real client, a stream that ended gets no more items.
+     */
     function stream() {
         const observers: Observer[] = [];
+        const ended = new Set<Observer>();
+        let closed: { reason: unknown } | undefined;
+        const end = (observer: Observer, reason: unknown) => {
+            ended.add(observer);
+            observer.error?.(reason);
+        };
         return {
             get opened() {
                 return observers.length;
@@ -356,14 +381,26 @@ if (import.meta.vitest) {
             observable: {
                 subscribe(observer: Observer) {
                     observers.push(observer);
+                    if (closed) end(observer, closed.reason);
                     return { subscriptionId: "1", unsubscribe() {} };
                 },
             },
             push(item: unknown) {
-                for (const observer of observers) observer.next?.(item);
+                for (const observer of observers) {
+                    if (!ended.has(observer)) observer.next?.(item);
+                }
             },
             interrupt(reason: unknown) {
-                for (const observer of observers) observer.error?.(reason);
+                for (const observer of [...observers]) {
+                    if (!ended.has(observer)) end(observer, reason);
+                }
+            },
+            /** Interrupt every stream and fail later ones before `subscribe` returns, as a closed transport does. */
+            close(reason: unknown) {
+                closed = { reason };
+                for (const observer of [...observers]) {
+                    if (!ended.has(observer)) end(observer, reason);
+                }
             },
         };
     }
@@ -840,5 +877,91 @@ if (import.meta.vitest) {
 
         actions.interrupt("host went away");
         expect(reasons).toEqual(["host went away"]);
+    });
+
+    // An ended stream that stayed marked open would leave every card deaf to
+    // presses until the product restarted.
+    test("a card that subscribes after the action stream ended opens it again", async () => {
+        const actions = stream();
+        setTruApiClient({
+            renderer: { actionSubscribe: () => actions.observable },
+        } as unknown as TrUApiClient);
+
+        const pocket = await getPocketManager();
+        pocket?.subscribeCardAction("loyalty", () => {});
+        actions.interrupt("host went away");
+        pocket?.subscribeCardAction("loyalty", () => {});
+
+        expect(actions.opened).toBe(2);
+    });
+
+    // Subscribing again on interrupt is the usual recovery. On a closed transport
+    // the new stream fails at once, and a handler called for it again would
+    // recurse until the stack overflows.
+    test("a handler that subscribes again on a closed transport is called once", async () => {
+        const actions = stream();
+        setTruApiClient({
+            renderer: { actionSubscribe: () => actions.observable },
+        } as unknown as TrUApiClient);
+
+        const pocket = await getPocketManager();
+        let interrupts = 0;
+        const listen = () => {
+            pocket
+                ?.subscribeCardAction("loyalty", () => {})
+                ?.onInterrupt(() => {
+                    interrupts += 1;
+                    listen();
+                });
+        };
+        listen();
+        actions.close("transport disposed");
+
+        expect({ interrupts, opened: actions.opened }).toEqual({ interrupts: 1, opened: 2 });
+    });
+
+    // A product that subscribes again on interrupt rarely unsubscribes the old
+    // handle first. Hearing a press through both would, say, redeem it twice.
+    test("a card that subscribes again after an interrupt hears each press once", async () => {
+        const actions = stream();
+        setTruApiClient({
+            renderer: { actionSubscribe: () => actions.observable },
+        } as unknown as TrUApiClient);
+
+        const pocket = await getPocketManager();
+        const presses: string[] = [];
+        const listen = () => {
+            pocket
+                ?.subscribeCardAction("loyalty", (action) => presses.push(action.actionId))
+                ?.onInterrupt(listen);
+        };
+        listen();
+        actions.interrupt("host went away");
+        actions.push({
+            context: { tag: "PocketCard", value: { cardId: "loyalty" } },
+            actionId: "redeem",
+        });
+
+        expect(presses).toEqual(["redeem"]);
+    });
+
+    test("an old handle's unsubscribe leaves a later subscription to the same card", async () => {
+        const actions = stream();
+        setTruApiClient({
+            renderer: { actionSubscribe: () => actions.observable },
+        } as unknown as TrUApiClient);
+
+        const pocket = await getPocketManager();
+        const old = pocket?.subscribeCardAction("loyalty", () => {});
+        actions.interrupt("host went away");
+        const presses: string[] = [];
+        pocket?.subscribeCardAction("loyalty", (action) => presses.push(action.actionId));
+        old?.unsubscribe();
+        actions.push({
+            context: { tag: "PocketCard", value: { cardId: "loyalty" } },
+            actionId: "redeem",
+        });
+
+        expect(presses).toEqual(["redeem"]);
     });
 }
