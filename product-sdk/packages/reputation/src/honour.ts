@@ -43,6 +43,8 @@ export interface HonourTally {
 }
 
 const HASH_32 = /^0x[0-9a-fA-F]{64}$/;
+const I32_MIN = -2_147_483_648;
+const I32_MAX = 2_147_483_647;
 
 /** Read the tally at one block. A missing entry has the pallet's default score, -1. */
 export async function readHonourTally(
@@ -84,8 +86,8 @@ export async function readHonourTally(
             rawScore !== undefined &&
             (typeof rawScore !== "number" ||
                 !Number.isInteger(rawScore) ||
-                rawScore < -2_147_483_648 ||
-                rawScore > 2_147_483_647)
+                rawScore < I32_MIN ||
+                rawScore > I32_MAX)
         ) {
             throw new ReputationDecodeError("Honour tally must be a signed 32-bit integer");
         }
