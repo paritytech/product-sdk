@@ -274,6 +274,13 @@ export function subscribeAcrossResets<Item, Reason = never>(
 
     const start = () => {
         const subscription = subscribeWithInterrupt(open(), onNext);
+        // `unsubscribe` can run before this stream is recorded: from an item it
+        // delivers while opening, or from a status listener that a status change
+        // still calls after `unsubscribe` removed it.
+        if (stopped) {
+            subscription.unsubscribe();
+            return;
+        }
         current = subscription;
         subscription.onInterrupt((reason) => {
             if (stopped || current !== subscription) return;
