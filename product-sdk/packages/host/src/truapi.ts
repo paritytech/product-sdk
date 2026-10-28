@@ -397,6 +397,12 @@ if (import.meta.vitest) {
             | { tag: "PreimageSubmit"; value?: undefined }
             | { tag: "StatementSubmit"; value?: undefined }
             | { tag: "BalanceAccess"; value?: undefined }
+            | {
+                  tag: "NftPurseRead";
+                  value: {
+                      owner: { tag: "Product"; value: string } | { tag: "Root"; value?: undefined };
+                  };
+              }
         >
     >;
 
