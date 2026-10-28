@@ -204,8 +204,13 @@ export interface SetRecordArgs {
  */
 const tldCache: RuntimeCache<DotNsTld> = new WeakMap();
 
-/** A revert: the contract ran and refused, as opposed to a dispatch failure. */
-function isRevert(value: unknown): boolean {
+/**
+ * A revert: the contract ran and refused, as opposed to a dispatch failure.
+ *
+ * @internal Shared with the profile reads, which classify a resolver's `text`
+ *   revert the same way this module classifies a quote's.
+ */
+export function isRevert(value: unknown): boolean {
     return (
         typeof value === "object" &&
         value !== null &&

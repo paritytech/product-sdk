@@ -41,6 +41,24 @@ export const DOTNS_REGISTRY_ABI: AbiEntry[] = [
     },
 ];
 
+/**
+ * `DotnsContentResolver` — the text records a name publishes, such as a
+ * product's `manifest` and a person's `profile`. Read-only here: `setText` is
+ * the writing product's call, not the SDK's.
+ */
+export const DOTNS_CONTENT_RESOLVER_ABI: AbiEntry[] = [
+    {
+        type: "function",
+        name: "text",
+        inputs: [
+            { name: "node", type: "bytes32" },
+            { name: "key", type: "string" },
+        ],
+        outputs: [{ name: "value", type: "string" }],
+        stateMutability: "view",
+    },
+];
+
 /** `DotnsResolver` — node → resolved address. */
 export const DOTNS_RESOLVER_ABI: AbiEntry[] = [
     {
