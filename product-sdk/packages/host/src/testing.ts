@@ -19,7 +19,7 @@
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
  * selection — the `system` domain's `info`, and the
  * `chat` / `coinPayment` / `contacts` / `entropy` / `expandedCard` /
- * `funding` / `game` / `locale` / `notifications` / `payment` / `permissions` / `pocket` /
+ * `funding` / `game` / `locale` / `nftPurse` / `notifications` / `payment` / `permissions` / `pocket` /
  * `renderer` / `resourceAllocation` / `scanner` / `theme` / `worker` domains.
  * Touching an unmodeled domain throws a descriptive error
  * rather than failing with `undefined is not a function`.
@@ -344,6 +344,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         funding: notModeled("funding"),
         game: notModeled("game"),
         locale: notModeled("locale"),
+        nftPurse: notModeled("nftPurse"),
         notifications: notModeled("notifications"),
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),
