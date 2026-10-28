@@ -53,9 +53,23 @@ jobs:
                       product-sdk/pnpm-lock.yaml
                       docs/pnpm-lock.yaml
 
+            # Dependabot rewrites a pnpm lockfile without re-emitting the
+            # `overrides:` block, so its PRs can never satisfy
+            # `--frozen-lockfile` (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH). Let a
+            # Dependabot run regenerate the lockfile instead; every other run
+            # stays frozen so real drift still fails the build.
+            - name: Set install flag
+              id: install-flag
+              run: |
+                  if [ "${{ github.actor }}" = "dependabot[bot]" ]; then
+                      echo "frozen=--no-frozen-lockfile" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "frozen=--frozen-lockfile" >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: Install SDK deps
               working-directory: product-sdk
-              run: pnpm install --frozen-lockfile
+              run: pnpm install ${{ steps.install-flag.outputs.frozen }}
 
             - name: Build SDK packages
               working-directory: product-sdk
@@ -63,7 +77,7 @@ jobs:
 
             - name: Install docs deps
               working-directory: docs
-              run: pnpm install --frozen-lockfile
+              run: pnpm install ${{ steps.install-flag.outputs.frozen }}
 
             - name: Generate API Reference docs
               working-directory: docs
