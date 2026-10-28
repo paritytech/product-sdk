@@ -194,8 +194,13 @@ function subscribeActions(client: TrUApiClient, registry: PocketRegistry): void 
     );
 
     subscription.onInterrupt((reason) => {
+        // An interrupt is final. Kept handlers would be called again by the next
+        // stream, and on a closed transport a handler that subscribes again would
+        // fail that stream at once and recurse.
+        const handlers = [...registry.interrupted];
+        registry.interrupted.clear();
         registry.actionsSubscribed = false;
-        for (const handler of [...registry.interrupted]) handler(reason);
+        for (const handler of handlers) handler(reason);
     });
 }
 
@@ -354,6 +359,7 @@ if (import.meta.vitest) {
     /** A stream a test can push items into, counting how many were opened. */
     function stream() {
         const observers: Observer[] = [];
+        let closed: { reason: unknown } | undefined;
         return {
             get opened() {
                 return observers.length;
@@ -361,6 +367,7 @@ if (import.meta.vitest) {
             observable: {
                 subscribe(observer: Observer) {
                     observers.push(observer);
+                    if (closed) observer.error?.(closed.reason);
                     return { subscriptionId: "1", unsubscribe() {} };
                 },
             },
@@ -369,6 +376,11 @@ if (import.meta.vitest) {
             },
             interrupt(reason: unknown) {
                 for (const observer of observers) observer.error?.(reason);
+            },
+            /** Interrupt every stream and fail later ones before `subscribe` returns, as a closed transport does. */
+            close(reason: unknown) {
+                closed = { reason };
+                for (const observer of [...observers]) observer.error?.(reason);
             },
         };
     }
@@ -861,5 +873,30 @@ if (import.meta.vitest) {
         pocket?.subscribeCardAction("loyalty", () => {});
 
         expect(actions.opened).toBe(2);
+    });
+
+    // Subscribing again on interrupt is the usual recovery. On a closed transport
+    // the new stream fails at once, and a handler called for it again would
+    // recurse until the stack overflows.
+    test("a handler that subscribes again on a closed transport is called once", async () => {
+        const actions = stream();
+        setTruApiClient({
+            renderer: { actionSubscribe: () => actions.observable },
+        } as unknown as TrUApiClient);
+
+        const pocket = await getPocketManager();
+        let interrupts = 0;
+        const listen = () => {
+            pocket
+                ?.subscribeCardAction("loyalty", () => {})
+                ?.onInterrupt(() => {
+                    interrupts += 1;
+                    listen();
+                });
+        };
+        listen();
+        actions.close("transport disposed");
+
+        expect({ interrupts, opened: actions.opened }).toEqual({ interrupts: 1, opened: 2 });
     });
 }
