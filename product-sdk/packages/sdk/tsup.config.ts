@@ -16,6 +16,7 @@ export default defineConfig({
         "individuality/index": "src/individuality/index.ts",
         "individuality/host": "src/individuality/host.ts",
         "nfts/index": "src/nfts/index.ts",
+        "reputation/index": "src/reputation/index.ts",
         "react/index": "src/react/index.ts",
         "local-storage/index": "src/local-storage/index.ts",
         "renderer/index": "src/renderer/index.ts",
