@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-reputation",
     "description": "Read Honour scores and create, read, and revoke schema-based attestations",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",

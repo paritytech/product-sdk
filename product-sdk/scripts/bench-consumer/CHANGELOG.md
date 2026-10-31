@@ -1,5 +1,22 @@
 # @parity/product-sdk-bench-consumer
 
+## 0.0.51
+
+### Patch Changes
+
+- Updated dependencies [a708cb6]
+  - @parity/product-sdk@0.43.0
+  - @parity/product-sdk-host@0.32.0
+  - @parity/product-sdk-chain-client@0.13.8
+  - @parity/product-sdk-cloud-storage@0.13.8
+  - @parity/product-sdk-local-storage@0.3.24
+  - @parity/product-sdk-signer@0.17.8
+  - @parity/product-sdk-statement-store@0.7.8
+  - @parity/product-sdk-terminal@0.13.8
+  - @parity/product-sdk-keys@0.5.8
+  - @parity/product-sdk-contracts@0.11.8
+  - @parity/product-sdk-tx@0.5.8
+
 ## 0.0.50
 
 ### Patch Changes

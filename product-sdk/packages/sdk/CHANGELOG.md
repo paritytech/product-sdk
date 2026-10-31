@@ -1,5 +1,26 @@
 # @parity/product-sdk
 
+## 0.43.0
+
+### Minor Changes
+
+- a708cb6: **Pair with a truapi 0.28.0 host.** `@parity/truapi` moves from `^0.27.0` to `^0.28.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `72bf858138ead26e` to `1ddad8b65de84b98`, so the schema a product speaks no longer matches a host still on 0.27.0. Every host surface has to move in the same window.
+
+### Patch Changes
+
+- Updated dependencies [a708cb6]
+  - @parity/product-sdk-host@0.32.0
+  - @parity/product-sdk-renderer@0.10.0
+  - @parity/product-sdk-chain-client@0.13.8
+  - @parity/product-sdk-cloud-storage@0.13.8
+  - @parity/product-sdk-individuality@0.11.5
+  - @parity/product-sdk-local-storage@0.3.24
+  - @parity/product-sdk-signer@0.17.8
+  - @parity/product-sdk-keys@0.5.8
+  - @parity/product-sdk-contracts@0.11.8
+  - @parity/product-sdk-tx@0.5.8
+  - @parity/product-sdk-reputation@0.1.1
+
 ## 0.42.0
 
 ### Minor Changes
