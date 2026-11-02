@@ -1,9 +1,15 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * SCALE codecs for the profile record and its tuple payloads, byte for byte
- * what `parity_scale_codec` derives for the structs in
- * `rust/crates/truapi/src/v01/profile.rs`.
+ * SCALE codecs for the profile record and its entry payloads, byte for byte
+ * what `parity_scale_codec` derives for the types in the RFC "Core-resolved
+ * public profiles" and the kinds proposed in `./types.ts`.
+ *
+ * The record is `Vec<WrapperKeepOpaque<ProfileEntry>>`: a compact count, then
+ * each entry as its own length-prefixed byte string, inside which the first
+ * byte is the variant index and the rest the variant's payload. The wrapper is
+ * what lets a reader step over an entry it cannot decode, so the outer codec
+ * here reads entries as bytes and the reader decodes each one on its own.
  *
  * Strings are carried as `Bytes` rather than `str` on purpose. scale-ts's `str`
  * replaces invalid UTF-8 with U+FFFD, while the core's `String` decode fails
@@ -23,14 +29,14 @@ import {
     u64,
 } from "@polkadot-api/substrate-bindings";
 
-/** `ProfileEntry { kind: String, payload: Vec<u8> }`, with `kind` left as bytes. */
-export const profileEntryCodec = Struct({ kind: Bytes(), payload: Bytes() });
-
-/** `ProfileRecord { entries: Vec<ProfileEntry> }`. */
-export const profileRecordCodec = Struct({ entries: Vector(profileEntryCodec) });
+/** `ProfileRecord { entries: Vec<WrapperKeepOpaque<ProfileEntry>> }`: every entry as its bytes. */
+export const profileRecordCodec = Vector(Bytes());
 
 /** `ProfileAvatar { cid: String, format: ProfileAvatarFormat }`, the format as its index. */
 export const profileAvatarCodec = Struct({ cid: Bytes(), format: u8 });
+
+/** `Name(String)`: a SCALE String, its compact length then the bytes, left as bytes for the UTF-8 check. */
+export const profileNameCodec = Bytes();
 
 /** `ProfileNft { instance: u64, collection: u32, item: u32, purse: [u8; 32] }`. */
 export const profileNftCodec = Struct({
@@ -46,12 +52,14 @@ export const profileFeedCodec = Struct({ kind: Bytes(), topic: Hex(32), signer: 
 /**
  * Decode `bytes` as exactly one value of `codec`, or `null`.
  *
- * `parity_scale_codec`'s `decode_all` refuses trailing bytes and a truncated
- * input; scale-ts decoders stop reading and say nothing about what is left,
- * and read a short tail as a shorter value. The check here is the one the
- * core's own test makes: the decoded value re-encodes to the writer's bytes.
- * Trailing bytes make the re-encoding shorter, a truncated field makes it
- * differ, and a value that does not decode at all is malformed.
+ * This is the wrapper's rule: `WrapperKeepOpaque` decodes its bytes with
+ * `decode_all`, which refuses trailing bytes and a truncated input, and keeps
+ * the bytes opaque when that fails. scale-ts decoders stop reading and say
+ * nothing about what is left, and read a short tail as a shorter value. The
+ * check here is the one the core's own test makes: the decoded value re-encodes
+ * to the writer's bytes. Trailing bytes make the re-encoding shorter, a
+ * truncated field makes it differ, a non-minimal compact length re-encodes
+ * minimal, and a value that does not decode at all is not one value.
  */
 export function decodeExact<T>(codec: Codec<T>, bytes: Uint8Array): T | null {
     try {
@@ -69,7 +77,10 @@ export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
     return true;
 }
 
-const strict = new TextDecoder("utf-8", { fatal: true });
+// `ignoreBOM` keeps a leading U+FEFF as part of the text, as Rust's `String`
+// decode does. Without it a name behind a byte-order mark would be three bytes
+// shorter here than in the core, and the 64-byte rule would disagree.
+const strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** `bytes` as a string, or `null` when they are not valid UTF-8. */
 export function utf8OrNull(bytes: Uint8Array): string | null {

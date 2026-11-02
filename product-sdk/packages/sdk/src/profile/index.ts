@@ -5,28 +5,32 @@
  * under their dotNS name.
  *
  * A profile is one dotNS text record, `profile`, holding a SCALE
- * `ProfileRecord` in base64: an avatar, a display name, pinned NFTs and the
- * feeds the profile points at. Owning the name is the authenticity. The
- * shapes mirror `truapi::v01::profile` in the host core, which reads the same
- * record for hosts; a product reads it through here.
+ * `ProfileRecord` in base64: a list of entries, each a length-prefixed byte
+ * string that starts with the entry's variant index. Owning the name is the
+ * authenticity. The envelope and the `Avatar` entry are fixed by the RFC
+ * "Core-resolved public profiles" in host-rust-core, which the core decodes
+ * with for hosts; the `Name`, `Nft` and `Feed` entries are proposed here, and
+ * {@link PROFILE_ENTRY_INDEX} is the table where the next index is claimed.
  *
  * Four reads, all read-only:
  *
  *   - `getProfile(label, opts)` finds and decodes the record, answering
- *     `ok(profile)`, `ok(null)` for a name with no readable profile, or `err`
- *     when the chain could not be asked. Keep the last two apart: the first
- *     clears a cached profile, the second keeps it.
+ *     `ok({ tag: "Found", profile })`, `ok({ tag: "NoProfile" })` for a name
+ *     with no readable profile, or `err` when the chain could not be asked.
+ *     Keep the last two apart: the first clears a cached profile, the second
+ *     keeps it.
  *   - `decodeProfileRecord(text)` is the decoder alone, for a record already
  *     in hand.
  *   - `loadAvatar(avatar, manager)` fetches the avatar bytes through the host's
- *     preimage lookup and keeps them only if they hash to the CID. Never a
- *     gateway.
+ *     preimage lookup and keeps them only if they hash to the CID and are
+ *     within the RFC's bound. Never a gateway.
  *   - `getPinnedNfts(chain, nfts)` confirms each pinned NFT against
  *     `Scarcity.Instances` and `getInstanceDisplays` at one block.
  *
  * Feeds are returned as data and not subscribed to; the mood feed comes in a
  * later phase. Nothing here signs or writes: the record's writer is the
- * product that owns the name.
+ * product that owns the name, and a writer keeps every entry it does not
+ * understand.
  *
  * @packageDocumentation
  */
@@ -39,10 +43,8 @@ export { ProfileError } from "./errors.js";
 export type { ProfileErrorReason } from "./errors.js";
 export {
     PROFILE_AVATAR_FORMATS,
-    PROFILE_ENTRY_AVATAR,
-    PROFILE_ENTRY_FEED,
-    PROFILE_ENTRY_NAME,
-    PROFILE_ENTRY_NFT,
+    PROFILE_AVATAR_MAX_BYTES,
+    PROFILE_ENTRY_INDEX,
     PROFILE_NAME_MAX_BYTES,
     PROFILE_RECORD_MAX_BYTES,
     PROFILE_TEXT_RECORD_KEY,
@@ -56,12 +58,13 @@ export type {
     PinnedNftsResult,
     ProfileAvatar,
     ProfileAvatarFormat,
-    ProfileEntry,
+    ProfileEntryName,
     ProfileFeed,
+    ProfileLookup,
     ProfileNft,
     ProfileNftsChain,
-    ProfileRecord,
     PublicProfile,
+    UnknownEntry,
 } from "./types.js";
 
 // The inputs the lookup shares with every other dotNS read.

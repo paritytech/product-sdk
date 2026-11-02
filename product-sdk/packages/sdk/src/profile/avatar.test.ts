@@ -10,6 +10,7 @@ import { artworkAddress } from "@parity/product-sdk-nfts";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { loadAvatar } from "./avatar.js";
+import { PROFILE_AVATAR_MAX_BYTES } from "./types.js";
 
 const BYTES = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]);
 const DIGEST = `0x${bytesToHex(blake2b256(BYTES))}` as const;
@@ -53,6 +54,23 @@ describe("loadAvatar", () => {
         expect(
             await loadAvatar({ cid: CID, format: "webp" }, manager, { timeoutMs: 20 }),
         ).toBeNull();
+    });
+
+    test("bytes over the RFC's bound are no avatar, even when they hash to the CID", async () => {
+        const big = new Uint8Array(PROFILE_AVATAR_MAX_BYTES + 1).fill(0x42);
+        const digest = `0x${bytesToHex(blake2b256(big))}` as const;
+        const cid = artworkAddress({ hex: digest, text: null })?.cid as string;
+        const manager = await managerWith({ [digest]: big });
+        expect(await loadAvatar({ cid, format: "png" }, manager)).toBeNull();
+        // One byte fewer is within the bound and comes back.
+        const fits = big.subarray(0, PROFILE_AVATAR_MAX_BYTES);
+        const fitsDigest = `0x${bytesToHex(blake2b256(fits))}` as const;
+        const fitsCid = artworkAddress({ hex: fitsDigest, text: null })?.cid as string;
+        dispose?.();
+        const manager2 = await managerWith({ [fitsDigest]: fits });
+        expect((await loadAvatar({ cid: fitsCid, format: "png" }, manager2))?.bytes).toHaveLength(
+            PROFILE_AVATAR_MAX_BYTES,
+        );
     });
 
     test("bytes that do not hash to the CID are no avatar", async () => {

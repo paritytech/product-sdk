@@ -8,9 +8,20 @@
  */
 import type { PreimageManager } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
-import { artworkAddress, getVerifiedArtwork, preimageSource } from "@parity/product-sdk-nfts";
+import {
+    type ArtworkSource,
+    artworkAddress,
+    getVerifiedArtwork,
+    preimageSource,
+} from "@parity/product-sdk-nfts";
 
-import type { AvatarMimeType, LoadedAvatar, ProfileAvatar, ProfileAvatarFormat } from "./types.js";
+import {
+    type AvatarMimeType,
+    type LoadedAvatar,
+    PROFILE_AVATAR_MAX_BYTES,
+    type ProfileAvatar,
+    type ProfileAvatarFormat,
+} from "./types.js";
 
 const log = createLogger("profile");
 
@@ -47,9 +58,10 @@ export interface LoadAvatarOptions {
  * The MIME type is the one the record declares; the bytes are never sniffed.
  *
  * `null` is "not this time": the host had no bytes under that key within the
- * timeout, answered bytes that do not hash to the CID, or the CID is not a
- * raw blake2b-256 Bulletin CID at all. None of those makes the profile
- * failed; the name and the CID still stand, and the next call asks again.
+ * timeout, answered bytes that do not hash to the CID or are over
+ * {@link PROFILE_AVATAR_MAX_BYTES}, or the CID is not a raw blake2b-256
+ * Bulletin CID at all. None of those makes the profile failed; the name and
+ * the CID still stand, and the next call asks again.
  *
  * @example
  * ```ts
@@ -71,12 +83,24 @@ export async function loadAvatar(
         log.debug("the avatar CID is not a Bulletin preimage CID", { cid: avatar.cid });
         return null;
     }
+    const source = preimageSource(manager, options.timeoutMs ?? DEFAULT_AVATAR_TIMEOUT_MS);
+    // The RFC refuses an avatar over the bound. The lookup delivers the whole
+    // value either way, so the bound is applied to what came back, before the
+    // bytes are hashed, and an oversized answer reads as missing.
+    const bounded: ArtworkSource = async (target, signal) => {
+        const bytes = await source(target, signal);
+        if (bytes !== null && bytes.length > PROFILE_AVATAR_MAX_BYTES) {
+            log.debug("the avatar is over the size bound; treating it as missing", {
+                cid: avatar.cid,
+                bytes: bytes.length,
+            });
+            return null;
+        }
+        return bytes;
+    };
     const art = await getVerifiedArtwork(
         { hex: address.digest, text: avatar.cid },
-        {
-            source: preimageSource(manager, options.timeoutMs ?? DEFAULT_AVATAR_TIMEOUT_MS),
-            signal: options.signal,
-        },
+        { source: bounded, signal: options.signal },
     );
     if (!art.ok) {
         log.warn("the avatar fetch failed", { cid: avatar.cid, error: art.error.message });

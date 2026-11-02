@@ -18,9 +18,13 @@ import { getProfile, isAcceptableProfileLabel, normalizeProfileLabel } from "./l
 const ZERO = "0x0000000000000000000000000000000000000000";
 const CONTENT_RESOLVER = "0x3333333333333333333333333333333333333333";
 
-// devdevdev.01.paseo's current record: avatar (cid, webp) + name "devdev".
+// The record `record.test.ts` pins: avatar (cid, webp) + name "Alice".
 const RECORD =
+    "CAUBAPhiYWZrMmJ6YWNlY3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YydwIcARRBbGljZQ==";
+// devdevdev.01.paseo's record in the layout that preceded the RFC: not a profile.
+const PRE_RFC_RECORD =
     "CBhhdmF0YXIBAfhiYWZrMmJ6YWNlYnRtdW41Znk2NjNkdmZ3eWMzMzZjeHdkbGhtc2VraTNtanNlazZ3bXN5Z3R2ZjJuYjRlZwIQbmFtZRhkZXZkZXY=";
+const NO_PROFILE = { ok: true, value: { tag: "NoProfile" } };
 
 /** A runtime whose view calls answer from `answers`, keyed by function name. */
 function runtimeWith(answers: Record<string, unknown>) {
@@ -70,8 +74,11 @@ describe("getProfile", () => {
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(true);
         if (r.ok) {
-            expect(r.value?.name).toBe("devdev");
-            expect(r.value?.avatar?.format).toBe("webp");
+            expect(r.value.tag).toBe("Found");
+            if (r.value.tag === "Found") {
+                expect(r.value.profile.name).toBe("Alice");
+                expect(r.value.profile.avatar?.format).toBe("webp");
+            }
         }
         expect(calls(runtime)).toEqual([
             `resolver@${at(DOTNS_ADDRESSES.registry)}`,
@@ -110,7 +117,7 @@ describe("getProfile", () => {
     test("no resolver is no profile, and text is never asked for", async () => {
         const runtime = runtimeWith({ resolver: ZERO, text: RECORD });
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
-        expect(r).toEqual({ ok: true, value: null });
+        expect(r).toEqual(NO_PROFILE);
         expect(calls(runtime)).toEqual([`resolver@${at(DOTNS_ADDRESSES.registry)}`]);
     });
 
@@ -121,7 +128,7 @@ describe("getProfile", () => {
             text: fakeDryRunResult({ revert: true }),
         });
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
-        expect(r).toEqual({ ok: true, value: null });
+        expect(r).toEqual(NO_PROFILE);
         expect(calls(runtime)).toEqual([
             `resolver@${at(DOTNS_ADDRESSES.registry)}`,
             `text@${at(DOTNS_ADDRESSES.reverseResolver)}`,
@@ -130,19 +137,13 @@ describe("getProfile", () => {
 
     test("an empty record is no profile", async () => {
         const runtime = runtimeWith({ resolver: CONTENT_RESOLVER, text: "" });
-        expect(await getProfile("alice", { runtime, tld: DOT_TLD })).toEqual({
-            ok: true,
-            value: null,
-        });
+        expect(await getProfile("alice", { runtime, tld: DOT_TLD })).toEqual(NO_PROFILE);
     });
 
-    test("a record that does not decode is no profile", async () => {
-        for (const text of ["not base64!", "AAAA", "QQ=="]) {
+    test("a record that does not decode is no profile, the pre-RFC layout included", async () => {
+        for (const text of ["not base64!", "AAAA", "QQ==", PRE_RFC_RECORD]) {
             const runtime = runtimeWith({ resolver: CONTENT_RESOLVER, text });
-            expect(await getProfile("alice", { runtime, tld: DOT_TLD })).toEqual({
-                ok: true,
-                value: null,
-            });
+            expect(await getProfile("alice", { runtime, tld: DOT_TLD })).toEqual(NO_PROFILE);
         }
     });
 

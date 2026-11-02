@@ -1,52 +1,60 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The decoder against the bytes the core's encoder pins, and against the two
-// real records Seity wrote on Paseo Next. Every vector is a constant here, the
-// repo's convention: `src` ships to npm, so there is no fixture directory.
+// The decoder against pinned bytes on the RFC's layout, and against the records
+// written before it, which must read as no profile. Every vector is a constant
+// here, the repo's convention: `src` ships to npm, so there is no fixture
+// directory. The pinned hex is what Seity's `profile-core` writes for the same
+// records (`profile-core/test/profile-envelope.test.ts`); the core's own
+// encoder, once it exists on this layout, should reproduce index 0's bytes.
 import { describe, expect, test } from "vitest";
 
 import {
     profileAvatarCodec,
     profileFeedCodec,
+    profileNameCodec,
     profileNftCodec,
     profileRecordCodec,
 } from "./codec.js";
 import { decodeBase64Strict, decodeProfileRecord } from "./record.js";
-import { PROFILE_RECORD_MAX_BYTES } from "./types.js";
-
-// `profile.rs` `VECTOR_HEX`: { avatar: (CID, webp), name: "Alice" }, where the
-// CID is raw/blake2b-256 of 0xab × 32.
-const RUST_VECTOR_HEX =
-    "08186176617461720101f86261666b32627a616365637632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f76327702106e616d6514416c696365";
-// `runtime/public_profile.rs` `VECTOR_BASE64`: the same record, as the text record carries it.
-const RUST_VECTOR_BASE64 =
-    "CBhhdmF0YXIBAfhiYWZrMmJ6YWNlY3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YydwIQbmFtZRRBbGljZQ==";
-const RUST_VECTOR_CID = "bafk2bzacecv2xk5lvov2xk5lvov2xk5lvov2xk5lvov2xk5lvov2xk5lvov2w";
-
-// devdevdev.01.paseo, written after Seity PR 28: avatar (cid, webp) + name "devdev"; 86 bytes.
-const REAL_CURRENT =
-    "CBhhdmF0YXIBAfhiYWZrMmJ6YWNlYnRtdW41Znk2NjNkdmZ3eWMzMzZjeHdkbGhtc2VraTNtanNlazZ3bXN5Z3R2ZjJuYjRlZwIQbmFtZRhkZXZkZXY=";
-const REAL_CURRENT_CID = "bafk2bzacebtmun5fy663dvfwyc336cxwdlhmseki3mjsek6wmsygtvf2nb4eg";
-// The same name before PR 28: the avatar payload is the bare CID string; 83 bytes.
-const REAL_OLD =
-    "CBhhdmF0YXL4YmFmazJiemFjZWNpYWx4dWlnb2Y3cmlrNnh6ZWN1d21wZ2RvZDNoYWVmMnB1dzZ5YWJtYndra3lsZ2tlN3EQbmFtZRhkZXZkZXY=";
+import { PROFILE_ENTRY_INDEX, PROFILE_RECORD_MAX_BYTES } from "./types.js";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (b) => Number.parseInt(b, 16));
+const toHex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 
-/** Encode a record from `[kind, payload]` pairs, as the writer does. */
-function record(entries: Array<[string, Uint8Array]>): Uint8Array {
-    return profileRecordCodec.enc({
-        entries: entries.map(([kind, payload]) => ({ kind: utf8(kind), payload })),
-    });
-}
+/** One entry as the wrapper carries it: the variant index, then the payload. */
+const entry = (index: number, payload: Uint8Array) => new Uint8Array([index, ...payload]);
+/** A record from its entries, base64, as the text record carries it. */
+const record = (entries: Uint8Array[]) => base64(profileRecordCodec.enc(entries));
 
+const CID = "bafk2bzacecv2xk5lvov2xk5lvov2xk5lvov2xk5lvov2xk5lvov2xk5lvov2w";
 const avatar = (cid: string, format: number) => profileAvatarCodec.enc({ cid: utf8(cid), format });
+const name = (text: string) => profileNameCodec.enc(utf8(text));
 const PURSE = `0x${"ab".repeat(32)}` as const;
-const TOPIC = `0x${"01".repeat(32)}` as const;
-const SIGNER = `0x${"02".repeat(32)}` as const;
+const TOPIC = `0x${"11".repeat(32)}` as const;
+const SIGNER = `0x${"22".repeat(32)}` as const;
+
+// { Avatar(CID, webp), Name("Alice") }: compact(2); then each entry as a
+// length-prefixed byte string, index byte first. The avatar entry is 65 bytes
+// (index, compact(62), the CID, the format), so its prefix is the two-byte
+// compact 0x0105; the name entry is 7 (index, compact(5), "Alice").
+const VECTOR_HEX =
+    "08050100f86261666b32627a616365637632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f763277021c0114416c696365";
+const VECTOR_BASE64 =
+    "CAUBAPhiYWZrMmJ6YWNlY3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YydwIcARRBbGljZQ==";
+
+// Records written before the RFC moved to codec indices (`Vec<{ kind: String,
+// payload: Vec<u8> }>`), both by Seity on Paseo Next for devdevdev.01.paseo.
+// Neither is a profile any more; the next publish replaces them.
+const PRE_RFC_CURRENT =
+    "CBhhdmF0YXIBAfhiYWZrMmJ6YWNlYnRtdW41Znk2NjNkdmZ3eWMzMzZjeHdkbGhtc2VraTNtanNlazZ3bXN5Z3R2ZjJuYjRlZwIQbmFtZRhkZXZkZXY=";
+const PRE_RFC_OLD =
+    "CBhhdmF0YXL4YmFmazJiemFjZWNpYWx4dWlnb2Y3cmlrNnh6ZWN1d21wZ2RvZDNoYWVmMnB1dzZ5YWJtYndra3lsZ2tlN3EQbmFtZRhkZXZkZXY=";
+// The string-kind vector the pre-RFC Rust pinned, for the same reason.
+const PRE_RFC_RUST_VECTOR_HEX =
+    "08186176617461720101f86261666b32627a616365637632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f76327702106e616d6514416c696365";
 
 function unwrap(text: string) {
     const r = decodeProfileRecord(text);
@@ -61,7 +69,7 @@ function reason(text: string) {
 
 describe("decodeBase64Strict", () => {
     test("decodes standard base64 with padding", () => {
-        expect(decodeBase64Strict(RUST_VECTOR_BASE64)).toEqual(hex(RUST_VECTOR_HEX));
+        expect(decodeBase64Strict(VECTOR_BASE64)).toEqual(hex(VECTOR_HEX));
         expect(decodeBase64Strict("")).toEqual(new Uint8Array());
         expect(decodeBase64Strict("QQ==")).toEqual(utf8("A"));
     });
@@ -77,131 +85,203 @@ describe("decodeBase64Strict", () => {
 });
 
 describe("decodeProfileRecord", () => {
-    test("decodes the bytes the core's writer pins", () => {
-        const profile = unwrap(RUST_VECTOR_BASE64);
-        expect(profile).toEqual({
-            avatar: { cid: RUST_VECTOR_CID, format: "webp" },
+    test("pins the bytes of the RFC layout and decodes them", () => {
+        const encoded = profileRecordCodec.enc([
+            entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 2)),
+            entry(PROFILE_ENTRY_INDEX.name, name("Alice")),
+        ]);
+        expect(toHex(encoded)).toBe(VECTOR_HEX);
+        expect(base64(encoded)).toBe(VECTOR_BASE64);
+        expect(unwrap(VECTOR_BASE64)).toEqual({
+            avatar: { cid: CID, format: "webp" },
             name: "Alice",
             nfts: [],
             feeds: [],
             unknown: [],
         });
-        expect(base64(hex(RUST_VECTOR_HEX))).toBe(RUST_VECTOR_BASE64);
     });
 
-    test("reads the real record in its current shape", () => {
-        const profile = unwrap(REAL_CURRENT);
-        expect(profile.avatar).toEqual({ cid: REAL_CURRENT_CID, format: "webp" });
-        expect(profile.name).toBe("devdev");
+    test("pins the nft payload: (instance u64, collection u32, item u32, purse [u8; 32]), 48 bytes", () => {
+        const pin = { instance: 2n ** 40n + 7n, collection: 3, item: 258, purse: PURSE };
+        const encoded = profileNftCodec.enc(pin);
+        expect(toHex(encoded)).toBe(`0700000000010000030000000201000${"0"}${"ab".repeat(32)}`);
+        expect(encoded).toHaveLength(48);
+        expect(unwrap(record([entry(PROFILE_ENTRY_INDEX.nft, encoded)])).nfts).toEqual([pin]);
     });
 
-    test("reads the real record in its old shape as having no avatar", () => {
-        // The payload is the bare CID string. Read as a `(cid, format)` tuple, its
-        // first byte is a compact length far past the payload, so it is malformed
-        // and skipped. No fallback: the writer moved on, and so does the reader.
-        const profile = unwrap(REAL_OLD);
+    test("pins the feed payload: (kind String, topic [u8; 32], signer [u8; 32])", () => {
+        const feed = { kind: "mood", topic: TOPIC, signer: SIGNER };
+        const encoded = profileFeedCodec.enc({ ...feed, kind: utf8(feed.kind) });
+        expect(toHex(encoded)).toBe(`106d6f6f64${"11".repeat(32)}${"22".repeat(32)}`);
+        expect(unwrap(record([entry(PROFILE_ENTRY_INDEX.feed, encoded)])).feeds).toEqual([feed]);
+    });
+
+    test("maps every format index; an unknown one keeps the entry and the next avatar wins", () => {
+        for (const [index, format] of [
+            [0, "png"],
+            [1, "jpeg"],
+            [2, "webp"],
+        ] as const) {
+            const profile = unwrap(record([entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, index))]));
+            expect(profile.avatar?.format).toBe(format);
+        }
+        const odd = entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 9));
+        const profile = unwrap(record([odd, entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 1))]));
+        expect(profile.avatar).toEqual({ cid: CID, format: "jpeg" });
+        expect(profile.unknown).toEqual([{ bytes: odd }]);
+    });
+
+    test("an avatar payload with trailing bytes, or a non-UTF-8 CID, is kept as unknown", () => {
+        const trailing = entry(PROFILE_ENTRY_INDEX.avatar, new Uint8Array([...avatar(CID, 2), 0]));
+        const badCid = entry(
+            PROFILE_ENTRY_INDEX.avatar,
+            profileAvatarCodec.enc({ cid: new Uint8Array([0xff, 0xfe]), format: 2 }),
+        );
+        const profile = unwrap(record([trailing, badCid]));
         expect(profile.avatar).toBeNull();
-        expect(profile.name).toBe("devdev");
+        expect(profile.unknown).toEqual([{ bytes: trailing }, { bytes: badCid }]);
+    });
+
+    test("a CID that is not a Bulletin CID still decodes as the avatar; the fetch is where it fails", () => {
+        // The RFC types the CID as a plain String, so the core decodes any text
+        // and two readers of one record agree on which entry is the avatar.
+        const dagPb = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+        const profile = unwrap(
+            record([
+                entry(PROFILE_ENTRY_INDEX.avatar, avatar(dagPb, 0)),
+                entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 2)),
+            ]),
+        );
+        expect(profile.avatar).toEqual({ cid: dagPb, format: "png" });
         expect(profile.unknown).toEqual([]);
     });
 
-    test("maps every format index, and an unknown one to no avatar", () => {
-        expect(
-            unwrap(base64(record([["avatar", avatar(RUST_VECTOR_CID, 0)]]))).avatar?.format,
-        ).toBe("png");
-        expect(
-            unwrap(base64(record([["avatar", avatar(RUST_VECTOR_CID, 1)]]))).avatar?.format,
-        ).toBe("jpeg");
-        expect(
-            unwrap(base64(record([["avatar", avatar(RUST_VECTOR_CID, 2)]]))).avatar?.format,
-        ).toBe("webp");
-        const unknown = unwrap(
-            base64(
-                record([
-                    ["avatar", avatar(RUST_VECTOR_CID, 9)],
-                    ["name", utf8("A")],
-                ]),
-            ),
-        );
-        expect(unknown.avatar).toBeNull();
-        expect(unknown.name).toBe("A");
-    });
-
-    test("an avatar payload with trailing bytes, or a non-UTF-8 CID, is no avatar", () => {
-        const trailing = new Uint8Array([...avatar(RUST_VECTOR_CID, 2), 0]);
-        expect(unwrap(base64(record([["avatar", trailing]]))).avatar).toBeNull();
-        const badCid = profileAvatarCodec.enc({ cid: new Uint8Array([0xff, 0xfe]), format: 2 });
-        expect(unwrap(base64(record([["avatar", badCid]]))).avatar).toBeNull();
-    });
-
-    test("a name over 64 bytes or not UTF-8 is no name; 64 bytes of UTF-8 is", () => {
-        expect(unwrap(base64(record([["name", new Uint8Array(65).fill(0x78)]]))).name).toBeNull();
-        expect(unwrap(base64(record([["name", new Uint8Array([0xff, 0xfe])]]))).name).toBeNull();
-        expect(unwrap(base64(record([["name", utf8("é".repeat(32))]]))).name).toBe("é".repeat(32));
-    });
-
-    test("unknown kinds are kept and the first valid of a kind wins", () => {
-        const second = avatar(RUST_VECTOR_CID, 1);
+    test("the first non-empty name of at most 64 bytes wins; an empty or longer one is known and ignored", () => {
         const profile = unwrap(
-            base64(
-                record([
-                    ["mood", new Uint8Array([1, 2, 3])],
-                    ["avatar", utf8("not a tuple")],
-                    ["avatar", second],
-                    ["name", utf8("First")],
-                    ["name", utf8("Second")],
-                ]),
-            ),
+            record([
+                entry(PROFILE_ENTRY_INDEX.name, name("")),
+                entry(PROFILE_ENTRY_INDEX.name, name("x".repeat(65))),
+                entry(PROFILE_ENTRY_INDEX.name, name("é".repeat(32))),
+                entry(PROFILE_ENTRY_INDEX.name, name("Second")),
+            ]),
         );
-        expect(profile.avatar).toEqual({ cid: RUST_VECTOR_CID, format: "jpeg" });
-        expect(profile.name).toBe("First");
-        expect(profile.unknown).toEqual([{ kind: "mood", payload: new Uint8Array([1, 2, 3]) }]);
+        expect(profile.name).toBe("é".repeat(32));
+        expect(profile.unknown).toEqual([]);
     });
 
-    test("every nft and feed that decodes is kept in order; a malformed one is skipped", () => {
+    test("a name that is not UTF-8, or has trailing bytes, is kept as unknown", () => {
+        const notUtf8 = entry(
+            PROFILE_ENTRY_INDEX.name,
+            profileNameCodec.enc(new Uint8Array(70).fill(0xff)),
+        );
+        const trailing = entry(PROFILE_ENTRY_INDEX.name, new Uint8Array([...name("A"), 0]));
+        // A SCALE String carries its own length: bare bytes, the pre-RFC form, are not one.
+        const bare = entry(PROFILE_ENTRY_INDEX.name, utf8("Alice"));
+        const profile = unwrap(record([notUtf8, trailing, bare]));
+        expect(profile.name).toBeNull();
+        expect(profile.unknown).toEqual([{ bytes: notUtf8 }, { bytes: trailing }, { bytes: bare }]);
+    });
+
+    test("a leading byte-order mark is part of the name and counts toward the bound, as in Rust", () => {
+        const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
+        const short = profileNameCodec.enc(new Uint8Array([...bom, ...utf8("A")]));
+        expect(unwrap(record([entry(PROFILE_ENTRY_INDEX.name, short)])).name).toBe("﻿A");
+        // 62 ASCII bytes behind the mark is 65 bytes: over the bound, so no name.
+        const long = profileNameCodec.enc(
+            new Uint8Array([...bom, ...new Uint8Array(62).fill(0x41)]),
+        );
+        expect(unwrap(record([entry(PROFILE_ENTRY_INDEX.name, long)])).name).toBeNull();
+    });
+
+    test("an entry with an unknown index is kept in place, and the first valid of a kind wins", () => {
+        const future = entry(9, new Uint8Array([1, 2, 3]));
+        const profile = unwrap(
+            record([
+                future,
+                entry(PROFILE_ENTRY_INDEX.avatar, utf8("not a tuple")),
+                entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 1)),
+                entry(PROFILE_ENTRY_INDEX.name, name("First")),
+                entry(PROFILE_ENTRY_INDEX.name, name("Second")),
+            ]),
+        );
+        expect(profile.avatar).toEqual({ cid: CID, format: "jpeg" });
+        expect(profile.name).toBe("First");
+        expect(profile.unknown).toEqual([
+            { bytes: future },
+            { bytes: entry(PROFILE_ENTRY_INDEX.avatar, utf8("not a tuple")) },
+        ]);
+    });
+
+    test("an empty entry has no index and is kept as unknown", () => {
+        const empty = new Uint8Array(0);
+        expect(unwrap(record([empty])).unknown).toEqual([{ bytes: empty }]);
+    });
+
+    test("every nft and feed that decodes is kept in order; one that does not is unknown", () => {
         const nft = (instance: bigint, collection: number, item: number) =>
             profileNftCodec.enc({ instance, collection, item, purse: PURSE });
         const feed = profileFeedCodec.enc({ kind: utf8("mood"), topic: TOPIC, signer: SIGNER });
+        const shortNft = entry(PROFILE_ENTRY_INDEX.nft, new Uint8Array([1, 2, 3]));
+        const longFeed = entry(PROFILE_ENTRY_INDEX.feed, new Uint8Array([...feed, 0]));
         const profile = unwrap(
-            base64(
-                record([
-                    ["nft", nft(7n, 3, 9)],
-                    ["nft", new Uint8Array([1, 2, 3])],
-                    ["nft", nft(2n ** 64n - 1n, 0, 0)],
-                    ["feed", feed],
-                    ["feed", new Uint8Array([...feed, 0])],
-                ]),
-            ),
+            record([
+                entry(PROFILE_ENTRY_INDEX.nft, nft(7n, 3, 9)),
+                shortNft,
+                entry(PROFILE_ENTRY_INDEX.nft, nft(2n ** 64n - 1n, 0, 0)),
+                entry(PROFILE_ENTRY_INDEX.feed, feed),
+                longFeed,
+            ]),
         );
         expect(profile.nfts).toEqual([
             { instance: 7n, collection: 3, item: 9, purse: PURSE },
             { instance: 2n ** 64n - 1n, collection: 0, item: 0, purse: PURSE },
         ]);
         expect(profile.feeds).toEqual([{ kind: "mood", topic: TOPIC, signer: SIGNER }]);
+        expect(profile.unknown).toEqual([{ bytes: shortNft }, { bytes: longFeed }]);
     });
 
     test("refuses what is not a record", () => {
-        const vector = hex(RUST_VECTOR_HEX);
+        const vector = hex(VECTOR_HEX);
         expect(reason(base64(new Uint8Array([...vector, 0])))).toBe("Malformed"); // trailing byte
         expect(reason(base64(vector.subarray(0, vector.length - 1)))).toBe("Malformed"); // truncated
         expect(reason(base64(new Uint8Array()))).toBe("Malformed"); // empty
         expect(reason("not base64!")).toBe("NotBase64");
         expect(reason("QQ=")).toBe("NotBase64");
-        const big = record([["x", new Uint8Array(PROFILE_RECORD_MAX_BYTES)]]);
+        const big = profileRecordCodec.enc([entry(9, new Uint8Array(PROFILE_RECORD_MAX_BYTES))]);
         expect(big.length).toBeGreaterThan(PROFILE_RECORD_MAX_BYTES);
         expect(reason(base64(big))).toBe("TooLarge");
-        // A kind that is not UTF-8 fails the core's `String` decode, so the whole
-        // record is malformed rather than an unknown kind.
-        const badKind = profileRecordCodec.enc({
-            entries: [{ kind: new Uint8Array([0xff]), payload: new Uint8Array() }],
-        });
-        expect(reason(base64(badKind))).toBe("Malformed");
+    });
+
+    test("refuses a non-minimal compact length in the envelope, as parity-scale-codec does", () => {
+        const nameEntry = entry(PROFILE_ENTRY_INDEX.name, name("A"));
+        // The entry count 1 in the two-byte form, 0x05 0x00, instead of 0x04.
+        const count = new Uint8Array([0x05, 0x00, nameEntry.length << 2, ...nameEntry]);
+        expect(reason(base64(count))).toBe("Malformed");
+        // The entry's own length prefix in the two-byte form.
+        const length = new Uint8Array([
+            0x04,
+            ((nameEntry.length << 2) | 1) & 0xff,
+            0x00,
+            ...nameEntry,
+        ]);
+        expect(reason(base64(length))).toBe("Malformed");
+        // Inside a payload it makes that entry unknown, never fatal.
+        const inner = entry(PROFILE_ENTRY_INDEX.name, new Uint8Array([0x05, 0x00, 0x41]));
+        expect(unwrap(record([inner])).unknown).toEqual([{ bytes: inner }]);
+    });
+
+    test("a record in the layout that preceded the RFC is not a profile", () => {
+        expect(reason(PRE_RFC_CURRENT)).toBe("Malformed");
+        expect(reason(PRE_RFC_OLD)).toBe("Malformed");
+        expect(reason(base64(hex(PRE_RFC_RUST_VECTOR_HEX)))).toBe("Malformed");
     });
 
     test("exactly 16 KiB is still a record", () => {
-        // One entry: a one-byte entry count, a one-byte kind length plus "x",
-        // a two-byte payload length, and the payload.
-        const encoded = record([["x", new Uint8Array(PROFILE_RECORD_MAX_BYTES - 5)]]);
+        // One entry: a one-byte count, a two-byte length prefix, the index byte
+        // and the payload.
+        const encoded = profileRecordCodec.enc([
+            entry(9, new Uint8Array(PROFILE_RECORD_MAX_BYTES - 4)),
+        ]);
         expect(encoded.length).toBe(PROFILE_RECORD_MAX_BYTES);
         expect(reason(base64(encoded))).toBe("ok");
     });

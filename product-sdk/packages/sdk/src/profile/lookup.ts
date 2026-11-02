@@ -19,11 +19,13 @@ import { DotNsError } from "../identity/dotns-errors.js";
 import { type DotNsTld, namehash, stripSuffix } from "../identity/dotns-namehash.js";
 import { type DotNsClientOptions, isRevert, resolveTld } from "../identity/dotns-registry.js";
 import { decodeProfileRecord } from "./record.js";
-import { PROFILE_TEXT_RECORD_KEY, type PublicProfile } from "./types.js";
+import { PROFILE_TEXT_RECORD_KEY, type ProfileLookup } from "./types.js";
 
 const log = createLogger("profile");
 
 type HexString = `0x${string}`;
+
+const NO_PROFILE: ProfileLookup = { tag: "NoProfile" };
 
 /**
  * The core's `acceptable_label`: non-empty, at most 64 characters, and every
@@ -55,12 +57,13 @@ export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
  *
  * Three answers, the same three the core gives a host:
  *
- *   - `ok(profile)`: the name has a record. Either of `avatar` and `name` may
- *     still be absent.
- *   - `ok(null)`: the name has no record, or none this reader can read. That
- *     covers a name with no resolver, a name still parked on the reverse
- *     resolver (whose `text` reverts), an empty record, and a record that is
- *     not a profile. A caller clears what it had cached.
+ *   - `ok({ tag: "Found", profile })`: the name has a record. Either of
+ *     `avatar` and `name` may still be absent.
+ *   - `ok({ tag: "NoProfile" })`: the name has no record, or none this reader
+ *     can read. That covers a name with no resolver, a name still parked on
+ *     the reverse resolver (whose `text` reverts), an empty record, and a
+ *     record that is not a profile, which includes one written in the layout
+ *     that preceded the RFC. Not a failure: a caller clears what it had cached.
  *   - `err`: the chain could not be reached, or a call failed for another
  *     reason. A caller keeps what it has and asks again later.
  *
@@ -74,14 +77,14 @@ export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
  * const runtime = createContractRuntimeFromClient(chain.raw.assetHub, paseo_asset_hub);
  * const result = await getProfile("alice", { runtime });
  * if (!result.ok) showStale();
- * else if (result.value === null) clearProfile();
- * else render(result.value);
+ * else if (result.value.tag === "NoProfile") clearProfile();
+ * else render(result.value.profile);
  * ```
  */
 export async function getProfile(
     label: string,
     opts: DotNsClientOptions,
-): Promise<Result<PublicProfile | null, DotNsError>> {
+): Promise<Result<ProfileLookup, DotNsError>> {
     const tldRes = await resolveTld(opts);
     if (!tldRes.ok) return tldRes;
     const tld = tldRes.value;
@@ -109,7 +112,7 @@ export async function getProfile(
         // No resolver is no record. The core answers `None` here before it asks
         // for any text.
         const resolverAddr = resolverRes.value;
-        if (typeof resolverAddr !== "string" || isZero(resolverAddr)) return ok(null);
+        if (typeof resolverAddr !== "string" || isZero(resolverAddr)) return ok(NO_PROFILE);
 
         const resolver = contractOf(
             opts.runtime,
@@ -127,7 +130,7 @@ export async function getProfile(
                     label: bare,
                     resolver: resolverAddr,
                 });
-                return ok(null);
+                return ok(NO_PROFILE);
             }
             return err(
                 new DotNsError("RegistryCall", "resolver.text call failed", {
@@ -136,7 +139,7 @@ export async function getProfile(
             );
         }
         const text = typeof textRes.value === "string" ? textRes.value.trim() : "";
-        if (text === "") return ok(null);
+        if (text === "") return ok(NO_PROFILE);
 
         const decoded = decodeProfileRecord(text);
         if (!decoded.ok) {
@@ -145,9 +148,9 @@ export async function getProfile(
                 label: bare,
                 reason: decoded.error.reason,
             });
-            return ok(null);
+            return ok(NO_PROFILE);
         }
-        return ok(decoded.value);
+        return ok({ tag: "Found", profile: decoded.value });
     } catch (cause) {
         return err(
             new DotNsError("RegistryCall", `profile lookup failed for ${JSON.stringify(bare)}`, {
