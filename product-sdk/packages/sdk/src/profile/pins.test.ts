@@ -5,7 +5,11 @@
 // `ItemDefs` for the displays, `Instances` for the owners, one block.
 import { ss58Encode } from "@parity/product-sdk-address";
 import { hexToBytes } from "@parity/product-sdk-crypto";
-import { MAX_INSTANCES_PER_READ, type RawMetadataLayers } from "@parity/product-sdk-nfts";
+import {
+    MAX_INSTANCES_PER_READ,
+    ProductNftsError,
+    type RawMetadataLayers,
+} from "@parity/product-sdk-nfts";
 import { describe, expect, test } from "vitest";
 
 import { ProfileError } from "./errors.js";
@@ -204,6 +208,23 @@ describe("getPinnedNfts", () => {
         expect(blocks()).toBe(1);
         expect(batches).toEqual([]);
         expect(ownerReads).toEqual([]);
+    });
+
+    test("a failed display read is a ChainRead failure with the nfts error as cause", async () => {
+        const boom = new Error("metadata_batch unavailable");
+        const { chain } = fakeChain({ minted: {}, owners: {} });
+        (chain.assetHub.apis.ScarcityApi as { metadata_batch: unknown }).metadata_batch = () =>
+            Promise.reject(boom);
+        const r = await getPinnedNfts(chain, [pin(9n)]);
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+            expect(r.error).toBeInstanceOf(ProfileError);
+            expect(r.error.reason).toBe("ChainRead");
+            // The nfts package's own error rides on `cause`, and the raw failure
+            // one level further down, so a caller can narrow on either.
+            expect(r.error.cause).toBeInstanceOf(ProductNftsError);
+            expect((r.error.cause as ProductNftsError).cause).toBe(boom);
+        }
     });
 
     test("a failed owner read is a ChainRead failure carrying the cause", async () => {

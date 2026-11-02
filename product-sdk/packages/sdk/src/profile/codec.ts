@@ -62,7 +62,8 @@ export function decodeExact<T>(codec: Codec<T>, bytes: Uint8Array): T | null {
     }
 }
 
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+/** Whether two byte strings are equal. Nothing compared here is a secret, so no constant time. */
+export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
     return true;

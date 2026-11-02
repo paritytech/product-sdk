@@ -67,7 +67,8 @@ export async function loadAvatar(
     // digest to fall back on, so a CID that does not parse is `null` here.
     const address = artworkAddress({ hex: "", text: avatar.cid });
     if (address === null || address.multihash !== BLAKE2B_256) {
-        log.warn("the avatar CID is not a Bulletin preimage CID", { cid: avatar.cid });
+        // Debug, not warn: the CID is the name owner's, not the caller's.
+        log.debug("the avatar CID is not a Bulletin preimage CID", { cid: avatar.cid });
         return null;
     }
     const art = await getVerifiedArtwork(

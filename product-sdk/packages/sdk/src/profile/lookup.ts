@@ -140,7 +140,8 @@ export async function getProfile(
 
         const decoded = decodeProfileRecord(text);
         if (!decoded.ok) {
-            log.warn("the profile record does not decode; treating it as none", {
+            // Debug, not warn: the record is the name owner's, not the caller's.
+            log.debug("the profile record does not decode; treating it as none", {
                 label: bare,
                 reason: decoded.error.reason,
             });
