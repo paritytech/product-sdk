@@ -18,6 +18,7 @@
  * raw index and is mapped to a name by the reader, so an index the reader does
  * not know is a failed decode there too, matching `ProfileAvatarFormat`.
  */
+import { publicKeysEqual } from "@parity/product-sdk-address";
 import {
     Bytes,
     type Codec,
@@ -64,17 +65,10 @@ export const profileFeedCodec = Struct({ kind: Bytes(), topic: Hex(32), signer: 
 export function decodeExact<T>(codec: Codec<T>, bytes: Uint8Array): T | null {
     try {
         const value = codec.dec(bytes);
-        return sameBytes(codec.enc(value), bytes) ? value : null;
+        return publicKeysEqual(codec.enc(value), bytes) ? value : null;
     } catch {
         return null;
     }
-}
-
-/** Whether two byte strings are equal. Nothing compared here is a secret, so no constant time. */
-export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-    return true;
 }
 
 // `ignoreBOM` keeps a leading U+FEFF as part of the text, as Rust's `String`

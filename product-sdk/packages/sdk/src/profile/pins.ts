@@ -6,8 +6,7 @@
  * is still so. The displays come from the nfts package, the owner from
  * `Scarcity.Instances`, both at one block.
  */
-import { accountIdBytes } from "@parity/product-sdk-address";
-import { hexToBytes } from "@parity/product-sdk-crypto";
+import { accountIdBytes, publicKeysEqual } from "@parity/product-sdk-address";
 import {
     type FinalizedSnapshot,
     type InstanceDisplay,
@@ -17,7 +16,7 @@ import {
 } from "@parity/product-sdk-nfts";
 import { type Result, err, ok } from "@parity/result";
 
-import { sameBytes } from "./codec.js";
+import { accountIdHexToBytes } from "../identity/dotns.js";
 import { ProfileError } from "./errors.js";
 import type {
     DroppedPin,
@@ -39,7 +38,7 @@ function judge(
     if (display.collection !== nft.collection || display.item !== nft.item) {
         return { nft, reason: "Mismatch" };
     }
-    if (!sameBytes(accountIdBytes(owner), hexToBytes(nft.purse.slice(2)))) {
+    if (!publicKeysEqual(accountIdBytes(owner), accountIdHexToBytes(nft.purse))) {
         return { nft, reason: "Moved" };
     }
     return { nft, display };
