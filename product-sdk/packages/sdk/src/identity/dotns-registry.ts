@@ -104,6 +104,12 @@ export interface DotNsClientOptions {
     reverseResolverAddress?: HexString;
     /** `DotnsResolver` address (writes: setDotNsRecord). Defaults to Paseo AH. */
     resolverAddress?: HexString;
+    /**
+     * `DotnsContentResolver` address, the resolver holding text records. Not
+     * pinned: by default it is read from the protocol registry once per runtime
+     * (see `resolveDotNsContentResolver`). Supply it to skip that read.
+     */
+    contentResolverAddress?: HexString;
     /** `DotnsRegistrarController` address (registration). Defaults to Paseo AH. */
     registrarControllerAddress?: HexString;
     /** `PopRules` address (registration price). Defaults to Paseo AH. */
@@ -204,13 +210,8 @@ export interface SetRecordArgs {
  */
 const tldCache: RuntimeCache<DotNsTld> = new WeakMap();
 
-/**
- * A revert: the contract ran and refused, as opposed to a dispatch failure.
- *
- * @internal Shared with the profile reads, which classify a resolver's `text`
- *   revert the same way this module classifies a quote's.
- */
-export function isRevert(value: unknown): boolean {
+/** A revert: the contract ran and refused, as opposed to a dispatch failure. */
+function isRevert(value: unknown): boolean {
     return (
         typeof value === "object" &&
         value !== null &&

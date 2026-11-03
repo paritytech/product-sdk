@@ -1,45 +1,71 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Find a name's `profile` record: the dotNS walk the core makes in
- * `runtime/public_profile.rs` and `text_record` in `product_manifest.rs`,
- * built on the identity module's TLD, namehash and address resolution.
+ * Find a name's `profile` record: the dotNS walk the host core makes in
+ * `public_profile.rs`, built on the identity module's TLD and address
+ * resolution.
  */
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
 
-import { DOTNS_CONTENT_RESOLVER_ABI, DOTNS_REGISTRY_ABI } from "../identity/dotns-abis.js";
+import { DOTNS_CONTENT_RESOLVER_ABI } from "../identity/dotns-abis.js";
 import {
     contractOf,
-    isZero,
     readOrigin,
-    resolveDotNsAddresses,
+    resolveDotNsContentResolver,
 } from "../identity/dotns-addresses.js";
 import { DotNsError } from "../identity/dotns-errors.js";
 import { type DotNsTld, namehash, stripSuffix } from "../identity/dotns-namehash.js";
-import { type DotNsClientOptions, isRevert, resolveTld } from "../identity/dotns-registry.js";
+import { type DotNsClientOptions, resolveTld } from "../identity/dotns-registry.js";
 import { decodeProfileRecord } from "./record.js";
 import { PROFILE_TEXT_RECORD_KEY, type ProfileLookup } from "./types.js";
 
 const log = createLogger("profile");
 
-type HexString = `0x${string}`;
-
 const NO_PROFILE: ProfileLookup = { tag: "NoProfile" };
 
+/** `MAX_DNS_LABEL_LEN` in the core: the longest DNS label. */
+const MAX_DNS_LABEL_LEN = 63;
+/** `MAX_BASE_LABEL_LEN` in the core: the longest base label the gateway pallet holds. */
+const MAX_BASE_LABEL_LEN = 32;
+
+/** The core's `is_dns_label`: one lowercase label with no edge hyphen. */
+function isDnsLabel(value: string): boolean {
+    return (
+        value.length > 0 &&
+        value.length <= MAX_DNS_LABEL_LEN &&
+        !value.startsWith("-") &&
+        !value.endsWith("-") &&
+        /^[a-z0-9-]+$/.test(value)
+    );
+}
+
 /**
- * The core's `acceptable_label`: non-empty, at most 64 characters, and every
- * dotted part made of lowercase ASCII letters, digits and hyphens. Looser than
- * the registrar's rule for a registration, on purpose: a lite name such as
- * `alice.42` has a two-character container part the registrar would refuse,
- * and it is a name all the same.
+ * The core's `is_dotted_lite_username`: a lite name such as `alice.01`, a stem
+ * of lowercase letters and exactly two digits after one dot, at most 32 bytes
+ * in all, since the gateway pallet keys `LiteLabelOwner` by the dotted label.
+ */
+function isDottedLiteUsername(value: string): boolean {
+    const dot = value.lastIndexOf(".");
+    if (dot < 0) return false;
+    const stem = value.slice(0, dot);
+    const digits = value.slice(dot + 1);
+    return (
+        stem.length > 0 &&
+        stem.length <= MAX_DNS_LABEL_LEN &&
+        /^[a-z]+$/.test(stem) &&
+        /^[0-9]{2}$/.test(digits) &&
+        value.length <= MAX_BASE_LABEL_LEN
+    );
+}
+
+/**
+ * The usernames the core resolves a profile for, `validate_username` in
+ * `public_profile.rs`: a DNS label, or a dotted lite username. The same forms
+ * the identity reader returns, and nothing looser: `alice.1` is not a lite name.
  */
 export function isAcceptableProfileLabel(label: string): boolean {
-    return (
-        label.length > 0 &&
-        label.length <= 64 &&
-        label.split(".").every((part) => /^[a-z0-9-]+$/.test(part))
-    );
+    return isDnsLabel(label) || isDottedLiteUsername(label);
 }
 
 /** `label` trimmed, lower-cased and without a trailing `.<tld>`, as the core prepares it. */
@@ -50,22 +76,28 @@ export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
 /**
  * Read the public profile under a dotNS name.
  *
- * `label` is the name without its TLD, `alice` or `alice.42`; a trailing
+ * `label` is the name without its TLD, `alice` or `alice.01`; a trailing
  * `.<tld>` is tolerated. The TLD comes from the chain through `resolveTld`,
- * and the registry and resolver are reached through the identity module's
- * address resolution, so `opts` is what every other dotNS read takes.
+ * and the content resolver through `resolveDotNsContentResolver`, so `opts` is
+ * what every other dotNS read takes.
+ *
+ * The record is read from the deployment's content resolver, whatever resolver
+ * the name itself points at. A name minted through the gateway stays parked on
+ * the reverse resolver, and its profile is on the content resolver all the
+ * same; the core reads it there, and so does this.
  *
  * Three answers, the same three the core gives a host:
  *
  *   - `ok({ tag: "Found", profile })`: the name has a record. Either of
  *     `avatar` and `name` may still be absent.
  *   - `ok({ tag: "NoProfile" })`: the name has no record, or none this reader
- *     can read. That covers a name with no resolver, a name still parked on
- *     the reverse resolver (whose `text` reverts), an empty record, and a
- *     record that is not a profile, which includes one written in the layout
- *     that preceded the RFC. Not a failure: a caller clears what it had cached.
+ *     can read. That covers a deployment with no content resolver, an empty
+ *     record, and a record that is not a profile, which includes one written
+ *     in the layout that preceded the RFC. Not a failure: a caller clears what
+ *     it had cached.
  *   - `err`: the chain could not be reached, or a call failed for another
- *     reason. A caller keeps what it has and asks again later.
+ *     reason, a `text` call that reverts included. A caller keeps what it has
+ *     and asks again later.
  *
  * Every read is a contract view call through the host-routed chain client,
  * pinned to the best block as the runtime's dry-runs are. Nothing is cached:
@@ -94,46 +126,19 @@ export async function getProfile(
     }
     const node = namehash(`${bare}${tld.suffix}`, tld);
 
-    const addrs = await resolveDotNsAddresses(opts);
-    if (!addrs.ok) return addrs;
+    const resolverRes = await resolveDotNsContentResolver(opts);
+    if (!resolverRes.ok) return resolverRes;
+    // A deployment with no content resolver has no text records, so no profile.
+    if (resolverRes.value === null) return ok(NO_PROFILE);
     const origin = readOrigin(opts);
-    log.debug("getProfile", { label: bare, node, registry: addrs.value.registry });
+    log.debug("getProfile", { label: bare, node, resolver: resolverRes.value });
 
     try {
-        const registry = contractOf(opts.runtime, addrs.value.registry, DOTNS_REGISTRY_ABI);
-        const resolverRes = await registry.resolver.query(node, { origin });
-        if (!resolverRes.success) {
-            return err(
-                new DotNsError("RegistryCall", "registry.resolver call failed", {
-                    cause: resolverRes.value,
-                }),
-            );
-        }
-        // No resolver is no record. The core answers `None` here before it asks
-        // for any text.
-        const resolverAddr = resolverRes.value;
-        if (typeof resolverAddr !== "string" || isZero(resolverAddr)) return ok(NO_PROFILE);
-
-        const resolver = contractOf(
-            opts.runtime,
-            resolverAddr as HexString,
-            DOTNS_CONTENT_RESOLVER_ABI,
-        );
+        const resolver = contractOf(opts.runtime, resolverRes.value, DOTNS_CONTENT_RESOLVER_ABI);
         const textRes = await resolver.text.query(node, PROFILE_TEXT_RECORD_KEY, { origin });
         if (!textRes.success) {
-            // A name still parked on the reverse resolver, or on any resolver
-            // without text records, reverts. That is a name with no profile,
-            // not a failure, and the content resolver is never consulted in
-            // its place.
-            if (isRevert(textRes.value)) {
-                log.debug("resolver has no text records; treating the profile as none", {
-                    label: bare,
-                    resolver: resolverAddr,
-                });
-                return ok(NO_PROFILE);
-            }
             return err(
-                new DotNsError("RegistryCall", "resolver.text call failed", {
+                new DotNsError("RegistryCall", "contentResolver.text call failed", {
                     cause: textRes.value,
                 }),
             );

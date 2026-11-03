@@ -58,6 +58,17 @@ export const DOTNS_REGISTRY_KEYS = {
     popRules: "0x706f7052756c6573000000000000000000000000000000000000000000000000",
 } as const satisfies Record<Exclude<keyof DotNsAddresses, "protocolRegistry">, HexString>;
 
+/**
+ * `bytes32("contentResolver")`: the protocol registry key of
+ * `DotnsContentResolver`, the resolver that holds text records such as a
+ * product's `manifest` and a person's `profile`. Not a member of
+ * {@link DOTNS_REGISTRY_KEYS}, because nothing here pins its address or builds
+ * a call against it: a text-record read resolves it from the chain through
+ * {@link resolveDotNsContentResolver}, as the host core does.
+ */
+export const DOTNS_CONTENT_RESOLVER_KEY: HexString =
+    "0x636f6e74656e745265736f6c7665720000000000000000000000000000000000";
+
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export function isZero(addr: unknown): boolean {
@@ -137,6 +148,45 @@ export async function resolveDotNsAddresses(
         discoverDotNsAddresses(opts),
     );
     return walked.ok ? ok(withOverrides(walked.value, opts)) : walked;
+}
+
+const contentResolverCache: RuntimeCache<HexString | null> = new WeakMap();
+
+/**
+ * The deployment's content resolver, read once per runtime and protocol
+ * registry from `protocolRegistry.get(bytes32("contentResolver"))` and cached:
+ * it is set when the protocol registry initialises and has no setter.
+ * `ok(null)` when the registry holds none, which is a deployment without text
+ * records rather than a failure. `opts.contentResolverAddress` skips the read.
+ *
+ * Read from the chain rather than pinned because a text record lives on this
+ * contract whatever resolver the name itself points at: the host core reads a
+ * person's `profile` straight from it, and `getProfile` does the same.
+ */
+export async function resolveDotNsContentResolver(
+    opts: DotNsClientOptions,
+): Promise<Result<HexString | null, DotNsError>> {
+    if (opts.contentResolverAddress) return ok(opts.contentResolverAddress);
+    const addresses = await resolveDotNsAddresses(opts);
+    if (!addresses.ok) return addresses;
+    const protocolRegistry = addresses.value.protocolRegistry;
+    return cachedPerRuntime(contentResolverCache, opts.runtime, protocolRegistry, async () => {
+        try {
+            const registry = contractOf(
+                opts.runtime,
+                protocolRegistry,
+                DOTNS_PROTOCOL_REGISTRY_ABI,
+            );
+            const res = await registry.get.query(DOTNS_CONTENT_RESOLVER_KEY, {
+                origin: readOrigin(opts),
+            });
+            if (!res.success) return discoveryFailed("get(contentResolver) failed", res.value);
+            const value = res.value;
+            return ok(typeof value === "string" && !isZero(value) ? (value as HexString) : null);
+        } catch (cause) {
+            return discoveryFailed("contentResolver read failed", cause);
+        }
+    });
 }
 
 /**

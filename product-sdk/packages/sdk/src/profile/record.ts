@@ -59,10 +59,11 @@ export function decodeBase64Strict(text: string): Uint8Array | null {
 /**
  * Decode a `profile` text-record value.
  *
- * Pure. The text is standard base64 of a SCALE `ProfileRecord`. A value that
- * is not base64, is over {@link PROFILE_RECORD_MAX_BYTES} before parsing, or
- * is not exactly one record comes back on the `err` channel; `getProfile`
- * treats every one of those as a name with no profile, as the core does.
+ * Pure. The text is standard base64 of a SCALE `ProfileRecord`, trimmed first
+ * as the core's `from_text` trims it. A value that is not base64, is over
+ * {@link PROFILE_RECORD_MAX_BYTES} before parsing, or is not exactly one record
+ * comes back on the `err` channel; `getProfile` treats every one of those as a
+ * name with no profile, as the core does.
  *
  * Within a record that decodes, each entry is read on its own, as the RFC's
  * `WrapperKeepOpaque` reads it: the first `Avatar` whose payload decodes to a
@@ -80,7 +81,7 @@ export function decodeBase64Strict(text: string): Uint8Array | null {
  * ```
  */
 export function decodeProfileRecord(text: string): Result<PublicProfile, ProfileError> {
-    const bytes = decodeBase64Strict(text);
+    const bytes = decodeBase64Strict(text.trim());
     if (bytes === null) {
         return err(new ProfileError("NotBase64", "the profile record is not standard base64"));
     }

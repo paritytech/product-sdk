@@ -30,11 +30,11 @@ const BLAKE2B_256 = 0xb220;
 
 /**
  * How long the host's preimage lookup is given before the avatar is reported
- * missing this time. The core's `AVATAR_CEILING`. A lookup is a subscription
+ * missing this time. The core's `AVATAR_TIMEOUT`. A lookup is a subscription
  * the host answers from its cache or from Bulletin, so a first read can take
  * a while.
  */
-export const DEFAULT_AVATAR_TIMEOUT_MS = 60_000;
+export const DEFAULT_AVATAR_TIMEOUT_MS = 30_000;
 
 /** The MIME type each declared format maps to. */
 export const AVATAR_MIME_TYPES: Record<ProfileAvatarFormat, AvatarMimeType> = {

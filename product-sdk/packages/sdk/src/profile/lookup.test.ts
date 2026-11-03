@@ -2,15 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The dotNS walk through `createFakeContractRuntime`: the real ABI codec, no
-// chain. The TLD is supplied so the walk starts at the registry.
+// chain. The TLD is supplied so the walk starts at the protocol registry's
+// content resolver.
 import { createFakeContractRuntime, fakeDryRunResult } from "@parity/product-sdk-contracts/testing";
 import { describe, expect, test } from "vitest";
 
 import {
     DOTNS_ADDRESSES,
     DOTNS_CONTENT_RESOLVER_ABI,
-    DOTNS_REGISTRY_ABI,
+    DOTNS_PROTOCOL_REGISTRY_ABI,
 } from "../identity/dotns-abis.js";
+import { DOTNS_CONTENT_RESOLVER_KEY } from "../identity/dotns-addresses.js";
 import { DotNsError } from "../identity/dotns-errors.js";
 import { DOT_TLD, namehash } from "../identity/dotns-namehash.js";
 import { getProfile, isAcceptableProfileLabel, normalizeProfileLabel } from "./lookup.js";
@@ -26,12 +28,22 @@ const PRE_RFC_RECORD =
     "CBhhdmF0YXIBAfhiYWZrMmJ6YWNlYnRtdW41Znk2NjNkdmZ3eWMzMzZjeHdkbGhtc2VraTNtanNlazZ3bXN5Z3R2ZjJuYjRlZwIQbmFtZRhkZXZkZXY=";
 const NO_PROFILE = { ok: true, value: { tag: "NoProfile" } };
 
-/** A runtime whose view calls answer from `answers`, keyed by function name. */
+/**
+ * A runtime whose view calls answer from `answers`, keyed by function name.
+ * `get` is the protocol registry's component lookup; it answers the content
+ * resolver for that key and zero for any other, as the real one does.
+ */
 function runtimeWith(answers: Record<string, unknown>) {
     return createFakeContractRuntime({
-        abi: [...DOTNS_REGISTRY_ABI, ...DOTNS_CONTENT_RESOLVER_ABI],
-        onQuery: ({ functionName }) =>
-            functionName && functionName in answers ? answers[functionName] : undefined,
+        abi: [...DOTNS_PROTOCOL_REGISTRY_ABI, ...DOTNS_CONTENT_RESOLVER_ABI],
+        onQuery: ({ functionName, args }) => {
+            if (functionName === "get") {
+                return String(args?.[0]) === DOTNS_CONTENT_RESOLVER_KEY
+                    ? (answers.contentResolver ?? CONTENT_RESOLVER)
+                    : ZERO;
+            }
+            return functionName && functionName in answers ? answers[functionName] : undefined;
+        },
     });
 }
 
@@ -39,24 +51,36 @@ function runtimeWith(answers: Record<string, unknown>) {
 const calls = (runtime: ReturnType<typeof runtimeWith>) =>
     runtime.calls.map((c) => `${c.functionName}@${c.dest.toLowerCase()}`);
 const at = (address: string) => address.toLowerCase();
+const GET = `get@${at(DOTNS_ADDRESSES.protocolRegistry)}`;
+const TEXT = `text@${at(CONTENT_RESOLVER)}`;
 
 describe("label rules", () => {
-    test("accept what the core accepts", () => {
+    test("accept what the core accepts: a DNS label, or a dotted lite username", () => {
         expect(isAcceptableProfileLabel("alice")).toBe(true);
+        expect(isAcceptableProfileLabel("alice01")).toBe(true);
+        expect(isAcceptableProfileLabel("alice-smith")).toBe(true);
+        expect(isAcceptableProfileLabel("a".repeat(63))).toBe(true);
         expect(isAcceptableProfileLabel("alice.42")).toBe(true);
         expect(isAcceptableProfileLabel("devdevdev.01")).toBe(true);
-        expect(isAcceptableProfileLabel("a-b")).toBe(true);
-        expect(isAcceptableProfileLabel("x".repeat(64))).toBe(true);
+        expect(isAcceptableProfileLabel(`${"a".repeat(29)}.01`)).toBe(true); // 32 bytes
     });
 
     test("refuse what the core refuses", () => {
         expect(isAcceptableProfileLabel("")).toBe(false);
-        expect(isAcceptableProfileLabel("x".repeat(65))).toBe(false);
+        expect(isAcceptableProfileLabel("a".repeat(64))).toBe(false);
         expect(isAcceptableProfileLabel("Alice")).toBe(false);
-        expect(isAcceptableProfileLabel("alice.")).toBe(false);
-        expect(isAcceptableProfileLabel(".alice")).toBe(false);
+        expect(isAcceptableProfileLabel("-alice")).toBe(false);
+        expect(isAcceptableProfileLabel("alice-")).toBe(false);
         expect(isAcceptableProfileLabel("al ice")).toBe(false);
         expect(isAcceptableProfileLabel("élan")).toBe(false);
+        // A lite name is a letter stem, one dot, exactly two digits, 32 bytes at most.
+        expect(isAcceptableProfileLabel("alice.1")).toBe(false);
+        expect(isAcceptableProfileLabel("alice.123")).toBe(false);
+        expect(isAcceptableProfileLabel("alice1.01")).toBe(false);
+        expect(isAcceptableProfileLabel("a.b.c")).toBe(false);
+        expect(isAcceptableProfileLabel("alice.")).toBe(false);
+        expect(isAcceptableProfileLabel(".alice")).toBe(false);
+        expect(isAcceptableProfileLabel(`${"a".repeat(30)}.01`)).toBe(false); // 33 bytes
     });
 
     test("normalisation trims, lower-cases and strips the deployment's TLD only", () => {
@@ -67,9 +91,9 @@ describe("label rules", () => {
 });
 
 describe("getProfile", () => {
-    const found = () => runtimeWith({ resolver: CONTENT_RESOLVER, text: RECORD });
+    const found = () => runtimeWith({ text: RECORD });
 
-    test("finds and decodes a record", async () => {
+    test("reads the record from the deployment's content resolver and decodes it", async () => {
         const runtime = found();
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(true);
@@ -80,16 +104,31 @@ describe("getProfile", () => {
                 expect(r.value.profile.avatar?.format).toBe("webp");
             }
         }
-        expect(calls(runtime)).toEqual([
-            `resolver@${at(DOTNS_ADDRESSES.registry)}`,
-            `text@${at(CONTENT_RESOLVER)}`,
-        ]);
+        // The name's own resolver pointer is never consulted.
+        expect(calls(runtime)).toEqual([GET, TEXT]);
+    });
+
+    test("the content resolver is read once per runtime", async () => {
+        const runtime = found();
+        await getProfile("alice", { runtime, tld: DOT_TLD });
+        await getProfile("bob", { runtime, tld: DOT_TLD });
+        expect(calls(runtime)).toEqual([GET, TEXT, TEXT]);
+    });
+
+    test("a supplied content resolver address skips the registry read", async () => {
+        const runtime = found();
+        const r = await getProfile("alice", {
+            runtime,
+            tld: DOT_TLD,
+            contentResolverAddress: CONTENT_RESOLVER,
+        });
+        expect(r.ok && r.value.tag).toBe("Found");
+        expect(calls(runtime)).toEqual([TEXT]);
     });
 
     test("asks for the node of the full name, with a lite name's parts as levels", async () => {
         const runtime = found();
         await getProfile("alice.42", { runtime, tld: DOT_TLD });
-        expect(runtime.calls[0]?.args?.[0]).toBe(namehash("alice.42.dot", DOT_TLD));
         expect(runtime.calls[1]?.args).toEqual([namehash("alice.42.dot", DOT_TLD), "profile"]);
     });
 
@@ -98,12 +137,12 @@ describe("getProfile", () => {
         const suffixed = found();
         await getProfile("alice", { runtime: bare, tld: DOT_TLD });
         await getProfile("Alice.dot", { runtime: suffixed, tld: DOT_TLD });
-        expect(suffixed.calls[0]?.args).toEqual(bare.calls[0]?.args);
+        expect(suffixed.calls[1]?.args).toEqual(bare.calls[1]?.args);
     });
 
     test("an unacceptable label is a failure before any call", async () => {
         const runtime = found();
-        for (const label of ["", "Al ice", "x".repeat(65)]) {
+        for (const label of ["", "Al ice", "x".repeat(64), "alice.1"]) {
             const r = await getProfile(label, { runtime, tld: DOT_TLD });
             expect(r.ok).toBe(false);
             if (!r.ok) {
@@ -114,42 +153,37 @@ describe("getProfile", () => {
         expect(runtime.calls).toHaveLength(0);
     });
 
-    test("no resolver is no profile, and text is never asked for", async () => {
-        const runtime = runtimeWith({ resolver: ZERO, text: RECORD });
+    test("a deployment without a content resolver has no profile, and text is never asked for", async () => {
+        const runtime = runtimeWith({ contentResolver: ZERO, text: RECORD });
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
         expect(r).toEqual(NO_PROFILE);
-        expect(calls(runtime)).toEqual([`resolver@${at(DOTNS_ADDRESSES.registry)}`]);
-    });
-
-    test("a resolver whose text reverts is no profile, not a failure", async () => {
-        // A name registered and never moved off the reverse resolver.
-        const runtime = runtimeWith({
-            resolver: DOTNS_ADDRESSES.reverseResolver,
-            text: fakeDryRunResult({ revert: true }),
-        });
-        const r = await getProfile("alice", { runtime, tld: DOT_TLD });
-        expect(r).toEqual(NO_PROFILE);
-        expect(calls(runtime)).toEqual([
-            `resolver@${at(DOTNS_ADDRESSES.registry)}`,
-            `text@${at(DOTNS_ADDRESSES.reverseResolver)}`,
-        ]);
+        expect(calls(runtime)).toEqual([GET]);
     });
 
     test("an empty record is no profile", async () => {
-        const runtime = runtimeWith({ resolver: CONTENT_RESOLVER, text: "" });
+        const runtime = runtimeWith({ text: "" });
         expect(await getProfile("alice", { runtime, tld: DOT_TLD })).toEqual(NO_PROFILE);
     });
 
     test("a record that does not decode is no profile, the pre-RFC layout included", async () => {
         for (const text of ["not base64!", "AAAA", "QQ==", PRE_RFC_RECORD]) {
-            const runtime = runtimeWith({ resolver: CONTENT_RESOLVER, text });
+            const runtime = runtimeWith({ text });
             expect(await getProfile("alice", { runtime, tld: DOT_TLD })).toEqual(NO_PROFILE);
         }
     });
 
-    test("a text call that fails without a revert is a failure", async () => {
+    test("a text call that reverts is a failure, not an absent record", async () => {
+        // The content resolver has `text`, so a revert is something wrong, as
+        // the core treats it; the reverse-resolver case no longer arises
+        // because the name's own resolver is not consulted.
+        const runtime = runtimeWith({ text: fakeDryRunResult({ revert: true }) });
+        const r = await getProfile("alice", { runtime, tld: DOT_TLD });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
+    });
+
+    test("a text call that fails is a failure", async () => {
         const runtime = runtimeWith({
-            resolver: CONTENT_RESOLVER,
             text: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
         });
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
@@ -157,20 +191,22 @@ describe("getProfile", () => {
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
     });
 
-    test("a resolver call that fails is a failure", async () => {
-        const runtime = runtimeWith({
-            resolver: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
+    test("a content resolver read that fails is a discovery failure", async () => {
+        const runtime = createFakeContractRuntime({
+            abi: DOTNS_PROTOCOL_REGISTRY_ABI,
+            onQuery: () => fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
         });
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
+        if (!r.ok) expect(r.error.reason).toBe("AddressDiscovery");
     });
 
     test("a runtime that throws is a failure carrying the cause", async () => {
         const boom = new Error("socket closed");
         const runtime = createFakeContractRuntime({
-            abi: DOTNS_REGISTRY_ABI,
-            onQuery: () => {
+            abi: [...DOTNS_PROTOCOL_REGISTRY_ABI, ...DOTNS_CONTENT_RESOLVER_ABI],
+            onQuery: ({ functionName }) => {
+                if (functionName === "get") return CONTENT_RESOLVER;
                 throw boom;
             },
         });
