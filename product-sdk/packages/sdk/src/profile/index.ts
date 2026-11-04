@@ -41,25 +41,40 @@
  *   1. `getProfileRecord` for the live text.
  *   2. `submitAvatar(bytes, format, manager)` if the avatar changes: the bytes
  *      go to Bulletin through the host, and the CID comes back.
- *   3. `rewriteProfileRecord(live, patch)` for the new text, with the feed in
+ *   3. `deriveMoodFeed(label, opts, store, deriveEntropy)` for the record's
+ *      mood feed, in every publish: the topic and signer are stable per
+ *      wallet and product, so the entry is the same each time, and it is in
+ *      the record before any mood is set. Its proof needs the statement-store
+ *      allowance, which the product requests before its first publish.
+ *   4. `rewriteProfileRecord(live, patch)` for the new text, with the feed in
  *      the patch. It carries every entry the patch does not name, and refuses
  *      a live record that is not a profile rather than replacing it.
- *   4. The product maps its account in pallet-revive if it never called a
+ *   5. The product maps its account in pallet-revive if it never called a
  *      contract, before preparing: the dry-run that sizes the call runs as
  *      the origin, and an unmapped origin cannot dry-run.
- *   5. `prepareSetProfile(label, text, opts)` for the `setText` call, with
+ *   6. `prepareSetProfile(label, text, opts)` for the `setText` call, with
  *      `opts.origin` the account the registry authorises for the name. It
  *      hands back the text it saw, so the product reads once more and stops
  *      if another writer got there first.
- *   6. The product funds the account for the fee and the record's storage
+ *   7. The product funds the account for the fee and the record's storage
  *      deposit and submits the call with its own signer, waiting for
  *      finality. None of that is the SDK's: who may write and who pays is
  *      the product's to decide.
- *   7. `verifyPublishedProfile(label, text, opts)` once the write is final.
+ *   8. `verifyPublishedProfile(label, text, opts)` once the write is final.
  *
  * An empty text clears the record.
  *
- * Feeds are returned as data and not subscribed to.
+ * Moods: the record's `mood` feed names a statement topic and a signer, and a
+ * mood is one statement there, signed by the host's statement allowance key,
+ * gone a day after it was set. `setMood(feed, mood, store)` sets or clears
+ * it with no record write; `readMood(feed, store)` answers `ok(null)` for no
+ * live mood and `err` when the host could not be read, which is "keep what
+ * was shown", unlike `loadAvatar`'s null; `watchMood(feed, store, onChange)`
+ * keeps answering. The palette, {@link MOOD_KINDS} and
+ * {@link MOOD_INTENSITIES}, is fixed here so every product shows the same
+ * intent for the same bytes; it grows by appending. The store is the host's,
+ * from `getStatementStore()`. Other feed kinds are returned as data and not
+ * subscribed to.
  *
  * @packageDocumentation
  */
@@ -82,6 +97,33 @@ export { getPinnedNfts } from "./pins.js";
 export { rewriteProfileRecord } from "./encode.js";
 export { prepareSetProfile } from "./write.js";
 export type { PreparedProfileWrite } from "./write.js";
+export {
+    deriveMoodFeed,
+    setMood,
+    readMood,
+    watchMood,
+    // The pure parts, for a fixture or a product that reads statements some other way.
+    pickMood,
+    encodeMoodBody,
+    decodeMoodBody,
+    moodExpiry,
+    MOOD_FEED_KIND,
+    MOOD_KINDS,
+    MOOD_INTENSITIES,
+    MOOD_TTL_SECS,
+    DEFAULT_MOOD_READ_TIMEOUT_MS,
+} from "./mood.js";
+export type {
+    DeriveEntropy,
+    Mood,
+    MoodChoice,
+    MoodIntensity,
+    MoodKind,
+    MoodStatement,
+    MoodWatch,
+    ReadMoodOptions,
+    WatchMoodOptions,
+} from "./mood.js";
 export { ProfileError } from "./errors.js";
 export type { ProfileErrorReason } from "./errors.js";
 export {

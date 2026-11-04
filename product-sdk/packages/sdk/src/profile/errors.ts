@@ -13,7 +13,10 @@ export type ProfileErrorReason =
     | "Malformed" // not exactly one SCALE ProfileRecord
     | "ChainRead" // a chain read in getPinnedNfts failed; the cause is attached
     | "InvalidEntry" // a patch value no entry can carry: a bad CID, name, purse, topic or signer
-    | "Storage"; // the host did not store an avatar, or keyed it by something other than its digest
+    | "Storage" // the host did not store an avatar, or keyed it by something other than its digest
+    | "Host" // a host call behind a mood failed, or answered something no mood can use; the cause is attached
+    | "SignerMismatch" // the host signs moods as a key the record's feed does not name: publish from this product first
+    | "Timeout"; // the mood feed's backfill did not finish in time
 
 /** Base class for profile errors. Implements the cross-package {@link SdkError} marker. */
 export class ProfileError extends Error implements SdkError {

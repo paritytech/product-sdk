@@ -51,6 +51,13 @@ export const profileNftCodec = Struct({
 export const profileFeedCodec = Struct({ kind: Bytes(), topic: Hex(32), signer: Hex(32) });
 
 /**
+ * A mood statement's body, `kind u8 | intensity u8 | set_at u64 | ttl_secs u32`,
+ * 14 bytes: the layout Seity's mood feed fixed, which is SCALE for this struct.
+ * Not a record entry; it travels in the statement store.
+ */
+export const moodBodyCodec = Struct({ kind: u8, intensity: u8, setAt: u64, ttlSecs: u32 });
+
+/**
  * Decode `bytes` as exactly one value of `codec`, or `null`.
  *
  * This is the wrapper's rule: `WrapperKeepOpaque` decodes its bytes with

@@ -19,8 +19,10 @@
  * the other supported network, not a hypothetical.
  */
 import type { getChainAPI } from "@parity/product-sdk-chain-client";
+import type { deriveEntropy } from "@parity/product-sdk-host";
 import { expect, test } from "vitest";
 
+import type { DeriveEntropy } from "./mood.js";
 import type { ProfileNftsChain } from "./types.js";
 
 // The false branch must be `false`, not `never`. `never` is assignable to
@@ -39,6 +41,11 @@ type PaseoSatisfiesContract = Assert<PaseoClient extends ProfileNftsChain ? true
 // `@ts-expect-error` would report as unused and the file would fail.
 // @ts-expect-error devnet Asset Hub has no Scarcity pallet
 type DevnetLacksScarcity = Assert<DevnetClient extends ProfileNftsChain ? true : false>;
+
+// The host handle `deriveMoodFeed` takes is written by hand so a double can
+// satisfy it; this holds it against the host package's real `deriveEntropy`,
+// whose error type is narrower than the `Error` the handle accepts.
+type HostDerivesEntropy = Assert<typeof deriveEntropy extends DeriveEntropy ? true : false>;
 
 test("profile chain contract holds against the paseo descriptor", () => {
     // The assertions above are compile-time. This keeps vitest from reporting
