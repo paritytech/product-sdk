@@ -62,6 +62,10 @@ export type Claimant = { tag: "Account"; address: string } | { tag: "Person"; al
  *
  * An `earned` entry with a `null` hash is a block still to come: awarding spills
  * into later blocks, and the credits are not known until that block is built.
+ * A block whose root the claims chain had deleted, once every leaf was spent or
+ * past its deadline, keeps its awards a while longer: those read as `claimed`
+ * where the leaf is spent, with the leaf index but no time, and the rest of the
+ * block as one `unprovable` entry.
  */
 export type ClaimState = "earned" | "claimable" | "claimed" | "unprovable";
 
