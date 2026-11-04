@@ -108,7 +108,7 @@ export async function prepareSetProfile(
             return err(
                 new DotNsError(
                     "Unauthorised",
-                    `the origin may not write ${JSON.stringify(located.value.label)}`,
+                    `the origin may not write ${JSON.stringify(located.value.bare)}`,
                 ),
             );
         }

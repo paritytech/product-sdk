@@ -57,6 +57,11 @@ export const profileFeedCodec = Struct({ kind: Bytes(), topic: Hex(32), signer: 
  */
 export const moodBodyCodec = Struct({ kind: u8, intensity: u8, setAt: u64, ttlSecs: u32 });
 
+/** Whether `value` is 32 bytes as `0x` hex: an account id, a topic, a signer. */
+export function isHex32(value: string): boolean {
+    return /^0x[0-9a-fA-F]{64}$/.test(value);
+}
+
 /**
  * Decode `bytes` as exactly one value of `codec`, or `null`.
  *

@@ -117,7 +117,8 @@ export async function loadAvatar(
         { source: bounded, signal: options.signal },
     );
     if (!art.ok) {
-        log.warn("the avatar fetch failed", { cid: avatar.cid, error: art.error.message });
+        if (options.signal?.aborted) log.debug("the avatar fetch was aborted", { cid: avatar.cid });
+        else log.warn("the avatar fetch failed", { cid: avatar.cid, error: art.error.message });
         return null;
     }
     if (art.value.tag !== "Verified") {
@@ -163,13 +164,13 @@ export async function submitAvatar(
     try {
         key = await manager.submit(bytes);
     } catch (cause) {
-        return err(new ProfileError("Storage", "the host did not store the avatar", { cause }));
+        return err(new ProfileError("Host", "the host did not store the avatar", { cause }));
     }
     const digest = `0x${bytesToHex(blake2b256(bytes))}` as const;
     if (key.toLowerCase() !== digest) {
         return err(
             new ProfileError(
-                "Storage",
+                "Host",
                 "the host stored the avatar under a key that is not the digest of its bytes",
             ),
         );

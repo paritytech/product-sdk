@@ -137,19 +137,19 @@ describe("submitAvatar", () => {
         expect(submitted).toHaveLength(0);
     });
 
-    test("a host that does not store the bytes is a Storage error with the cause", async () => {
+    test("a host that does not store the bytes is a Host error with the cause", async () => {
         const { manager } = managerThatAnswers(async () => {
             throw new Error("allowance refused");
         });
         const r = await submitAvatar(BYTES, "webp", manager);
-        expect(r.ok ? null : r.error.reason).toBe("Storage");
+        expect(r.ok ? null : r.error.reason).toBe("Host");
         expect(r.ok ? null : (r.error.cause as Error).message).toBe("allowance refused");
     });
 
-    test("a key that is not the digest of the bytes is a Storage error, never a CID", async () => {
+    test("a key that is not the digest of the bytes is a Host error, never a CID", async () => {
         const { manager } = managerThatAnswers(async () => `0x${"00".repeat(32)}`);
         const r = await submitAvatar(BYTES, "webp", manager);
-        expect(r.ok ? null : r.error.reason).toBe("Storage");
+        expect(r.ok ? null : r.error.reason).toBe("Host");
     });
 
     test("the key comparison ignores hex casing", async () => {

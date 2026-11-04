@@ -23,6 +23,7 @@ import {
     type Mood,
     type MoodChoice,
     type MoodStatement,
+    type MoodWatch,
     decodeMoodBody,
     deriveMoodFeed,
     encodeMoodBody,
@@ -59,11 +60,11 @@ const reason = <T>(result: Result<T, { reason: string }>) =>
 /** Seity's test helper, on this module's types. */
 const statement = (
     mood: Mood | null,
-    opts: { signer?: `0x${string}` | null; setAt?: number; seq?: number } = {},
+    opts: { signer?: `0x${string}`; setAt?: number; seq?: number } = {},
 ): MoodStatement => {
     const setAt = opts.setAt ?? mood?.setAt ?? NOW;
     return {
-        signer: opts.signer === undefined ? SIGNER : opts.signer,
+        signer: opts.signer ?? SIGNER,
         expiry: moodExpiry(setAt, opts.seq ?? 0),
         data: body(mood, setAt),
     };
@@ -201,7 +202,6 @@ describe("pickMood", () => {
         const foreign = statement({ ...CALM, kind: "away", setAt: NOW - 1 }, { signer: OTHER });
         expect(pickMood([statement(CALM), statement(later), foreign], SIGNER, NOW)).toEqual(later);
         expect(pickMood([foreign], SIGNER, NOW)).toBeNull();
-        expect(pickMood([statement(CALM, { signer: null })], SIGNER, NOW)).toBeNull();
     });
 
     test("a clear with a later expiry means no mood", () => {
@@ -229,13 +229,17 @@ describe("pickMood", () => {
         expect(pickMood([...foreign, statement(CALM)], SIGNER, NOW)).toEqual(CALM);
     });
 
-    test("the signer compares case-insensitively, and a statement with no expiry or data is skipped", () => {
+    test("a body set in the future shows within a day of now and not beyond, on the owner's own clock", () => {
+        const soon: Mood = { ...CALM, setAt: NOW + 100, expiresAt: NOW + 100 + 86_400 };
+        expect(pickMood([statement(soon)], SIGNER, NOW)).toEqual(soon);
+        const far: Mood = { ...CALM, setAt: NOW + 2 * 86_400, expiresAt: NOW + 3 * 86_400 };
+        expect(pickMood([statement(far)], SIGNER, NOW)).toBeNull();
+    });
+
+    test("the signer compares case-insensitively, and a statement with no data is skipped", () => {
         expect(pickMood([statement(CALM)], SIGNER.toUpperCase() as `0x${string}`, NOW)).toEqual(
             CALM,
         );
-        expect(
-            pickMood([{ signer: SIGNER, data: body(CALM, CALM.setAt) }], SIGNER, NOW),
-        ).toBeNull();
         expect(pickMood([{ signer: SIGNER, expiry: moodExpiry(NOW, 0) }], SIGNER, NOW)).toBeNull();
     });
 });
@@ -561,6 +565,38 @@ describe("watchMood", () => {
         expect(seen).toHaveLength(1);
         await vi.advanceTimersByTimeAsync(2_000);
         expect(seen.map((m) => m?.kind ?? null)).toEqual(["calm", null]);
+    });
+
+    test("a mood set ahead of the reader's clock lapses a day from now, not later", async () => {
+        const ahead = signed({ kind: "calm", intensity: "soft" }, NOW + 3600);
+        const store = fakeStore({ pages: [{ statements: [ahead], isComplete: true }] });
+        const seen: (Mood | null)[] = [];
+        unwrap(watchMood(FEED, store, (mood) => seen.push(mood)));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(seen.map((m) => m?.kind)).toEqual(["calm"]);
+        // The first timer is bounded to a day from now; the mood itself lasts
+        // until an hour after that, when a second, shorter timer ends it.
+        await vi.advanceTimersByTimeAsync(86_400_000 + 1_000);
+        expect(seen).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(3_600_000);
+        expect(seen.map((m) => m?.kind ?? null)).toEqual(["calm", null]);
+    });
+
+    test("unsubscribing from inside onChange leaves no timer behind", async () => {
+        const store = fakeStore({
+            pages: [
+                {
+                    statements: [signed({ kind: "calm", intensity: "soft" }, NOW)],
+                    isComplete: true,
+                },
+            ],
+        });
+        let watch: MoodWatch | undefined = undefined;
+        const started = watchMood(FEED, store, () => watch?.unsubscribe());
+        watch = unwrap(started);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(store.unsubscribed).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
     });
 
     test("unsubscribing clears the lapse timer", async () => {

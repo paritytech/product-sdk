@@ -211,3 +211,52 @@ describe("rewriteProfileRecord", () => {
         });
     });
 });
+
+describe("an entry this writer cannot read is carried, whatever its index", () => {
+    /** Index 1, but not valid UTF-8: the reader keeps it as unknown, so the writer does too. */
+    const BAD_NAME = entry(1, profileNameCodec.enc(new Uint8Array([0xff, 0xfe])));
+    /** Index 2, but not one ProfileNft. */
+    const BAD_NFT = entry(2, new Uint8Array([1, 2, 3]));
+    /** Index 3, but not one ProfileFeed. */
+    const BAD_FEED = entry(3, new Uint8Array([1]));
+
+    test("a name that does not decode survives a name replace and a clear", () => {
+        const live = record([BAD_NAME, name("A")]);
+        expect(rewrite(live, { name: "B" })).toBe(record([BAD_NAME, name("B")]));
+        expect(rewrite(live, { name: null })).toBe(record([BAD_NAME]));
+    });
+
+    test("a pin that does not decode survives a pin replace", () => {
+        const live = record([BAD_NFT, nft(1n)]);
+        expect(rewrite(live, { nfts: [pin(2n)] })).toBe(record([BAD_NFT, nft(2n)]));
+    });
+
+    test("a feed that does not decode survives feeds: null", () => {
+        const live = record([BAD_FEED, feed("mood")]);
+        expect(rewrite(live, { feeds: null })).toBe(record([BAD_FEED]));
+    });
+
+    test("what the writer carries is what the reader reports as unknown", () => {
+        const text = rewrite(record([BAD_NAME, BAD_NFT, BAD_FEED]), {
+            name: "A",
+            nfts: [],
+            feeds: null,
+        });
+        const read = decodeProfileRecord(text);
+        expect(read.ok && read.value.unknown.map((u) => u.bytes)).toEqual([
+            BAD_NAME,
+            BAD_NFT,
+            BAD_FEED,
+        ]);
+    });
+});
+
+describe("a pin that is not a ProfileNft is refused, not thrown", () => {
+    test("an instance that is not a bigint, as JSON gives back", () => {
+        const fromJson = { ...pin(9n), instance: "9" as unknown as bigint };
+        expect(refused(null, { nfts: [fromJson] })).toBe("InvalidEntry");
+        expect(refused(null, { nfts: [{ ...pin(9n), instance: 9 as unknown as bigint }] })).toBe(
+            "InvalidEntry",
+        );
+    });
+});

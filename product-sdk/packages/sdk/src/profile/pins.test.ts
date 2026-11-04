@@ -243,3 +243,15 @@ describe("getPinnedNfts", () => {
         }
     });
 });
+
+describe("a pin with a purse that is not an account id", () => {
+    test("is InvalidEntry before the chain is asked", async () => {
+        const untouched = new Proxy({} as ProfileNftsChain, {
+            get() {
+                throw new Error("the chain must not be read");
+            },
+        });
+        const result = await getPinnedNfts(untouched, [{ ...pin(1n), purse: "0xabc" as never }]);
+        expect(!result.ok && result.error.reason).toBe("InvalidEntry");
+    });
+});

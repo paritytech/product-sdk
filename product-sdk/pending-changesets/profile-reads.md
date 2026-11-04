@@ -28,6 +28,6 @@ A mood is one statement on the name's mood topic, signed by the host's statement
 - `readMood(feed, store)` reads the topic's backfill through the host and answers the live mood or null; a host that could not be read is `Host` or `Timeout`, which is not "no mood". `watchMood(feed, store, onChange)` keeps reading, and reports a lapse with no new statement as null on its own.
 - `pickMood`, `encodeMoodBody`, `decodeMoodBody` and `moodExpiry` are the pure parts, for fixtures and for a product that reads statements some other way. The lapse a reader honours is held to a day whatever a writer put in the body.
 
-`ProfileError` gains `Host`, `SignerMismatch` and `Timeout`.
+`ProfileError` gains `Host`, for a host call that failed or answered something unusable (the avatar upload's `Storage` folds into it), `SignerMismatch` and `Timeout`.
 
 The identity module gains `DOTNS_CONTENT_RESOLVER_ABI`, the content resolver's `text` view, and `DOTNS_CONTENT_RESOLVER_WRITE_ABI`, its `setText`, kept apart so a reader's bundle carries no write; `isAuthorised` on `DOTNS_REGISTRY_ABI`; `resolveDotNsContentResolver`, which reads the deployment's content resolver from the protocol registry once per runtime, `DOTNS_CONTENT_RESOLVER_KEY`, and a `contentResolverAddress` option on `DotNsClientOptions` to skip that read; and an `Unauthorised` reason on `DotNsError` for a write whose origin the registry does not authorise for the node.

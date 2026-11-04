@@ -12,11 +12,12 @@
  * refused rather than replaced, and a record no reader would accept is never
  * produced.
  */
-import { concatBytes } from "@parity/product-sdk-crypto";
+import { concatBytes, utf8ToBytes } from "@parity/product-sdk-crypto";
 import { type Result, err, ok } from "@parity/result";
 
 import { preimageCidAddress } from "./avatar.js";
 import {
+    isHex32,
     profileAvatarCodec,
     profileFeedCodec,
     profileNameCodec,
@@ -24,7 +25,7 @@ import {
     profileRecordCodec,
 } from "./codec.js";
 import { ProfileError } from "./errors.js";
-import { decodeRecordEntries, encodeBase64, readAvatar, readFeed } from "./record.js";
+import { decodeRecordEntries, encodeBase64, readKnown } from "./record.js";
 import {
     PROFILE_AVATAR_FORMATS,
     PROFILE_ENTRY_INDEX,
@@ -35,9 +36,6 @@ import {
     type ProfileNft,
     type ProfilePatch,
 } from "./types.js";
-
-const utf8 = new TextEncoder();
-const WORD = /^0x[0-9a-fA-F]{64}$/;
 
 const invalid = (message: string) => err(new ProfileError("InvalidEntry", message));
 
@@ -55,12 +53,12 @@ function encodeAvatar(avatar: ProfileAvatar): Result<Uint8Array, ProfileError> {
     if (preimageCidAddress(avatar.cid) === null) {
         return invalid("the avatar CID is not a Bulletin preimage CID");
     }
-    const payload = profileAvatarCodec.enc({ cid: utf8.encode(avatar.cid), format });
+    const payload = profileAvatarCodec.enc({ cid: utf8ToBytes(avatar.cid), format });
     return ok(entry(PROFILE_ENTRY_INDEX.avatar, payload));
 }
 
 function encodeName(name: string): Result<Uint8Array, ProfileError> {
-    const bytes = utf8.encode(name);
+    const bytes = utf8ToBytes(name);
     if (bytes.length === 0) return invalid("a display name is not empty; clear it with null");
     if (bytes.length > PROFILE_NAME_MAX_BYTES) {
         return invalid(
@@ -72,22 +70,28 @@ function encodeName(name: string): Result<Uint8Array, ProfileError> {
 
 function encodeNft(nft: ProfileNft): Result<Uint8Array, ProfileError> {
     const isU32 = (id: number) => Number.isInteger(id) && id >= 0 && id <= 0xffff_ffff;
-    if (nft.instance < 0n || nft.instance > 0xffff_ffff_ffff_ffffn) {
+    // A pin that went through JSON comes back with its instance as a string,
+    // which the range checks let through and the codec throws on.
+    if (
+        typeof nft.instance !== "bigint" ||
+        nft.instance < 0n ||
+        nft.instance > 0xffff_ffff_ffff_ffffn
+    ) {
         return invalid("an instance id is a u64");
     }
     if (!isU32(nft.collection) || !isU32(nft.item)) {
         return invalid("a collection id and an item id are u32");
     }
-    if (!WORD.test(nft.purse)) return invalid("a purse is a 32-byte account id as 0x hex");
+    if (!isHex32(nft.purse)) return invalid("a purse is a 32-byte account id as 0x hex");
     return ok(entry(PROFILE_ENTRY_INDEX.nft, profileNftCodec.enc(nft)));
 }
 
 function encodeFeed(feed: ProfileFeed): Result<Uint8Array, ProfileError> {
     if (feed.kind === "") return invalid("a feed has a kind");
-    if (!WORD.test(feed.topic) || !WORD.test(feed.signer)) {
+    if (!isHex32(feed.topic) || !isHex32(feed.signer)) {
         return invalid("a feed topic and signer are 32 bytes each as 0x hex");
     }
-    const payload = profileFeedCodec.enc({ ...feed, kind: utf8.encode(feed.kind) });
+    const payload = profileFeedCodec.enc({ ...feed, kind: utf8ToBytes(feed.kind) });
     return ok(entry(PROFILE_ENTRY_INDEX.feed, payload));
 }
 
@@ -127,9 +131,11 @@ export function encodeProfileRecord(entries: Uint8Array[]): Result<string, Profi
  *   - A name replaces every name entry; `null` drops them.
  *   - Pins replace every pin entry as one list; `null` drops them.
  *   - Feeds replace the feed entries of the kinds they name and leave the
- *     others; `null` drops them all. A feed entry this writer cannot read is
- *     not its to drop.
- *   - Every entry of a kind this writer does not know is carried as read.
+ *     others; `null` drops them all.
+ *   - Every entry this writer cannot read is carried as read, whatever its
+ *     index: an unknown kind, or a known kind whose payload does not decode,
+ *     which the reader keeps as `unknown` too. The one exception is the
+ *     avatar on clear, above.
  *
  * Replaced and added entries go after the carried ones, in the patch's order.
  */
@@ -145,26 +151,27 @@ export function rewriteProfileRecord(
     const replacedFeeds = new Set((patch.feeds ?? []).map((feed) => feed.kind));
     let avatarReplaced = false;
     const entries = carried.value.filter((carriedEntry) => {
-        // A copy, not a view, where a payload is decoded: see `readEntry` in record.ts.
-        switch (carriedEntry[0]) {
-            case PROFILE_ENTRY_INDEX.avatar:
-                if (avatar.value && !avatarReplaced && readAvatar(carriedEntry.slice(1))) {
+        const known = readKnown(carriedEntry);
+        // Not this writer's to drop, with one exception: on clear, an avatar in
+        // a format this writer does not know goes too, or a newer reader would
+        // still show it.
+        if (known === null) {
+            return carriedEntry[0] !== PROFILE_ENTRY_INDEX.avatar || patch.avatar !== null;
+        }
+        switch (known.kind) {
+            case "avatar":
+                if (avatar.value && !avatarReplaced) {
                     avatarReplaced = true;
                     return false;
                 }
                 return patch.avatar !== null;
-            case PROFILE_ENTRY_INDEX.name:
+            case "name":
                 return patch.name === undefined;
-            case PROFILE_ENTRY_INDEX.nft:
+            case "nft":
                 return patch.nfts === undefined;
-            case PROFILE_ENTRY_INDEX.feed: {
+            case "feed":
                 if (patch.feeds === undefined) return true;
-                if (patch.feeds === null) return false;
-                const feed = readFeed(carriedEntry.slice(1));
-                return feed === null || !replacedFeeds.has(feed.kind);
-            }
-            default:
-                return true;
+                return patch.feeds !== null && !replacedFeeds.has(known.value.kind);
         }
     });
     if (avatar.value) entries.unshift(avatar.value);

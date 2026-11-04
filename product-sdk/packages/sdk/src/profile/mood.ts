@@ -16,7 +16,9 @@
  * Every host interaction goes through the handles the product passes in, the
  * host package's statement store and entropy derivation, so this module never
  * asks the host for anything itself and a test or an offline demo supplies
- * doubles.
+ * doubles. Signers and topics are lower-case hex everywhere in memory: the
+ * two places a signer enters, a proof and a statement, lower-case it, and the
+ * feed's is lower-cased once at each entry point.
  */
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@parity/product-sdk-crypto";
 import type {
@@ -30,11 +32,11 @@ import type {
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
 
-import { DotNsError } from "../identity/dotns-errors.js";
-import { type DotNsClientOptions, resolveTld } from "../identity/dotns-registry.js";
+import type { DotNsError } from "../identity/dotns-errors.js";
+import type { DotNsClientOptions } from "../identity/dotns-registry.js";
 import { decodeExact, moodBodyCodec } from "./codec.js";
 import { ProfileError } from "./errors.js";
-import { isAcceptableProfileLabel, normalizeProfileLabel } from "./lookup.js";
+import { resolveProfileName } from "./lookup.js";
 import type { ProfileFeed } from "./types.js";
 
 type HexString = `0x${string}`;
@@ -70,12 +72,15 @@ export interface Mood {
 /** What a product chooses when it sets a mood. */
 export type MoodChoice = Pick<Mood, "kind" | "intensity">;
 
-/** What the reader rule needs of one statement. Exported so a fixture can build them. */
+/**
+ * What the reader rule needs of one statement, once it has passed the two
+ * checks a reader makes at the door: an Sr25519 proof, and an expiry. Exported
+ * so a fixture can build them; `signer` is lower-case hex.
+ */
 export interface MoodStatement {
-    /** The proof's signer, or null when the proof is not Sr25519. */
-    signer: HexString | null;
+    signer: HexString;
     /** The store's expiry: seconds in the upper 32 bits, a sequence below. */
-    expiry?: bigint;
+    expiry: bigint;
     /** The body. */
     data?: Uint8Array;
 }
@@ -135,34 +140,37 @@ export function decodeMoodBody(bytes: Uint8Array): Mood | null {
 
 /**
  * The statement's expiry: the lapse time in the upper 32 bits, a sequence in
- * the lower. The store keeps one statement per signer and channel and replaces
- * it only for a strictly higher expiry, so the sequence lets a mood set within
- * the same second as the last still win. The same packing as the statement
- * store package's `createExpiry`, which this package does not depend on; the
- * sequence is taken modulo 2^32.
+ * the lower, the packing the statement store defines (and the statement-store
+ * package's `createExpiry` spells, which this package does not depend on for
+ * one shift). The store keeps one statement per signer and channel and
+ * replaces it only for a strictly higher expiry, so the sequence lets a mood
+ * set within the same second as the last still win. Taken modulo 2^32.
  */
 export function moodExpiry(setAt: number, seq: number): bigint {
     return (BigInt(setAt + MOOD_TTL_SECS) << 32n) | BigInt(seq >>> 0);
 }
 
-/** The live own statement and when it stops counting, for the reader and the watch. */
-function liveStatement(
-    statements: readonly MoodStatement[],
-    signer: HexString,
+/** Of two of the signer's statements, the one the store keeps live: the higher expiry. */
+const higher = (a: MoodStatement | null, b: MoodStatement): MoodStatement =>
+    a && a.expiry >= b.expiry ? a : b;
+
+/**
+ * What the signer's live statement says now, and when it stops counting, or
+ * null. Only the feed signer can write what counts, so the bounds here are
+ * against the owner's own clock being wrong, or their own writer being odd,
+ * never against a stranger: a body set more than a day ahead is no mood, and
+ * the lapse is never more than a day away, whatever the store's expiry says.
+ */
+function liveMood(
+    best: MoodStatement | null,
     nowSecs: number,
 ): { mood: Mood; lapsesAt: number } | null {
-    const wanted = signer.toLowerCase();
-    let best: MoodStatement | null = null;
-    for (const statement of statements) {
-        if (statement.signer?.toLowerCase() !== wanted || statement.expiry === undefined) continue;
-        if (!best || statement.expiry > (best.expiry as bigint)) best = statement;
-    }
     if (!best || !best.data) return null;
-    const storeLapse = Number((best.expiry as bigint) >> 32n);
+    const storeLapse = Number(best.expiry >> 32n);
     if (storeLapse <= nowSecs) return null;
     const mood = decodeMoodBody(best.data);
-    if (!mood || nowSecs >= mood.expiresAt) return null;
-    return { mood, lapsesAt: Math.min(storeLapse, mood.expiresAt) };
+    if (!mood || nowSecs >= mood.expiresAt || mood.setAt > nowSecs + MOOD_TTL_SECS) return null;
+    return { mood, lapsesAt: Math.min(storeLapse, mood.expiresAt, nowSecs + MOOD_TTL_SECS) };
 }
 
 /**
@@ -176,7 +184,12 @@ export function pickMood(
     signer: HexString,
     nowSecs: number,
 ): Mood | null {
-    return liveStatement(statements, signer, nowSecs)?.mood ?? null;
+    const wanted = signer.toLowerCase();
+    let best: MoodStatement | null = null;
+    for (const statement of statements) {
+        if (statement.signer.toLowerCase() === wanted) best = higher(best, statement);
+    }
+    return liveMood(best, nowSecs)?.mood ?? null;
 }
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
@@ -184,22 +197,23 @@ const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 const hostFailed = (what: string, cause: unknown) =>
     new ProfileError("Host", `the host could not ${what}`, { cause });
 
-/** A signed statement as the reader rule sees it. Bad hex is a statement with no body. */
-function toMoodStatement(statement: SignedStatement): MoodStatement {
+/**
+ * A signed statement as the reader rule sees it, or null when it is not the
+ * feed signer's: another signer, a proof that is not Sr25519, or no expiry.
+ * The signer is checked before the body is decoded, since a public topic
+ * can carry anyone's statements. Bad hex is a statement with no body.
+ */
+function ownStatement(statement: SignedStatement, wanted: string): MoodStatement | null {
+    if (statement.proof.tag !== "Sr25519" || statement.expiry === undefined) return null;
+    const signer = statement.proof.value.signer.toLowerCase() as HexString;
+    if (signer !== wanted) return null;
     let data: Uint8Array | undefined;
     try {
         data = statement.data === undefined ? undefined : hexToBytes(statement.data.slice(2));
     } catch {
         data = undefined;
     }
-    return {
-        signer:
-            statement.proof.tag === "Sr25519"
-                ? (statement.proof.value.signer.toLowerCase() as HexString)
-                : null,
-        expiry: statement.expiry,
-        data,
-    };
+    return { signer, expiry: statement.expiry, data };
 }
 
 /** The signer a proof carries. Mood readers accept Sr25519 only, which is what the allowance key is. */
@@ -225,8 +239,10 @@ function proofSigner(proof: StatementProof): Result<HexString, ProfileError> {
  * by kind, so a product that publishes takes the feed over: a mood set from
  * another product no longer shows until that product publishes again.
  *
- * The proof needs the statement-store allowance, so the product requests that
- * before its first publish, not after.
+ * The probe is an interim: the host does not yet say which key it signs
+ * statements with, so one is asked for and read off the proof. It needs the
+ * statement-store allowance, so the product requests that before its first
+ * publish, not after. A host accessor for the key would make this a plain read.
  */
 export async function deriveMoodFeed(
     label: string,
@@ -234,14 +250,12 @@ export async function deriveMoodFeed(
     statements: HostStatementStore,
     deriveEntropy: DeriveEntropy,
 ): Promise<Result<ProfileFeed, DotNsError | ProfileError>> {
-    const tld = await resolveTld(opts);
-    if (!tld.ok) return tld;
-    const bare = normalizeProfileLabel(label, tld.value);
-    if (!isAcceptableProfileLabel(bare)) {
-        return err(new DotNsError("InvalidName", `${JSON.stringify(label)} is not a dotNS name`));
-    }
+    const name = await resolveProfileName(label, opts);
+    if (!name.ok) return name;
+    const { bare, tld } = name.value;
 
-    const entropy = await deriveEntropy(utf8ToBytes(moodTopicLabel(`${bare}${tld.value.suffix}`)));
+    // Entropy first, on its own: a host that cannot derive is not asked to sign.
+    const entropy = await deriveEntropy(utf8ToBytes(moodTopicLabel(`${bare}${tld.suffix}`)));
     if (!entropy.ok) return err(hostFailed("derive the mood topic", entropy.error));
     if (entropy.value.length !== 32) {
         return err(
@@ -265,9 +279,10 @@ export async function deriveMoodFeed(
     });
 }
 
-// The last expiry this session sent. The store replaces a statement only for a
-// strictly higher expiry, so a set in the same millisecond as the last, or
-// after the clock stepped back, still goes out above it.
+// The last expiry this session sent. The millisecond within the second orders
+// two sets in one second across sessions; holding each send above the last
+// orders them within a session when the millisecond repeats or the clock
+// steps back. Neither alone covers both.
 let lastExpiry = 0n;
 
 /**
@@ -287,7 +302,6 @@ export async function setMood(
     const setAt = Math.floor(nowMs / 1000);
     const body = encodeMoodBody(mood, setAt);
     if (!body.ok) return body;
-    // The millisecond within the second orders two sets in the same second.
     const expiry = moodExpiry(setAt, nowMs % 1000);
     lastExpiry = expiry > lastExpiry ? expiry : lastExpiry + 1n;
     const statement: Statement = {
@@ -322,87 +336,6 @@ export async function setMood(
     }
     log.debug(mood ? "mood sent" : "mood cleared");
     return ok(mood ? { ...mood, setAt, expiresAt: setAt + MOOD_TTL_SECS } : null);
-}
-
-/** Options for {@link readMood}. */
-export interface ReadMoodOptions {
-    /** Default {@link DEFAULT_MOOD_READ_TIMEOUT_MS}. */
-    timeoutMs?: number;
-    signal?: AbortSignal;
-}
-
-/**
- * The mood a feed shows now, or null. Reads the topic's backfill through the
- * host, keeping only the feed signer's statements, and applies
- * {@link pickMood}. An error means the host could not be read, which is not
- * the same as no mood: keep what was shown.
- */
-export async function readMood(
-    feed: ProfileFeed,
-    statements: HostStatementStore,
-    options: ReadMoodOptions = {},
-): Promise<Result<Mood | null, ProfileError>> {
-    const timeoutMs = options.timeoutMs ?? DEFAULT_MOOD_READ_TIMEOUT_MS;
-    const wanted = feed.signer.toLowerCase();
-    const own: MoodStatement[] = [];
-    const outcome = await new Promise<Result<void, ProfileError>>((resolve) => {
-        // A page can arrive before `subscribe` returns, so the handle may not
-        // exist yet when the read ends.
-        let subscription: HostSubscription | undefined;
-        let cancelInterrupt: (() => void) | undefined;
-        let ended = false;
-        const end = (result: Result<void, ProfileError>) => {
-            if (ended) return;
-            ended = true;
-            clearTimeout(timer);
-            options.signal?.removeEventListener("abort", onAbort);
-            cancelInterrupt?.();
-            subscription?.unsubscribe();
-            resolve(result);
-        };
-        const onAbort = () =>
-            end(
-                err(
-                    new ProfileError("Timeout", "the mood read was aborted", {
-                        cause: options.signal?.reason,
-                    }),
-                ),
-            );
-        const timer = setTimeout(
-            () =>
-                end(
-                    err(
-                        new ProfileError(
-                            "Timeout",
-                            `the mood feed did not answer within ${timeoutMs} ms`,
-                        ),
-                    ),
-                ),
-            timeoutMs,
-        );
-        if (options.signal?.aborted) return onAbort();
-        options.signal?.addEventListener("abort", onAbort, { once: true });
-        try {
-            subscription = statements.subscribe({ matchAll: [feed.topic] }, (page) => {
-                for (const s of page.statements) {
-                    const statement = toMoodStatement(s);
-                    if (statement.signer === wanted) own.push(statement);
-                }
-                if (page.isComplete) end(ok(undefined));
-            });
-            cancelInterrupt = subscription.onInterrupt((reason) =>
-                end(err(hostFailed("keep reading", reason))),
-            );
-        } catch (cause) {
-            end(err(hostFailed("subscribe to the mood feed", cause)));
-        }
-        if (ended) {
-            cancelInterrupt?.();
-            subscription?.unsubscribe();
-        }
-    });
-    if (!outcome.ok) return outcome;
-    return ok(pickMood(own, feed.signer, nowSeconds()));
 }
 
 /** Options for {@link watchMood}. */
@@ -448,27 +381,30 @@ export function watchMood(
         if (stopped || !complete) return;
         clearTimeout(lapse);
         const now = nowSeconds();
-        const live = liveStatement(best ? [best] : [], feed.signer, now);
+        const live = liveMood(best, now);
         const mood = live?.mood ?? null;
         if (shown === undefined || !sameMood(mood, shown)) {
             shown = mood;
             onChange(mood);
         }
-        // Re-evaluate when it lapses, so a feed with no new statement goes
-        // quiet. `lapsesAt` is within a day, so the delay is always a real one.
-        if (live) lapse = setTimeout(evaluate, (live.lapsesAt - now) * 1000 + 1);
+        // `onChange` may have unsubscribed; a timer armed after that would
+        // hold a process open. Otherwise re-evaluate when the mood lapses, so a
+        // feed with no new statement goes quiet. `lapsesAt` is within a day of
+        // `now`, so the delay fits a timer.
+        if (live && !stopped) lapse = setTimeout(evaluate, (live.lapsesAt - now) * 1000 + 1);
     };
 
     const ingest = (page: StatementsPage) => {
         for (const s of page.statements) {
-            const statement = toMoodStatement(s);
-            if (statement.signer !== wanted || statement.expiry === undefined) continue;
-            if (!best || statement.expiry > (best.expiry as bigint)) best = statement;
+            const statement = ownStatement(s, wanted);
+            if (statement) best = higher(best, statement);
         }
         if (page.isComplete) complete = true;
         evaluate();
     };
 
+    // A page can arrive inside `subscribe`, before the handle exists, so the
+    // teardown is written to run with or without it.
     let subscription: HostSubscription | undefined;
     let cancelInterrupt: (() => void) | undefined;
     const stop = () => {
@@ -494,4 +430,67 @@ export function watchMood(
         subscription.unsubscribe();
     }
     return ok({ unsubscribe: stop });
+}
+
+/** Options for {@link readMood}. */
+export interface ReadMoodOptions {
+    /** Default {@link DEFAULT_MOOD_READ_TIMEOUT_MS}. */
+    timeoutMs?: number;
+    signal?: AbortSignal;
+}
+
+/**
+ * The mood a feed shows now, or null: a {@link watchMood} taken to its first
+ * report, which comes once the backfill is in, under a deadline. An error
+ * means the host could not be read, which is not the same as no mood: keep
+ * what was shown.
+ */
+export function readMood(
+    feed: ProfileFeed,
+    statements: HostStatementStore,
+    options: ReadMoodOptions = {},
+): Promise<Result<Mood | null, ProfileError>> {
+    const timeoutMs = options.timeoutMs ?? DEFAULT_MOOD_READ_TIMEOUT_MS;
+    return new Promise((resolve) => {
+        let watch: MoodWatch | undefined = undefined;
+        let done = false;
+        const end = (result: Result<Mood | null, ProfileError>) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            options.signal?.removeEventListener("abort", onAbort);
+            watch?.unsubscribe();
+            resolve(result);
+        };
+        const onAbort = () =>
+            end(
+                err(
+                    new ProfileError("Timeout", "the mood read was aborted", {
+                        cause: options.signal?.reason,
+                    }),
+                ),
+            );
+        const timer = setTimeout(
+            () =>
+                end(
+                    err(
+                        new ProfileError(
+                            "Timeout",
+                            `the mood feed did not answer within ${timeoutMs} ms`,
+                        ),
+                    ),
+                ),
+            timeoutMs,
+        );
+        if (options.signal?.aborted) return onAbort();
+        options.signal?.addEventListener("abort", onAbort, { once: true });
+
+        const started = watchMood(feed, statements, (mood) => end(ok(mood)), {
+            onError: (error) => end(err(error)),
+        });
+        if (!started.ok) return end(started);
+        watch = started.value;
+        // The first report may have come inside `watchMood`, before the handle existed.
+        if (done) watch.unsubscribe();
+    });
 }

@@ -28,6 +28,9 @@ import {
 } from "./types.js";
 
 const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/** Digit value by character code, -1 for anything outside the alphabet. */
+const BASE64_VALUE = new Int8Array(128).fill(-1);
+for (let i = 0; i < BASE64_ALPHABET.length; i++) BASE64_VALUE[BASE64_ALPHABET.charCodeAt(i)] = i;
 
 /**
  * Standard base64 with padding, the one form the writer emits, decoded the way
@@ -39,21 +42,23 @@ const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 export function decodeBase64Strict(text: string): Uint8Array | null {
     const unpadded = text.replace(/=+$/, "");
     if (text.length - unpadded.length > 2 || text.length % 4 !== 0) return null;
-    const out: number[] = [];
+    const out = new Uint8Array((unpadded.length * 6) >>> 3);
+    let written = 0;
     let buffer = 0;
     let bits = 0;
-    for (const digit of unpadded) {
-        const value = BASE64_ALPHABET.indexOf(digit);
+    for (let i = 0; i < unpadded.length; i++) {
+        const code = unpadded.charCodeAt(i);
+        const value = code < BASE64_VALUE.length ? (BASE64_VALUE[code] as number) : -1;
         if (value < 0) return null;
         buffer = ((buffer << 6) | value) >>> 0;
         bits += 6;
         if (bits >= 8) {
-            out.push((buffer >>> (bits - 8)) & 0xff);
+            out[written++] = (buffer >>> (bits - 8)) & 0xff;
             bits -= 8;
         }
     }
     if ((buffer & ((1 << bits) - 1)) !== 0) return null;
-    return new Uint8Array(out);
+    return out;
 }
 
 /** Standard base64 with padding: the one form the writer emits, and what {@link decodeBase64Strict} reads back. */
@@ -134,7 +139,7 @@ export function decodeProfileRecord(text: string): Result<PublicProfile, Profile
 }
 
 /** The avatar a payload holds, or `null` when it is not one avatar in a format this reader knows. */
-export function readAvatar(payload: Uint8Array): ProfileAvatar | null {
+function readAvatar(payload: Uint8Array): ProfileAvatar | null {
     const decoded = decodeExact(profileAvatarCodec, payload);
     if (decoded === null) return null;
     const cid = utf8OrNull(decoded.cid);
@@ -166,7 +171,7 @@ function readNft(payload: Uint8Array): ProfileNft | null {
           };
 }
 
-export function readFeed(payload: Uint8Array): ProfileFeed | null {
+function readFeed(payload: Uint8Array): ProfileFeed | null {
     const decoded = decodeExact(profileFeedCodec, payload);
     if (decoded === null) return null;
     const kind = utf8OrNull(decoded.kind);
@@ -187,45 +192,68 @@ function readEntries(entries: Uint8Array[]): PublicProfile {
     return profile;
 }
 
+/** An entry of a kind this module knows, decoded. The `kind` is its name in {@link PROFILE_ENTRY_INDEX}. */
+export type KnownEntry =
+    | { kind: "avatar"; value: ProfileAvatar }
+    | { kind: "name"; value: { text: string; byteLength: number } }
+    | { kind: "nft"; value: ProfileNft }
+    | { kind: "feed"; value: ProfileFeed };
+
 /**
- * Read one entry into `profile`. `false` when the entry is not one value of a
- * kind this reader knows, which is the wrapper's cue to keep it as read.
+ * One entry as a value of the kind its index names, or `null` when it is not
+ * one: an index this module does not know, or a payload that does not decode.
+ * The one table from the index to the reader, for the reader, which keeps a
+ * null as `unknown`, and the writer, which carries it as read. Claiming a new
+ * index means a case here, a field on the patch, and a vector in the tests.
  */
-function readEntry(entry: Uint8Array, profile: PublicProfile): boolean {
-    if (entry.length === 0) return false;
+export function readKnown(entry: Uint8Array): KnownEntry | null {
+    if (entry.length === 0) return null;
     // A copy, not a view: the scale-ts decoders read from the start of the
     // backing buffer and ignore a view's `byteOffset`, so a `subarray` would
     // hand them the index byte and whatever precedes it.
     const payload = entry.slice(1);
     switch (entry[0]) {
         case PROFILE_ENTRY_INDEX.avatar: {
-            const avatar = readAvatar(payload);
-            if (avatar === null) return false;
-            profile.avatar ??= avatar;
-            return true;
+            const value = readAvatar(payload);
+            return value && { kind: "avatar", value };
         }
         case PROFILE_ENTRY_INDEX.name: {
-            const name = readName(payload);
-            if (name === null) return false;
-            // A known entry either way; only a non-empty name within the bound is used.
-            if (name.byteLength > 0 && name.byteLength <= PROFILE_NAME_MAX_BYTES) {
-                profile.name ??= name.text;
-            }
-            return true;
+            const value = readName(payload);
+            return value && { kind: "name", value };
         }
         case PROFILE_ENTRY_INDEX.nft: {
-            const nft = readNft(payload);
-            if (nft === null) return false;
-            profile.nfts.push(nft);
-            return true;
+            const value = readNft(payload);
+            return value && { kind: "nft", value };
         }
         case PROFILE_ENTRY_INDEX.feed: {
-            const feed = readFeed(payload);
-            if (feed === null) return false;
-            profile.feeds.push(feed);
-            return true;
+            const value = readFeed(payload);
+            return value && { kind: "feed", value };
         }
         default:
-            return false;
+            return null;
     }
+}
+
+/** Read one entry into `profile`. `false` when it is not a known entry, the wrapper's cue to keep it as read. */
+function readEntry(entry: Uint8Array, profile: PublicProfile): boolean {
+    const known = readKnown(entry);
+    if (known === null) return false;
+    switch (known.kind) {
+        case "avatar":
+            profile.avatar ??= known.value;
+            break;
+        case "name":
+            // A known entry either way; only a non-empty name within the bound is used.
+            if (known.value.byteLength > 0 && known.value.byteLength <= PROFILE_NAME_MAX_BYTES) {
+                profile.name ??= known.value.text;
+            }
+            break;
+        case "nft":
+            profile.nfts.push(known.value);
+            break;
+        case "feed":
+            profile.feeds.push(known.value);
+            break;
+    }
+    return true;
 }

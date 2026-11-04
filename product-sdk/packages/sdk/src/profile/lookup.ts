@@ -54,7 +54,6 @@ function isDottedLiteUsername(value: string): boolean {
     const digits = value.slice(dot + 1);
     return (
         stem.length > 0 &&
-        stem.length <= MAX_DNS_LABEL_LEN &&
         /^[a-z]+$/.test(stem) &&
         /^[0-9]{2}$/.test(digits) &&
         value.length <= MAX_BASE_LABEL_LEN
@@ -75,15 +74,11 @@ export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
     return stripSuffix(label.trim().toLowerCase(), tld.suffix);
 }
 
-/** Where a name's `profile` record lives, once the deployment and the TLD are known. */
-export interface ProfileLocation {
-    /** The label as the registry keys it: trimmed, lower-cased, without the TLD. */
-    label: string;
-    /** The namehash of `<label>.<tld>`, with a lite name's parts as levels. */
-    node: HexString;
-    /** The deployment's content resolver. `null` for a deployment with none, which holds no profiles. */
+/** Where a name's `profile` record lives: the name, plus the deployment's content resolver. */
+export type ProfileLocation = ProfileName & {
+    /** `null` for a deployment with none, which holds no profiles. */
     contentResolver: HexString | null;
-}
+};
 
 /**
  * The node and the content resolver for `label`: the dotNS walk every profile
@@ -103,6 +98,32 @@ export async function locateProfile(
     label: string,
     opts: DotNsClientOptions,
 ): Promise<Result<ProfileLocation, DotNsError>> {
+    // The name first, so a label that is not a name makes no call at all.
+    const name = await resolveProfileName(label, opts);
+    if (!name.ok) return name;
+    const resolverRes = await resolveDotNsContentResolver(opts);
+    if (!resolverRes.ok) return resolverRes;
+    return ok({ ...name.value, contentResolver: resolverRes.value });
+}
+
+/** A label resolved against the network's TLD. */
+export interface ProfileName {
+    /** The label as the registry keys it: trimmed, lower-cased, without the TLD. */
+    bare: string;
+    tld: DotNsTld;
+    /** The namehash of `<bare>.<tld>`, with a lite name's parts as levels. */
+    node: HexString;
+}
+
+/**
+ * The first half of {@link locateProfile}: the TLD from the chain, the label
+ * normalised and checked, and the node. What every function that takes a
+ * label starts from, whether or not it goes on to the content resolver.
+ */
+export async function resolveProfileName(
+    label: string,
+    opts: DotNsClientOptions,
+): Promise<Result<ProfileName, DotNsError>> {
     const tldRes = await resolveTld(opts);
     if (!tldRes.ok) return tldRes;
     const tld = tldRes.value;
@@ -110,10 +131,7 @@ export async function locateProfile(
     if (!isAcceptableProfileLabel(bare)) {
         return err(new DotNsError("InvalidName", `${JSON.stringify(label)} is not a dotNS name`));
     }
-    const node = namehash(`${bare}${tld.suffix}`, tld);
-    const resolverRes = await resolveDotNsContentResolver(opts);
-    if (!resolverRes.ok) return resolverRes;
-    return ok({ label: bare, node, contentResolver: resolverRes.value });
+    return ok({ bare, tld, node: namehash(`${bare}${tld.suffix}`, tld) });
 }
 
 /**
@@ -178,22 +196,15 @@ export async function getProfile(
     label: string,
     opts: DotNsClientOptions,
 ): Promise<Result<ProfileLookup, DotNsError>> {
-    const located = await locateProfile(label, opts);
-    if (!located.ok) return located;
-    const { label: bare, node, contentResolver } = located.value;
-    // A deployment with no content resolver has no text records, so no profile.
-    if (contentResolver === null) return ok(NO_PROFILE);
-    log.debug("getProfile", { label: bare, node, resolver: contentResolver });
+    const text = await getProfileRecord(label, opts);
+    if (!text.ok) return text;
+    if (text.value === "") return ok(NO_PROFILE);
 
-    const textRes = await readProfileText(contentResolver, node, opts);
-    if (!textRes.ok) return textRes;
-    if (textRes.value === "") return ok(NO_PROFILE);
-
-    const decoded = decodeProfileRecord(textRes.value);
+    const decoded = decodeProfileRecord(text.value);
     if (!decoded.ok) {
         // Debug, not warn: the record is the name owner's, not the caller's.
         log.debug("the profile record does not decode; treating it as none", {
-            label: bare,
+            label,
             reason: decoded.error.reason,
         });
         return ok(NO_PROFILE);
@@ -214,8 +225,10 @@ export async function getProfileRecord(
 ): Promise<Result<string, DotNsError>> {
     const located = await locateProfile(label, opts);
     if (!located.ok) return located;
-    const { node, contentResolver } = located.value;
+    const { bare, node, contentResolver } = located.value;
+    // A deployment with no content resolver has no text records.
     if (contentResolver === null) return ok("");
+    log.debug("profile record", { label: bare, node, resolver: contentResolver });
     return readProfileText(contentResolver, node, opts);
 }
 

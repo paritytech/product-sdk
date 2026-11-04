@@ -12,10 +12,10 @@ import type {
 } from "@parity/product-sdk/host";
 import { accountIdToHex, dotNsTld, namehash } from "@parity/product-sdk/identity";
 import {
+    MOOD_FEED_KIND,
     type Mood,
     PROFILE_TEXT_RECORD_KEY,
     type DotNsClientOptions,
-    type PreparedProfileWrite,
     type ProfileNft,
     type ProfileNftsChain,
     getPinnedNfts,
@@ -33,7 +33,7 @@ import {
 } from "@parity/product-sdk/profile";
 import { type BuiltContractCall, createFakeContractRuntime } from "@parity/product-sdk/testing";
 import { type Result, ok } from "@parity/result";
-import { bytesToHex, decodeFunctionData, type Hex, parseAbi } from "viem";
+import { decodeFunctionData, type Hex, parseAbi } from "viem";
 
 const LABEL = "alice";
 const TLD = dotNsTld(".paseo");
@@ -250,32 +250,23 @@ const deriveEntropy = async (context: Uint8Array) => ok(blake2b256(context));
 // ---------------------------------------------------------------------------
 
 /**
- * A live app maps the owner in pallet-revive before preparing, since the
- * prepare dry-runs as the owner:
- *
- *     await ensureContractAccountMapped(runtime, OWNER, signer);
- *
- * `signer` is the owner's `CommonSignerTxCreator` from `SignerManager` in
- * `@parity/product-sdk-signer`. The fake runtime accepts any origin.
- */
-async function ensureMapped(): Promise<void> {}
-
-/**
  * A live app signs and submits with the owner's signer, paying the fee and the
  * record's storage deposit, and waits for finality before verifying:
  *
  *     const sent = await batchSubmitAndWatch([call], chain.assetHub, signer, { waitFor: "finalized" });
  *     if (!sent.ok) throw sent.error;
  *
- * Here the fixture chain applies the `setText` call the runtime built.
+ * Here the fixture chain applies the `setText` call the fake runtime built,
+ * which is what `prepared.call` stands for; under the fake, the call object
+ * itself is empty, so the stub reads the runtime's record of it.
  */
-async function submitAndFinalize(_call: PreparedProfileWrite["call"]): Promise<void> {
+async function submitAndFinalize(): Promise<void> {
     const extrinsic = built.at(-1);
     assert.ok(extrinsic);
     assert.equal(extrinsic.dest.toLowerCase(), CONTENT_RESOLVER);
     const { functionName, args } = decodeFunctionData({
         abi: DOTNS_FIXTURE_ABI,
-        data: bytesToHex(extrinsic.data),
+        data: `0x${digestHex(extrinsic.data)}`,
     });
     assert.equal(functionName, "setText");
     const [node, key, value] = args as readonly [Hex, string, string];
@@ -357,10 +348,13 @@ async function main(): Promise<void> {
     console.log(`Pins checked at block ${pinned.at.blockNumber}.`);
 
     // --- Publish ------------------------------------------------------------
+    // Reads keep `opts`: a read dry-runs as the origin it is given, and on a
+    // live chain an owner who has never called a contract is not yet mapped.
+    // The origin goes on the prepare alone.
     const writeOpts: DotNsClientOptions = { ...opts, origin: OWNER };
 
     // 1. The live text, which every entry this patch does not name is carried from.
-    const live = unwrap(await getProfileRecord(LABEL, writeOpts));
+    const live = unwrap(await getProfileRecord(LABEL, opts));
 
     // 2. No avatar change, so nothing goes to Bulletin. A new avatar would go
     //    first, through `submitAvatar`, so the record never names missing bytes.
@@ -380,8 +374,11 @@ async function main(): Promise<void> {
         }),
     );
 
-    // 5. Map the owner before preparing.
-    await ensureMapped();
+    // 5. A live app maps the owner in pallet-revive here, before preparing,
+    //    since the prepare dry-runs as the owner:
+    //        await ensureContractAccountMapped(runtime, OWNER, signer);
+    //    `signer` is the owner's CommonSignerTxCreator from SignerManager in
+    //    @parity/product-sdk-signer. The fake runtime accepts any origin.
 
     // 6. The setText call, sized by a dry-run as the owner.
     const prepared = unwrap(await prepareSetProfile(LABEL, text, writeOpts));
@@ -389,12 +386,12 @@ async function main(): Promise<void> {
     console.log(`Prepared setText for ${OWNER} on ${LABEL}${TLD.suffix}.`);
 
     // 7. A last look before submitting: a record another writer changed is not overwritten.
-    const again = unwrap(await getProfileRecord(LABEL, writeOpts));
+    const again = unwrap(await getProfileRecord(LABEL, opts));
     if (again !== prepared.original) throw new Error("The profile changed; start over.");
-    await submitAndFinalize(prepared.call);
+    await submitAndFinalize();
 
     // 8. After finality, the chain holds exactly what was sent.
-    assert.equal(unwrap(await verifyPublishedProfile(LABEL, prepared.text, writeOpts)), true);
+    assert.equal(unwrap(await verifyPublishedProfile(LABEL, prepared.text, opts)), true);
 
     const after = unwrap(await getProfile(LABEL, opts));
     assert.equal(after.tag, "Found");
@@ -415,7 +412,7 @@ async function main(): Promise<void> {
     // One statement on the feed's topic, proved by the host; the record is not
     // written. The feed is the one the record names, and a product whose key
     // the record does not name gets SignerMismatch: it publishes first.
-    const moodFeed = after.profile.feeds.find((f) => f.kind === "mood");
+    const moodFeed = after.profile.feeds.find((f) => f.kind === MOOD_FEED_KIND);
     assert.ok(moodFeed);
     const seen: (Mood | null)[] = [];
     const watch = unwrap(watchMood(moodFeed, statementStore, (mood) => seen.push(mood)));

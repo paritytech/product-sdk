@@ -73,8 +73,9 @@ Every read and write takes `DotNsClientOptions`, the same options every other do
 
 - `runtime`: a `ContractRuntime` over Asset Hub, from `createContractRuntimeFromClient(client.raw.assetHub, descriptor)`.
   The record is a contract view call, so a chain client alone is not enough.
-- `origin`: the SS58 account that will sign. Optional for reads. Required for `prepareSetProfile`,
-  and it must be the account the registry authorises for the name.
+- `origin`: the SS58 account that will sign. Required for `prepareSetProfile`, and it must be
+  the account the registry authorises for the name. Leave it out of reads: a read dry-runs as
+  the origin it is given, and an account pallet-revive has never mapped cannot dry-run.
 
 The TLD and the content resolver are read from the chain once per runtime and cached. Pass
 `tld` and `contentResolverAddress` to skip those reads, as the tests and the example do; a live
@@ -161,8 +162,8 @@ import {
 // `owner` is the account the registry authorises for the name, and `signer`
 // its CommonSignerTxCreator, from `SignerManager` over the host accounts
 // provider. Finding it is the product's job: for a person it is the account
-// that owns their username.
-const opts = { runtime, origin: owner.address };
+// that owns their username. Reads take no origin; the prepare alone does.
+const opts = { runtime };
 
 // 1. The live text. "" means none.
 const live = await getProfileRecord("alice", opts);
@@ -193,7 +194,7 @@ if (!text.ok) throw text.error;
 await ensureContractAccountMapped(runtime, owner.address, signer);
 
 // 6. The setText call, sized by a dry-run as the owner.
-const prepared = await prepareSetProfile("alice", text.value, opts);
+const prepared = await prepareSetProfile("alice", text.value, { ...opts, origin: owner.address });
 if (!prepared.ok) throw prepared.error;
 
 // 7. Submit, after a last look: another writer's record must not be overwritten.
@@ -235,7 +236,7 @@ an instance id outside u64.
 Refuses bytes over 2 MiB before the host is asked. The format is the caller's declaration, as it
 is for readers; whether the bytes are an image of that format is the product's check, with the
 file in hand. The host stores the bytes under its Bulletin allowance and answers the key, which
-must be the blake2b-256 digest of the bytes; anything else is a `Storage` error and no CID. The
+must be the blake2b-256 digest of the bytes; anything else is a `Host` error and no CID. The
 `ProfileAvatar` that comes back goes straight into the patch.
 
 ### `prepareSetProfile(label, text, opts)`
@@ -312,9 +313,10 @@ else {
 ## Errors
 
 `ProfileError` reasons: `NotBase64`, `TooLarge`, `Malformed` from the decoder and the rewrite;
-`InvalidEntry` and `TooLarge` from the rewrite and `submitAvatar`; `Storage` from `submitAvatar`;
-`ChainRead` from `getPinnedNfts`, with the cause attached; `Host`, `SignerMismatch` and `Timeout`
-from the mood functions, with the cause attached where there is one. The dotNS walk reports through
+`InvalidEntry` and `TooLarge` from the rewrite, `submitAvatar` and `getPinnedNfts`; `ChainRead`
+from `getPinnedNfts`, with the cause attached; `Host` from `submitAvatar` and the mood functions,
+for a host call that failed or answered something unusable, with the cause attached where there
+is one; `SignerMismatch` and `Timeout` from the mood functions. The dotNS walk reports through
 `DotNsError`: `InvalidName`, `MissingOrigin`, `InvalidOrigin`, `Unauthorised`, `AddressDiscovery`
 when a write targets a deployment with no content resolver (a read answers `NoProfile` there, since
 there is nothing to read), `RegistryCall` for a call that failed, with the cause.
@@ -357,6 +359,8 @@ from it for a test or a demo. What it shows that the API does not:
   `getProfileRecord`, not a `PublicProfile`, because it carries entries it cannot decode.
 - **Mapping after preparing.** The prepare dry-run runs as the origin; an unmapped origin fails
   it. Map first.
+- **Reading with the origin set.** A read given an origin dry-runs as it, so a first-ever
+  publish fails at step 1, before mapping. Reads take `{ runtime }`; the prepare takes the origin.
 - **Skipping the re-read before submitting.** The prepared call stores a value rewritten from
   `original`; if the record changed, submitting it erases the other write.
 - **Fetching an avatar from a gateway.** The CID is a Bulletin preimage; `loadAvatar` goes through

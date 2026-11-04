@@ -38,7 +38,8 @@
  *
  * Writes, in the order the core's publisher makes them:
  *
- *   1. `getProfileRecord` for the live text.
+ *   1. `getProfileRecord` for the live text, with no origin: a read dry-runs
+ *      as the origin it is given, and an unmapped one cannot.
  *   2. `submitAvatar(bytes, format, manager)` if the avatar changes: the bytes
  *      go to Bulletin through the host, and the CID comes back.
  *   3. `deriveMoodFeed(label, opts, store, deriveEntropy)` for the record's

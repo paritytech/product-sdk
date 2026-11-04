@@ -17,6 +17,7 @@ import {
 import { type Result, err, ok } from "@parity/result";
 
 import { accountIdHexToBytes } from "../identity/dotns.js";
+import { isHex32 } from "./codec.js";
 import { ProfileError } from "./errors.js";
 import type {
     DroppedPin,
@@ -25,6 +26,28 @@ import type {
     ProfileNft,
     ProfileNftsChain,
 } from "./types.js";
+
+const chainRead = (message: string, cause: unknown) =>
+    new ProfileError("ChainRead", message, { cause });
+
+/** The current owner of each instance in `chunk`, at the pinned block. The one read made here. */
+async function readOwners(
+    chain: ProfileNftsChain,
+    chunk: ProfileNft[],
+    snapshot: FinalizedSnapshot,
+    signal: AbortSignal | undefined,
+): Promise<Result<(string | undefined)[], ProfileError>> {
+    try {
+        return ok(
+            await chain.assetHub.query.Scarcity.Instances.getValues(
+                chunk.map((nft) => [nft.instance] as [bigint]),
+                { at: snapshot.blockHash, signal },
+            ),
+        );
+    } catch (cause) {
+        return err(chainRead("Scarcity.Instances read failed", cause));
+    }
+}
 
 /** One pin against what the chain said about its instance. */
 function judge(
@@ -86,9 +109,12 @@ export async function getPinnedNfts(
     nfts: ProfileNft[],
     options: PinnedReadOptions = {},
 ): Promise<Result<PinnedNftsResult, ProfileError>> {
+    const bad = nfts.find((nft) => !isHex32(nft.purse));
+    if (bad) {
+        return err(new ProfileError("InvalidEntry", "a purse is a 32-byte account id as 0x hex"));
+    }
     const pins: PinnedNft[] = [];
     const dropped: DroppedPin[] = [];
-    let snapshot: FinalizedSnapshot | null = null;
 
     const chunks: ProfileNft[][] = [];
     for (let i = 0; i < nfts.length; i += MAX_INSTANCES_PER_READ) {
@@ -97,36 +123,30 @@ export async function getPinnedNfts(
     // An empty list still pins a block, so `at` is always answered.
     if (chunks.length === 0) chunks.push([]);
 
-    for (const chunk of chunks) {
-        const displays = await getInstanceDisplays(
-            chain,
-            chunk.map((nft) => nft.instance),
-            { at: snapshot ?? options.at, signal: options.signal },
-        );
-        if (!displays.ok) {
-            return err(
-                new ProfileError("ChainRead", "instance display read failed", {
-                    cause: displays.error,
-                }),
-            );
-        }
-        snapshot ??= displays.value.at;
-        if (chunk.length === 0) continue;
+    // The block first, with an empty read: joining a snapshot costs no round
+    // trip, so every chunk's two reads can then go out together.
+    const pinned = await getInstanceDisplays(chain, [], { at: options.at, signal: options.signal });
+    if (!pinned.ok) return err(chainRead("instance display read failed", pinned.error));
+    const snapshot = pinned.value.at;
 
-        try {
-            const owners = await chain.assetHub.query.Scarcity.Instances.getValues(
-                chunk.map((nft) => [nft.instance] as [bigint]),
-                { at: snapshot.blockHash, signal: options.signal },
-            );
-            chunk.forEach((nft, i) => {
-                const verdict = judge(nft, displays.value.displays[i], owners[i]);
-                if ("reason" in verdict) dropped.push(verdict);
-                else pins.push(verdict);
-            });
-        } catch (cause) {
-            return err(new ProfileError("ChainRead", "Scarcity.Instances read failed", { cause }));
-        }
+    for (const chunk of chunks) {
+        if (chunk.length === 0) continue;
+        const [displays, owners] = await Promise.all([
+            getInstanceDisplays(
+                chain,
+                chunk.map((nft) => nft.instance),
+                { at: snapshot, signal: options.signal },
+            ),
+            readOwners(chain, chunk, snapshot, options.signal),
+        ]);
+        if (!displays.ok) return err(chainRead("instance display read failed", displays.error));
+        if (!owners.ok) return owners;
+        chunk.forEach((nft, i) => {
+            const verdict = judge(nft, displays.value.displays[i], owners.value[i]);
+            if ("reason" in verdict) dropped.push(verdict);
+            else pins.push(verdict);
+        });
     }
 
-    return ok({ at: snapshot as FinalizedSnapshot, pins, dropped });
+    return ok({ at: snapshot, pins, dropped });
 }
