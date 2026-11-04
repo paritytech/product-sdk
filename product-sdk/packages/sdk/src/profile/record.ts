@@ -56,6 +56,53 @@ export function decodeBase64Strict(text: string): Uint8Array | null {
     return new Uint8Array(out);
 }
 
+/** Standard base64 with padding: the one form the writer emits, and what {@link decodeBase64Strict} reads back. */
+export function encodeBase64(bytes: Uint8Array): string {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 3) {
+        const a = bytes[i] as number;
+        const b = bytes[i + 1];
+        const c = bytes[i + 2];
+        const triple = (a << 16) | ((b ?? 0) << 8) | (c ?? 0);
+        out += BASE64_ALPHABET[(triple >>> 18) & 63];
+        out += BASE64_ALPHABET[(triple >>> 12) & 63];
+        out += b === undefined ? "=" : BASE64_ALPHABET[(triple >>> 6) & 63];
+        out += c === undefined ? "=" : BASE64_ALPHABET[triple & 63];
+    }
+    return out;
+}
+
+/**
+ * The entries of a `profile` text-record value, each as the wrapper carries
+ * it: the index byte, then the payload. The outer layer only; what each entry
+ * holds is the reader's or the rewriter's question. The three errors are the
+ * ones the core's `from_text` refuses a record for.
+ */
+export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileError> {
+    const bytes = decodeBase64Strict(text.trim());
+    if (bytes === null) {
+        return err(new ProfileError("NotBase64", "the profile record is not standard base64"));
+    }
+    if (bytes.length > PROFILE_RECORD_MAX_BYTES) {
+        return err(
+            new ProfileError(
+                "TooLarge",
+                `the profile record is ${bytes.length} bytes, over the ${PROFILE_RECORD_MAX_BYTES}-byte bound`,
+            ),
+        );
+    }
+    const entries = decodeExact(profileRecordCodec, bytes);
+    if (entries === null) {
+        return err(
+            new ProfileError(
+                "Malformed",
+                "the profile record is not exactly one SCALE ProfileRecord",
+            ),
+        );
+    }
+    return ok(entries);
+}
+
 /**
  * Decode a `profile` text-record value.
  *
@@ -81,32 +128,13 @@ export function decodeBase64Strict(text: string): Uint8Array | null {
  * ```
  */
 export function decodeProfileRecord(text: string): Result<PublicProfile, ProfileError> {
-    const bytes = decodeBase64Strict(text.trim());
-    if (bytes === null) {
-        return err(new ProfileError("NotBase64", "the profile record is not standard base64"));
-    }
-    if (bytes.length > PROFILE_RECORD_MAX_BYTES) {
-        return err(
-            new ProfileError(
-                "TooLarge",
-                `the profile record is ${bytes.length} bytes, over the ${PROFILE_RECORD_MAX_BYTES}-byte bound`,
-            ),
-        );
-    }
-    const entries = decodeExact(profileRecordCodec, bytes);
-    if (entries === null) {
-        return err(
-            new ProfileError(
-                "Malformed",
-                "the profile record is not exactly one SCALE ProfileRecord",
-            ),
-        );
-    }
-    return ok(readEntries(entries));
+    const entries = decodeRecordEntries(text);
+    if (!entries.ok) return entries;
+    return ok(readEntries(entries.value));
 }
 
 /** The avatar a payload holds, or `null` when it is not one avatar in a format this reader knows. */
-function readAvatar(payload: Uint8Array): ProfileAvatar | null {
+export function readAvatar(payload: Uint8Array): ProfileAvatar | null {
     const decoded = decodeExact(profileAvatarCodec, payload);
     if (decoded === null) return null;
     const cid = utf8OrNull(decoded.cid);
@@ -138,7 +166,7 @@ function readNft(payload: Uint8Array): ProfileNft | null {
           };
 }
 
-function readFeed(payload: Uint8Array): ProfileFeed | null {
+export function readFeed(payload: Uint8Array): ProfileFeed | null {
     const decoded = decodeExact(profileFeedCodec, payload);
     if (decoded === null) return null;
     const kind = utf8OrNull(decoded.kind);

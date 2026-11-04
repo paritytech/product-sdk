@@ -126,6 +126,20 @@ export interface PublicProfile {
 }
 
 /**
+ * What one write changes. A field left `undefined` keeps every live entry of
+ * that kind; `null` clears the kind. `nfts` replaces every pin, since the pins
+ * are one list. `feeds` replaces only the kinds it names, so a mood feed can
+ * be set without touching a feed of another kind; `null` clears them all.
+ */
+export interface ProfilePatch {
+    avatar?: ProfileAvatar | null;
+    /** `null` clears. An empty string is refused, so there is no third meaning. */
+    name?: string | null;
+    nfts?: ProfileNft[] | null;
+    feeds?: ProfileFeed[] | null;
+}
+
+/**
  * What `getProfile` answers on the `ok` channel. `NoProfile` is a name with no
  * record, or none this reader can read; it is not a failure, so a caller
  * clears what it had cached. A chain that could not be asked is on the `err`

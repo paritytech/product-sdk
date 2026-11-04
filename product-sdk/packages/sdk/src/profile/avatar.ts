@@ -6,15 +6,19 @@
  * `getVerifiedArtwork` over `preimageSource`; this module maps a
  * {@link ProfileAvatar} onto them and the declared format onto a MIME type.
  */
+import { blake2b256, bytesToHex } from "@parity/product-sdk-crypto";
 import type { PreimageManager } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 import {
+    type ArtworkAddress,
     type ArtworkSource,
     artworkAddress,
     getVerifiedArtwork,
     preimageSource,
 } from "@parity/product-sdk-nfts";
+import { type Result, err, ok } from "@parity/result";
 
+import { ProfileError } from "./errors.js";
 import {
     type AvatarMimeType,
     type LoadedAvatar,
@@ -27,6 +31,18 @@ const log = createLogger("profile");
 
 /** The multihash code of blake2b-256, the only digest a Bulletin preimage CID carries. */
 const BLAKE2B_256 = 0xb220;
+
+/**
+ * `cid` as the address `loadAvatar` fetches by, or `null` when it is not a
+ * Bulletin preimage CID: raw codec over a blake2b-256 digest. The one rule the
+ * reader and the writer share for an acceptable avatar CID.
+ */
+export function preimageCidAddress(cid: string): ArtworkAddress | null {
+    // An empty `hex` makes `artworkAddress` answer from the CID alone, with no
+    // digest to fall back on.
+    const address = artworkAddress({ hex: "", text: cid });
+    return address !== null && address.multihash === BLAKE2B_256 ? address : null;
+}
 
 /**
  * How long the host's preimage lookup is given before the avatar is reported
@@ -67,7 +83,7 @@ export interface LoadAvatarOptions {
  * ```ts
  * const manager = await getPreimageManager();
  * const avatar = profile.avatar && manager && (await loadAvatar(profile.avatar, manager));
- * if (avatar) img.src = URL.createObjectURL(new Blob([avatar.bytes], { type: avatar.mimeType }));
+ * if (avatar) img.src = URL.createObjectURL(new Blob([avatar.bytes as BlobPart], { type: avatar.mimeType }));
  * ```
  */
 export async function loadAvatar(
@@ -75,10 +91,8 @@ export async function loadAvatar(
     manager: PreimageManager,
     options: LoadAvatarOptions = {},
 ): Promise<LoadedAvatar | null> {
-    // An empty `hex` makes `artworkAddress` answer from the CID alone, with no
-    // digest to fall back on, so a CID that does not parse is `null` here.
-    const address = artworkAddress({ hex: "", text: avatar.cid });
-    if (address === null || address.multihash !== BLAKE2B_256) {
+    const address = preimageCidAddress(avatar.cid);
+    if (address === null) {
         // Debug, not warn: the CID is the name owner's, not the caller's.
         log.debug("the avatar CID is not a Bulletin preimage CID", { cid: avatar.cid });
         return null;
@@ -116,4 +130,51 @@ export async function loadAvatar(
         mimeType: AVATAR_MIME_TYPES[avatar.format],
         bytes: art.value.bytes,
     };
+}
+
+/**
+ * Store an avatar's bytes on Bulletin through the host and answer the
+ * {@link ProfileAvatar} a record carries for them.
+ *
+ * Bytes over {@link PROFILE_AVATAR_MAX_BYTES}, which every reader refuses, are
+ * refused before the host is asked. The format is the caller's declaration,
+ * as it is for the reader; whether the bytes are an image of that format is
+ * the product's check to make, with the file in hand. The key the host
+ * answers with must be the blake2b-256 digest of the bytes, as the core
+ * checks, so the CID built from it is the one `loadAvatar` fetches by.
+ * Submission spends the product's Bulletin allowance; the host asks for it
+ * when none is held, and the bytes stay on Bulletin for its retention period,
+ * after which the publisher uploads them again.
+ */
+export async function submitAvatar(
+    bytes: Uint8Array,
+    format: ProfileAvatarFormat,
+    manager: PreimageManager,
+): Promise<Result<ProfileAvatar, ProfileError>> {
+    if (bytes.length > PROFILE_AVATAR_MAX_BYTES) {
+        return err(
+            new ProfileError(
+                "TooLarge",
+                `the avatar is ${bytes.length} bytes, over the ${PROFILE_AVATAR_MAX_BYTES}-byte bound`,
+            ),
+        );
+    }
+    let key: string;
+    try {
+        key = await manager.submit(bytes);
+    } catch (cause) {
+        return err(new ProfileError("Storage", "the host did not store the avatar", { cause }));
+    }
+    const digest = `0x${bytesToHex(blake2b256(bytes))}` as const;
+    if (key.toLowerCase() !== digest) {
+        return err(
+            new ProfileError(
+                "Storage",
+                "the host stored the avatar under a key that is not the digest of its bytes",
+            ),
+        );
+    }
+    // A 32-byte digest always forms a CID.
+    const { cid } = artworkAddress({ hex: digest, text: null }) as ArtworkAddress;
+    return ok({ cid, format });
 }

@@ -30,6 +30,19 @@ export const DOTNS_REGISTRY_ABI: AbiEntry[] = [
         stateMutability: "view",
     },
     {
+        // The registry's own authorisation rule: the owner, an address approved
+        // for the token, or an operator approved for all of the owner's tokens.
+        // False for a node that does not exist.
+        type: "function",
+        name: "isAuthorised",
+        inputs: [
+            { name: "node", type: "bytes32" },
+            { name: "account", type: "address" },
+        ],
+        outputs: [{ name: "authorisedFlag", type: "bool" }],
+        stateMutability: "view",
+    },
+    {
         type: "function",
         name: "setResolver",
         inputs: [
@@ -43,8 +56,8 @@ export const DOTNS_REGISTRY_ABI: AbiEntry[] = [
 
 /**
  * `DotnsContentResolver` — the text records a name publishes, such as a
- * product's `manifest` and a person's `profile`. Read-only here: `setText` is
- * the writing product's call, not the SDK's.
+ * product's `manifest` and a person's `profile`. The read alone; the write is
+ * {@link DOTNS_CONTENT_RESOLVER_WRITE_ABI}.
  */
 export const DOTNS_CONTENT_RESOLVER_ABI: AbiEntry[] = [
     {
@@ -56,6 +69,25 @@ export const DOTNS_CONTENT_RESOLVER_ABI: AbiEntry[] = [
         ],
         outputs: [{ name: "value", type: "string" }],
         stateMutability: "view",
+    },
+];
+
+/**
+ * `DotnsContentResolver.setText`, gated by the registry's `isAuthorised`.
+ * Kept apart from the read ABI as {@link DOTNS_RESOLVER_WRITE_ABI} is, so a
+ * reader's bundle carries no write.
+ */
+export const DOTNS_CONTENT_RESOLVER_WRITE_ABI: AbiEntry[] = [
+    {
+        type: "function",
+        name: "setText",
+        inputs: [
+            { name: "node", type: "bytes32" },
+            { name: "key", type: "string" },
+            { name: "value", type: "string" },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable",
     },
 ];
 

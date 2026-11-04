@@ -1,8 +1,8 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * @parity/product-sdk/profile — Read the public profile a person publishes
- * under their dotNS name.
+ * @parity/product-sdk/profile — The public profile a person publishes under
+ * their dotNS name: read it, and prepare the write that publishes it.
  *
  * A profile is one dotNS text record, `profile`, holding a SCALE
  * `ProfileRecord` in base64: a list of entries, each a length-prefixed byte
@@ -10,35 +10,78 @@
  * authenticity. The envelope and the `Avatar` entry are fixed by the RFC
  * "Core-resolved public profiles" in host-rust-core, which the core decodes
  * with for hosts; the `Name`, `Nft` and `Feed` entries are proposed here, and
- * {@link PROFILE_ENTRY_INDEX} is the table where the next index is claimed.
+ * {@link PROFILE_ENTRY_INDEX} is the table where the next index is claimed. A
+ * reader keeps every entry it cannot read, and a writer puts it back.
  *
- * Four reads, all read-only:
+ * The record lives on the deployment's content resolver, whatever resolver the
+ * name itself points at: the host core reads and writes it there, and so does
+ * this module. A name the gateway minted is parked on the reverse resolver
+ * and takes a `profile` record all the same, because the resolver's `setText`
+ * checks the registry's authorisation for the node and not its pointer. So
+ * nothing here calls `setResolver`, and nothing needs to.
+ *
+ * Reads:
  *
  *   - `getProfile(label, opts)` finds and decodes the record, answering
  *     `ok({ tag: "Found", profile })`, `ok({ tag: "NoProfile" })` for a name
  *     with no readable profile, or `err` when the chain could not be asked.
  *     Keep the last two apart: the first clears a cached profile, the second
  *     keeps it.
- *   - `decodeProfileRecord(text)` is the decoder alone, for a record already
- *     in hand.
+ *   - `getProfileRecord(label, opts)` is the text as stored, `""` for none:
+ *     what a write starts from. `decodeProfileRecord(text)` is the decoder
+ *     alone.
  *   - `loadAvatar(avatar, manager)` fetches the avatar bytes through the host's
  *     preimage lookup and keeps them only if they hash to the CID and are
  *     within the RFC's bound. Never a gateway.
  *   - `getPinnedNfts(chain, nfts)` confirms each pinned NFT against
  *     `Scarcity.Instances` and `getInstanceDisplays` at one block.
  *
- * Feeds are returned as data and not subscribed to; the mood feed comes in a
- * later phase. Nothing here signs or writes: the record's writer is the
- * product that owns the name, and a writer keeps every entry it does not
- * understand.
+ * Writes, in the order the core's publisher makes them:
+ *
+ *   1. `getProfileRecord` for the live text.
+ *   2. `submitAvatar(bytes, format, manager)` if the avatar changes: the bytes
+ *      go to Bulletin through the host, and the CID comes back.
+ *   3. `rewriteProfileRecord(live, patch)` for the new text, with the feed in
+ *      the patch. It carries every entry the patch does not name, and refuses
+ *      a live record that is not a profile rather than replacing it.
+ *   4. The product maps its account in pallet-revive if it never called a
+ *      contract, before preparing: the dry-run that sizes the call runs as
+ *      the origin, and an unmapped origin cannot dry-run.
+ *   5. `prepareSetProfile(label, text, opts)` for the `setText` call, with
+ *      `opts.origin` the account the registry authorises for the name. It
+ *      hands back the text it saw, so the product reads once more and stops
+ *      if another writer got there first.
+ *   6. The product funds the account for the fee and the record's storage
+ *      deposit and submits the call with its own signer, waiting for
+ *      finality. None of that is the SDK's: who may write and who pays is
+ *      the product's to decide.
+ *   7. `verifyPublishedProfile(label, text, opts)` once the write is final.
+ *
+ * An empty text clears the record.
+ *
+ * Feeds are returned as data and not subscribed to.
  *
  * @packageDocumentation
  */
 export { decodeProfileRecord, decodeBase64Strict } from "./record.js";
-export { getProfile, isAcceptableProfileLabel, normalizeProfileLabel } from "./lookup.js";
-export { loadAvatar, AVATAR_MIME_TYPES, DEFAULT_AVATAR_TIMEOUT_MS } from "./avatar.js";
+export {
+    getProfile,
+    getProfileRecord,
+    isAcceptableProfileLabel,
+    normalizeProfileLabel,
+    verifyPublishedProfile,
+} from "./lookup.js";
+export {
+    loadAvatar,
+    submitAvatar,
+    AVATAR_MIME_TYPES,
+    DEFAULT_AVATAR_TIMEOUT_MS,
+} from "./avatar.js";
 export type { LoadAvatarOptions } from "./avatar.js";
 export { getPinnedNfts } from "./pins.js";
+export { rewriteProfileRecord } from "./encode.js";
+export { prepareSetProfile } from "./write.js";
+export type { PreparedProfileWrite } from "./write.js";
 export { ProfileError } from "./errors.js";
 export type { ProfileErrorReason } from "./errors.js";
 export {
@@ -56,6 +99,7 @@ export type {
     LoadedAvatar,
     PinnedNft,
     PinnedNftsResult,
+    ProfilePatch,
     ProfileAvatar,
     ProfileAvatarFormat,
     ProfileEntryName,

@@ -22,6 +22,8 @@ import { PROFILE_TEXT_RECORD_KEY, type ProfileLookup } from "./types.js";
 
 const log = createLogger("profile");
 
+type HexString = `0x${string}`;
+
 const NO_PROFILE: ProfileLookup = { tag: "NoProfile" };
 
 /** `MAX_DNS_LABEL_LEN` in the core: the longest DNS label. */
@@ -73,18 +75,77 @@ export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
     return stripSuffix(label.trim().toLowerCase(), tld.suffix);
 }
 
+/** Where a name's `profile` record lives, once the deployment and the TLD are known. */
+export interface ProfileLocation {
+    /** The label as the registry keys it: trimmed, lower-cased, without the TLD. */
+    label: string;
+    /** The namehash of `<label>.<tld>`, with a lite name's parts as levels. */
+    node: HexString;
+    /** The deployment's content resolver. `null` for a deployment with none, which holds no profiles. */
+    contentResolver: HexString | null;
+}
+
 /**
- * Read the public profile under a dotNS name.
+ * The node and the content resolver for `label`: the dotNS walk every profile
+ * read and write starts with.
  *
  * `label` is the name without its TLD, `alice` or `alice.01`; a trailing
  * `.<tld>` is tolerated. The TLD comes from the chain through `resolveTld`,
  * and the content resolver through `resolveDotNsContentResolver`, so `opts` is
  * what every other dotNS read takes.
  *
- * The record is read from the deployment's content resolver, whatever resolver
- * the name itself points at. A name minted through the gateway stays parked on
- * the reverse resolver, and its profile is on the content resolver all the
- * same; the core reads it there, and so does this.
+ * The record lives on the deployment's content resolver, whatever resolver the
+ * name itself points at. A name minted through the gateway stays parked on
+ * the reverse resolver and its profile is on the content resolver all the
+ * same; the core reads and writes it there, and so does this module.
+ */
+export async function locateProfile(
+    label: string,
+    opts: DotNsClientOptions,
+): Promise<Result<ProfileLocation, DotNsError>> {
+    const tldRes = await resolveTld(opts);
+    if (!tldRes.ok) return tldRes;
+    const tld = tldRes.value;
+    const bare = normalizeProfileLabel(label, tld);
+    if (!isAcceptableProfileLabel(bare)) {
+        return err(new DotNsError("InvalidName", `${JSON.stringify(label)} is not a dotNS name`));
+    }
+    const node = namehash(`${bare}${tld.suffix}`, tld);
+    const resolverRes = await resolveDotNsContentResolver(opts);
+    if (!resolverRes.ok) return resolverRes;
+    return ok({ label: bare, node, contentResolver: resolverRes.value });
+}
+
+/**
+ * The raw `profile` text the content resolver holds for `node`, trimmed, `""`
+ * for none. The value as written, so a writer can refuse a malformed record
+ * without losing it and a verifier can compare bytes.
+ */
+export async function readProfileText(
+    contentResolver: HexString,
+    node: HexString,
+    opts: DotNsClientOptions,
+): Promise<Result<string, DotNsError>> {
+    const origin = readOrigin(opts);
+    try {
+        const resolver = contractOf(opts.runtime, contentResolver, DOTNS_CONTENT_RESOLVER_ABI);
+        const textRes = await resolver.text.query(node, PROFILE_TEXT_RECORD_KEY, { origin });
+        if (!textRes.success) {
+            return err(
+                new DotNsError("RegistryCall", "contentResolver.text call failed", {
+                    cause: textRes.value,
+                }),
+            );
+        }
+        return ok(typeof textRes.value === "string" ? textRes.value.trim() : "");
+    } catch (cause) {
+        return err(new DotNsError("RegistryCall", "contentResolver.text read failed", { cause }));
+    }
+}
+
+/**
+ * Read the public profile under a dotNS name. See {@link locateProfile} for
+ * what `label` and `opts` are and where the record is read from.
  *
  * Three answers, the same three the core gives a host:
  *
@@ -117,50 +178,60 @@ export async function getProfile(
     label: string,
     opts: DotNsClientOptions,
 ): Promise<Result<ProfileLookup, DotNsError>> {
-    const tldRes = await resolveTld(opts);
-    if (!tldRes.ok) return tldRes;
-    const tld = tldRes.value;
-    const bare = normalizeProfileLabel(label, tld);
-    if (!isAcceptableProfileLabel(bare)) {
-        return err(new DotNsError("InvalidName", `${JSON.stringify(label)} is not a dotNS name`));
-    }
-    const node = namehash(`${bare}${tld.suffix}`, tld);
-
-    const resolverRes = await resolveDotNsContentResolver(opts);
-    if (!resolverRes.ok) return resolverRes;
+    const located = await locateProfile(label, opts);
+    if (!located.ok) return located;
+    const { label: bare, node, contentResolver } = located.value;
     // A deployment with no content resolver has no text records, so no profile.
-    if (resolverRes.value === null) return ok(NO_PROFILE);
-    const origin = readOrigin(opts);
-    log.debug("getProfile", { label: bare, node, resolver: resolverRes.value });
+    if (contentResolver === null) return ok(NO_PROFILE);
+    log.debug("getProfile", { label: bare, node, resolver: contentResolver });
 
-    try {
-        const resolver = contractOf(opts.runtime, resolverRes.value, DOTNS_CONTENT_RESOLVER_ABI);
-        const textRes = await resolver.text.query(node, PROFILE_TEXT_RECORD_KEY, { origin });
-        if (!textRes.success) {
-            return err(
-                new DotNsError("RegistryCall", "contentResolver.text call failed", {
-                    cause: textRes.value,
-                }),
-            );
-        }
-        const text = typeof textRes.value === "string" ? textRes.value.trim() : "";
-        if (text === "") return ok(NO_PROFILE);
+    const textRes = await readProfileText(contentResolver, node, opts);
+    if (!textRes.ok) return textRes;
+    if (textRes.value === "") return ok(NO_PROFILE);
 
-        const decoded = decodeProfileRecord(text);
-        if (!decoded.ok) {
-            // Debug, not warn: the record is the name owner's, not the caller's.
-            log.debug("the profile record does not decode; treating it as none", {
-                label: bare,
-                reason: decoded.error.reason,
-            });
-            return ok(NO_PROFILE);
-        }
-        return ok({ tag: "Found", profile: decoded.value });
-    } catch (cause) {
-        return err(
-            new DotNsError("RegistryCall", `profile lookup failed for ${JSON.stringify(bare)}`, {
-                cause,
-            }),
-        );
+    const decoded = decodeProfileRecord(textRes.value);
+    if (!decoded.ok) {
+        // Debug, not warn: the record is the name owner's, not the caller's.
+        log.debug("the profile record does not decode; treating it as none", {
+            label: bare,
+            reason: decoded.error.reason,
+        });
+        return ok(NO_PROFILE);
     }
+    return ok({ tag: "Found", profile: decoded.value });
+}
+
+/**
+ * The `profile` record of `label` as the content resolver holds it, trimmed,
+ * `""` for none. The text a write starts from: `rewriteProfileRecord` takes
+ * it as `live`, and it is what to read again before submitting a prepared
+ * write. A deployment with no content resolver holds nothing, so answers
+ * `""`. For the decoded profile, use `getProfile`.
+ */
+export async function getProfileRecord(
+    label: string,
+    opts: DotNsClientOptions,
+): Promise<Result<string, DotNsError>> {
+    const located = await locateProfile(label, opts);
+    if (!located.ok) return located;
+    const { node, contentResolver } = located.value;
+    if (contentResolver === null) return ok("");
+    return readProfileText(contentResolver, node, opts);
+}
+
+/**
+ * Whether the content resolver now holds exactly `text` for `label`: the
+ * check a publisher makes once its write is final, as the core's does, so a
+ * write the chain included but did not apply, or one overtaken by another
+ * writer, is not reported as published. `""` asks whether the record is
+ * cleared.
+ */
+export async function verifyPublishedProfile(
+    label: string,
+    text: string,
+    opts: DotNsClientOptions,
+): Promise<Result<boolean, DotNsError>> {
+    const stored = await getProfileRecord(label, opts);
+    if (!stored.ok) return stored;
+    return ok(stored.value === text.trim());
 }

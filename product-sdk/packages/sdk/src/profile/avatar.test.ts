@@ -9,7 +9,7 @@ import { createFakeHost } from "@parity/product-sdk-host/testing";
 import { artworkAddress } from "@parity/product-sdk-nfts";
 import { afterEach, describe, expect, test } from "vitest";
 
-import { loadAvatar } from "./avatar.js";
+import { loadAvatar, submitAvatar } from "./avatar.js";
 import { PROFILE_AVATAR_MAX_BYTES } from "./types.js";
 
 const BYTES = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]);
@@ -98,5 +98,64 @@ describe("loadAvatar", () => {
         ).toBeNull();
         expect(await loadAvatar({ cid: "", format: "png" }, manager)).toBeNull();
         expect(asked).toBe(0);
+    });
+});
+
+/**
+ * A hand-rolled manager rather than the fake host's: that one keys preimages
+ * by a cheap hash, and `submitAvatar` holds the host to the real digest.
+ */
+function managerThatAnswers(answer: (bytes: Uint8Array) => Promise<`0x${string}`>) {
+    const submitted: Uint8Array[] = [];
+    const manager: PreimageManager = {
+        lookup: () => ({ unsubscribe() {}, onInterrupt: () => () => {} }),
+        submit: async (bytes) => {
+            submitted.push(bytes);
+            return answer(bytes);
+        },
+    };
+    return { manager, submitted };
+}
+const digestOf = (bytes: Uint8Array) => `0x${bytesToHex(blake2b256(bytes))}` as const;
+
+describe("submitAvatar", () => {
+    test("stores the bytes and answers the CID the reader fetches by", async () => {
+        const { manager, submitted } = managerThatAnswers(async (bytes) => digestOf(bytes));
+        expect(await submitAvatar(BYTES, "webp", manager)).toEqual({
+            ok: true,
+            value: { cid: CID, format: "webp" },
+        });
+        expect(submitted).toEqual([BYTES]);
+    });
+
+    test("refuses bytes over the bound before asking the host", async () => {
+        const { manager, submitted } = managerThatAnswers(async (bytes) => digestOf(bytes));
+        const big = new Uint8Array(PROFILE_AVATAR_MAX_BYTES + 1);
+        big.set(BYTES);
+        const r = await submitAvatar(big, "webp", manager);
+        expect(r.ok ? null : r.error.reason).toBe("TooLarge");
+        expect(submitted).toHaveLength(0);
+    });
+
+    test("a host that does not store the bytes is a Storage error with the cause", async () => {
+        const { manager } = managerThatAnswers(async () => {
+            throw new Error("allowance refused");
+        });
+        const r = await submitAvatar(BYTES, "webp", manager);
+        expect(r.ok ? null : r.error.reason).toBe("Storage");
+        expect(r.ok ? null : (r.error.cause as Error).message).toBe("allowance refused");
+    });
+
+    test("a key that is not the digest of the bytes is a Storage error, never a CID", async () => {
+        const { manager } = managerThatAnswers(async () => `0x${"00".repeat(32)}`);
+        const r = await submitAvatar(BYTES, "webp", manager);
+        expect(r.ok ? null : r.error.reason).toBe("Storage");
+    });
+
+    test("the key comparison ignores hex casing", async () => {
+        const { manager } = managerThatAnswers(
+            async (bytes) => digestOf(bytes).toUpperCase().replace("0X", "0x") as `0x${string}`,
+        );
+        expect((await submitAvatar(BYTES, "webp", manager)).ok).toBe(true);
     });
 });

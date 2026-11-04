@@ -12,12 +12,17 @@ import {
     DOTNS_CONTENT_RESOLVER_ABI,
     DOTNS_PROTOCOL_REGISTRY_ABI,
 } from "../identity/dotns-abis.js";
-import { DOTNS_CONTENT_RESOLVER_KEY } from "../identity/dotns-addresses.js";
+import { DOTNS_CONTENT_RESOLVER_KEY, ZERO_ADDRESS as ZERO } from "../identity/dotns-addresses.js";
 import { DotNsError } from "../identity/dotns-errors.js";
 import { DOT_TLD, namehash } from "../identity/dotns-namehash.js";
-import { getProfile, isAcceptableProfileLabel, normalizeProfileLabel } from "./lookup.js";
+import {
+    getProfile,
+    getProfileRecord,
+    isAcceptableProfileLabel,
+    normalizeProfileLabel,
+    verifyPublishedProfile,
+} from "./lookup.js";
 
-const ZERO = "0x0000000000000000000000000000000000000000";
 const CONTENT_RESOLVER = "0x3333333333333333333333333333333333333333";
 
 // The record `record.test.ts` pins: avatar (cid, webp) + name "Alice".
@@ -216,5 +221,84 @@ describe("getProfile", () => {
             expect(r.error.reason).toBe("RegistryCall");
             expect(r.error.cause).toBe(boom);
         }
+    });
+});
+
+describe("verifyPublishedProfile", () => {
+    const opts = (runtime: ReturnType<typeof runtimeWith>) => ({ runtime, tld: DOT_TLD });
+
+    test("true when the resolver holds exactly the text, whatever the whitespace around it", async () => {
+        const runtime = runtimeWith({ text: ` ${RECORD}\n` });
+        expect(await verifyPublishedProfile("alice", RECORD, opts(runtime))).toEqual({
+            ok: true,
+            value: true,
+        });
+        expect(calls(runtime)).toEqual([GET, TEXT]);
+    });
+
+    test("false when the resolver holds another record, or none", async () => {
+        expect(
+            await verifyPublishedProfile("alice", RECORD, opts(runtimeWith({ text: "AA==" }))),
+        ).toEqual({ ok: true, value: false });
+        expect(
+            await verifyPublishedProfile("alice", RECORD, opts(runtimeWith({ text: "" }))),
+        ).toEqual({ ok: true, value: false });
+    });
+
+    test("an empty text asks whether the record is cleared", async () => {
+        expect(await verifyPublishedProfile("alice", "", opts(runtimeWith({ text: "" })))).toEqual({
+            ok: true,
+            value: true,
+        });
+        expect(
+            await verifyPublishedProfile("alice", "", opts(runtimeWith({ text: RECORD }))),
+        ).toEqual({ ok: true, value: false });
+    });
+
+    test("a deployment with no content resolver holds nothing, so only a clear is published", async () => {
+        const runtime = runtimeWith({ contentResolver: ZERO });
+        expect(await verifyPublishedProfile("alice", "", opts(runtime))).toEqual({
+            ok: true,
+            value: true,
+        });
+        expect(await verifyPublishedProfile("alice", RECORD, opts(runtime))).toEqual({
+            ok: true,
+            value: false,
+        });
+    });
+
+    test("a chain that cannot be asked is an error, not a false", async () => {
+        const runtime = runtimeWith({ text: fakeDryRunResult({ failure: "boom" }) });
+        const r = await verifyPublishedProfile("alice", RECORD, opts(runtime));
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.error).toBeInstanceOf(DotNsError);
+    });
+});
+
+describe("getProfileRecord", () => {
+    const opts = (runtime: ReturnType<typeof runtimeWith>) => ({ runtime, tld: DOT_TLD });
+
+    test("answers the text as stored, trimmed, whether or not it is a profile", async () => {
+        expect(
+            await getProfileRecord("alice", opts(runtimeWith({ text: ` ${RECORD}\n` }))),
+        ).toEqual({ ok: true, value: RECORD });
+        expect(
+            await getProfileRecord("alice", opts(runtimeWith({ text: PRE_RFC_RECORD }))),
+        ).toEqual({ ok: true, value: PRE_RFC_RECORD });
+    });
+
+    test("an empty string for a name with no record, or a deployment with no content resolver", async () => {
+        expect(await getProfileRecord("alice", opts(runtimeWith({ text: "" })))).toEqual({
+            ok: true,
+            value: "",
+        });
+        const runtime = runtimeWith({ contentResolver: ZERO });
+        expect(await getProfileRecord("alice", opts(runtime))).toEqual({ ok: true, value: "" });
+        expect(calls(runtime)).toEqual([GET]);
+    });
+
+    test("refuses a label the core would not resolve", async () => {
+        const r = await getProfileRecord("Alice!", opts(runtimeWith({})));
+        expect(r.ok ? null : r.error.reason).toBe("InvalidName");
     });
 });
