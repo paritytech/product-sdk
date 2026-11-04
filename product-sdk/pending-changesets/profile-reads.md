@@ -2,7 +2,7 @@
 "@parity/product-sdk": minor
 ---
 
-**Read a person's public profile from their dotNS name, through `@parity/product-sdk/profile`.**
+**Read a person's public profile from their dotNS name, and prepare a change to it, through `@parity/product-sdk/profile`.**
 
 A profile is one dotNS text record, `profile`, holding a base64 SCALE `ProfileRecord` on the layout the RFC "Core-resolved public profiles" fixes: a list of entries, each a length-prefixed byte string that starts with the entry's variant index (`WrapperKeepOpaque<ProfileEntry>`), so a reader keeps every entry it cannot read and a writer puts it back. The RFC allocates index 0, `Avatar` (a Bulletin CID and a declared format). This package proposes the next three and is where further indices are claimed: 1 `Name`, 2 `Nft`, 3 `Feed`, the entries Seity has written since 2026-10-30. `PROFILE_ENTRY_INDEX` is the table, with each kind's payload, reader rule and status.
 
@@ -11,4 +11,23 @@ A profile is one dotNS text record, `profile`, holding a base64 SCALE `ProfileRe
 - `loadAvatar(avatar, preimageManager)` fetches the bytes through the host's preimage lookup, keyed by the digest in the CID, and keeps them only if they are within the RFC's 2 MiB bound and hash to it. Never a gateway. A miss, an oversized answer or a mismatch is `null`, not a failure.
 - `getPinnedNfts(chain, nfts)` confirms each pin against `Scarcity.Instances` and `getInstanceDisplays` at one finalized block: the purse must hold the instance and the instance must be minted from the collection and item the pin names. Dropped pins come back with a reason; a read the chain could not answer is a `ChainRead` `ProfileError` with the cause attached.
 
-Read only. Feeds are returned as data and not subscribed to. The identity module gains `DOTNS_CONTENT_RESOLVER_ABI`, the content resolver's `text` view, `resolveDotNsContentResolver`, which reads the deployment's content resolver from the protocol registry once per runtime, `DOTNS_CONTENT_RESOLVER_KEY`, and a `contentResolverAddress` option on `DotNsClientOptions` to skip that read.
+Feeds are returned as data and not subscribed to.
+
+A write is read, change, write back, in the order the host core's own publisher makes it. The SDK prepares each step; the product signs, pays, maps its account and submits, as with every other dotNS write. The node's resolver pointer is never moved: `setText` on the content resolver is gated by the registry's `isAuthorised` and ignores the pointer, so a name claimed through the gateway can publish a profile without a `setResolver` first.
+
+- `getProfileRecord(label, opts)` reads the text as stored, `""` for none, so a writer can carry what it cannot decode and compare before submitting.
+- `submitAvatar(bytes, format, preimageManager)` puts a new avatar on Bulletin through the host's preimage store, within the RFC's 2 MiB bound, and answers the `ProfileAvatar` to write, its CID built from the digest the store confirms.
+- `rewriteProfileRecord(live, patch)` builds the new text from the live one and a `ProfilePatch`: each field left `undefined` keeps its entries, `null` drops them, a value replaces them. A new avatar replaces the first one this writer decodes and goes first, as the core's `set_avatar` does; feeds replace only the kinds the patch names; every entry of a kind the writer does not know is carried as read. A live record that is not a profile is refused rather than overwritten, and the result is held to the 16 KiB bound.
+- `prepareSetProfile(label, text, opts)` answers the `setText` call as a `BatchableCall`, sized by a dry-run as `opts.origin`, with the text it will write and the text that was live when it was prepared. It requires an origin the registry authorises for the name, the owner or an approved address or operator, and fails `Unauthorised` before the dry-run otherwise. The origin must already be mapped in pallet-revive; `ensureContractAccountMapped` does that.
+- `verifyPublishedProfile(label, text, opts)` reads the record back and answers whether it is the text that was sent, for after finality.
+
+A mood is one statement on the name's mood topic, signed by the host's statement allowance key, gone a day after it was set: the record's `mood` feed names the topic and the signer, and setting a mood never writes the record. The body, the expiry packing and the reader rule are Seity's, carried over with its vectors, so a mood set from one product reads the same from another. The palette, `MOOD_KINDS` and `MOOD_INTENSITIES`, is fixed in the SDK so every product shows the same intent for the same bytes; it grows by appending, and an index a build does not know reads as no mood.
+
+- `deriveMoodFeed(label, opts, store, deriveEntropy)` is the feed entry a publish writes: the topic from host entropy over a product-neutral, versioned label, the signer learned from a proof over a throwaway statement that is never submitted. Both are stable per wallet and product, so it goes in every publish patch and the topic is in the record before any mood is set. A publish replaces the record's mood feed by kind, so the product that published last is the one whose moods show.
+- `setMood(feed, mood | null, store)` proves and submits one statement on the feed's topic, as its channel, with the lapse time in the expiry's upper bits and the millisecond within the second below, held above the last expiry sent, so two sets in one second still order. `SignerMismatch` means the host signs as a key the record does not name: publish from this product first.
+- `readMood(feed, store)` reads the topic's backfill through the host and answers the live mood or null; a host that could not be read is `Host` or `Timeout`, which is not "no mood". `watchMood(feed, store, onChange)` keeps reading, and reports a lapse with no new statement as null on its own.
+- `pickMood`, `encodeMoodBody`, `decodeMoodBody` and `moodExpiry` are the pure parts, for fixtures and for a product that reads statements some other way. The lapse a reader honours is held to a day whatever a writer put in the body.
+
+`ProfileError` gains `Host`, `SignerMismatch` and `Timeout`.
+
+The identity module gains `DOTNS_CONTENT_RESOLVER_ABI`, the content resolver's `text` view, and `DOTNS_CONTENT_RESOLVER_WRITE_ABI`, its `setText`, kept apart so a reader's bundle carries no write; `isAuthorised` on `DOTNS_REGISTRY_ABI`; `resolveDotNsContentResolver`, which reads the deployment's content resolver from the protocol registry once per runtime, `DOTNS_CONTENT_RESOLVER_KEY`, and a `contentResolverAddress` option on `DotNsClientOptions` to skip that read; and an `Unauthorised` reason on `DotNsError` for a write whose origin the registry does not authorise for the node.
