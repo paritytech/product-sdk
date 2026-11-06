@@ -39,6 +39,9 @@ export {
     createHostPreimageManager,
     requestResourceAllocation,
     createProofAuthorized,
+    // Brands a product identifier for the wire shapes that take a `ProductId`
+    // (e.g. an `NftPurseRead` permission's `Product` owner).
+    asProductId,
     // Hex helpers
     toHex,
     fromHex,
@@ -50,6 +53,7 @@ export type {
     ResultAsync,
     AllocatableResource,
     AllocationOutcome,
+    ProductId,
     RemotePermission,
 } from "./truapi.js";
 

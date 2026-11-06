@@ -19,14 +19,20 @@
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
  * selection — the `system` domain's `info`, and the
  * `chat` / `coinPayment` / `contacts` / `entropy` / `expandedCard` /
- * `funding` / `game` / `locale` / `nftPurse` / `notifications` / `payment` / `permissions` / `pocket` /
+ * `funding` / `fundingProvider` / `game` / `locale` / `nftPurse` / `notifications` / `payment` / `permissions` / `pocket` /
  * `renderer` / `resourceAllocation` / `scanner` / `theme` / `worker` domains.
  * Touching an unmodeled domain throws a descriptive error
  * rather than failing with `undefined is not a function`.
  *
  * @packageDocumentation
  */
-import type { ObservableLike, Observer, Subscription, TrUApiClient } from "@parity/truapi";
+import type {
+    ObservableLike,
+    Observer,
+    ProductId,
+    Subscription,
+    TrUApiClient,
+} from "@parity/truapi";
 import { errAsync, okAsync } from "neverthrow";
 
 import type { HostChainIdentifier } from "./chain-discovery.js";
@@ -311,7 +317,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
             handshake: () => okAsync(undefined),
             featureSupported: () => okAsync({ supported: chainSupported }),
             navigateTo: () => okAsync(undefined),
-            getProductContext: () => okAsync({ productId: "fake-app.dot" }),
+            getProductContext: () => okAsync({ productId: "fake-app.dot" as ProductId }),
         }),
         preimage: {
             lookupSubscribe: ({ request: { key } }) =>
@@ -342,6 +348,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         entropy: notModeled("entropy"),
         expandedCard: notModeled("expandedCard"),
         funding: notModeled("funding"),
+        fundingProvider: notModeled("fundingProvider"),
         game: notModeled("game"),
         locale: notModeled("locale"),
         nftPurse: notModeled("nftPurse"),

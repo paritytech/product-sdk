@@ -14,11 +14,12 @@
  * @module
  */
 
-import { RequestTimeoutError, scale } from "@parity/truapi";
+import { RequestTimeoutError, asProductId, scale } from "@parity/truapi";
 import type {
     AllocatableResource,
     AllocationOutcome,
     HexString,
+    ProductId,
     RemotePermission,
     TrUApiClient,
 } from "@parity/truapi";
@@ -281,7 +282,13 @@ export async function createHostPreimageManager(): Promise<PreimageManager | nul
 // - `AllocationOutcome` — per-resource outcome, the string union
 //   `"Allocated" | "Rejected" | "NotAvailable"` (RFC-10).
 // - `RemotePermission` — permission the dapp asks the host to grant via `requestPermission`.
-export type { AllocatableResource, AllocationOutcome, RemotePermission };
+//   Its `NftPurseRead` variant names a `Product` owner by the branded `ProductId`.
+// - `ProductId` / `asProductId` — the wire's branded product identifier and the
+//   designation that brands a plain string. The SDK's own account and proof-context
+//   types keep plain strings and brand them at the wire boundary; product code
+//   needs `asProductId` only where it builds a wire shape by hand.
+export type { AllocatableResource, AllocationOutcome, ProductId, RemotePermission };
+export { asProductId };
 
 /**
  * Request the host to pre-allocate one or more resource allowances.
@@ -400,7 +407,9 @@ if (import.meta.vitest) {
             | {
                   tag: "NftPurseRead";
                   value: {
-                      owner: { tag: "Product"; value: string } | { tag: "Root"; value?: undefined };
+                      owner:
+                          | { tag: "Product"; value: ProductId }
+                          | { tag: "Root"; value?: undefined };
                   };
               }
         >
