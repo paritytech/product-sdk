@@ -154,6 +154,7 @@ export type {
     CardDrawRegistration,
     PocketCard,
     PocketCardAction,
+    PocketCardSide,
     PocketManager,
 } from "./pocket.js";
 

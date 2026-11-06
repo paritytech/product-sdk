@@ -37,6 +37,9 @@ export type CardDrawHandler = (
     render: CardRender,
 ) => CardCleanup | Promise<CardCleanup>;
 
+/** Which side of a card a tree is for. A card turns over only when its manifest entry names a `back`. */
+export type PocketCardSide = "front" | "back";
+
 /** Handle for one card's registration. */
 export interface CardDrawRegistration {
     unsubscribe(): void;
@@ -59,11 +62,12 @@ export interface PocketCardPress {
  * satisfies it, and so does anything else shaped like one.
  */
 export interface PocketCardDrawer {
-    drawCard(cardId: string, draw: CardDrawHandler): CardDrawRegistration;
+    drawCard(cardId: string, draw: CardDrawHandler, side?: PocketCardSide): CardDrawRegistration;
     /** The host's handle carries more than this; only giving the subscription back matters here. */
     subscribeCardAction(
         cardId: string,
         callback: (action: PocketCardPress) => void,
+        side?: PocketCardSide,
     ): { unsubscribe(): void };
 }
 
@@ -86,6 +90,8 @@ export interface DrawPocketCardOptions {
      * checker is referenced and none is bundled.
      */
     validate?: FaceChecker;
+    /** Draw the card's back rather than its front. Its presses come back to this tree alone. */
+    side?: PocketCardSide;
 }
 
 /**
@@ -113,28 +119,36 @@ export function drawPocketCard(
 ): CardDrawRegistration {
     let live: { unmount(): void } | null = null;
 
-    const registration = pocket.drawCard(cardId, (send, render) => {
-        const renderer = createRenderer({
-            onRender: send,
-            subscribeActions: (callback) => {
-                const subscription = pocket.subscribeCardAction(cardId, (action) => {
-                    callback(action.actionId, decodePayload(action.payload));
-                });
-                return () => {
-                    subscription.unsubscribe();
-                };
-            },
-            validate: options.validate,
-        });
+    const registration = pocket.drawCard(
+        cardId,
+        (send, render) => {
+            const renderer = createRenderer({
+                onRender: send,
+                subscribeActions: (callback) => {
+                    const subscription = pocket.subscribeCardAction(
+                        cardId,
+                        (action) => {
+                            callback(action.actionId, decodePayload(action.payload));
+                        },
+                        options.side,
+                    );
+                    return () => {
+                        subscription.unsubscribe();
+                    };
+                },
+                validate: options.validate,
+            });
 
-        live = renderer;
-        renderer.mount(typeof element === "function" ? element(render) : element);
+            live = renderer;
+            renderer.mount(typeof element === "function" ? element(render) : element);
 
-        return () => {
-            live = null;
-            renderer.unmount();
-        };
-    });
+            return () => {
+                live = null;
+                renderer.unmount();
+            };
+        },
+        options.side,
+    );
 
     return {
         unsubscribe() {

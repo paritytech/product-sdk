@@ -1,8 +1,9 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Writes the static faces the host's approval sheet draws, and checks that the
- * manifest still agrees with this module.
+ * Writes the static faces the host's approval sheet draws, and the static back
+ * the host shows until the worker draws one, and checks that the manifest still
+ * agrees with this module.
  *
  * The sheet shows a card before it is added, when no worker is running to draw
  * one, so the face has to exist as a file in the worker archive. These come from
@@ -14,14 +15,17 @@
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 
 import { androidLimits, assertFaceValid } from "@parity/product-sdk-renderer";
+import type { ReactNode } from "react";
 
-import { CARD_ID, LoyaltyFace, PREVIEW_STATES } from "./face.js";
+import { CARD_ID, LoyaltyBack, LoyaltyFace, PREVIEW_STATES } from "./face.js";
 import { renderOnce } from "./render.js";
 
 interface WorkerManifest {
     entrypoint: string;
-    pocket?: { cards: { id: string; title: string; preview: string }[] };
+    pocket?: { cards: { id: string; title: string; preview: string; back?: string }[] };
 }
+
+const BACK_PATH = "pocket/back.json";
 
 const manifest: WorkerManifest = JSON.parse(
     readFileSync(new URL("../manifest/worker.json", import.meta.url), "utf8"),
@@ -52,6 +56,9 @@ function checkManifestAgrees(): void {
                     `(${Object.keys(PREVIEW_STATES).join(", ")})`,
             );
         }
+        if (card.back !== BACK_PATH) {
+            problems.push(`the manifest's back '${card.back}' is not the '${BACK_PATH}' this writes`);
+        }
     }
 
     if (problems.length > 0) {
@@ -65,9 +72,17 @@ checkManifestAgrees();
 const outDir = new URL("../dist/pocket/", import.meta.url);
 mkdirSync(outDir, { recursive: true });
 
-for (const [name, state] of Object.entries(PREVIEW_STATES)) {
-    const face = renderOnce(<LoyaltyFace {...state} />);
-    const json = `${JSON.stringify(face, null, 2)}\n`;
+// A new card has no stamps, so the back shown before the worker runs has none either.
+const files: [string, ReactNode][] = [
+    ...Object.entries(PREVIEW_STATES).map(([name, state]): [string, ReactNode] => [
+        name,
+        <LoyaltyFace {...state} />,
+    ]),
+    ["back", <LoyaltyBack {...PREVIEW_STATES.empty} />],
+];
+
+for (const [name, element] of files) {
+    const json = `${JSON.stringify(renderOnce(element), null, 2)}\n`;
 
     // The text is what the host reads and measures, so that is what is checked.
     // Indented JSON is about three times the compact form the tree alone would
