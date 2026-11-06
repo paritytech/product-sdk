@@ -78,6 +78,12 @@ function buttonIn(node: RendererNode): RendererNode | undefined {
     return undefined;
 }
 
+/** Every string drawn anywhere in the tree. */
+function textsIn(node: RendererNode): string[] {
+    if (node.tag === "String") return [(node.value as { text: string }).text];
+    return childrenOf(node).flatMap(textsIn);
+}
+
 function childrenOf(node: RendererNode): RendererNode[] {
     return (node.value as { children?: RendererNode[] }).children ?? [];
 }
@@ -119,9 +125,10 @@ test("a stamp pressed on the back counts on the front", async () => {
     drawPocketCard(back.pocket, CARD_ID, <LoyaltyCardBack />, { side: "back" });
     await front.show();
     await back.show();
-    const stampsBefore = Number.parseInt(tallyOn(front.onScreen), 10);
+    const before = tallyOn(front.onScreen);
 
     await back.press();
 
-    expect(Number.parseInt(tallyOn(front.onScreen), 10)).toBe(stampsBefore + 1);
+    expect(tallyOn(front.onScreen)).not.toBe(before);
+    expect(textsIn(back.onScreen)).toContain(`${tallyOn(front.onScreen)} stamps`);
 });

@@ -582,7 +582,8 @@ function validateImageSource(value: unknown, path: string, verdict: Verdict): vo
 }
 
 function validateInlineImage(hex: string, path: string, verdict: Verdict): void {
-    if (!/^0x(?:[0-9a-f]{2})*$/i.test(hex)) {
+    // Lower-case `0x` only, as the host's decoder reads it.
+    if (!/^0x(?:[0-9a-fA-F]{2})*$/.test(hex)) {
         verdict.error(
             path,
             "inline-image-not-hex",
@@ -878,8 +879,9 @@ if (import.meta.vitest) {
         });
 
         test("refuses bytes that are not 0x-prefixed hex", () => {
-            const faces = [PNG, "0x89504e470d0a1a0", "0xzz"].map(inlineImage);
+            const faces = [PNG, `0X${PNG}`, "0x89504e470d0a1a0", "0xzz"].map(inlineImage);
             expect(faces.map(errorCodes)).toEqual([
+                ["inline-image-not-hex"],
                 ["inline-image-not-hex"],
                 ["inline-image-not-hex"],
                 ["inline-image-not-hex"],

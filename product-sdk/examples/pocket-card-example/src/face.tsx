@@ -115,16 +115,24 @@ export function LoyaltyFace({ stamps, goal, note, onStamp }: LoyaltyFaceProps): 
                 {note ?? (done ? "Reward ready" : "Buy one more to earn a stamp")}
             </Text>
 
-            <Button
-                text={done ? "Redeem" : "Stamp"}
-                variant={done ? "Primary" : "Secondary"}
-                onClick={onStamp}
-            />
+            <StampButton stamps={stamps} goal={goal} onStamp={onStamp} />
         </Column>
     );
 }
 
-/** The card's back: the member's code to show at the till, beside the same stamp button as the front. */
+/** One press either way: it stamps, or at the goal it redeems and starts again. */
+function StampButton({ stamps, goal, onStamp }: LoyaltyFaceProps): ReactNode {
+    const done = stamps >= goal;
+    return (
+        <Button text={done ? "Redeem" : "Stamp"} variant={done ? "Primary" : "Secondary"} onClick={onStamp} />
+    );
+}
+
+/**
+ * The card's back: the member's code to show at the till, beside the same stamp
+ * button as the front. The static back leaves the button out, because the host
+ * shows it on a live card before the worker runs, where a press reaches nobody.
+ */
 export function LoyaltyBack({ stamps, goal, onStamp }: LoyaltyFaceProps): ReactNode {
     return (
         <Row
@@ -146,7 +154,7 @@ export function LoyaltyBack({ stamps, goal, onStamp }: LoyaltyFaceProps): ReactN
                 <Text style="BodySmallRegular" color="FgSecondary">
                     {`${stamps} of ${goal} stamps`}
                 </Text>
-                <Button text="Stamp" variant="Secondary" onClick={onStamp} />
+                {onStamp && <StampButton stamps={stamps} goal={goal} onStamp={onStamp} />}
             </Column>
         </Row>
     );
