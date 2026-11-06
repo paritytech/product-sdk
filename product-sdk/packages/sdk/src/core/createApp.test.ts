@@ -11,7 +11,7 @@ import {
     type MockInstance,
 } from "vitest";
 import { errAsync, okAsync } from "neverthrow";
-import { HostUnavailableError, type TruApi } from "@parity/product-sdk-host";
+import { HostUnavailableError, asProductId, type TruApi } from "@parity/product-sdk-host";
 import {
     createFakeHost,
     createFakeTruApiClient,
@@ -31,7 +31,7 @@ describe("host-derived app identity", () => {
     beforeEach(() => {
         client = createFakeTruApiClient();
         getProductContext = vi.spyOn(client.system, "getProductContext");
-        getProductContext.mockReturnValue(okAsync({ productId: "session.paseo" }));
+        getProductContext.mockReturnValue(okAsync({ productId: asProductId("session.paseo") }));
         setTruApiClient(client);
         entries = [];
         configure({ level: "warn", namespaces: [], handler: (entry) => entries.push(entry) });
@@ -73,7 +73,7 @@ describe("host-derived app identity", () => {
     ])(
         "keeps wallet identity %s while using %s for app info and storage",
         async (productId, appName) => {
-            getProductContext.mockReturnValue(okAsync({ productId }));
+            getProductContext.mockReturnValue(okAsync({ productId: asProductId(productId) }));
             const getAccount = vi.spyOn(client.account, "getAccount");
             const write = vi.spyOn(client.localStorage, "write");
             const app = await createApp({ cloudStorage: false });
@@ -108,7 +108,7 @@ describe("host-derived app identity", () => {
     );
 
     it("keeps existing bare-name storage readable and writes to the same prefix", async () => {
-        getProductContext.mockReturnValue(okAsync({ productId: "my-app.dot" }));
+        getProductContext.mockReturnValue(okAsync({ productId: asProductId("my-app.dot") }));
         await client.localStorage.write({ key: "my-app:theme", value: "0x6461726b" });
         const app = await createApp({ cloudStorage: false });
         apps.push(app);
