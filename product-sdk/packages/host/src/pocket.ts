@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Wrapper for the host's Pocket surface, backed by `truApi.pocket.*` and the
- * `PocketCard` context of `truApi.renderer.*`.
+ * `PocketCard` and `PocketCardBack` contexts of `truApi.renderer.*`.
  *
  * A Pocket card is a face the product draws into the host's Pocket tab. The
  * product declares its cards in the worker manifest, and the host asks for a
@@ -15,8 +15,9 @@
  * of cancelling each other's cards.
  *
  * The slot itself is owned by `renderer.ts`, which dispatches by context. This
- * module claims `PocketCard` and routes it per card. Claiming it leaves the
- * chat and input contexts free for whatever else the product draws.
+ * module claims `PocketCard`, and `PocketCardBack` once a back is drawn, and
+ * routes each per card. Claiming them leaves the chat and input contexts free
+ * for whatever else the product draws.
  *
  * @module
  */
@@ -101,6 +102,8 @@ export type PocketCardSide = "front" | "back";
 /** The render context each side is drawn and pressed under. */
 const SIDE_CONTEXT = { front: "PocketCard", back: "PocketCardBack" } as const;
 
+type PocketCardContext = (typeof SIDE_CONTEXT)[PocketCardSide];
+
 /** Pocket manager handle. */
 export interface PocketManager {
     /**
@@ -143,9 +146,9 @@ interface PocketRegistry {
     actionsSubscribed: boolean;
 }
 
-/** The registry key for one side of one card. */
-function sideKey(cardId: string, side: PocketCardSide): string {
-    return `${side}:${cardId}`;
+/** The registry key for one side of one card: the side's render context, then the card. */
+function cardKey(context: PocketCardContext, cardId: string): string {
+    return `${context}:${cardId}`;
 }
 
 // Keyed by client rather than held per manager, because the registration these
@@ -189,7 +192,7 @@ function registerRenderer(
         if (request.context.tag !== SIDE_CONTEXT[side]) return;
 
         const { cardId } = request.context.value;
-        const entry = registry.cards.get(sideKey(cardId, side));
+        const entry = registry.cards.get(cardKey(request.context.tag, cardId));
         if (entry === undefined) {
             const what = side === "front" ? "the pocket card" : "the back of the pocket card";
             interrupt(renderFailure(`no handler is drawing ${what} '${cardId}'`));
@@ -209,8 +212,7 @@ function subscribeActions(client: TrUApiClient, registry: PocketRegistry): void 
         (action) => {
             const { context } = action;
             if (context.tag !== "PocketCard" && context.tag !== "PocketCardBack") return;
-            const side = context.tag === "PocketCard" ? "front" : "back";
-            const listeners = registry.listeners.get(sideKey(context.value.cardId, side));
+            const listeners = registry.listeners.get(cardKey(context.tag, context.value.cardId));
             if (listeners === undefined) return;
             // Copied, because a listener is allowed to unsubscribe from inside itself.
             for (const listener of [...listeners]) listener(action);
@@ -312,7 +314,7 @@ function adaptPocketManager(client: TrUApiClient): PocketManager {
 
     return {
         drawCard(cardId, draw, side = "front") {
-            const key = sideKey(cardId, side);
+            const key = cardKey(SIDE_CONTEXT[side], cardId);
             const entry = { draw };
             registry.cards.set(key, entry);
             registerRenderer(client, registry, side);
@@ -327,7 +329,7 @@ function adaptPocketManager(client: TrUApiClient): PocketManager {
             };
         },
         subscribeCardAction(cardId, callback, side = "front") {
-            const key = sideKey(cardId, side);
+            const key = cardKey(SIDE_CONTEXT[side], cardId);
             const listeners = registry.listeners.get(key) ?? new Set();
             registry.listeners.set(key, listeners);
             listeners.add(callback);
@@ -636,6 +638,25 @@ if (import.meta.vitest) {
         expect(host.declined).toEqual([]);
     });
 
+    // Each side is its own registration, so giving the front up must not take
+    // the back with it.
+    test("giving up one side leaves the other drawing", async () => {
+        const host = renderer();
+        hostWith(host);
+
+        const pocket = await getPocketManager();
+        const backs: unknown[] = [];
+        const front = pocket?.drawCard("loyalty", (send) => send(face));
+        pocket?.drawCard("loyalty", (send) => send(face), "back");
+        front?.unsubscribe();
+
+        host.draw("loyalty", backs, "0x", "PocketCardBack");
+        host.draw("loyalty", []);
+
+        expect(backs).toEqual([face]);
+        expect(host.declined).toEqual(["no handler is drawing the pocket card 'loyalty'"]);
+    });
+
     // A product that draws no back must leave the back unclaimed, so the host
     // keeps showing the back it already has instead of a blank one.
     test("a product that draws only fronts declines a back", async () => {
@@ -652,7 +673,7 @@ if (import.meta.vitest) {
     // Pocket holds the only render slot, so nothing else can answer a chat body.
     // Leaving it unanswered hangs it on the device forever.
     // Drawing a card must not cost the product the other two render contexts.
-    // Pocket claims `PocketCard` and nothing else, so a chat body the product
+    // Pocket claims only its own contexts, so a chat body the product
     // draws itself still reaches its own handler.
     test("drawing a card leaves the other contexts free", async () => {
         const host = renderer();

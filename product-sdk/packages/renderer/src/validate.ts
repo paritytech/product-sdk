@@ -868,7 +868,7 @@ if (import.meta.vitest) {
 
         // The protocol's own rule, so every host refuses these, not just one.
         test("refuses an SVG, which can load outside addresses", () => {
-            const svg = `0x${Array.from(new TextEncoder().encode("<svg/>"), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+            const svg = "0x3c7376672f3e"; // <svg/>
             expect(errorCodes(inlineImage(svg))).toEqual(["inline-image-format"]);
         });
 

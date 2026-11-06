@@ -12,3 +12,5 @@
 - `validateFace` accepts an `Image` that carries its own bytes (`{ tag: "Inline", value: "0x..." }`), and refuses one that is not hex, is more than 64 KiB, or is not a PNG, JPEG or WebP.
 
 A Widget page turns the card with `expandedCard.setBackShown({ shown })` through `getTruApi()`.
+
+Upgrade `@parity/product-sdk-host` and `@parity/product-sdk-react-renderer` together: an older Pocket manager ignores `side`, so `drawPocketCard` would draw the back in place of the front.

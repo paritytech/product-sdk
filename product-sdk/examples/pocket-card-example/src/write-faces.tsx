@@ -15,6 +15,7 @@
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 
 import { androidLimits, assertFaceValid } from "@parity/product-sdk-renderer";
+import type { ReactNode } from "react";
 
 import { CARD_ID, LoyaltyBack, LoyaltyFace, PREVIEW_STATES } from "./face.js";
 import { renderOnce } from "./render.js";
@@ -71,9 +72,17 @@ checkManifestAgrees();
 const outDir = new URL("../dist/pocket/", import.meta.url);
 mkdirSync(outDir, { recursive: true });
 
-for (const [name, state] of Object.entries(PREVIEW_STATES)) {
-    const face = renderOnce(<LoyaltyFace {...state} />);
-    const json = `${JSON.stringify(face, null, 2)}\n`;
+// A new card has no stamps, so the back shown before the worker runs has none either.
+const files: [string, ReactNode][] = [
+    ...Object.entries(PREVIEW_STATES).map(([name, state]): [string, ReactNode] => [
+        name,
+        <LoyaltyFace {...state} />,
+    ]),
+    ["back", <LoyaltyBack {...PREVIEW_STATES.empty} />],
+];
+
+for (const [name, element] of files) {
+    const json = `${JSON.stringify(renderOnce(element), null, 2)}\n`;
 
     // The text is what the host reads and measures, so that is what is checked.
     // Indented JSON is about three times the compact form the tree alone would
@@ -83,11 +92,5 @@ for (const [name, state] of Object.entries(PREVIEW_STATES)) {
     writeFileSync(new URL(`${name}.json`, outDir), json);
     console.log(`wrote pocket/${name}.json`);
 }
-
-// A new card has no stamps, so the back shown before the worker runs has none either.
-const back = `${JSON.stringify(renderOnce(<LoyaltyBack {...PREVIEW_STATES.empty} />), null, 2)}\n`;
-assertFaceValid(back, { host: androidLimits });
-writeFileSync(new URL("back.json", outDir), back);
-console.log(`wrote ${BACK_PATH}`);
 
 console.log(`manifest entrypoint is ${manifest.entrypoint}, card is ${CARD_ID}`);

@@ -85,8 +85,9 @@ Modifiers are plain props on any of them except `Effect`: `padding`, `margin`, `
 `width`, `height`, `minWidth`, `minHeight`, `fillMaxWidth`, `fillMaxHeight`, `opacity`, `blendingMode`.
 
 The vocabulary is small and closed: 11 node types, 12 modifiers, **9 semantic colour tokens**, 5
-typography presets, one effect. No literal colours, no gradients. Images come from a Bulletin CID or a
-path inside your archive, never a URL.
+typography presets, one effect. No literal colours, no gradients. Images come from a Bulletin CID, a
+path inside your archive, or their own bytes (see [the back of a card](#an-image-made-at-run-time)), never a
+URL.
 
 **A press is `onClick`, not an action id.** react-renderer mints the id behind `onClick` and routes the
 press back to that handler, so you never name one and never match on one. The same goes for `onValueChange`
