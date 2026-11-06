@@ -73,6 +73,7 @@ Every PR that changes a published artifact needs a changeset. See [`product-sdk/
 | Check a face against the protocol | `product-sdk/packages/renderer/src/validate.ts`, `product-sdk/packages/renderer/src/schema.ts` |
 | Read Scarcity NFTs and the claims a player holds | `product-sdk/packages/nfts/src/claims.ts`, `product-sdk/packages/nfts/src/collections.ts` |
 | Draw a Pocket card from a worker | `product-sdk/packages/host/src/pocket.ts`, `product-sdk/examples/pocket-card-example/` |
+| Read or publish a person's public profile | `product-sdk/packages/sdk/src/profile/lookup.ts`, `product-sdk/packages/sdk/src/profile/write.ts`, `product-sdk/packages/sdk/src/profile/types.ts` (the entry index table), `product-sdk/packages/sdk/src/profile/mood.ts`, `product-sdk/examples/profile-example/` |
 | Release pipeline | `.github/workflows/product-sdk-release.yml`, `product-sdk/RELEASES.md` |
 | Descriptor drift detection | `.github/workflows/product-sdk-descriptors-drift.yml`, `product-sdk/packages/descriptors/README.md` |
 
@@ -96,5 +97,6 @@ When the user's question matches a skill, invoke it via the `Skill` tool rather 
 - `product-sdk-nfts` — Scarcity collection and item-catalogue reads, the claims a player holds with the proof a mint spends, what a claim reveals through `previewClaim`, verified artwork, the descriptor entries they need, and the open metadata schema.
 - `product-sdk-individuality` — personhood / membership state reads, the account to username read, the game and its prize draws, the account and lite sign-up paths, the two-transaction lite bind flow, full-personhood registration, ring-VRF proof contexts and ring locations, and the person, lite-alias and score-participant origin extensions.
 - `product-sdk-pocket-cards` — Pocket cards: writing a face in JSX, checking it, and drawing it from a worker.
+- `product-sdk-profile` — a person's public profile under their dotNS name: the avatar, display name, pinned NFTs and feeds it carries, the three answers a read gives, loading the avatar through the host's preimage lookup, confirming pins against the chain, the read-rewrite-prepare-submit-verify publish recipe where the product signs, maps and submits, and moods on the profile's feed: set, read and watch through the host's statement store.
 - `product-sdk-utilities` — address, crypto, logger, local-storage, utils.
 - `migrating-to-product-sdk` — porting from legacy stacks.

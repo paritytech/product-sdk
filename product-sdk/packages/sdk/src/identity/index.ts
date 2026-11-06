@@ -50,9 +50,11 @@ export { POP_STATUS, DOTNS_ADDRESSES } from "./dotns-abis.js";
 
 // Where those addresses come from: the pinned table, or the gateway walk.
 export {
+    DOTNS_CONTENT_RESOLVER_KEY,
     DOTNS_REGISTRY_KEYS,
     discoverDotNsAddresses,
     resolveDotNsAddresses,
+    resolveDotNsContentResolver,
     verifyDotNsAddresses,
 } from "./dotns-addresses.js";
 export type { DotNsAddresses, DotNsGatewayQueryApi } from "./dotns-addresses.js";

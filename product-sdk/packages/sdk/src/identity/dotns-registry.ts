@@ -104,6 +104,12 @@ export interface DotNsClientOptions {
     reverseResolverAddress?: HexString;
     /** `DotnsResolver` address (writes: setDotNsRecord). Defaults to Paseo AH. */
     resolverAddress?: HexString;
+    /**
+     * `DotnsContentResolver` address, the resolver holding text records. Not
+     * pinned: by default it is read from the protocol registry once per runtime
+     * (see `resolveDotNsContentResolver`). Supply it to skip that read.
+     */
+    contentResolverAddress?: HexString;
     /** `DotnsRegistrarController` address (registration). Defaults to Paseo AH. */
     registrarControllerAddress?: HexString;
     /** `PopRules` address (registration price). Defaults to Paseo AH. */
