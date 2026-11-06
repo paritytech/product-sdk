@@ -23,7 +23,7 @@ import { getPocketManager } from "@parity/product-sdk-host";
 import { drawPocketCard } from "@parity/product-sdk-react-renderer";
 import { useSyncExternalStore } from "react";
 
-import { CARD_ID, LoyaltyFace } from "./face.js";
+import { CARD_ID, LoyaltyBack, LoyaltyFace } from "./face.js";
 
 const GOAL = 10;
 
@@ -56,6 +56,13 @@ function readCard(): CardState {
     return card;
 }
 
+/** The back reads the same stamps as the front, so a stamp on either side shows on both. */
+export function LoyaltyCardBack() {
+    const { stamps } = useSyncExternalStore(watchCard, readCard);
+
+    return <LoyaltyBack stamps={stamps} goal={GOAL} onStamp={stamp} />;
+}
+
 /** Exported so `worker.test.tsx` can put it on a fake host and take it off again. */
 export function LoyaltyCard() {
     const { stamps, presses } = useSyncExternalStore(watchCard, readCard);
@@ -81,4 +88,5 @@ if (pocket === null) {
     // the mount and unmount pairing. The adapter between the host's hex payload
     // and the renderer's bytes lives in the SDK rather than in every worker.
     drawPocketCard(pocket, CARD_ID, <LoyaltyCard />);
+    drawPocketCard(pocket, CARD_ID, <LoyaltyCardBack />, { side: "back" });
 }

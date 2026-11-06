@@ -5,6 +5,13 @@
     "entrypoint": "worker.js",
     "includes": { "pocket": true },
     "pocket": {
-        "cards": [{ "id": "loyalty", "title": "Loyalty", "preview": "pocket/partial.json" }]
+        "cards": [
+            {
+                "id": "loyalty",
+                "title": "Loyalty",
+                "preview": "pocket/partial.json",
+                "back": "pocket/back.json"
+            }
+        ]
     }
 }

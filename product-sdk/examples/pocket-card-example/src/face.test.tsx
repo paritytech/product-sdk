@@ -4,7 +4,7 @@ import { androidLimits, validateFace } from "@parity/product-sdk-renderer";
 import type { RendererNode } from "@parity/product-sdk-renderer";
 import { describe, expect, test } from "vitest";
 
-import { type LoyaltyState, LoyaltyFace, PREVIEW_STATES } from "./face.js";
+import { type LoyaltyState, LoyaltyBack, LoyaltyFace, PREVIEW_STATES } from "./face.js";
 import { renderOnce } from "./render.js";
 
 /** Nothing listens to a face under test, the same as a face on the approval sheet. */
@@ -48,5 +48,15 @@ describe("the loyalty face", () => {
         const runaway: LoyaltyState = { stamps: 0, goal: 300 };
         expect(validateFace(face(runaway), { host: androidLimits }).ok).toBe(true);
         expect(validateFace(preview(runaway), { host: androidLimits }).ok).toBe(false);
+    });
+});
+
+describe("the loyalty back", () => {
+    // The member code travels in the tree as bytes, which the protocol bounds by
+    // format and size, so the back is checked as the text that ships.
+    test("draws with no errors, member code included", () => {
+        const back = renderOnce(<LoyaltyBack {...PREVIEW_STATES.partial} onStamp={() => {}} />);
+        const verdict = validateFace(`${JSON.stringify(back, null, 2)}\n`, { host: androidLimits });
+        expect([verdict.errors, verdict.warnings]).toEqual([[], []]);
     });
 });

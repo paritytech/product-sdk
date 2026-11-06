@@ -10,7 +10,7 @@ import { act } from "react";
 import { expect, test } from "vitest";
 
 import { CARD_ID } from "./face.js";
-import { LoyaltyCard } from "./worker.js";
+import { LoyaltyCard, LoyaltyCardBack } from "./worker.js";
 
 /**
  * Stands in for the host's Pocket manager, driven the way the host drives one:
@@ -64,9 +64,18 @@ function fakeHost() {
 
 /** The action id react-renderer minted for the button in the face on screen. */
 function clickActionOf(face: RendererNode): string {
-    const button = childrenOf(face).find((child) => child.tag === "Button");
+    const button = buttonIn(face);
     if (button === undefined) throw new Error("the face carries no button");
     return (button.value as { props: { clickAction: string } }).props.clickAction;
+}
+
+function buttonIn(node: RendererNode): RendererNode | undefined {
+    if (node.tag === "Button") return node;
+    for (const child of childrenOf(node)) {
+        const button = buttonIn(child);
+        if (button !== undefined) return button;
+    }
+    return undefined;
 }
 
 function childrenOf(node: RendererNode): RendererNode[] {
@@ -99,4 +108,20 @@ test("the stamps survive the card leaving the screen and coming back", async () 
     await host.show();
 
     expect(tallyOn(host.onScreen)).toBe("6 of 10");
+});
+
+// The stamps are the holder's, not one side's, so a stamp at the till on the
+// back has to show on the front the user turns back to.
+test("a stamp pressed on the back counts on the front", async () => {
+    const front = fakeHost();
+    const back = fakeHost();
+    drawPocketCard(front.pocket, CARD_ID, <LoyaltyCard />);
+    drawPocketCard(back.pocket, CARD_ID, <LoyaltyCardBack />, { side: "back" });
+    await front.show();
+    await back.show();
+    const stampsBefore = Number.parseInt(tallyOn(front.onScreen), 10);
+
+    await back.press();
+
+    expect(Number.parseInt(tallyOn(front.onScreen), 10)).toBe(stampsBefore + 1);
 });

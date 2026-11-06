@@ -1,17 +1,19 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * The loyalty card's face, authored in JSX.
+ * The loyalty card's face and back, authored in JSX.
  *
  * One module for two surfaces. The worker mounts it live, and `write-faces.tsx`
- * mounts the same component to write the JSON the manifest's `preview` paths
- * point at, which is what the approval sheet draws before the card is added.
- * One source, so the sheet and the card cannot disagree.
+ * mounts the same components to write the JSON the manifest's `preview` and
+ * `back` paths point at, which is what the host draws before the worker does.
+ * One source, so the static files and the live card cannot disagree.
  *
  * Every string here is ASCII. The host reads worker JS as Latin-1.
  */
-import { Box, Button, Column, Row, Text } from "@parity/product-sdk-react-renderer";
+import { Box, Button, Column, Image, Row, Text } from "@parity/product-sdk-react-renderer";
 import type { ReactNode } from "react";
+
+import { MEMBER_CODE } from "./member-code.js";
 
 /** The card this worker publishes, as named in the manifest. */
 export const CARD_ID = "loyalty";
@@ -34,6 +36,7 @@ const CARD_RADIUS = 20;
 const STAMP_SIZE = 14;
 const STAMP_RADIUS = 3;
 const STAMP_GAP = 4;
+const MEMBER_CODE_SIZE = 96;
 
 export interface LoyaltyFaceProps extends LoyaltyState {
         /**
@@ -118,5 +121,33 @@ export function LoyaltyFace({ stamps, goal, note, onStamp }: LoyaltyFaceProps): 
                 onClick={onStamp}
             />
         </Column>
+    );
+}
+
+/** The card's back: the member's code to show at the till, beside the same stamp button as the front. */
+export function LoyaltyBack({ stamps, goal, onStamp }: LoyaltyFaceProps): ReactNode {
+    return (
+        <Row
+            fillMaxWidth
+            padding={CARD_PADDING}
+            background={{ color: "BgSurfaceContainer", shape: { tag: "Rounded", value: CARD_RADIUS } }}
+            verticalAlignment="Center"
+        >
+            <Image
+                source={{ tag: "Inline", value: MEMBER_CODE }}
+                fit="Contain"
+                width={MEMBER_CODE_SIZE}
+                height={MEMBER_CODE_SIZE}
+            />
+            <Column padding={{ top: 0, end: 0, bottom: 0, start: CARD_PADDING }}>
+                <Text style="TitleMediumRegular" color="FgPrimary">
+                    Member code
+                </Text>
+                <Text style="BodySmallRegular" color="FgSecondary">
+                    {`${stamps} of ${goal} stamps`}
+                </Text>
+                <Button text="Stamp" variant="Secondary" onClick={onStamp} />
+            </Column>
+        </Row>
     );
 }
