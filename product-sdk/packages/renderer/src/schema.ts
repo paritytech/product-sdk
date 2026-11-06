@@ -255,8 +255,22 @@ export const SHAPE_SCHEMA: Record<ShapeTag, FieldKind | null> = {
     Square: null,
 };
 
-/** The image sources. Both carry a string. */
-export const IMAGE_SOURCE_TAGS = closedSet<ImageSource["tag"]>()(["Bulletin", "Archive"] as const);
+/** The image sources. Each carries a string; for `Inline` it is the image's bytes as `0x` hex. */
+export const IMAGE_SOURCE_TAGS = closedSet<ImageSource["tag"]>()([
+    "Bulletin",
+    "Archive",
+    "Inline",
+] as const);
+
+/** The most bytes an `Inline` image may carry. Protocol, not one host's bound. */
+export const MAX_INLINE_IMAGE_BYTES = 64 * 1024;
+
+/** How the hex of each format an `Inline` image may be begins: PNG, JPEG and WebP. */
+export const INLINE_IMAGE_FORMATS: readonly RegExp[] = [
+    /^0x89504e470d0a1a0a/i,
+    /^0xffd8ff/i,
+    /^0x52494646[0-9a-f]{8}57454250/i,
+];
 
 /*
  * The tables above are object literals, so a plain `TABLE[tag]` lookup reaches

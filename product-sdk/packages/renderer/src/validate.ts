@@ -5,7 +5,9 @@ import {
     COLOR_TOKENS,
     type Field,
     type FieldKind,
+    INLINE_IMAGE_FORMATS,
     isImageSource,
+    MAX_INLINE_IMAGE_BYTES,
     MODIFIER_SCHEMA,
     modifierValue,
     NODE_SCHEMA,
@@ -23,6 +25,9 @@ export type FaceIssueCode =
     | "unknown-modifier"
     | "unknown-shape"
     | "unknown-image-source"
+    | "inline-image-not-hex"
+    | "inline-image-too-large"
+    | "inline-image-format"
     | "unknown-enum"
     | "missing-field"
     | "wrong-type"
@@ -565,12 +570,42 @@ function validateImageSource(value: unknown, path: string, verdict: Verdict): vo
         verdict.error(
             path,
             "unknown-image-source",
-            `unknown image source '${tag}'. An image comes from a Bulletin CID or a path inside the product's own archive; the tree never carries a URL.`,
+            `unknown image source '${tag}'. An image comes from a Bulletin CID, a path inside the product's own archive, or its own bytes; the tree never carries a URL.`,
         );
         return;
     }
     reportUnknownFields(value, ["tag", "value"], path, verdict);
     validateValue(value.value, { kind: "string" }, `${path}.value`, true, verdict);
+    if (tag === "Inline" && typeof value.value === "string") {
+        validateInlineImage(value.value, `${path}.value`, verdict);
+    }
+}
+
+function validateInlineImage(hex: string, path: string, verdict: Verdict): void {
+    if (!/^0x(?:[0-9a-f]{2})*$/i.test(hex)) {
+        verdict.error(
+            path,
+            "inline-image-not-hex",
+            "an inline image is its bytes as a 0x-prefixed hex string",
+        );
+        return;
+    }
+    const bytes = (hex.length - 2) / 2;
+    if (bytes > MAX_INLINE_IMAGE_BYTES) {
+        verdict.error(
+            path,
+            "inline-image-too-large",
+            `an inline image is at most ${MAX_INLINE_IMAGE_BYTES} bytes, and this one is ${bytes}`,
+        );
+        return;
+    }
+    if (!INLINE_IMAGE_FORMATS.some((format) => format.test(hex))) {
+        verdict.error(
+            path,
+            "inline-image-format",
+            "an inline image must be a PNG, JPEG or WebP. SVG is refused, because it can load outside addresses.",
+        );
+    }
 }
 
 function reportUnknownFields(
@@ -814,6 +849,41 @@ if (import.meta.vitest) {
 
         test("refuses a String with no text", () => {
             expect(errorCodes({ tag: "String", value: {} })).toEqual(["missing-field"]);
+        });
+    });
+
+    describe("images carried as bytes", () => {
+        const PNG = "89504e470d0a1a0a";
+        const inlineImage = (value: unknown) => ({
+            tag: "Image",
+            value: { props: { source: { tag: "Inline", value } } },
+        });
+
+        test("accepts a PNG, a JPEG and a WebP", () => {
+            const faces = [`0x${PNG}00`, "0xffd8ffe0", "0x52494646000000005745425056503820"].map(
+                inlineImage,
+            );
+            expect(faces.flatMap(errorCodes)).toEqual([]);
+        });
+
+        // The protocol's own rule, so every host refuses these, not just one.
+        test("refuses an SVG, which can load outside addresses", () => {
+            const svg = `0x${Array.from(new TextEncoder().encode("<svg/>"), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+            expect(errorCodes(inlineImage(svg))).toEqual(["inline-image-format"]);
+        });
+
+        test("refuses more than 64 KiB", () => {
+            const tooLarge = `0x${PNG}${"00".repeat(64 * 1024 - PNG.length / 2 + 1)}`;
+            expect(errorCodes(inlineImage(tooLarge))).toEqual(["inline-image-too-large"]);
+        });
+
+        test("refuses bytes that are not 0x-prefixed hex", () => {
+            const faces = [PNG, "0x89504e470d0a1a0", "0xzz"].map(inlineImage);
+            expect(faces.map(errorCodes)).toEqual([
+                ["inline-image-not-hex"],
+                ["inline-image-not-hex"],
+                ["inline-image-not-hex"],
+            ]);
         });
     });
 
