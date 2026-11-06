@@ -12,6 +12,7 @@
     "@parity/product-sdk-crypto": "workspace:*",
     "@parity/product-sdk-descriptors": "workspace:*",
     "@parity/product-sdk-host": "workspace:*",
+    "@parity/product-sdk-hooks-core": "workspace:*",
     "@parity/product-sdk-keys": "workspace:*",
     "@parity/product-sdk-logger": "workspace:*",
     "@parity/product-sdk-signer": "workspace:*",
