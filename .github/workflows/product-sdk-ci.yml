@@ -1,16 +1,23 @@
 name: "product-sdk: CI"
 
 on:
+  # These three jobs are required status checks on `main`. A required check that
+  # never runs leaves a PR "expected" forever, so the paths must fire on every
+  # change that can reach `main` — docs-only and workflow-only PRs included, the
+  # same way `docs-verify.yml` is triggered. The cost is a full build/test on a
+  # docs typo; the alternative is an unmergeable PR.
   push:
     branches: [main]
     paths:
       - "product-sdk/**"
-      - ".github/workflows/product-sdk-ci.yml"
+      - "docs/**"
+      - ".github/workflows/**"
   pull_request:
     branches: [main]
     paths:
       - "product-sdk/**"
-      - ".github/workflows/product-sdk-ci.yml"
+      - "docs/**"
+      - ".github/workflows/**"
 
 # Read-only build/test pipeline: only needs to clone the repo. Per-job grants
 # below if anything ever needs to write.
