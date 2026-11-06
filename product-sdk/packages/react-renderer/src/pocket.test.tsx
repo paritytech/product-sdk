@@ -9,7 +9,7 @@ import { act, createElement } from "react";
 
 import { Text } from "./components.js";
 import { useAction } from "./context.js";
-import type { CardCleanup, CardDrawHandler, PocketCardPress } from "./pocket.js";
+import type { CardCleanup, CardDrawHandler, PocketCardPress, PocketCardSide } from "./pocket.js";
 import { drawPocketCard } from "./pocket.js";
 
 const CARD_ID = "loyalty";
@@ -26,14 +26,21 @@ function makeFakeHost() {
     let draw: CardDrawHandler | undefined;
     let report: ((action: PocketCardPress) => void) | undefined;
     let release: CardCleanup;
+    const sidesAsked: string[] = [];
 
     const pocket = {
-        drawCard(_cardId: string, handler: CardDrawHandler) {
+        drawCard(_cardId: string, handler: CardDrawHandler, side?: PocketCardSide) {
             draw = handler;
+            sidesAsked.push(`draw ${side}`);
             return { unsubscribe: unsubscribeDraw };
         },
-        subscribeCardAction(_cardId: string, callback: (action: PocketCardPress) => void) {
+        subscribeCardAction(
+            _cardId: string,
+            callback: (action: PocketCardPress) => void,
+            side?: PocketCardSide,
+        ) {
             report = callback;
+            sidesAsked.push(`actions ${side}`);
             return { unsubscribe: unsubscribeActions };
         },
     };
@@ -69,6 +76,7 @@ function makeFakeHost() {
         reportAction,
         unsubscribeActions,
         unsubscribeDraw,
+        sidesAsked,
     };
 }
 
@@ -98,6 +106,19 @@ describe("drawPocketCard", () => {
         expect(face.tag).toBe("Text");
         expect(face.value.props.style).toBe("HeadlineLarge");
         expect(face.value.children[0]).toEqual({ tag: "String", value: { text: "3 of 10" } });
+    });
+
+    // A back drawn as the front would replace the card's face, and its presses
+    // would reach the front's buttons.
+    it("draws a back as the back, and hears only the back's presses", async () => {
+        const host = makeFakeHost();
+        drawPocketCard(host.pocket, CARD_ID, <Text style="HeadlineLarge">Back</Text>, {
+            side: "back",
+        });
+
+        await host.putCardOnScreen();
+
+        expect(host.sidesAsked).toEqual(["draw back", "actions back"]);
     });
 
     it("hands a reported action's payload to the handler as the bytes its hex encodes", async () => {
