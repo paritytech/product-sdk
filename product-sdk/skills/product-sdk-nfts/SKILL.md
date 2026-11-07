@@ -352,8 +352,8 @@ twice. Each credit carries a `state`:
 |---|---|
 | `earned` | Awarded, and the award block has no root on Asset Hub yet. A claim would be refused. |
 | `claimable` | The root arrived and the leaf is unspent. |
-| `claimed` | The leaf is spent. The item it minted exists somewhere. Stays claimed after Asset Hub sweeps the tree. |
-| `unprovable` | The awards of the block are gone, pruned or expired. One entry per block, `hash: null`, credit count unknown. |
+| `claimed` | The leaf is spent. The item it minted exists somewhere. Stays claimed after Asset Hub sweeps the tree, and after the People chain drops the root of a finished tree: then it has a leaf index but no time. |
+| `unprovable` | The awards of the block are gone, pruned or expired, or its tree is finished and this leaf was never spent. One entry per block, `hash: null`, credit count unknown. |
 
 An `earned` entry with `hash: null` is a block still to come. Pass only non-null hashes to
 `previewClaim`.
