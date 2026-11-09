@@ -29,7 +29,7 @@ import {
     watchMood,
 } from "@parity/product-sdk/profile";
 import { type BuiltContractCall, createFakeContractRuntime } from "@parity/product-sdk/testing";
-import { type Result, ok } from "@parity/result";
+import { type Result, err, ok } from "@parity/result";
 import { decodeFunctionData, type Hex, parseAbi } from "viem";
 
 const LABEL = "alice";
@@ -155,8 +155,15 @@ const statementStore: HostStatementStore = {
         }
     },
 };
-/** The host's entropy derivation, per wallet and product; a hash stands in. */
-const deriveEntropy = async (context: Uint8Array) => ok(blake2b256(context));
+/**
+ * The host's entropy derivation, per wallet and product. It refuses a key
+ * outside 1 to 32 bytes, as the host core does; a hash of the key stands in
+ * for the derivation.
+ */
+const deriveEntropy = async (key: Uint8Array) =>
+    key.length >= 1 && key.length <= 32
+        ? ok(blake2b256(key))
+        : err(new Error(`"key" must be between 1 and 32 bytes, got ${key.length}`));
 
 // ---------------------------------------------------------------------------
 // Product-side steps, stubbed.

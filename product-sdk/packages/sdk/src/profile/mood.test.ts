@@ -7,7 +7,7 @@
 // the same from the other. The fake store is hand-rolled because the host
 // package's fake has an inert statement store and no entropy domain.
 import { createFakeContractRuntime } from "@parity/product-sdk-contracts/testing";
-import { bytesToHex } from "@parity/product-sdk-crypto";
+import { blake2b256, bytesToHex } from "@parity/product-sdk-crypto";
 import type {
     HostStatementStore,
     SignedStatement,
@@ -28,6 +28,7 @@ import {
     deriveMoodFeed,
     encodeMoodBody,
     moodExpiry,
+    moodTopicKey,
     moodTopicLabel,
     pickMood,
     readMood,
@@ -246,25 +247,48 @@ describe("pickMood", () => {
 
 describe("deriveMoodFeed", () => {
     const opts = { runtime: createFakeContractRuntime(), tld: DOT_TLD };
-    const entropy = (bytes: Uint8Array) => vi.fn(async (_context: Uint8Array) => ok(bytes));
+    /** As the host core derives: a key of 1 to 32 bytes, or an error (truapi `host_logic/entropy.rs`). */
+    const entropy = (bytes: Uint8Array) =>
+        vi.fn(async (key: Uint8Array) =>
+            key.length >= 1 && key.length <= 32
+                ? ok(bytes)
+                : err(new Error(`"key" must be between 1 and 32 bytes, got ${key.length}`)),
+        );
+    const keyOf = (label: string) => blake2b256(new TextEncoder().encode(label));
 
     test("derives the topic from the full name and learns the signer from a proof it never submits", async () => {
         const store = fakeStore();
         const derive = entropy(new Uint8Array(32).fill(0x11));
         const feed = await deriveMoodFeed("Alice.dot", opts, store, derive);
         expect(feed).toEqual(ok({ kind: "mood", topic: TOPIC, signer: SIGNER }));
-        expect(derive).toHaveBeenCalledWith(
-            new TextEncoder().encode("profile:mood:topic:v1:alice.dot"),
-        );
+        expect(derive).toHaveBeenCalledWith(keyOf("profile:mood:topic:v1:alice.dot"));
         expect(store.submitted).toEqual([]);
     });
 
     test("a lite username keeps its parts", async () => {
         const derive = entropy(new Uint8Array(32).fill(0x11));
         await deriveMoodFeed("alice.01", opts, fakeStore(), derive);
-        expect(derive).toHaveBeenCalledWith(
-            new TextEncoder().encode("profile:mood:topic:v1:alice.01.dot"),
+        expect(derive).toHaveBeenCalledWith(keyOf("profile:mood:topic:v1:alice.01.dot"));
+    });
+
+    test("the key is 32 bytes whatever the name, so a long name derives as the host allows", async () => {
+        // 40 bytes of label: the raw label is what the host refused on testing-seity.
+        const derive = entropy(new Uint8Array(32).fill(0x11));
+        const feed = await deriveMoodFeed("devdevdev.01", opts, fakeStore(), derive);
+        expect(feed.ok).toBe(true);
+        const key = derive.mock.calls[0]?.[0];
+        expect(key).toHaveLength(32);
+        expect(moodTopicKey("devdevdev.01.dot")).toEqual(key);
+    });
+
+    test("the key is Seity's: blake2b-256 of the label, so no name's topic moves", () => {
+        // Seity's `boundedEntropy` hashed the label it was handed with blake2b-256.
+        // The vector is Python's hashlib.blake2b(label, digest_size=32), an
+        // implementation independent of the one under test.
+        expect(bytesToHex(moodTopicKey("alice.paseo"))).toBe(
+            "3d78979a1d4cb8cc7351ecc95ebc6bdac32f9afe5652041562a36960813d9c53",
         );
+        expect(moodTopicKey("alice.paseo")).not.toEqual(moodTopicKey("alice.dot"));
     });
 
     test("refuses a label that is not a name, entropy that is not 32 bytes, and a host that cannot derive or prove", async () => {

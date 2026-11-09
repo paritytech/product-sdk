@@ -283,7 +283,9 @@ else {
   and an index a build does not know reads as no mood. Build pickers from the constants.
 - **The feed goes in every publish.** `deriveMoodFeed(label, opts, store, deriveEntropy)`
   derives the topic from host entropy and learns the signer from a proof it never submits;
-  both are stable per wallet and product. Put it in every publish patch, so the topic is in
+  both are stable per wallet and product. The entropy key is the blake2b-256 of a versioned,
+  product-neutral label, 32 bytes for any name, because the host refuses a key over 32 bytes:
+  pass `/host`'s `deriveEntropy` as it is. Put it in every publish patch, so the topic is in
   the record before any mood is set and a record another product built is taken over. It
   replaces the record's mood feed by kind: the product that published last is the one whose
   moods show. The proof needs the statement-store allowance, so request that first.
@@ -340,7 +342,9 @@ from it for a test or a demo. What it shows that the API does not:
   over a `Map`, as the example and the avatar tests do.
 - For moods, a `HostStatementStore` double keeps one statement per signer and channel, proves
   with the feed's signer, and delivers a topic's statements as a page with `isComplete`. The
-  example has one, and `deriveEntropy` can be any 32-byte hash of the context.
+  example has one. Its `deriveEntropy` double refuses a key outside 1 to 32 bytes, as the host
+  does, and answers a hash of the key; a double that accepts any key hides a key the host
+  would refuse.
 
 ## Common Mistakes
 
@@ -360,5 +364,9 @@ from it for a test or a demo. What it shows that the API does not:
 - **Hard-coding the TLD.** It is read from the chain; `.paseo` and `.dot` are different networks.
 - **Setting a mood before the record names the feed.** A mood on a topic no record names is seen
   by nobody. Publish with `deriveMoodFeed` in the patch first; `SignerMismatch` is that signal.
+- **Wrapping `deriveEntropy` to hash the key.** `deriveMoodFeed` already hands it a 32-byte
+  key. Hashing again derives a different topic from every other product's, so the record's feed
+  and the moods set on it stop matching what others derive. Seity's `boundedEntropy` wrapper
+  was the workaround before the SDK hashed; drop it on upgrade.
 - **Keeping a palette of your own.** Use `MOOD_KINDS` and `MOOD_INTENSITIES`; the index is the
   convention across products.

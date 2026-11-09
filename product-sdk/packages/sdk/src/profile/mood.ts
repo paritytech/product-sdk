@@ -20,7 +20,7 @@
  * two places a signer enters, a proof and a statement, lower-case it, and the
  * feed's is lower-cased once at each entry point.
  */
-import { bytesToHex, hexToBytes, utf8ToBytes } from "@parity/product-sdk-crypto";
+import { blake2b256, bytesToHex, hexToBytes, utf8ToBytes } from "@parity/product-sdk-crypto";
 import type {
     HostStatementStore,
     HostSubscription,
@@ -85,7 +85,11 @@ export interface MoodStatement {
     data?: Uint8Array;
 }
 
-/** `deriveEntropy` from `@parity/product-sdk/host`, or a double of it. */
+/**
+ * `deriveEntropy` from `@parity/product-sdk/host`, or a double of it. The host
+ * takes a key of 1 to 32 bytes and answers 32 bytes of entropy per wallet and
+ * product; {@link deriveMoodFeed} hands it {@link moodTopicKey}, always 32.
+ */
 export type DeriveEntropy = (context: Uint8Array) => Promise<Result<Uint8Array, Error>>;
 
 const CLEAR = 0xff;
@@ -100,6 +104,18 @@ const ZERO_TOPIC: HexString = `0x${"00".repeat(32)}`;
  */
 export function moodTopicLabel(fullName: string): string {
     return `profile:mood:topic:v1:${fullName}`;
+}
+
+/**
+ * The key the mood topic's entropy is derived under: the blake2b-256 of
+ * {@link moodTopicLabel}. The host refuses a key over 32 bytes, and the label
+ * is 22 bytes before the name, so the label itself only fits a name of 10
+ * bytes or fewer. The hash fits every name, and is the one Seity applied
+ * before this module did, so a name's topic is the same either way.
+ * Kept off the barrel, as the label is.
+ */
+export function moodTopicKey(fullName: string): Uint8Array {
+    return blake2b256(utf8ToBytes(moodTopicLabel(fullName)));
 }
 
 /**
@@ -230,7 +246,7 @@ function proofSigner(proof: StatementProof): Result<HexString, ProfileError> {
 
 /**
  * The `mood` feed entry a publish writes for a name: the topic from host
- * entropy over the name, the signer learned from a proof over a throwaway
+ * entropy under {@link moodTopicKey}, the signer learned from a proof over a throwaway
  * statement that is never submitted. Both are stable per wallet and product,
  * so every publish from the same product writes the same entry.
  *
@@ -255,7 +271,7 @@ export async function deriveMoodFeed(
     const { bare, tld } = name.value;
 
     // Entropy first, on its own: a host that cannot derive is not asked to sign.
-    const entropy = await deriveEntropy(utf8ToBytes(moodTopicLabel(`${bare}${tld.suffix}`)));
+    const entropy = await deriveEntropy(moodTopicKey(`${bare}${tld.suffix}`));
     if (!entropy.ok) return err(hostFailed("derive the mood topic", entropy.error));
     if (entropy.value.length !== 32) {
         return err(
