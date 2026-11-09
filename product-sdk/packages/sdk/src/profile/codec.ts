@@ -29,29 +29,51 @@ import {
     u64,
 } from "@polkadot-api/substrate-bindings";
 
-/** `ProfileRecord { entries: Vec<WrapperKeepOpaque<ProfileEntry>> }`: every entry as its bytes. */
+/**
+ * `ProfileRecord { entries: Vec<WrapperKeepOpaque<ProfileEntry>> }`: every entry as its bytes.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export const profileRecordCodec = Vector(Bytes());
 
-/** `ProfileAvatar { cid: BulletinCid, format: ImageFormat }`: the CID as its 32-byte blake2b-256 digest, the format as its index. */
+/**
+ * `ProfileAvatar { cid: BulletinCid, format: ImageFormat }`: the CID as its 32-byte blake2b-256 digest, the format as its index.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export const profileAvatarCodec = Struct({ cid: Hex(32), format: u8 });
 
-/** `Name(String)`: a SCALE String, its compact length then the bytes, left as bytes for the UTF-8 check. */
+/**
+ * `Name(String)`: a SCALE String, its compact length then the bytes, left as bytes for the UTF-8 check.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export const profileNameCodec = Bytes();
 
-/** `ProfileFeed { kind: String, topic: [u8; 32], signer: [u8; 32] }`, with `kind` left as bytes. */
+/**
+ * `ProfileFeed { kind: String, topic: [u8; 32], signer: [u8; 32] }`, with `kind` left as bytes.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export const profileFeedCodec = Struct({ kind: Bytes(), topic: Hex(32), signer: Hex(32) });
 
 /**
  * A mood statement's body, `kind u8 | intensity u8 | set_at u64 | ttl_secs u32`,
  * 14 bytes: a layout already published, which is SCALE for this struct.
  * Not a record entry; it travels in the statement store.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export const moodBodyCodec = Struct({ kind: u8, intensity: u8, setAt: u64, ttlSecs: u32 });
 
 const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
     a.length === b.length && a.every((byte, i) => byte === b[i]);
 
-/** Whether `value` is 32 bytes as `0x` hex: an account id, a topic, a signer. */
+/**
+ * Whether `value` is 32 bytes as `0x` hex: an account id, a topic, a signer.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export function isHex32(value: string): boolean {
     return /^0x[0-9a-fA-F]{64}$/.test(value);
 }
@@ -67,6 +89,8 @@ export function isHex32(value: string): boolean {
  * to the writer's bytes. Trailing bytes make the re-encoding shorter, a
  * truncated field makes it differ, a non-minimal compact length re-encodes
  * minimal, and a value that does not decode at all is not one value.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function decodeExact<T>(codec: Codec<T>, bytes: Uint8Array): T | null {
     try {
@@ -82,7 +106,11 @@ export function decodeExact<T>(codec: Codec<T>, bytes: Uint8Array): T | null {
 // shorter here than in a Rust reader, and the 64-byte rule would disagree.
 const strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
-/** `bytes` as a string, or `null` when they are not valid UTF-8. */
+/**
+ * `bytes` as a string, or `null` when they are not valid UTF-8.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export function utf8OrNull(bytes: Uint8Array): string | null {
     try {
         return strict.decode(bytes);

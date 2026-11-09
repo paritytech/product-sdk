@@ -51,13 +51,18 @@
  *
  * @packageDocumentation
  */
-export { decodeProfileRecord } from "./record.js";
+// Reads: the record and its decoder, and the avatar bytes through the host.
 export { getProfile, getProfileRecord, verifyPublishedProfile } from "./lookup.js";
+export { decodeProfileRecord } from "./record.js";
 export { loadAvatar, profileAvatar, submitAvatar } from "./avatar.js";
 export type { LoadAvatarOptions } from "./avatar.js";
+
+// Writes: the rewrite, and the prepared `setText` the product signs and submits.
 export { rewriteProfileRecord } from "./encode.js";
 export { prepareSetProfile } from "./write.js";
 export type { PreparedProfileWrite } from "./write.js";
+
+// Moods: the feed entry a publish writes, and the statement that is a mood.
 export {
     deriveMoodFeed,
     setMood,
@@ -84,8 +89,15 @@ export type {
     ReadMoodOptions,
     WatchMoodOptions,
 } from "./mood.js";
+
+// Errors: the profile's own, and the DotNS walk's, which every read and write shares.
 export { ProfileError } from "./errors.js";
 export type { ProfileErrorReason } from "./errors.js";
+export { DotNsError } from "../identity/dotns-errors.js";
+export type { DotNsErrorReason } from "../identity/dotns-errors.js";
+export type { DotNsClientOptions } from "../identity/dotns-registry.js";
+
+// The record's shapes and bounds.
 export {
     PROFILE_AVATAR_FORMATS,
     PROFILE_AVATAR_MAX_BYTES,
@@ -97,16 +109,11 @@ export {
 export type {
     AvatarMimeType,
     LoadedAvatar,
-    ProfilePatch,
     ProfileAvatar,
     ProfileAvatarFormat,
     ProfileFeed,
     ProfileLookup,
+    ProfilePatch,
     PublicProfile,
     UnknownEntry,
 } from "./types.js";
-
-// The inputs the lookup shares with every other DotNS read.
-export type { DotNsClientOptions } from "../identity/dotns-registry.js";
-export { DotNsError } from "../identity/dotns-errors.js";
-export type { DotNsErrorReason } from "../identity/dotns-errors.js";

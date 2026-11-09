@@ -13,7 +13,6 @@
  */
 import { concatBytes, utf8ToBytes } from "@parity/product-sdk-crypto";
 import { type Result, err, ok } from "@parity/result";
-
 import { preimageCidAddress } from "./avatar.js";
 import {
     isHex32,
@@ -77,6 +76,8 @@ function encodeFeed(feed: ProfileFeed): Result<Uint8Array, ProfileError> {
  * The text-record value holding `entries`, each as the wrapper carries it.
  * Refuses a record over {@link PROFILE_RECORD_MAX_BYTES}: every reader refuses
  * it too, so writing it would wipe the profile silently.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function encodeProfileRecord(entries: Uint8Array[]): Result<string, ProfileError> {
     const bytes = profileRecordCodec.enc(entries);

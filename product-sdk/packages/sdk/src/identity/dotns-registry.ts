@@ -166,7 +166,7 @@ export interface DotNsClientOptions {
 
 /**
  * The origin a write runs as, and its H160: the `msg.sender` pallet-revive
- * derives from it, which an authorisation check compares against. Every dotNS
+ * derives from it, which an authorization check compares against. Every dotNS
  * write is owner-gated, so a missing origin is `MissingOrigin` rather than a
  * dry-run from the fallback account that reverts and reads as a contract
  * problem, and one `ss58ToH160` cannot decode is `InvalidOrigin` rather than

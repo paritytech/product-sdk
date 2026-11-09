@@ -18,7 +18,7 @@
  * asks the host for anything itself and a test or an offline demo supplies
  * doubles. Signers and topics are lower-case hex everywhere in memory: the
  * two places a signer enters, a proof and a statement, lower-case it, and the
- * feed's is lower-cased once at each entry point.
+ * feed's is lowercased once at each entry point.
  */
 import { blake2b256, bytesToHex, hexToBytes, utf8ToBytes } from "@parity/product-sdk-crypto";
 import type {
@@ -31,7 +31,6 @@ import type {
 } from "@parity/product-sdk-host";
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
-
 import type { DotNsError } from "../identity/dotns-errors.js";
 import type { DotNsClientOptions } from "../identity/dotns-registry.js";
 import { decodeExact, moodBodyCodec } from "./codec.js";
@@ -46,7 +45,7 @@ const log = createLogger("profile");
 /** The feed kind a mood feed entry carries. */
 export const MOOD_FEED_KIND = "mood";
 
-/** The standardised moods. The index is what travels; append, never renumber. */
+/** The standardized moods. The index is what travels; append, never renumber. */
 export const MOOD_KINDS = ["calm", "focused", "hyped", "social", "low-key", "away"] as const;
 /** How strongly. The index is what travels; append, never renumber. */
 export const MOOD_INTENSITIES = ["soft", "steady", "loud"] as const;
@@ -94,13 +93,19 @@ export type DeriveEntropy = (context: Uint8Array) => Promise<Result<Uint8Array, 
 
 const CLEAR = 0xff;
 const ZERO_TOPIC: HexString = `0x${"00".repeat(32)}`;
+/** What the host's entropy derivation answers: one topic's worth. */
+const ENTROPY_BYTES = 32;
+/** The expiry on the throwaway statement whose proof names the signer; it is never submitted. */
+const PROBE_TTL_SECS = 60;
 
 /**
  * The context the name's mood topic is derived from. Versioned so the topic
  * can be rotated: bump it and publish again; statements on the old topic lapse
  * within a day. Product-neutral on purpose: a product that moves onto this
  * module publishes each name's feed entry once, and from then on shares it.
- * Kept off the barrel: a reader takes the topic from the record, never derives it.
+ * A reader takes the topic from the record, never derives it.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function moodTopicLabel(fullName: string): string {
     return `profile:mood:topic:v1:${fullName}`;
@@ -112,7 +117,8 @@ export function moodTopicLabel(fullName: string): string {
  * is 22 bytes before the name, so the label itself only fits a name of 10
  * bytes or fewer. The hash fits every name, and is the one the first mood
  * publisher applied, so a name's topic is the same either way.
- * Kept off the barrel, as the label is.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function moodTopicKey(fullName: string): Uint8Array {
     return blake2b256(utf8ToBytes(moodTopicLabel(fullName)));
@@ -273,13 +279,19 @@ export async function deriveMoodFeed(
     // Entropy first, on its own: a host that cannot derive is not asked to sign.
     const entropy = await deriveEntropy(moodTopicKey(`${bare}${tld.suffix}`));
     if (!entropy.ok) return err(hostFailed("derive the mood topic", entropy.error));
-    if (entropy.value.length !== 32) {
+    if (entropy.value.length !== ENTROPY_BYTES) {
         return err(
-            new ProfileError("Host", `the host derived ${entropy.value.length} bytes, not 32`),
+            new ProfileError(
+                "Host",
+                `the host derived ${entropy.value.length} bytes, not ${ENTROPY_BYTES}`,
+            ),
         );
     }
 
-    const probe: Statement = { topics: [ZERO_TOPIC], expiry: BigInt(nowSeconds() + 60) << 32n };
+    const probe: Statement = {
+        topics: [ZERO_TOPIC],
+        expiry: BigInt(nowSeconds() + PROBE_TTL_SECS) << 32n,
+    };
     let proof: StatementProof;
     try {
         proof = await statements.createProofAuthorized(probe);

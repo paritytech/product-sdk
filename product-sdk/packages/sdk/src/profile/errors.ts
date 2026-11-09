@@ -16,7 +16,7 @@ export type ProfileErrorReason =
     | "SignerMismatch" // the host signs moods as a key the record's feed does not name: publish from this product first
     | "Timeout"; // a host call or the mood feed's backfill ran out of time; a store or submit may still complete, so word a retry as such
 
-/** Base class for profile errors. Implements the cross-package {@link SdkError} marker. */
+/** An error on the `err` channel of a profile read or write; `reason` says which. Implements the cross-package {@link SdkError} marker. */
 export class ProfileError extends Error implements SdkError {
     readonly isSdkError = true as const;
     readonly source = "profile";
@@ -36,15 +36,20 @@ export class ProfileError extends Error implements SdkError {
  * failure. The deadline is a `HostTimeoutError` from `/host` anywhere on the
  * cause chain, matched by name: this module imports no host code at runtime,
  * and a host may bundle its own copy of the class.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function hostCallFailed(message: string, cause: unknown): ProfileError {
     return new ProfileError(timedOut(cause) ? "Timeout" : "Host", message, { cause });
 }
 
-/** Whether `error` or a cause under it is a `HostTimeoutError`. Bounded, so a cyclic chain ends. */
+/** How far down a cause chain {@link timedOut} looks, so a cyclic chain ends. */
+const MAX_CAUSE_DEPTH = 8;
+
+/** Whether `error` or a cause under it is a `HostTimeoutError`. */
 function timedOut(error: unknown): boolean {
     let e = error;
-    for (let depth = 0; depth < 8 && e instanceof Error; depth++, e = e.cause) {
+    for (let depth = 0; depth < MAX_CAUSE_DEPTH && e instanceof Error; depth++, e = e.cause) {
         if (e.name === "HostTimeoutError") return true;
     }
     return false;

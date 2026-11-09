@@ -6,7 +6,6 @@
  */
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
-
 import { DOTNS_CONTENT_RESOLVER_ABI } from "../identity/dotns-abis.js";
 import {
     contractOf,
@@ -63,12 +62,18 @@ function isDottedLiteUsername(value: string): boolean {
  * The usernames a host resolves a profile for (`validate_username`): a DNS
  * label, or a dotted lite username. The same forms the identity reader
  * returns, and nothing looser: `alice.1` is not a lite name.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function isAcceptableProfileLabel(label: string): boolean {
     return isDnsLabel(label) || isDottedLiteUsername(label);
 }
 
-/** `label` trimmed, lower-cased and without a trailing `.<tld>`. */
+/**
+ * `label` trimmed, lowercased and without a trailing `.<tld>`.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
     return stripSuffix(label.trim().toLowerCase(), tld.suffix);
 }
@@ -91,6 +96,8 @@ export type ProfileLocation = ProfileName & {
  * The record lives on the deployment's content resolver, whatever resolver the
  * name itself points at; `prepareSetProfile` says why the pointer is left
  * alone.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export async function locateProfile(
     label: string,
@@ -106,7 +113,7 @@ export async function locateProfile(
 
 /** A label resolved against the network's TLD. */
 export interface ProfileName {
-    /** The label as the registry keys it: trimmed, lower-cased, without the TLD. */
+    /** The label as the registry keys it: trimmed, lowercased, without the TLD. */
     bare: string;
     tld: DotNsTld;
     /** The namehash of `<bare>.<tld>`, with a lite name's parts as levels. */
@@ -115,8 +122,10 @@ export interface ProfileName {
 
 /**
  * The first half of {@link locateProfile}: the TLD from the chain, the label
- * normalised and checked, and the node. What every function that takes a
+ * normalized and checked, and the node. What every function that takes a
  * label starts from, whether or not it goes on to the content resolver.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export async function resolveProfileName(
     label: string,
@@ -127,7 +136,7 @@ export async function resolveProfileName(
     const tld = tldRes.value;
     const bare = normalizeProfileLabel(label, tld);
     if (!isAcceptableProfileLabel(bare)) {
-        return err(new DotNsError("InvalidName", `${JSON.stringify(label)} is not a DotNS name`));
+        return err(new DotNsError("InvalidName", `Invalid DotNS name: "${label}"`));
     }
     return ok({ bare, tld, node: namehash(`${bare}${tld.suffix}`, tld) });
 }
@@ -136,6 +145,8 @@ export async function resolveProfileName(
  * The raw `profile` text the content resolver holds for `node`, trimmed, `""`
  * for none. The value as written, so a writer can refuse a malformed record
  * without losing it and a verifier can compare bytes.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export async function readProfileText(
     contentResolver: HexString,

@@ -12,7 +12,6 @@ import {
 import { createFakeHost } from "@parity/product-sdk-host/testing";
 import { artworkAddress } from "@parity/product-sdk-nfts";
 import { afterEach, describe, expect, test } from "vitest";
-
 import { loadAvatar, profileAvatar, submitAvatar } from "./avatar.js";
 import { PROFILE_AVATAR_MAX_BYTES } from "./types.js";
 

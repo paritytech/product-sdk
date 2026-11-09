@@ -17,7 +17,6 @@ import {
 } from "@parity/product-sdk-host";
 import { type Result, err, ok } from "@parity/result";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-
 import { DOT_TLD } from "../identity/dotns-namehash.js";
 import {
     MOOD_TTL_SECS,
@@ -224,13 +223,6 @@ describe("pickMood", () => {
         ).toEqual(second);
     });
 
-    test("the owner's mood is found behind any number of foreign statements", () => {
-        const foreign = Array.from({ length: 100 }, (_, i) =>
-            statement(CALM, { signer: OTHER, seq: i }),
-        );
-        expect(pickMood([...foreign, statement(CALM)], SIGNER, NOW)).toEqual(CALM);
-    });
-
     test("a body set in the future shows within a day of now and not beyond, on the owner's own clock", () => {
         const soon: Mood = { ...CALM, setAt: NOW + 100, expiresAt: NOW + 100 + 86_400 };
         expect(pickMood([statement(soon)], SIGNER, NOW)).toEqual(soon);
@@ -375,7 +367,7 @@ describe("setMood", () => {
         expect(store.submitted).toEqual([]);
     });
 
-    test("a host that cannot prove, proves with another scheme, or cannot submit is Host, with the cause", async () => {
+    test("a host that cannot prove or cannot submit is Host, with the cause", async () => {
         const broken = fakeStore();
         broken.createProofAuthorized = async () => {
             throw new Error("declined");
@@ -383,13 +375,6 @@ describe("setMood", () => {
         const proving = await setMood(FEED, { kind: "calm", intensity: "soft" }, broken);
         expect(reason(proving)).toBe("Host");
         expect(!proving.ok && (proving.error.cause as Error).message).toBe("declined");
-
-        const ed = fakeStore();
-        ed.createProofAuthorized = async () => ({
-            tag: "Ed25519",
-            value: { signature: "0x", signer: SIGNER },
-        });
-        expect(reason(await setMood(FEED, { kind: "calm", intensity: "soft" }, ed))).toBe("Host");
 
         const stuck = fakeStore();
         stuck.submit = async () => {

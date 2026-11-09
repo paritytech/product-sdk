@@ -9,7 +9,6 @@
  */
 import type { BatchableCall } from "@parity/product-sdk-tx";
 import { type Result, err, ok } from "@parity/result";
-
 import { DOTNS_CONTENT_RESOLVER_WRITE_ABI, DOTNS_REGISTRY_ABI } from "../identity/dotns-abis.js";
 import { contractOf, resolveDotNsAddresses } from "../identity/dotns-addresses.js";
 import { DotNsError } from "../identity/dotns-errors.js";
@@ -41,7 +40,7 @@ export interface PreparedProfileWrite {
  * It is checked to be a record readers accept before anything is asked of the
  * chain, so a value no reader decodes is never published.
  *
- * `opts.origin` is required and must be authorised for the name in the
+ * `opts.origin` is required and must be authorized for the name in the
  * registry: its owner, or an address or operator the owner approved, the
  * same rule the content resolver's `setText` enforces. Anyone else fails as
  * `Unauthorised` before the dry-run rather than as a revert. The node's
@@ -85,18 +84,18 @@ export async function prepareSetProfile(
     try {
         const registry = contractOf(opts.runtime, addrs.value.registry, DOTNS_REGISTRY_ABI);
         // Independent reads, asked for together.
-        const [authorised, original] = await Promise.all([
+        const [authorized, original] = await Promise.all([
             registry.isAuthorised.query(node, self, { origin }),
             readProfileText(contentResolver, node, opts),
         ]);
-        if (!authorised.success) {
+        if (!authorized.success) {
             return err(
                 new DotNsError("RegistryCall", "registry.isAuthorised call failed", {
-                    cause: authorised.value,
+                    cause: authorized.value,
                 }),
             );
         }
-        if (authorised.value !== true) {
+        if (authorized.value !== true) {
             return err(
                 new DotNsError(
                     "Unauthorised",

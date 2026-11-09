@@ -8,18 +8,18 @@
 import { blake2b256, bytesToHex } from "@parity/product-sdk-crypto";
 import { artworkAddress } from "@parity/product-sdk-nfts";
 import { describe, expect, test } from "vitest";
-
 import {
     profileAvatarCodec,
     profileFeedCodec,
     profileNameCodec,
     profileRecordCodec,
 } from "./codec.js";
-import { decodeProfileRecord, encodeBase64 } from "./record.js";
+import { decodeProfileRecord } from "./record.js";
 import { encodeProfileRecord, rewriteProfileRecord } from "./encode.js";
 import { PROFILE_RECORD_MAX_BYTES, type ProfilePatch } from "./types.js";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
+const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (b) => Number.parseInt(b, 16));
 const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 
 /** One entry as the wrapper carries it: the variant index, then the payload. */
@@ -44,26 +44,7 @@ const OPAQUE = new Uint8Array([9, 1, 2, 3]);
 /** An avatar in a format this writer does not know: index 0, but no avatar for this reader. */
 const FUTURE_AVATAR = avatar("avatar", 9);
 /** A pin as test records on Paseo wrote it at the reserved index 2: `record.test.ts` has the layout. */
-const LEGACY_PIN = new Uint8Array([
-    2,
-    7,
-    0,
-    0,
-    0,
-    0,
-    1,
-    0,
-    0,
-    3,
-    0,
-    0,
-    0,
-    2,
-    1,
-    0,
-    0,
-    ...new Uint8Array(32).fill(0xab),
-]);
+const LEGACY_PIN = hex(`0207000000000100000300000002010000${"ab".repeat(32)}`);
 
 const MOOD = { kind: "mood", topic: TOPIC, signer: SIGNER };
 
@@ -77,15 +58,6 @@ function refused(live: string | null, patch: ProfilePatch): string {
     if (r.ok) throw new Error(`expected a refusal, got ${r.value}`);
     return r.error.reason;
 }
-
-describe("encodeBase64", () => {
-    test("is standard base64 with padding at every length mod 3", () => {
-        for (let length = 0; length < 8; length++) {
-            const bytes = Uint8Array.from({ length }, (_, i) => 250 + i);
-            expect(encodeBase64(bytes)).toBe(base64(bytes));
-        }
-    });
-});
 
 describe("encodeProfileRecord", () => {
     test("an empty record is AA==, the core's calldata vector", () => {

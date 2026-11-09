@@ -18,7 +18,6 @@ import {
     preimageSource,
 } from "@parity/product-sdk-nfts";
 import { type Result, err, ok } from "@parity/result";
-
 import { ProfileError, hostCallFailed } from "./errors.js";
 import {
     type AvatarMimeType,
@@ -37,6 +36,8 @@ const BLAKE2B_256 = 0xb220;
  * `cid` as the address `loadAvatar` fetches by, or `null` when it is not a
  * Bulletin preimage CID: raw codec over a blake2b-256 digest. The one rule the
  * reader and the writer share for an acceptable avatar CID.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function preimageCidAddress(cid: string): ArtworkAddress | null {
     // An empty `hex` makes `artworkAddress` answer from the CID alone, with no
@@ -45,7 +46,11 @@ export function preimageCidAddress(cid: string): ArtworkAddress | null {
     return address !== null && address.multihash === BLAKE2B_256 ? address : null;
 }
 
-/** The Bulletin preimage CID of a 32-byte digest, the form a record's digest is shown and fetched as. */
+/**
+ * The Bulletin preimage CID of a 32-byte digest, the form a record's digest is shown and fetched as.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export function digestCid(digest: `0x${string}`): string {
     // A 32-byte digest always forms a CID.
     return (artworkAddress({ hex: digest, text: null }) as ArtworkAddress).cid;

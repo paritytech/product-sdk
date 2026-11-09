@@ -45,7 +45,7 @@ export interface DotNsAddresses {
  * surfaces much later as a revert. `registrarController` is the commit-reveal
  * controller, key `controller` — `registrar` is the ERC-721 holding name
  * ownership. `resolver` is the forward address resolver — `contentResolver`
- * holds contenthash and text records, which nothing here calls.
+ * holds contenthash and text records, which `resolveDotNsContentResolver` reads.
  *
  * `protocolRegistry` has no key at all, so it cannot be looked up in the
  * registry it is. The walk reaches it via `popController.protocolRegistry()`.

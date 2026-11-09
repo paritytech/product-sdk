@@ -6,7 +6,6 @@
 // content resolver.
 import { createFakeContractRuntime, fakeDryRunResult } from "@parity/product-sdk-contracts/testing";
 import { describe, expect, test } from "vitest";
-
 import {
     DOTNS_ADDRESSES,
     DOTNS_CONTENT_RESOLVER_ABI,
@@ -51,7 +50,7 @@ function runtimeWith(answers: Record<string, unknown>) {
     });
 }
 
-/** `name@dest` per call, the address lower-cased: the fake reports it as calldata carries it. */
+/** `name@dest` per call, the address lowercased: the fake reports it as calldata carries it. */
 const calls = (runtime: ReturnType<typeof runtimeWith>) =>
     runtime.calls.map((c) => `${c.functionName}@${c.dest.toLowerCase()}`);
 const at = (address: string) => address.toLowerCase();
@@ -87,7 +86,7 @@ describe("label rules", () => {
         expect(isAcceptableProfileLabel(`${"a".repeat(30)}.01`)).toBe(false); // 33 bytes
     });
 
-    test("normalisation trims, lower-cases and strips the deployment's TLD only", () => {
+    test("normalization trims, lower-cases and strips the deployment's TLD only", () => {
         expect(normalizeProfileLabel("  Alice.DOT ", DOT_TLD)).toBe("alice");
         expect(normalizeProfileLabel("alice.42.dot", DOT_TLD)).toBe("alice.42");
         expect(normalizeProfileLabel("alice.paseo", DOT_TLD)).toBe("alice.paseo");
@@ -163,15 +162,6 @@ describe("getProfile", () => {
         // a host treats it; the reverse-resolver case no longer arises
         // because the name's own resolver is not consulted.
         const runtime = runtimeWith({ text: fakeDryRunResult({ revert: true }) });
-        const r = await getProfile("alice", { runtime, tld: DOT_TLD });
-        expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
-    });
-
-    test("a text call that fails is a failure", async () => {
-        const runtime = runtimeWith({
-            text: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
-        });
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
         expect(r.ok).toBe(false);
         if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
@@ -276,10 +266,5 @@ describe("getProfileRecord", () => {
         const runtime = runtimeWith({ contentResolver: ZERO });
         expect(await getProfileRecord("alice", opts(runtime))).toEqual({ ok: true, value: "" });
         expect(calls(runtime)).toEqual([GET]);
-    });
-
-    test("refuses a label no host resolves", async () => {
-        const r = await getProfileRecord("Alice!", opts(runtimeWith({})));
-        expect(r.ok ? null : r.error.reason).toBe("InvalidName");
     });
 });

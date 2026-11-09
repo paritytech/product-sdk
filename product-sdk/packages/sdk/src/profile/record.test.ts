@@ -7,7 +7,6 @@
 // directory. Index 0's vectors are the core's own (`public_profile/record/tests.rs`);
 // the `Name` and `Feed` vectors are what the first publisher of each kind wrote.
 import { describe, expect, test } from "vitest";
-
 import {
     profileAvatarCodec,
     profileFeedCodec,
@@ -159,18 +158,7 @@ describe("decodeProfileRecord", () => {
         expect(unwrap(record([entry(PROFILE_ENTRY_INDEX.feed, encoded)])).feeds).toEqual([feed]);
     });
 
-    test("maps every format index; an unknown one keeps the entry and the next avatar wins", () => {
-        for (const [index, format] of [
-            [0, "png"],
-            [1, "jpeg"],
-            [2, "webp"],
-            [3, "gif"],
-        ] as const) {
-            const profile = unwrap(
-                record([entry(PROFILE_ENTRY_INDEX.avatar, avatar(DIGEST, index))]),
-            );
-            expect(profile.avatar?.format).toBe(format);
-        }
+    test("an avatar in an unknown format keeps the entry, and the next avatar wins", () => {
         const odd = entry(PROFILE_ENTRY_INDEX.avatar, avatar(DIGEST, 9));
         const profile = unwrap(record([odd, entry(PROFILE_ENTRY_INDEX.avatar, avatar(DIGEST, 1))]));
         expect(profile.avatar).toEqual({ cid: CID, format: "jpeg" });

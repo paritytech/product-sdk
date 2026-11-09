@@ -5,7 +5,6 @@
  * RFC's reader rules and the per-kind rules in {@link PROFILE_ENTRY_INDEX}.
  */
 import { type Result, err, ok } from "@parity/result";
-
 import {
     decodeExact,
     profileAvatarCodec,
@@ -26,54 +25,35 @@ import {
     type PublicProfile,
 } from "./types.js";
 
-const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-/** Digit value by character code, -1 for anything outside the alphabet. */
-const BASE64_VALUE = new Int8Array(128).fill(-1);
-for (let i = 0; i < BASE64_ALPHABET.length; i++) BASE64_VALUE[BASE64_ALPHABET.charCodeAt(i)] = i;
-
 /**
  * Standard base64 with padding, the one form the writer emits, decoded the way
- * a strict decoder does it: the length a multiple of four, at most
- * two padding characters, every digit in the alphabet, and the bits a final
- * partial group leaves over all zero. `null` for anything else. `atob` is not
- * used because it accepts what other readers refuse.
+ * a strict decoder does it: the text must be the canonical encoding of its
+ * bytes, so missing or surplus padding, set trailing bits, whitespace and the
+ * URL alphabet are all refused. `atob` alone accepts most of those; the
+ * round-trip through `btoa` is what refuses them.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function decodeBase64Strict(text: string): Uint8Array | null {
-    const unpadded = text.replace(/=+$/, "");
-    if (text.length - unpadded.length > 2 || text.length % 4 !== 0) return null;
-    const out = new Uint8Array((unpadded.length * 6) >>> 3);
-    let written = 0;
-    let buffer = 0;
-    let bits = 0;
-    for (let i = 0; i < unpadded.length; i++) {
-        const code = unpadded.charCodeAt(i);
-        const value = code < BASE64_VALUE.length ? (BASE64_VALUE[code] as number) : -1;
-        if (value < 0) return null;
-        buffer = ((buffer << 6) | value) >>> 0;
-        bits += 6;
-        if (bits >= 8) {
-            out[written++] = (buffer >>> (bits - 8)) & 0xff;
-            bits -= 8;
-        }
+    let binary: string;
+    try {
+        binary = atob(text);
+    } catch {
+        return null;
     }
-    if ((buffer & ((1 << bits) - 1)) !== 0) return null;
-    return out;
+    if (btoa(binary) !== text) return null;
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-/** Standard base64 with padding: the one form the writer emits, and what {@link decodeBase64Strict} reads back. */
+/**
+ * Standard base64 with padding: the one form the writer emits, and what {@link decodeBase64Strict} reads back.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
 export function encodeBase64(bytes: Uint8Array): string {
-    let out = "";
-    for (let i = 0; i < bytes.length; i += 3) {
-        const a = bytes[i] as number;
-        const b = bytes[i + 1];
-        const c = bytes[i + 2];
-        const triple = (a << 16) | ((b ?? 0) << 8) | (c ?? 0);
-        out += BASE64_ALPHABET[(triple >>> 18) & 63];
-        out += BASE64_ALPHABET[(triple >>> 12) & 63];
-        out += b === undefined ? "=" : BASE64_ALPHABET[(triple >>> 6) & 63];
-        out += c === undefined ? "=" : BASE64_ALPHABET[triple & 63];
-    }
-    return out;
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
 }
 
 /**
@@ -81,6 +61,8 @@ export function encodeBase64(bytes: Uint8Array): string {
  * it: the index byte, then the payload. The outer layer only; what each entry
  * holds is the reader's or the rewriter's question. The three errors are the
  * ones every reader refuses a record for.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileError> {
     const bytes = decodeBase64Strict(text.trim());
@@ -116,12 +98,9 @@ export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileE
  * comes back on the `err` channel; `getProfile` treats every one of those as a
  * name with no profile, as a host does.
  *
- * Within a record that decodes, each entry is read on its own, as the RFC's
- * `WrapperKeepOpaque` reads it: the first `Avatar` whose payload decodes to a
- * format this reader knows wins, the first non-empty `Name` of at most 64
- * bytes of valid UTF-8 wins, every `Feed` that decodes is kept in order, and
- * every entry this reader cannot read, whether its index is unknown or
- * reserved or its payload is not one value of its kind, is kept as it was.
+ * Within a record that decodes, each entry is read on its own, by the rules
+ * in {@link PROFILE_ENTRY_INDEX}; what this reader cannot read is kept as it
+ * was.
  *
  * @example
  * ```ts
@@ -191,6 +170,8 @@ export type KnownEntry =
  * The one table from the index to the reader, for the reader, which keeps a
  * null as `unknown`, and the writer, which carries it as read. Claiming a new
  * index means a case here, a field on the patch, and a vector in the tests.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function readKnown(entry: Uint8Array): KnownEntry | null {
     if (entry.length === 0) return null;

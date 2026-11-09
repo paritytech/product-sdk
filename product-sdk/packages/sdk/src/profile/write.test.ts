@@ -8,7 +8,6 @@ import { ss58ToH160 } from "@parity/product-sdk-address";
 import { createFakeContractRuntime, fakeDryRunResult } from "@parity/product-sdk-contracts/testing";
 import type { BuiltContractCall } from "@parity/product-sdk-contracts/testing";
 import { describe, expect, test } from "vitest";
-
 import {
     DOTNS_ADDRESSES,
     DOTNS_CONTENT_RESOLVER_ABI,
@@ -22,7 +21,7 @@ import { PROFILE_TEXT_RECORD_KEY } from "./types.js";
 import { prepareSetProfile } from "./write.js";
 
 const CONTENT_RESOLVER = "0x3333333333333333333333333333333333333333";
-/** The account the registry authorises for the name. */
+/** The account the registry authorizes for the name. */
 const SIGNER = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as const;
 
 // The record `record.test.ts` pins: avatar (cid, webp) + name "Alice".
@@ -54,7 +53,7 @@ function runtimeWith(answers: Record<string, unknown>) {
     return { runtime, built };
 }
 
-/** `name@dest` per call, the address lower-cased: the fake reports it as calldata carries it. */
+/** `name@dest` per call, the address lowercased: the fake reports it as calldata carries it. */
 const calls = (runtime: ReturnType<typeof runtimeWith>["runtime"]) =>
     runtime.calls.map((c) => `${c.functionName}@${c.dest.toLowerCase()}`);
 const at = (address: string) => address.toLowerCase();
@@ -69,18 +68,18 @@ const opts = (runtime: ReturnType<typeof runtimeWith>["runtime"], origin?: strin
     ...(origin ? { origin } : {}),
 });
 
-const authorised = (answers: Record<string, unknown> = {}) =>
+const authorized = (answers: Record<string, unknown> = {}) =>
     runtimeWith({ isAuthorised: true, text: "", ...answers });
 
 describe("prepareSetProfile", () => {
     test("prepares setText on the content resolver, sized by a dry-run as the origin", async () => {
-        const { runtime, built } = authorised();
+        const { runtime, built } = authorized();
         const r = await prepareSetProfile("alice", RECORD, opts(runtime, SIGNER));
         expect(r.ok).toBe(true);
         if (!r.ok) return;
         expect(r.value).toMatchObject({ original: "", text: RECORD });
         expect(r.value.call).toBeDefined();
-        // The authorisation and the current text are asked for together; the
+        // The authorization and the current text are asked for together; the
         // dry-run waits on both. The node's resolver is never read or repointed.
         expect(calls(runtime)).toEqual([GET, IS_AUTHORISED, TEXT, SET_TEXT]);
         // viem checksums the decoded address, so compare it case-insensitively.
@@ -97,75 +96,75 @@ describe("prepareSetProfile", () => {
     });
 
     test("carries the text the resolver holds now, for the re-read before submitting", async () => {
-        const { runtime } = authorised({ text: RECORD });
+        const { runtime } = authorized({ text: RECORD });
         const r = await prepareSetProfile("alice", "AA==", opts(runtime, SIGNER));
         expect(r.ok && r.value.original).toBe(RECORD);
     });
 
     test("an empty text clears the record", async () => {
-        const { runtime } = authorised({ text: RECORD });
+        const { runtime } = authorized({ text: RECORD });
         const r = await prepareSetProfile("alice", "  ", opts(runtime, SIGNER));
         expect(r.ok && r.value.text).toBe("");
         expect(runtime.calls.at(-1)?.args?.[2]).toBe("");
     });
 
     test("a lite username's parts are levels of the node, and the TLD is tolerated", async () => {
-        const { runtime } = authorised();
+        const { runtime } = authorized();
         await prepareSetProfile("Alice.01.dot", RECORD, opts(runtime, SIGNER));
         expect(runtime.calls.at(-1)?.args?.[0]).toBe(namehash("alice.01.dot", DOT_TLD));
     });
 
     test("refuses a text no reader accepts before touching the chain", async () => {
-        const { runtime } = authorised();
+        const { runtime } = authorized();
         const r = await prepareSetProfile("alice", "not base64!", opts(runtime, SIGNER));
         expect(r.ok ? null : r.error.reason).toBe("NotBase64");
         expect(runtime.calls).toHaveLength(0);
     });
 
     test("needs the owner as origin", async () => {
-        const { runtime } = authorised();
+        const { runtime } = authorized();
         const r = await prepareSetProfile("alice", RECORD, opts(runtime));
         expect(r.ok ? null : r.error.reason).toBe("MissingOrigin");
         expect(runtime.calls).toHaveLength(0);
     });
 
     test("refuses an origin that is not an SS58 address", async () => {
-        const { runtime } = authorised();
+        const { runtime } = authorized();
         const r = await prepareSetProfile("alice", RECORD, opts(runtime, "not-an-address"));
         expect(r.ok ? null : r.error.reason).toBe("InvalidOrigin");
         expect(runtime.calls).toHaveLength(0);
     });
 
     test("refuses a label no host resolves", async () => {
-        const { runtime } = authorised();
+        const { runtime } = authorized();
         const r = await prepareSetProfile("Alice!", RECORD, opts(runtime, SIGNER));
         expect(r.ok ? null : r.error.reason).toBe("InvalidName");
         expect(runtime.calls).toHaveLength(0);
     });
 
     test("a deployment with no content resolver holds no profiles", async () => {
-        const { runtime } = authorised({ contentResolver: ZERO });
+        const { runtime } = authorized({ contentResolver: ZERO });
         const r = await prepareSetProfile("alice", RECORD, opts(runtime, SIGNER));
         expect(r.ok ? null : r.error.reason).toBe("AddressDiscovery");
     });
 
     test("an origin the registry does not authorise is refused before the dry-run", async () => {
         // The registry answers false for a stranger and for a name nobody holds alike.
-        const { runtime, built } = authorised({ isAuthorised: false });
+        const { runtime, built } = authorized({ isAuthorised: false });
         const r = await prepareSetProfile("alice", RECORD, opts(runtime, SIGNER));
         expect(r.ok ? null : r.error.reason).toBe("Unauthorised");
         expect(calls(runtime)).toEqual([GET, IS_AUTHORISED, TEXT]);
         expect(built).toHaveLength(0);
     });
 
-    test("a failing authorisation read is an error, not a guessed answer", async () => {
-        const { runtime } = authorised({ isAuthorised: fakeDryRunResult({ failure: "boom" }) });
+    test("a failing authorization read is an error, not a guessed answer", async () => {
+        const { runtime } = authorized({ isAuthorised: fakeDryRunResult({ failure: "boom" }) });
         const r = await prepareSetProfile("alice", RECORD, opts(runtime, SIGNER));
         expect(r.ok ? null : r.error.reason).toBe("RegistryCall");
     });
 
     test("a dry-run that reverts is reported, not prepared", async () => {
-        const { runtime, built } = authorised({
+        const { runtime, built } = authorized({
             setText: fakeDryRunResult({ revert: "NotAuthorised" }),
         });
         const r = await prepareSetProfile("alice", RECORD, opts(runtime, SIGNER));
