@@ -48,7 +48,9 @@
  *      allowance, which the product requests before its first publish.
  *   4. `rewriteProfileRecord(live, patch)` for the new text, with the feed in
  *      the patch. It carries every entry the patch does not name, and refuses
- *      a live record that is not a profile rather than replacing it.
+ *      a live record that is not a profile rather than replacing it. To
+ *      replace one on purpose, such as a record in the layout before the RFC,
+ *      pass `null` as `live`: the new text is built from the patch alone.
  *   5. The product maps its account in pallet-revive if it never called a
  *      contract, before preparing: the dry-run that sizes the call runs as
  *      the origin, and an unmapped origin cannot dry-run.

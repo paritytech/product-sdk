@@ -225,8 +225,9 @@ empty name or one over 64 bytes of UTF-8, a topic or signer that is not 32 bytes
 Refuses bytes over 2 MiB before the host is asked. The format is the caller's declaration, as it
 is for readers; whether the bytes are an image of that format is the product's check, with the
 file in hand. The host stores the bytes under its Bulletin allowance and answers the key, which
-must be the blake2b-256 digest of the bytes; anything else is a `Host` error and no CID. The
-`ProfileAvatar` that comes back goes straight into the patch.
+must be the blake2b-256 digest of the bytes; anything else is a `Host` error and no CID. A host
+that did not confirm in time is `Timeout`, not `Host`: the bytes may still be stored, and a retry
+is safe. The `ProfileAvatar` that comes back goes straight into the patch.
 
 ### `prepareSetProfile(label, text, opts)`
 
@@ -304,9 +305,11 @@ else {
 ## Errors
 
 `ProfileError` reasons: `NotBase64`, `TooLarge`, `Malformed` from the decoder and the rewrite;
-`InvalidEntry` and `TooLarge` from the rewrite and `submitAvatar`; `Host` from `submitAvatar` and the mood functions,
-for a host call that failed or answered something unusable, with the cause attached where there
-is one; `SignerMismatch` and `Timeout` from the mood functions. The dotNS walk reports through
+`InvalidEntry` and `TooLarge` from the rewrite and `submitAvatar`; `Host` from `submitAvatar` and
+the mood functions, for a host call that failed or answered something unusable, with the cause
+attached where there is one; `Timeout` from the same calls when the host's deadline passed, which
+the call may outlive: an avatar may still be stored and a mood may still land, so word the retry
+that way; `SignerMismatch` from the mood functions. The dotNS walk reports through
 `DotNsError`: `InvalidName`, `MissingOrigin`, `InvalidOrigin`, `Unauthorised`, `AddressDiscovery`
 when a write targets a deployment with no content resolver (a read answers `NoProfile` there, since
 there is nothing to read), `RegistryCall` for a call that failed, with the cause.

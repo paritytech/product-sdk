@@ -4,7 +4,11 @@
 // The avatar fetch through the fake host's preimage domain, keyed by the
 // blake2b-256 digest the CID carries.
 import { blake2b256, bytesToHex } from "@parity/product-sdk-crypto";
-import { getPreimageManager, type PreimageManager } from "@parity/product-sdk-host";
+import {
+    HostTimeoutError,
+    getPreimageManager,
+    type PreimageManager,
+} from "@parity/product-sdk-host";
 import { createFakeHost } from "@parity/product-sdk-host/testing";
 import { artworkAddress } from "@parity/product-sdk-nfts";
 import { afterEach, describe, expect, test } from "vitest";
@@ -144,6 +148,25 @@ describe("submitAvatar", () => {
         const r = await submitAvatar(BYTES, "webp", manager);
         expect(r.ok ? null : r.error.reason).toBe("Host");
         expect(r.ok ? null : (r.error.cause as Error).message).toBe("allowance refused");
+    });
+
+    test("a host that ran out of time is Timeout, not Host: the bytes may still be stored", async () => {
+        const deadline = new HostTimeoutError(
+            "preimage submit",
+            Object.assign(new Error("RequestTimeoutError"), { timeoutMs: 30_000 }),
+        );
+        const direct = managerThatAnswers(async () => {
+            throw deadline;
+        });
+        const r = await submitAvatar(BYTES, "webp", direct.manager);
+        expect(r.ok ? null : r.error.reason).toBe("Timeout");
+        expect(r.ok ? null : r.error.cause).toBe(deadline);
+        // Wrapped by whatever sits between the product and the host, it is still the deadline.
+        const wrapped = managerThatAnswers(async () => {
+            throw new Error("upload failed", { cause: deadline });
+        });
+        const w = await submitAvatar(BYTES, "webp", wrapped.manager);
+        expect(w.ok ? null : w.error.reason).toBe("Timeout");
     });
 
     test("a key that is not the digest of the bytes is a Host error, never a CID", async () => {

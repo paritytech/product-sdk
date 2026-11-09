@@ -18,7 +18,7 @@ import {
 } from "@parity/product-sdk-nfts";
 import { type Result, err, ok } from "@parity/result";
 
-import { ProfileError } from "./errors.js";
+import { ProfileError, hostCallFailed } from "./errors.js";
 import {
     type AvatarMimeType,
     type LoadedAvatar,
@@ -146,6 +146,9 @@ export async function loadAvatar(
  * Submission spends the product's Bulletin allowance; the host asks for it
  * when none is held, and the bytes stay on Bulletin for its retention period,
  * after which the publisher uploads them again.
+ *
+ * `Timeout` is a host that did not confirm in time: the bytes may still be
+ * stored, so a retry is safe and worth saying so. `Host` is any other failure.
  */
 export async function submitAvatar(
     bytes: Uint8Array,
@@ -164,7 +167,7 @@ export async function submitAvatar(
     try {
         key = await manager.submit(bytes);
     } catch (cause) {
-        return err(new ProfileError("Host", "the host did not store the avatar", { cause }));
+        return err(hostCallFailed("the host did not store the avatar", cause));
     }
     const digest = `0x${bytesToHex(blake2b256(bytes))}` as const;
     if (key.toLowerCase() !== digest) {

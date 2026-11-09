@@ -8,11 +8,12 @@
 // package's fake has an inert statement store and no entropy domain.
 import { createFakeContractRuntime } from "@parity/product-sdk-contracts/testing";
 import { blake2b256, bytesToHex } from "@parity/product-sdk-crypto";
-import type {
-    HostStatementStore,
-    SignedStatement,
-    Statement,
-    StatementsPage,
+import {
+    type HostStatementStore,
+    HostTimeoutError,
+    type SignedStatement,
+    type Statement,
+    type StatementsPage,
 } from "@parity/product-sdk-host";
 import { type Result, err, ok } from "@parity/result";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -396,6 +397,19 @@ describe("setMood", () => {
         };
         expect(reason(await setMood(FEED, { kind: "calm", intensity: "soft" }, stuck))).toBe(
             "Host",
+        );
+    });
+
+    test("a submit the host did not confirm in time is Timeout: the mood may still land", async () => {
+        const slow = fakeStore();
+        slow.submit = async () => {
+            throw new HostTimeoutError(
+                "statement submit",
+                Object.assign(new Error("RequestTimeoutError"), { timeoutMs: 30_000 }),
+            );
+        };
+        expect(reason(await setMood(FEED, { kind: "calm", intensity: "soft" }, slow))).toBe(
+            "Timeout",
         );
     });
 });

@@ -35,7 +35,7 @@ import { type Result, err, ok } from "@parity/result";
 import type { DotNsError } from "../identity/dotns-errors.js";
 import type { DotNsClientOptions } from "../identity/dotns-registry.js";
 import { decodeExact, moodBodyCodec } from "./codec.js";
-import { ProfileError } from "./errors.js";
+import { ProfileError, hostCallFailed } from "./errors.js";
 import { resolveProfileName } from "./lookup.js";
 import type { ProfileFeed } from "./types.js";
 
@@ -211,7 +211,7 @@ export function pickMood(
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 const hostFailed = (what: string, cause: unknown) =>
-    new ProfileError("Host", `the host could not ${what}`, { cause });
+    hostCallFailed(`the host could not ${what}`, cause);
 
 /**
  * A signed statement as the reader rule sees it, or null when it is not the
