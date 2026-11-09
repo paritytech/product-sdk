@@ -45,8 +45,8 @@
  *
  *   1. `getProfileRecord` for the live text, with no origin: a read dry-runs
  *      as the origin it is given, and an unmapped one cannot.
- *   2. `submitAvatar(bytes, format, manager)` if the avatar changes: the bytes
- *      go to Bulletin through the host, and the CID comes back.
+ *   2. `profileAvatar(bytes, format)` if the avatar changes: the entry for
+ *      the bytes, from their digest, with no host call yet.
  *   3. `deriveMoodFeed(label, opts, store, deriveEntropy)` for the record's
  *      mood feed, in every publish: the topic and signer are stable per
  *      wallet and product, so the entry is the same each time, and it is in
@@ -64,11 +64,15 @@
  *      `opts.origin` the account the registry authorises for the name. It
  *      hands back the text it saw, so the product reads once more and stops
  *      if another writer got there first.
- *   7. The product funds the account for the fee and the record's storage
+ *   7. `submitAvatar(bytes, manager)` if the avatar changes: the bytes go to
+ *      Bulletin through the host only now, after the dry-run has sized the
+ *      write and before it is submitted, so a write that would fail spends
+ *      no Bulletin allowance. The host must store them under their digest.
+ *   8. The product funds the account for the fee and the record's storage
  *      deposit and submits the call with its own signer, waiting for
  *      finality. None of that is the SDK's: who may write and who pays is
  *      the product's to decide.
- *   8. `verifyPublishedProfile(label, text, opts)` once the write is final.
+ *   9. `verifyPublishedProfile(label, text, opts)` once the write is final.
  *
  * An empty text clears the record.
  *
@@ -96,6 +100,7 @@ export {
 } from "./lookup.js";
 export {
     loadAvatar,
+    profileAvatar,
     submitAvatar,
     AVATAR_MIME_TYPES,
     DEFAULT_AVATAR_TIMEOUT_MS,

@@ -15,7 +15,7 @@ import {
     profileNameCodec,
     profileRecordCodec,
 } from "./codec.js";
-import { decodeBase64Strict, decodeProfileRecord } from "./record.js";
+import { decodeBase64Strict, decodeProfileRecord, decodeRecordEntries } from "./record.js";
 import { PROFILE_ENTRY_INDEX, PROFILE_RECORD_MAX_BYTES } from "./types.js";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
@@ -28,20 +28,22 @@ const entry = (index: number, payload: Uint8Array) => new Uint8Array([index, ...
 /** A record from its entries, base64, as the text record carries it. */
 const record = (entries: Uint8Array[]) => base64(profileRecordCodec.enc(entries));
 
-const CID = "bafk2bzacecv2xk5lvov2xk5lvov2xk5lvov2xk5lvov2xk5lvov2xk5lvov2w";
-const avatar = (cid: string, format: number) => profileAvatarCodec.enc({ cid: utf8(cid), format });
+// The CID and digest the core's own record tests use (`public_profile/record/tests.rs`).
+const CID = "bafk2bzaceaf5do2x4p46vaazk2txb7qqnd4vaobvi6wkixq5hu2u2v6qctfqy";
+const DIGEST = "0x0bd1bb57e3f9ea801956a770fe1068f950383547aca45e1d3d354d57d014cb0c" as const;
+const avatar = (digest: `0x${string}`, format: number) =>
+    profileAvatarCodec.enc({ cid: digest, format });
 const name = (text: string) => profileNameCodec.enc(utf8(text));
 const TOPIC = `0x${"11".repeat(32)}` as const;
 const SIGNER = `0x${"22".repeat(32)}` as const;
 
 // { Avatar(CID, webp), Name("Alice") }: compact(2); then each entry as a
-// length-prefixed byte string, index byte first. The avatar entry is 65 bytes
-// (index, compact(62), the CID, the format), so its prefix is the two-byte
-// compact 0x0105; the name entry is 7 (index, compact(5), "Alice").
+// length-prefixed byte string, index byte first. The avatar entry is 34 bytes
+// (index, the 32-byte digest, the format), so its prefix is compact(34), 0x88;
+// the name entry is 7 (index, compact(5), "Alice").
 const VECTOR_HEX =
-    "08050100f86261666b32627a616365637632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f763277021c0114416c696365";
-const VECTOR_BASE64 =
-    "CAUBAPhiYWZrMmJ6YWNlY3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YydwIcARRBbGljZQ==";
+    "0888000bd1bb57e3f9ea801956a770fe1068f950383547aca45e1d3d354d57d014cb0c021c0114416c696365";
+const VECTOR_BASE64 = "CIgAC9G7V+P56oAZVqdw/hBo+VA4NUespF4dPTVNV9AUywwCHAEUQWxpY2U=";
 
 // Records written before the RFC moved to codec indices (`Vec<{ kind: String,
 // payload: Vec<u8> }>`), both by Seity on Paseo Next for devdevdev.01.paseo.
@@ -92,7 +94,7 @@ describe("decodeBase64Strict", () => {
 describe("decodeProfileRecord", () => {
     test("pins the bytes of the RFC layout and decodes them", () => {
         const encoded = profileRecordCodec.enc([
-            entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 2)),
+            entry(PROFILE_ENTRY_INDEX.avatar, avatar(DIGEST, 2)),
             entry(PROFILE_ENTRY_INDEX.name, name("Alice")),
         ]);
         expect(toHex(encoded)).toBe(VECTOR_HEX);
@@ -103,6 +105,35 @@ describe("decodeProfileRecord", () => {
             feeds: [],
             unknown: [],
         });
+    });
+
+    test("decodes the core's vectors: the digest and each format, and an unknown kind kept in place", () => {
+        // From host-rust-core `public_profile/record/tests.rs`: the same CID in
+        // each of the four formats, a record that round-trips byte for byte.
+        const formats = ["png", "jpeg", "webp", "gif"] as const;
+        for (const [i, format] of formats.entries()) {
+            const text = `BIgAC9G7V+P56oAZVqdw/hBo+VA4NUespF4dPTVNV9AUyww${"ABCD"[i]}`;
+            expect(unwrap(text)).toEqual({
+                avatar: { cid: CID, format },
+                name: null,
+                feeds: [],
+                unknown: [],
+            });
+            const entries = decodeRecordEntries(text);
+            expect(entries.ok && base64(profileRecordCodec.enc(entries.value))).toBe(text);
+        }
+        // An entry of a kind this reader does not know, then the avatar.
+        const wire =
+            "080807aa88000bd1bb57e3f9ea801956a770fe1068f950383547aca45e1d3d354d57d014cb0c00";
+        const profile = unwrap(base64(hex(wire)));
+        expect(profile.avatar).toEqual({ cid: CID, format: "png" });
+        expect(profile.unknown).toEqual([{ bytes: new Uint8Array([7, 0xaa]) }]);
+        // An avatar entry a newer writer extended by a byte is kept, and is no avatar.
+        const extended =
+            "048c000bd1bb57e3f9ea801956a770fe1068f950383547aca45e1d3d354d57d014cb0c00aa";
+        const read = unwrap(base64(hex(extended)));
+        expect(read.avatar).toBeNull();
+        expect(read.unknown).toEqual([{ bytes: hex(extended).subarray(2) }]);
     });
 
     test("index 2 is reserved with no payload: a Seity test pin is kept as unknown, in place", () => {
@@ -134,39 +165,32 @@ describe("decodeProfileRecord", () => {
             [0, "png"],
             [1, "jpeg"],
             [2, "webp"],
+            [3, "gif"],
         ] as const) {
-            const profile = unwrap(record([entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, index))]));
+            const profile = unwrap(
+                record([entry(PROFILE_ENTRY_INDEX.avatar, avatar(DIGEST, index))]),
+            );
             expect(profile.avatar?.format).toBe(format);
         }
-        const odd = entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 9));
-        const profile = unwrap(record([odd, entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 1))]));
+        const odd = entry(PROFILE_ENTRY_INDEX.avatar, avatar(DIGEST, 9));
+        const profile = unwrap(record([odd, entry(PROFILE_ENTRY_INDEX.avatar, avatar(DIGEST, 1))]));
         expect(profile.avatar).toEqual({ cid: CID, format: "jpeg" });
         expect(profile.unknown).toEqual([{ bytes: odd }]);
     });
 
-    test("an avatar payload with trailing bytes, or a non-UTF-8 CID, is kept as unknown", () => {
-        const trailing = entry(PROFILE_ENTRY_INDEX.avatar, new Uint8Array([...avatar(CID, 2), 0]));
-        const badCid = entry(
+    test("an avatar payload that is not one digest and a format is kept as unknown", () => {
+        // The core's `an_incomplete_avatar_is_preserved_and_skipped`: no bytes,
+        // a short digest, a digest with no format; and one byte too many.
+        const incomplete = [0, 31, 32].map((length) =>
+            entry(PROFILE_ENTRY_INDEX.avatar, new Uint8Array(length)),
+        );
+        const trailing = entry(
             PROFILE_ENTRY_INDEX.avatar,
-            profileAvatarCodec.enc({ cid: new Uint8Array([0xff, 0xfe]), format: 2 }),
+            new Uint8Array([...avatar(DIGEST, 2), 0]),
         );
-        const profile = unwrap(record([trailing, badCid]));
+        const profile = unwrap(record([...incomplete, trailing]));
         expect(profile.avatar).toBeNull();
-        expect(profile.unknown).toEqual([{ bytes: trailing }, { bytes: badCid }]);
-    });
-
-    test("a CID that is not a Bulletin CID still decodes as the avatar; the fetch is where it fails", () => {
-        // The RFC types the CID as a plain String, so the core decodes any text
-        // and two readers of one record agree on which entry is the avatar.
-        const dagPb = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
-        const profile = unwrap(
-            record([
-                entry(PROFILE_ENTRY_INDEX.avatar, avatar(dagPb, 0)),
-                entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 2)),
-            ]),
-        );
-        expect(profile.avatar).toEqual({ cid: dagPb, format: "png" });
-        expect(profile.unknown).toEqual([]);
+        expect(profile.unknown).toEqual([...incomplete, trailing].map((bytes) => ({ bytes })));
     });
 
     test("the first non-empty name of at most 64 bytes wins; an empty or longer one is known and ignored", () => {
@@ -212,7 +236,7 @@ describe("decodeProfileRecord", () => {
             record([
                 future,
                 entry(PROFILE_ENTRY_INDEX.avatar, utf8("not a tuple")),
-                entry(PROFILE_ENTRY_INDEX.avatar, avatar(CID, 1)),
+                entry(PROFILE_ENTRY_INDEX.avatar, avatar(DIGEST, 1)),
                 entry(PROFILE_ENTRY_INDEX.name, name("First")),
                 entry(PROFILE_ENTRY_INDEX.name, name("Second")),
             ]),

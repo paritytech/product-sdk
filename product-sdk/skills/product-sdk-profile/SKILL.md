@@ -9,7 +9,7 @@ description: >
   its three answers, getProfileRecord for the text as stored, decodeProfileRecord, loadAvatar
   through the host's preimage lookup and never a gateway, the read-rewrite-prepare-submit-verify
   publish recipe with
-  rewriteProfileRecord, submitAvatar, prepareSetProfile and verifyPublishedProfile, the
+  rewriteProfileRecord, profileAvatar, submitAvatar, prepareSetProfile and verifyPublishedProfile, the
   ProfilePatch carry rules, why the SDK never signs, funds or repoints a resolver, moods on the
   profile's feed (deriveMoodFeed in every publish, setMood, readMood, watchMood, the fixed
   palette MOOD_KINDS and MOOD_INTENSITIES, and SignerMismatch meaning publish first), the labels
@@ -145,8 +145,8 @@ import { batchSubmitAndWatch } from "@parity/product-sdk-tx";
 import { createContractRuntimeFromClient, ensureContractAccountMapped } from "@parity/product-sdk/contracts";
 import { deriveEntropy, getPreimageManager, getStatementStore } from "@parity/product-sdk/host";
 import {
-    deriveMoodFeed, getProfileRecord, prepareSetProfile, rewriteProfileRecord, submitAvatar,
-    verifyPublishedProfile,
+    deriveMoodFeed, getProfileRecord, prepareSetProfile, profileAvatar, rewriteProfileRecord,
+    submitAvatar, verifyPublishedProfile,
 } from "@parity/product-sdk/profile";
 
 // `owner` is the account the registry authorises for the name, and `signer`
@@ -159,9 +159,9 @@ const opts = { runtime };
 const live = await getProfileRecord("alice", opts);
 if (!live.ok) throw live.error;
 
-// 2. A new avatar goes to Bulletin first, so the record never names bytes that are not there.
-const manager = await getPreimageManager();
-const avatar = await submitAvatar(pngBytes, "png", manager!);
+// 2. A new avatar's entry, from the bytes alone: their digest as a Bulletin CID,
+//    no host call. The bytes go to Bulletin in step 7, once the write is prepared.
+const avatar = profileAvatar(pngBytes, "png");
 if (!avatar.ok) throw avatar.error;
 
 // 3. The record's mood feed, in every publish: the topic and signer are stable
@@ -187,13 +187,19 @@ await ensureContractAccountMapped(runtime, owner.address, signer);
 const prepared = await prepareSetProfile("alice", text.value, { ...opts, origin: owner.address });
 if (!prepared.ok) throw prepared.error;
 
-// 7. Submit, after a last look: another writer's record must not be overwritten.
+// 7. The avatar bytes, now that the dry-run has sized the write: a write that
+//    would fail spends no Bulletin allowance. The host must key them by their digest.
+const manager = await getPreimageManager();
+const stored = await submitAvatar(pngBytes, manager!);
+if (!stored.ok) throw stored.error;
+
+// 8. Submit, after a last look: another writer's record must not be overwritten.
 const again = await getProfileRecord("alice", opts);
 if (!again.ok || again.value !== prepared.value.original) throw new Error("the profile changed; start over");
 const sent = await batchSubmitAndWatch([prepared.value.call], chain.assetHub, signer, { waitFor: "finalized" });
 if (!sent.ok) throw sent.error;
 
-// 8. What the chain holds now is what was sent. Only after finality: a
+// 9. What the chain holds now is what was sent. Only after finality: a
 //    best-block inclusion can still be reorged away.
 const published = await verifyPublishedProfile("alice", prepared.value.text, opts);
 ```
@@ -220,14 +226,21 @@ reader would refuse it and the profile would vanish silently.
 A patch value no entry can carry is `InvalidEntry`: a CID that is not a Bulletin preimage CID, an
 empty name or one over 64 bytes of UTF-8, a topic or signer that is not 32 bytes of hex.
 
-### `submitAvatar(bytes, format, manager)`
+### `profileAvatar(bytes, format)` and `submitAvatar(bytes, manager)`
 
-Refuses bytes over 2 MiB before the host is asked. The format is the caller's declaration, as it
-is for readers; whether the bytes are an image of that format is the product's check, with the
-file in hand. The host stores the bytes under its Bulletin allowance and answers the key, which
-must be the blake2b-256 digest of the bytes; anything else is a `Host` error and no CID. A host
-that did not confirm in time is `Timeout`, not `Host`: the bytes may still be stored, and a retry
-is safe. The `ProfileAvatar` that comes back goes straight into the patch.
+Two steps, in the core's order. `profileAvatar` is pure: the `ProfileAvatar` a record carries for
+the bytes, their blake2b-256 digest as a Bulletin CID and the declared format (`png`, `jpeg`,
+`webp` or `gif`), refused as `TooLarge` over 2 MiB. It goes straight into the patch, so the record
+is rewritten and the write prepared before any host call. The format is the caller's declaration,
+as it is for readers; whether the bytes are an image of that format is the product's check, with
+the file in hand.
+
+`submitAvatar` is the upload, after the prepare and before the submit, so a write that would fail
+spends no Bulletin allowance. The host stores the bytes under the product's allowance and answers
+the key, which must be the digest `profileAvatar` wrote; anything else is `Host`. A host that did
+not confirm in time is `Timeout`, not `Host`: the bytes may still be stored, and a retry is safe.
+The record carries the digest, not the CID string, so a CID that is not a Bulletin preimage CID
+has no place in it and the rewrite refuses it as `InvalidEntry`.
 
 ### `prepareSetProfile(label, text, opts)`
 
@@ -311,7 +324,7 @@ else {
 ## Errors
 
 `ProfileError` reasons: `NotBase64`, `TooLarge`, `Malformed` from the decoder and the rewrite;
-`InvalidEntry` and `TooLarge` from the rewrite and `submitAvatar`; `Host` from `submitAvatar` and
+`InvalidEntry` and `TooLarge` from the rewrite, `profileAvatar` and `submitAvatar`; `Host` from `submitAvatar` and
 the mood functions, for a host call that failed or answered something unusable, with the cause
 attached where there is one; `Timeout` from the same calls when the host's deadline passed, which
 the call may outlive: an avatar may still be stored and a mood may still land, so word the retry
@@ -366,6 +379,9 @@ from it for a test or a demo. What it shows that the API does not:
   publish fails at step 1, before mapping. Reads take `{ runtime }`; the prepare takes the origin.
 - **Skipping the re-read before submitting.** The prepared call stores a value rewritten from
   `original`; if the record changed, submitting it erases the other write.
+- **Uploading the avatar before preparing.** `profileAvatar` needs no host, so rewrite and
+  prepare first; `submitAvatar` goes after the dry-run and before the submit. Uploading first
+  spends Bulletin allowance on a write that may then fail.
 - **Fetching an avatar from a gateway.** The CID is a Bulletin preimage; `loadAvatar` goes through
   the host so no third party learns who is being looked at.
 - **Calling `setResolver` first.** Not needed, and it fights `setDotNsRecord`: an address is

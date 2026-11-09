@@ -13,7 +13,7 @@ import { createFakeHost } from "@parity/product-sdk-host/testing";
 import { artworkAddress } from "@parity/product-sdk-nfts";
 import { afterEach, describe, expect, test } from "vitest";
 
-import { loadAvatar, submitAvatar } from "./avatar.js";
+import { loadAvatar, profileAvatar, submitAvatar } from "./avatar.js";
 import { PROFILE_AVATAR_MAX_BYTES } from "./types.js";
 
 const BYTES = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]);
@@ -50,6 +50,9 @@ describe("loadAvatar", () => {
         );
         expect((await loadAvatar({ cid: CID, format: "jpeg" }, manager))?.mimeType).toBe(
             "image/jpeg",
+        );
+        expect((await loadAvatar({ cid: CID, format: "gif" }, manager))?.mimeType).toBe(
+            "image/gif",
         );
     });
 
@@ -123,12 +126,9 @@ function managerThatAnswers(answer: (bytes: Uint8Array) => Promise<`0x${string}`
 const digestOf = (bytes: Uint8Array) => `0x${bytesToHex(blake2b256(bytes))}` as const;
 
 describe("submitAvatar", () => {
-    test("stores the bytes and answers the CID the reader fetches by", async () => {
+    test("stores the bytes, and is satisfied by a host that keys them by their digest", async () => {
         const { manager, submitted } = managerThatAnswers(async (bytes) => digestOf(bytes));
-        expect(await submitAvatar(BYTES, "webp", manager)).toEqual({
-            ok: true,
-            value: { cid: CID, format: "webp" },
-        });
+        expect(await submitAvatar(BYTES, manager)).toEqual({ ok: true, value: undefined });
         expect(submitted).toEqual([BYTES]);
     });
 
@@ -136,7 +136,7 @@ describe("submitAvatar", () => {
         const { manager, submitted } = managerThatAnswers(async (bytes) => digestOf(bytes));
         const big = new Uint8Array(PROFILE_AVATAR_MAX_BYTES + 1);
         big.set(BYTES);
-        const r = await submitAvatar(big, "webp", manager);
+        const r = await submitAvatar(big, manager);
         expect(r.ok ? null : r.error.reason).toBe("TooLarge");
         expect(submitted).toHaveLength(0);
     });
@@ -145,7 +145,7 @@ describe("submitAvatar", () => {
         const { manager } = managerThatAnswers(async () => {
             throw new Error("allowance refused");
         });
-        const r = await submitAvatar(BYTES, "webp", manager);
+        const r = await submitAvatar(BYTES, manager);
         expect(r.ok ? null : r.error.reason).toBe("Host");
         expect(r.ok ? null : (r.error.cause as Error).message).toBe("allowance refused");
     });
@@ -158,20 +158,20 @@ describe("submitAvatar", () => {
         const direct = managerThatAnswers(async () => {
             throw deadline;
         });
-        const r = await submitAvatar(BYTES, "webp", direct.manager);
+        const r = await submitAvatar(BYTES, direct.manager);
         expect(r.ok ? null : r.error.reason).toBe("Timeout");
         expect(r.ok ? null : r.error.cause).toBe(deadline);
         // Wrapped by whatever sits between the product and the host, it is still the deadline.
         const wrapped = managerThatAnswers(async () => {
             throw new Error("upload failed", { cause: deadline });
         });
-        const w = await submitAvatar(BYTES, "webp", wrapped.manager);
+        const w = await submitAvatar(BYTES, wrapped.manager);
         expect(w.ok ? null : w.error.reason).toBe("Timeout");
     });
 
     test("a key that is not the digest of the bytes is a Host error, never a CID", async () => {
         const { manager } = managerThatAnswers(async () => `0x${"00".repeat(32)}`);
-        const r = await submitAvatar(BYTES, "webp", manager);
+        const r = await submitAvatar(BYTES, manager);
         expect(r.ok ? null : r.error.reason).toBe("Host");
     });
 
@@ -179,6 +179,28 @@ describe("submitAvatar", () => {
         const { manager } = managerThatAnswers(
             async (bytes) => digestOf(bytes).toUpperCase().replace("0X", "0x") as `0x${string}`,
         );
-        expect((await submitAvatar(BYTES, "webp", manager)).ok).toBe(true);
+        expect((await submitAvatar(BYTES, manager)).ok).toBe(true);
+    });
+});
+
+describe("profileAvatar", () => {
+    test("is the entry for the bytes: their digest as a Bulletin CID, and the declared format", () => {
+        expect(profileAvatar(BYTES, "gif")).toEqual({
+            ok: true,
+            value: { cid: CID, format: "gif" },
+        });
+    });
+
+    test("refuses bytes over the bound, as every reader would", () => {
+        const r = profileAvatar(new Uint8Array(PROFILE_AVATAR_MAX_BYTES + 1), "png");
+        expect(r.ok ? null : r.error.reason).toBe("TooLarge");
+    });
+
+    test("names the digest submitAvatar holds the host to, so the record is written before the upload", async () => {
+        const { manager, submitted } = managerThatAnswers(async (bytes) => digestOf(bytes));
+        const avatar = profileAvatar(BYTES, "png");
+        expect((await submitAvatar(BYTES, manager)).ok).toBe(true);
+        const stored = artworkAddress({ hex: digestOf(submitted[0] as Uint8Array), text: null });
+        expect(avatar.ok && avatar.value.cid).toBe(stored?.cid);
     });
 });

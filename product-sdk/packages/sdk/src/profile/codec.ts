@@ -33,8 +33,8 @@ import {
 /** `ProfileRecord { entries: Vec<WrapperKeepOpaque<ProfileEntry>> }`: every entry as its bytes. */
 export const profileRecordCodec = Vector(Bytes());
 
-/** `ProfileAvatar { cid: String, format: ProfileAvatarFormat }`, the format as its index. */
-export const profileAvatarCodec = Struct({ cid: Bytes(), format: u8 });
+/** `ProfileAvatar { cid: BulletinCid, format: ImageFormat }`: the CID as its 32-byte blake2b-256 digest, the format as its index. */
+export const profileAvatarCodec = Struct({ cid: Hex(32), format: u8 });
 
 /** `Name(String)`: a SCALE String, its compact length then the bytes, left as bytes for the UTF-8 check. */
 export const profileNameCodec = Bytes();

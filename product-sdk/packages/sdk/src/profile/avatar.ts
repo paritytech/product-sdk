@@ -1,10 +1,11 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * The avatar bytes, through the host's preimage lookup and checked against the
- * CID. The fetch, the timeout and the hash check are the nfts package's
- * `getVerifiedArtwork` over `preimageSource`; this module maps a
- * {@link ProfileAvatar} onto them and the declared format onto a MIME type.
+ * The avatar: its bytes through the host's preimage lookup, checked against
+ * the CID, and the entry and the upload a publish makes. The fetch, the
+ * timeout and the hash check are the nfts package's `getVerifiedArtwork` over
+ * `preimageSource`; this module maps a {@link ProfileAvatar} onto them and the
+ * declared format onto a MIME type.
  */
 import { blake2b256, bytesToHex } from "@parity/product-sdk-crypto";
 import type { PreimageManager } from "@parity/product-sdk-host";
@@ -44,6 +45,14 @@ export function preimageCidAddress(cid: string): ArtworkAddress | null {
     return address !== null && address.multihash === BLAKE2B_256 ? address : null;
 }
 
+/** The Bulletin preimage CID of a 32-byte digest, the form a record's digest is shown and fetched as. */
+export function digestCid(digest: `0x${string}`): string {
+    // A 32-byte digest always forms a CID.
+    return (artworkAddress({ hex: digest, text: null }) as ArtworkAddress).cid;
+}
+
+const digestOf = (bytes: Uint8Array) => `0x${bytesToHex(blake2b256(bytes))}` as const;
+
 /**
  * How long the host's preimage lookup is given before the avatar is reported
  * missing this time. The core's `AVATAR_TIMEOUT`. A lookup is a subscription
@@ -57,6 +66,7 @@ export const AVATAR_MIME_TYPES: Record<ProfileAvatarFormat, AvatarMimeType> = {
     png: "image/png",
     jpeg: "image/jpeg",
     webp: "image/webp",
+    gif: "image/gif",
 };
 
 export interface LoadAvatarOptions {
@@ -133,44 +143,63 @@ export async function loadAvatar(
     };
 }
 
+const tooLarge = (bytes: Uint8Array) =>
+    bytes.length > PROFILE_AVATAR_MAX_BYTES
+        ? new ProfileError(
+              "TooLarge",
+              `the avatar is ${bytes.length} bytes, over the ${PROFILE_AVATAR_MAX_BYTES}-byte bound`,
+          )
+        : null;
+
 /**
- * Store an avatar's bytes on Bulletin through the host and answer the
- * {@link ProfileAvatar} a record carries for them.
+ * The {@link ProfileAvatar} a record carries for these bytes: their
+ * blake2b-256 digest as a Bulletin CID, and the declared format.
  *
- * Bytes over {@link PROFILE_AVATAR_MAX_BYTES}, which every reader refuses, are
- * refused before the host is asked. The format is the caller's declaration,
- * as it is for the reader; whether the bytes are an image of that format is
- * the product's check to make, with the file in hand. The key the host
- * answers with must be the blake2b-256 digest of the bytes, as the core
- * checks, so the CID built from it is the one `loadAvatar` fetches by.
- * Submission spends the product's Bulletin allowance; the host asks for it
- * when none is held, and the bytes stay on Bulletin for its retention period,
- * after which the publisher uploads them again.
+ * Pure, so the record can be rewritten and the write prepared before the
+ * bytes go to Bulletin, the order the core's publisher keeps: a write that
+ * would fail then spends no Bulletin allowance. `submitAvatar` stores the
+ * bytes afterwards and holds the host to this same digest. Bytes over
+ * {@link PROFILE_AVATAR_MAX_BYTES}, which every reader refuses, are
+ * `TooLarge`. The format is the caller's declaration, as it is for the
+ * reader; whether the bytes are an image of that format is the product's
+ * check to make, with the file in hand.
+ */
+export function profileAvatar(
+    bytes: Uint8Array,
+    format: ProfileAvatarFormat,
+): Result<ProfileAvatar, ProfileError> {
+    const oversized = tooLarge(bytes);
+    if (oversized) return err(oversized);
+    return ok({ cid: digestCid(digestOf(bytes)), format });
+}
+
+/**
+ * Store an avatar's bytes on Bulletin through the host.
+ *
+ * Call it after the write is prepared and before it is submitted, so the
+ * record never names bytes that are not on Bulletin and a write that would
+ * fail spends nothing. The key the host answers with must be the blake2b-256
+ * digest of the bytes, the one `profileAvatar` put in the record; anything
+ * else is `Host`. Submission spends the product's Bulletin allowance; the host
+ * asks for it when none is held, and the bytes stay on Bulletin for its
+ * retention period, after which the publisher uploads them again.
  *
  * `Timeout` is a host that did not confirm in time: the bytes may still be
  * stored, so a retry is safe and worth saying so. `Host` is any other failure.
  */
 export async function submitAvatar(
     bytes: Uint8Array,
-    format: ProfileAvatarFormat,
     manager: PreimageManager,
-): Promise<Result<ProfileAvatar, ProfileError>> {
-    if (bytes.length > PROFILE_AVATAR_MAX_BYTES) {
-        return err(
-            new ProfileError(
-                "TooLarge",
-                `the avatar is ${bytes.length} bytes, over the ${PROFILE_AVATAR_MAX_BYTES}-byte bound`,
-            ),
-        );
-    }
+): Promise<Result<void, ProfileError>> {
+    const oversized = tooLarge(bytes);
+    if (oversized) return err(oversized);
     let key: string;
     try {
         key = await manager.submit(bytes);
     } catch (cause) {
         return err(hostCallFailed("the host did not store the avatar", cause));
     }
-    const digest = `0x${bytesToHex(blake2b256(bytes))}` as const;
-    if (key.toLowerCase() !== digest) {
+    if (key.toLowerCase() !== digestOf(bytes)) {
         return err(
             new ProfileError(
                 "Host",
@@ -178,7 +207,5 @@ export async function submitAvatar(
             ),
         );
     }
-    // A 32-byte digest always forms a CID.
-    const { cid } = artworkAddress({ hex: digest, text: null }) as ArtworkAddress;
-    return ok({ cid, format });
+    return ok(undefined);
 }

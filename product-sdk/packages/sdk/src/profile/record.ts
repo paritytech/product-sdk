@@ -14,6 +14,7 @@ import {
     profileRecordCodec,
     utf8OrNull,
 } from "./codec.js";
+import { digestCid } from "./avatar.js";
 import { ProfileError } from "./errors.js";
 import {
     PROFILE_AVATAR_FORMATS,
@@ -136,13 +137,12 @@ export function decodeProfileRecord(text: string): Result<PublicProfile, Profile
     return ok(readEntries(entries.value));
 }
 
-/** The avatar a payload holds, or `null` when it is not one avatar in a format this reader knows. */
+/** The avatar a payload holds, or `null` when it is not one digest and a format this reader knows. */
 function readAvatar(payload: Uint8Array): ProfileAvatar | null {
     const decoded = decodeExact(profileAvatarCodec, payload);
     if (decoded === null) return null;
-    const cid = utf8OrNull(decoded.cid);
     const format = PROFILE_AVATAR_FORMATS[decoded.format];
-    return cid !== null && format !== undefined ? { cid, format } : null;
+    return format === undefined ? null : { cid: digestCid(decoded.cid as `0x${string}`), format };
 }
 
 /**

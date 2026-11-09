@@ -26,8 +26,7 @@ import {
 const CONTENT_RESOLVER = "0x3333333333333333333333333333333333333333";
 
 // The record `record.test.ts` pins: avatar (cid, webp) + name "Alice".
-const RECORD =
-    "CAUBAPhiYWZrMmJ6YWNlY3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YydwIcARRBbGljZQ==";
+const RECORD = "CIgAC9G7V+P56oAZVqdw/hBo+VA4NUespF4dPTVNV9AUywwCHAEUQWxpY2U=";
 // devdevdev.01.paseo's record in the layout that preceded the RFC: not a profile.
 const PRE_RFC_RECORD =
     "CBhhdmF0YXIBAfhiYWZrMmJ6YWNlYnRtdW41Znk2NjNkdmZ3eWMzMzZjeHdkbGhtc2VraTNtanNlazZ3bXN5Z3R2ZjJuYjRlZwIQbmFtZRhkZXZkZXY=";

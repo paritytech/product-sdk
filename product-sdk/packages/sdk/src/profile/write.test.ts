@@ -26,8 +26,7 @@ const CONTENT_RESOLVER = "0x3333333333333333333333333333333333333333";
 const SIGNER = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" as const;
 
 // The record `record.test.ts` pins: avatar (cid, webp) + name "Alice".
-const RECORD =
-    "CAUBAPhiYWZrMmJ6YWNlY3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YyeGs1bHZvdjJ4azVsdm92MnhrNWx2b3YydwIcARRBbGljZQ==";
+const RECORD = "CIgAC9G7V+P56oAZVqdw/hBo+VA4NUespF4dPTVNV9AUywwCHAEUQWxpY2U=";
 
 /**
  * A runtime whose view calls answer from `answers`, keyed by function name,

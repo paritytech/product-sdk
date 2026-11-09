@@ -24,7 +24,7 @@ Map that account with `ensureContractAccountMapped` from the contracts package b
 Fund it for the fee and the record's storage deposit. Submit with `batchSubmitAndWatch` and wait for finality before you verify.
 Read the record again just before you submit. If it no longer equals `prepared.original`, start over.
 
-A new avatar goes to Bulletin first, through `submitAvatar`, before the record names it. This example keeps the avatar it read.
+A new avatar's entry comes from `profileAvatar`, the bytes' digest as a CID, with no host call. The bytes go to Bulletin through `submitAvatar` after the write is prepared and before it is submitted, so a write that would fail spends nothing. This example keeps the avatar it read.
 
 The record's mood feed comes from `deriveMoodFeed` and goes into every publish, so the topic is in the record before any mood is set.
 A mood is one statement on that topic through the host's statement store: `setMood` sets or clears it with no record write, `readMood` answers the live one, `watchMood` keeps answering.

@@ -42,16 +42,15 @@ const entry = (index: number, payload: Uint8Array) => concatBytes(Uint8Array.of(
 
 /**
  * The CID must be a Bulletin preimage CID, the only address `loadAvatar` can
- * fetch through the host; any other string would publish an avatar no reader
- * shows.
+ * fetch through the host, and the record carries only its digest: any other
+ * CID has no place in the entry and would publish an avatar no reader shows.
  */
 function encodeAvatar(avatar: ProfileAvatar): Result<Uint8Array, ProfileError> {
     const format = PROFILE_AVATAR_FORMATS.indexOf(avatar.format);
     if (format < 0) return invalid("the avatar format is not one the record can carry");
-    if (preimageCidAddress(avatar.cid) === null) {
-        return invalid("the avatar CID is not a Bulletin preimage CID");
-    }
-    const payload = profileAvatarCodec.enc({ cid: utf8ToBytes(avatar.cid), format });
+    const address = preimageCidAddress(avatar.cid);
+    if (address === null) return invalid("the avatar CID is not a Bulletin preimage CID");
+    const payload = profileAvatarCodec.enc({ cid: address.digest, format });
     return ok(entry(PROFILE_ENTRY_INDEX.avatar, payload));
 }
 

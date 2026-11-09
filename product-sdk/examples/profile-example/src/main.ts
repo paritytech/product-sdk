@@ -21,6 +21,7 @@ import {
     loadAvatar,
     deriveMoodFeed,
     prepareSetProfile,
+    profileAvatar,
     readMood,
     rewriteProfileRecord,
     setMood,
@@ -209,7 +210,7 @@ const opts: DotNsClientOptions = {
  * Its mood feed is the one every publish from this product writes.
  */
 async function seedRecord(): Promise<void> {
-    const avatar = unwrap(await submitAvatar(AVATAR_BYTES, "png", preimages));
+    const avatar = unwrap(profileAvatar(AVATAR_BYTES, "png"));
     const feed = unwrap(await deriveMoodFeed(LABEL, opts, statementStore, deriveEntropy));
     const text = unwrap(
         rewriteProfileRecord(null, {
@@ -218,6 +219,7 @@ async function seedRecord(): Promise<void> {
             feeds: [feed],
         }),
     );
+    unwrap(await submitAvatar(AVATAR_BYTES, preimages));
     records.set(NODE, text);
 }
 
@@ -254,8 +256,9 @@ async function main(): Promise<void> {
     // 1. The live text, which every entry this patch does not name is carried from.
     const live = unwrap(await getProfileRecord(LABEL, opts));
 
-    // 2. No avatar change, so nothing goes to Bulletin. A new avatar would go
-    //    first, through `submitAvatar`, so the record never names missing bytes.
+    // 2. No avatar change. A new one would be `profileAvatar(bytes, format)`
+    //    here, with no host call: the entry is the bytes' digest. The bytes
+    //    themselves go to Bulletin in step 7.
 
     // 3. The record's mood feed, in every publish. The topic and signer are
     //    stable per wallet and product, so this is the entry the record already
@@ -281,12 +284,16 @@ async function main(): Promise<void> {
     assert.equal(prepared.original, live);
     console.log(`Prepared setText for ${OWNER} on ${LABEL}${TLD.suffix}.`);
 
-    // 7. A last look before submitting: a record another writer changed is not overwritten.
+    // 7. A new avatar's bytes would go to Bulletin now, through `submitAvatar`:
+    //    after the dry-run has sized the write, before it is submitted, so a
+    //    write that would fail spends no Bulletin allowance.
+
+    // 8. A last look before submitting: a record another writer changed is not overwritten.
     const again = unwrap(await getProfileRecord(LABEL, opts));
     if (again !== prepared.original) throw new Error("The profile changed; start over.");
     await submitAndFinalize();
 
-    // 8. After finality, the chain holds exactly what was sent.
+    // 9. After finality, the chain holds exactly what was sent.
     assert.equal(unwrap(await verifyPublishedProfile(LABEL, prepared.text, opts)), true);
 
     const after = unwrap(await getProfile(LABEL, opts));

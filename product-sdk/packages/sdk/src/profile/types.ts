@@ -28,7 +28,7 @@ export const PROFILE_AVATAR_MAX_BYTES = 2 * 1024 * 1024;
  *
  * | Index | Entry    | Payload                                                          | Status                                      |
  * |-------|----------|------------------------------------------------------------------|---------------------------------------------|
- * | 0     | `Avatar` | `{ cid: String, format: u8 }`, the format indexing `PROFILE_AVATAR_FORMATS` | accepted, RFC core-resolved-public-profiles |
+ * | 0     | `Avatar` | `{ cid: [u8; 32], format: u8 }`: the CID's blake2b-256 digest, the format indexing `PROFILE_AVATAR_FORMATS` | accepted, RFC core-resolved-public-profiles |
  * | 1     | `Name`   | `String`: the display name, at most `PROFILE_NAME_MAX_BYTES` of UTF-8 | proposed 2026-10-30, written by Seity since |
  * | 2     | `Nft`    | not yet defined                                                  | reserved for pinned NFTs; see below          |
  * | 3     | `Feed`   | `{ kind: String, topic: [u8; 32], signer: [u8; 32] }`            | proposed 2026-10-30, written by Seity since |
@@ -61,9 +61,10 @@ export type ProfileEntryName = keyof typeof PROFILE_ENTRY_INDEX;
 
 /**
  * The formats an avatar may be in. The index is what travels: `png` is 0,
- * `jpeg` is 1, `webp` is 2, as `ProfileAvatarFormat` in the RFC numbers them.
+ * `jpeg` is 1, `webp` is 2 and `gif` is 3, as the core's shared `ImageFormat`
+ * numbers them.
  */
-export const PROFILE_AVATAR_FORMATS = ["png", "jpeg", "webp"] as const;
+export const PROFILE_AVATAR_FORMATS = ["png", "jpeg", "webp", "gif"] as const;
 export type ProfileAvatarFormat = (typeof PROFILE_AVATAR_FORMATS)[number];
 
 /**
@@ -79,7 +80,7 @@ export interface UnknownEntry {
 
 /** Payload of an `Avatar` entry. */
 export interface ProfileAvatar {
-    /** Bulletin CID of the image bytes, raw codec, blake2b-256. */
+    /** Bulletin CID of the image bytes, raw codec, blake2b-256. The record carries its 32-byte digest. */
     cid: string;
     /** The image format, declared so no reader sniffs bytes. */
     format: ProfileAvatarFormat;
@@ -133,7 +134,7 @@ export interface ProfilePatch {
 export type ProfileLookup = { tag: "Found"; profile: PublicProfile } | { tag: "NoProfile" };
 
 /** The MIME type an avatar's declared format maps to. Never sniffed from the bytes. */
-export type AvatarMimeType = "image/png" | "image/jpeg" | "image/webp";
+export type AvatarMimeType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
 /** An avatar fetched through the host and checked against its CID. */
 export interface LoadedAvatar {

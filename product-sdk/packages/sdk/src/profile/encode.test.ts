@@ -27,22 +27,22 @@ const entry = (index: number, payload: Uint8Array) => new Uint8Array([index, ...
 /** A record from its entries, base64, as the text record carries it. */
 const record = (entries: Uint8Array[]) => base64(profileRecordCodec.enc(entries));
 
-const cidOf = (seed: string) =>
-    artworkAddress({ hex: `0x${bytesToHex(blake2b256(utf8(seed)))}`, text: null })?.cid as string;
+const digestOf = (seed: string) => `0x${bytesToHex(blake2b256(utf8(seed)))}` as const;
+const cidOf = (seed: string) => artworkAddress({ hex: digestOf(seed), text: null })?.cid as string;
 const CID = cidOf("avatar");
-const OTHER_CID = cidOf("other");
 const TOPIC = `0x${"11".repeat(32)}` as const;
 const SIGNER = `0x${"22".repeat(32)}` as const;
 
-const avatar = (cid: string, format: number) =>
-    entry(0, profileAvatarCodec.enc({ cid: utf8(cid), format }));
+/** The avatar entry for the bytes `seed` stands for: its digest, then the format. */
+const avatar = (seed: string, format: number) =>
+    entry(0, profileAvatarCodec.enc({ cid: digestOf(seed), format }));
 const name = (text: string) => entry(1, profileNameCodec.enc(utf8(text)));
 const feed = (kind: string) =>
     entry(3, profileFeedCodec.enc({ kind: utf8(kind), topic: TOPIC, signer: SIGNER }));
 /** An entry of a kind this writer does not know. */
 const OPAQUE = new Uint8Array([9, 1, 2, 3]);
 /** An avatar in a format this writer does not know: index 0, but no avatar for this reader. */
-const FUTURE_AVATAR = avatar(CID, 9);
+const FUTURE_AVATAR = avatar("avatar", 9);
 /** A pin as Seity's test records wrote it at the reserved index 2: `record.test.ts` has the layout. */
 const SEITY_PIN = new Uint8Array([
     2,
@@ -105,7 +105,7 @@ describe("rewriteProfileRecord", () => {
             name: "Alice",
             feeds: [MOOD],
         });
-        expect(text).toBe(record([avatar(CID, 2), name("Alice"), feed("mood")]));
+        expect(text).toBe(record([avatar("avatar", 2), name("Alice"), feed("mood")]));
     });
 
     test("no live record, an empty one and a blank one are the same start", () => {
@@ -116,27 +116,27 @@ describe("rewriteProfileRecord", () => {
     });
 
     test("a patch that names nothing carries the record unchanged", () => {
-        const live = record([avatar(CID, 0), name("Alice"), OPAQUE]);
+        const live = record([avatar("avatar", 0), name("Alice"), OPAQUE]);
         expect(rewrite(live, {})).toBe(live);
     });
 
     test("a new avatar replaces the first avatar this writer can decode and goes first", () => {
-        const live = record([name("Alice"), avatar(OTHER_CID, 0)]);
+        const live = record([name("Alice"), avatar("other", 0)]);
         expect(rewrite(live, { avatar: { cid: CID, format: "png" } })).toBe(
-            record([avatar(CID, 0), name("Alice")]),
+            record([avatar("avatar", 0), name("Alice")]),
         );
     });
 
     test("a new avatar precedes an avatar in a format this writer does not know, which is kept", () => {
         // The core's `a_new_avatar_precedes_opaque_avatars_from_newer_writers`.
-        const live = record([FUTURE_AVATAR, avatar(OTHER_CID, 0)]);
+        const live = record([FUTURE_AVATAR, avatar("other", 0)]);
         expect(rewrite(live, { avatar: { cid: CID, format: "png" } })).toBe(
-            record([avatar(CID, 0), FUTURE_AVATAR]),
+            record([avatar("avatar", 0), FUTURE_AVATAR]),
         );
     });
 
     test("clearing the avatar drops every avatar entry, the unknown-format one included", () => {
-        const live = record([FUTURE_AVATAR, avatar(OTHER_CID, 0), name("Alice")]);
+        const live = record([FUTURE_AVATAR, avatar("other", 0), name("Alice")]);
         expect(rewrite(live, { avatar: null })).toBe(record([name("Alice")]));
     });
 
@@ -152,11 +152,11 @@ describe("rewriteProfileRecord", () => {
     });
 
     test("an entry at the reserved index 2 is carried byte for byte, whatever the patch", () => {
-        const live = record([avatar(OTHER_CID, 0), SEITY_PIN, name("Alice"), feed("mood")]);
+        const live = record([avatar("other", 0), SEITY_PIN, name("Alice"), feed("mood")]);
         expect(rewrite(live, {})).toBe(live);
         expect(
             rewrite(live, { avatar: { cid: CID, format: "png" }, name: "Bob", feeds: [MOOD] }),
-        ).toBe(record([avatar(CID, 0), SEITY_PIN, name("Bob"), feed("mood")]));
+        ).toBe(record([avatar("avatar", 0), SEITY_PIN, name("Bob"), feed("mood")]));
         expect(rewrite(live, { avatar: null, name: null, feeds: null })).toBe(record([SEITY_PIN]));
     });
 
