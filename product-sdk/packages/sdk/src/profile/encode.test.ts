@@ -13,7 +13,6 @@ import {
     profileAvatarCodec,
     profileFeedCodec,
     profileNameCodec,
-    profileNftCodec,
     profileRecordCodec,
 } from "./codec.js";
 import { decodeProfileRecord, encodeBase64 } from "./record.js";
@@ -32,23 +31,40 @@ const cidOf = (seed: string) =>
     artworkAddress({ hex: `0x${bytesToHex(blake2b256(utf8(seed)))}`, text: null })?.cid as string;
 const CID = cidOf("avatar");
 const OTHER_CID = cidOf("other");
-const PURSE = `0x${"ab".repeat(32)}` as const;
 const TOPIC = `0x${"11".repeat(32)}` as const;
 const SIGNER = `0x${"22".repeat(32)}` as const;
 
 const avatar = (cid: string, format: number) =>
     entry(0, profileAvatarCodec.enc({ cid: utf8(cid), format }));
 const name = (text: string) => entry(1, profileNameCodec.enc(utf8(text)));
-const nft = (instance: bigint) =>
-    entry(2, profileNftCodec.enc({ instance, collection: 7, item: 3, purse: PURSE }));
 const feed = (kind: string) =>
     entry(3, profileFeedCodec.enc({ kind: utf8(kind), topic: TOPIC, signer: SIGNER }));
 /** An entry of a kind this writer does not know. */
 const OPAQUE = new Uint8Array([9, 1, 2, 3]);
 /** An avatar in a format this writer does not know: index 0, but no avatar for this reader. */
 const FUTURE_AVATAR = avatar(CID, 9);
+/** A pin as Seity's test records wrote it at the reserved index 2: `record.test.ts` has the layout. */
+const SEITY_PIN = new Uint8Array([
+    2,
+    7,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    3,
+    0,
+    0,
+    0,
+    2,
+    1,
+    0,
+    0,
+    ...new Uint8Array(32).fill(0xab),
+]);
 
-const pin = (instance: bigint) => ({ instance, collection: 7, item: 3, purse: PURSE });
 const MOOD = { kind: "mood", topic: TOPIC, signer: SIGNER };
 
 function rewrite(live: string | null, patch: ProfilePatch): string {
@@ -83,14 +99,13 @@ describe("encodeProfileRecord", () => {
 });
 
 describe("rewriteProfileRecord", () => {
-    test("a fresh record: the avatar first, then the name, the pins and the feeds", () => {
+    test("a fresh record: the avatar first, then the name and the feeds", () => {
         const text = rewrite(null, {
             avatar: { cid: CID, format: "webp" },
             name: "Alice",
-            nfts: [pin(1n)],
             feeds: [MOOD],
         });
-        expect(text).toBe(record([avatar(CID, 2), name("Alice"), nft(1n), feed("mood")]));
+        expect(text).toBe(record([avatar(CID, 2), name("Alice"), feed("mood")]));
     });
 
     test("no live record, an empty one and a blank one are the same start", () => {
@@ -136,10 +151,13 @@ describe("rewriteProfileRecord", () => {
         expect(rewrite(live, { name: null })).toBe(record([OPAQUE]));
     });
 
-    test("pins are one list: replaced whole, cleared by null or an empty list", () => {
-        const live = record([nft(1n), nft(2n)]);
-        expect(rewrite(live, { nfts: [pin(3n)] })).toBe(record([nft(3n)]));
-        expect(rewrite(live, { nfts: null })).toBe("AA==");
+    test("an entry at the reserved index 2 is carried byte for byte, whatever the patch", () => {
+        const live = record([avatar(OTHER_CID, 0), SEITY_PIN, name("Alice"), feed("mood")]);
+        expect(rewrite(live, {})).toBe(live);
+        expect(
+            rewrite(live, { avatar: { cid: CID, format: "png" }, name: "Bob", feeds: [MOOD] }),
+        ).toBe(record([avatar(CID, 0), SEITY_PIN, name("Bob"), feed("mood")]));
+        expect(rewrite(live, { avatar: null, name: null, feeds: null })).toBe(record([SEITY_PIN]));
     });
 
     test("feeds replace only the kinds they name, and null drops them all", () => {
@@ -174,9 +192,6 @@ describe("rewriteProfileRecord", () => {
         expect(refused(null, { name: "" })).toBe("InvalidEntry");
         expect(refused(null, { name: "x".repeat(65) })).toBe("InvalidEntry");
         expect(refused(null, { avatar: { cid: "not-a-cid", format: "png" } })).toBe("InvalidEntry");
-        expect(refused(null, { nfts: [{ ...pin(1n), purse: "0x1234" }] })).toBe("InvalidEntry");
-        expect(refused(null, { nfts: [pin(2n ** 64n)] })).toBe("InvalidEntry");
-        expect(refused(null, { nfts: [{ ...pin(1n), item: -1 }] })).toBe("InvalidEntry");
         expect(refused(null, { feeds: [{ ...MOOD, kind: "" }] })).toBe("InvalidEntry");
         expect(refused(null, { feeds: [{ ...MOOD, topic: "0x12" }] })).toBe("InvalidEntry");
     });
@@ -187,8 +202,10 @@ describe("rewriteProfileRecord", () => {
     });
 
     test("a record that would exceed the bound is refused before it is written", () => {
-        const pins = Array.from({ length: 400 }, (_, i) => pin(BigInt(i)));
-        expect(refused(null, { nfts: pins })).toBe("TooLarge");
+        // A live record just within the bound, the carried entry counting toward it.
+        const live = record([entry(9, new Uint8Array(PROFILE_RECORD_MAX_BYTES - 10))]);
+        expect(decodeProfileRecord(live).ok).toBe(true);
+        expect(refused(live, { name: "Alice" })).toBe("TooLarge");
     });
 
     test("every rewrite reads back through the reader", () => {
@@ -196,7 +213,6 @@ describe("rewriteProfileRecord", () => {
         const text = rewrite(live, {
             avatar: { cid: CID, format: "jpeg" },
             name: "Alice",
-            nfts: [pin(5n)],
             feeds: [MOOD],
         });
         expect(decodeProfileRecord(text)).toEqual({
@@ -204,7 +220,6 @@ describe("rewriteProfileRecord", () => {
             value: {
                 avatar: { cid: CID, format: "jpeg" },
                 name: "Alice",
-                nfts: [pin(5n)],
                 feeds: [{ kind: "status", topic: TOPIC, signer: SIGNER }, MOOD],
                 unknown: [{ bytes: OPAQUE }, { bytes: FUTURE_AVATAR }],
             },
@@ -215,8 +230,6 @@ describe("rewriteProfileRecord", () => {
 describe("an entry this writer cannot read is carried, whatever its index", () => {
     /** Index 1, but not valid UTF-8: the reader keeps it as unknown, so the writer does too. */
     const BAD_NAME = entry(1, profileNameCodec.enc(new Uint8Array([0xff, 0xfe])));
-    /** Index 2, but not one ProfileNft. */
-    const BAD_NFT = entry(2, new Uint8Array([1, 2, 3]));
     /** Index 3, but not one ProfileFeed. */
     const BAD_FEED = entry(3, new Uint8Array([1]));
 
@@ -226,37 +239,21 @@ describe("an entry this writer cannot read is carried, whatever its index", () =
         expect(rewrite(live, { name: null })).toBe(record([BAD_NAME]));
     });
 
-    test("a pin that does not decode survives a pin replace", () => {
-        const live = record([BAD_NFT, nft(1n)]);
-        expect(rewrite(live, { nfts: [pin(2n)] })).toBe(record([BAD_NFT, nft(2n)]));
-    });
-
     test("a feed that does not decode survives feeds: null", () => {
         const live = record([BAD_FEED, feed("mood")]);
         expect(rewrite(live, { feeds: null })).toBe(record([BAD_FEED]));
     });
 
     test("what the writer carries is what the reader reports as unknown", () => {
-        const text = rewrite(record([BAD_NAME, BAD_NFT, BAD_FEED]), {
+        const text = rewrite(record([BAD_NAME, SEITY_PIN, BAD_FEED]), {
             name: "A",
-            nfts: [],
             feeds: null,
         });
         const read = decodeProfileRecord(text);
         expect(read.ok && read.value.unknown.map((u) => u.bytes)).toEqual([
             BAD_NAME,
-            BAD_NFT,
+            SEITY_PIN,
             BAD_FEED,
         ]);
-    });
-});
-
-describe("a pin that is not a ProfileNft is refused, not thrown", () => {
-    test("an instance that is not a bigint, as JSON gives back", () => {
-        const fromJson = { ...pin(9n), instance: "9" as unknown as bigint };
-        expect(refused(null, { nfts: [fromJson] })).toBe("InvalidEntry");
-        expect(refused(null, { nfts: [{ ...pin(9n), instance: 9 as unknown as bigint }] })).toBe(
-            "InvalidEntry",
-        );
     });
 });

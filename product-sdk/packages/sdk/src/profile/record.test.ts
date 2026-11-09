@@ -13,7 +13,6 @@ import {
     profileAvatarCodec,
     profileFeedCodec,
     profileNameCodec,
-    profileNftCodec,
     profileRecordCodec,
 } from "./codec.js";
 import { decodeBase64Strict, decodeProfileRecord } from "./record.js";
@@ -32,7 +31,6 @@ const record = (entries: Uint8Array[]) => base64(profileRecordCodec.enc(entries)
 const CID = "bafk2bzacecv2xk5lvov2xk5lvov2xk5lvov2xk5lvov2xk5lvov2xk5lvov2w";
 const avatar = (cid: string, format: number) => profileAvatarCodec.enc({ cid: utf8(cid), format });
 const name = (text: string) => profileNameCodec.enc(utf8(text));
-const PURSE = `0x${"ab".repeat(32)}` as const;
 const TOPIC = `0x${"11".repeat(32)}` as const;
 const SIGNER = `0x${"22".repeat(32)}` as const;
 
@@ -55,6 +53,13 @@ const PRE_RFC_OLD =
 // The string-kind vector the pre-RFC Rust pinned, for the same reason.
 const PRE_RFC_RUST_VECTOR_HEX =
     "08186176617461720101f86261666b32627a616365637632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f76327702106e616d6514416c696365";
+
+/**
+ * A pin as Seity's test records on Paseo wrote it under index 2, before the
+ * index was reserved with no payload: instance 2^40 + 7, collection 3, item
+ * 258, a purse of 0xab bytes. Raw bytes, not a codec, since none is defined.
+ */
+const SEITY_PIN = entry(2, hex(`07000000000100000300000002010000${"ab".repeat(32)}`));
 
 function unwrap(text: string) {
     const r = decodeProfileRecord(text);
@@ -95,18 +100,26 @@ describe("decodeProfileRecord", () => {
         expect(unwrap(VECTOR_BASE64)).toEqual({
             avatar: { cid: CID, format: "webp" },
             name: "Alice",
-            nfts: [],
             feeds: [],
             unknown: [],
         });
     });
 
-    test("pins the nft payload: (instance u64, collection u32, item u32, purse [u8; 32]), 48 bytes", () => {
-        const pin = { instance: 2n ** 40n + 7n, collection: 3, item: 258, purse: PURSE };
-        const encoded = profileNftCodec.enc(pin);
-        expect(toHex(encoded)).toBe(`0700000000010000030000000201000${"0"}${"ab".repeat(32)}`);
-        expect(encoded).toHaveLength(48);
-        expect(unwrap(record([entry(PROFILE_ENTRY_INDEX.nft, encoded)])).nfts).toEqual([pin]);
+    test("index 2 is reserved with no payload: a Seity test pin is kept as unknown, in place", () => {
+        expect(PROFILE_ENTRY_INDEX.nft).toBe(2);
+        expect(SEITY_PIN).toHaveLength(49);
+        const profile = unwrap(
+            record([
+                SEITY_PIN,
+                entry(PROFILE_ENTRY_INDEX.name, name("Alice")),
+                entry(2, new Uint8Array()),
+            ]),
+        );
+        expect(profile.name).toBe("Alice");
+        expect(profile.unknown).toEqual([
+            { bytes: SEITY_PIN },
+            { bytes: entry(2, new Uint8Array()) },
+        ]);
     });
 
     test("pins the feed payload: (kind String, topic [u8; 32], signer [u8; 32])", () => {
@@ -217,27 +230,22 @@ describe("decodeProfileRecord", () => {
         expect(unwrap(record([empty])).unknown).toEqual([{ bytes: empty }]);
     });
 
-    test("every nft and feed that decodes is kept in order; one that does not is unknown", () => {
-        const nft = (instance: bigint, collection: number, item: number) =>
-            profileNftCodec.enc({ instance, collection, item, purse: PURSE });
-        const feed = profileFeedCodec.enc({ kind: utf8("mood"), topic: TOPIC, signer: SIGNER });
-        const shortNft = entry(PROFILE_ENTRY_INDEX.nft, new Uint8Array([1, 2, 3]));
-        const longFeed = entry(PROFILE_ENTRY_INDEX.feed, new Uint8Array([...feed, 0]));
+    test("every feed that decodes is kept in order; one that does not is unknown", () => {
+        const feed = (kind: string) =>
+            profileFeedCodec.enc({ kind: utf8(kind), topic: TOPIC, signer: SIGNER });
+        const longFeed = entry(PROFILE_ENTRY_INDEX.feed, new Uint8Array([...feed("mood"), 0]));
         const profile = unwrap(
             record([
-                entry(PROFILE_ENTRY_INDEX.nft, nft(7n, 3, 9)),
-                shortNft,
-                entry(PROFILE_ENTRY_INDEX.nft, nft(2n ** 64n - 1n, 0, 0)),
-                entry(PROFILE_ENTRY_INDEX.feed, feed),
+                entry(PROFILE_ENTRY_INDEX.feed, feed("mood")),
                 longFeed,
+                entry(PROFILE_ENTRY_INDEX.feed, feed("status")),
             ]),
         );
-        expect(profile.nfts).toEqual([
-            { instance: 7n, collection: 3, item: 9, purse: PURSE },
-            { instance: 2n ** 64n - 1n, collection: 0, item: 0, purse: PURSE },
+        expect(profile.feeds).toEqual([
+            { kind: "mood", topic: TOPIC, signer: SIGNER },
+            { kind: "status", topic: TOPIC, signer: SIGNER },
         ]);
-        expect(profile.feeds).toEqual([{ kind: "mood", topic: TOPIC, signer: SIGNER }]);
-        expect(profile.unknown).toEqual([{ bytes: shortNft }, { bytes: longFeed }]);
+        expect(profile.unknown).toEqual([{ bytes: longFeed }]);
     });
 
     test("refuses what is not a record", () => {

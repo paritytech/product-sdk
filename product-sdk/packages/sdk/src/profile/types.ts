@@ -10,12 +10,6 @@
  * names are kept as the RFC spells them so a later truapi-generated binding
  * reads the same.
  */
-import type {
-    FinalizedSnapshot,
-    InstanceDisplay,
-    NftsInstancesChain,
-    ReadAt,
-} from "@parity/product-sdk-nfts";
 
 /** The dotNS text-record key a public profile lives under. */
 export const PROFILE_TEXT_RECORD_KEY = "profile";
@@ -36,7 +30,7 @@ export const PROFILE_AVATAR_MAX_BYTES = 2 * 1024 * 1024;
  * |-------|----------|------------------------------------------------------------------|---------------------------------------------|
  * | 0     | `Avatar` | `{ cid: String, format: u8 }`, the format indexing `PROFILE_AVATAR_FORMATS` | accepted, RFC core-resolved-public-profiles |
  * | 1     | `Name`   | `String`: the display name, at most `PROFILE_NAME_MAX_BYTES` of UTF-8 | proposed 2026-10-30, written by Seity since |
- * | 2     | `Nft`    | `{ instance: u64, collection: u32, item: u32, purse: [u8; 32] }` | proposed 2026-10-30, written by Seity since |
+ * | 2     | `Nft`    | not yet defined                                                  | reserved for pinned NFTs; see below          |
  * | 3     | `Feed`   | `{ kind: String, topic: [u8; 32], signer: [u8; 32] }`            | proposed 2026-10-30, written by Seity since |
  *
  * This table is where the next index is proposed. An index is claimed by the
@@ -47,12 +41,19 @@ export const PROFILE_AVATAR_MAX_BYTES = 2 * 1024 * 1024;
  * until then the core keeps the entry as opaque bytes, which is what makes
  * claiming here safe.
  *
+ * Index 2 is held for pinned NFTs, with no payload: the design is open, and
+ * whoever picks it up defines the payload and the reader rule here. Seity's
+ * test records on Paseo used `{ instance: u64, collection: u32, item: u32,
+ * purse: [u8; 32] }` under it; that shape is not adopted, since it ties a pin
+ * to a purse and not to the name's owner. Until then this module reads no
+ * entry at index 2 and keeps each one as an {@link UnknownEntry}.
+ *
  * Reader rules shared by every kind: the first `Avatar` that decodes is the
  * avatar; the first non-empty `Name` of at most 64 bytes is the name, and an
- * empty or longer one is a known entry this reader ignores; every `Nft` and
- * `Feed` that decodes is kept in the owner's order. An entry whose index is
- * unknown, or whose payload is not exactly one value of the kind its index
- * names, is kept as an {@link UnknownEntry}.
+ * empty or longer one is a known entry this reader ignores; every `Feed` that
+ * decodes is kept in the owner's order. An entry whose index is unknown or
+ * has no payload defined, or whose payload is not exactly one value of the
+ * kind its index names, is kept as an {@link UnknownEntry}.
  */
 export const PROFILE_ENTRY_INDEX = { avatar: 0, name: 1, nft: 2, feed: 3 } as const;
 
@@ -84,21 +85,6 @@ export interface ProfileAvatar {
     format: ProfileAvatarFormat;
 }
 
-/**
- * Payload of an `Nft` entry: one pinned item and the purse that should hold
- * it. The chain, not the record, says whether it is still there.
- */
-export interface ProfileNft {
-    /** Scarcity's permanent instance id. */
-    instance: bigint;
-    /** Fixed at mint, so a reader can draw catalogue artwork before the instance is readable. */
-    collection: number;
-    /** Fixed at mint, as `collection`. */
-    item: number;
-    /** The account that should hold the item, 32 bytes as `0x` hex. */
-    purse: `0x${string}`;
-}
-
 /** Payload of a `Feed` entry: a statement-store feed the profile points at. */
 export interface ProfileFeed {
     /** The feed kind, such as `mood`. Not interpreted here. */
@@ -113,29 +99,28 @@ export interface ProfileFeed {
  * What a reader gets from a record: the kinds it knows, read by the rules in
  * {@link PROFILE_ENTRY_INDEX}, and the rest untouched.
  *
- * `avatar` and `name` are the first valid entry of their kind. `nfts` and
- * `feeds` are every entry of their kind that decodes, in the owner's order.
- * `unknown` keeps every entry this reader could not read.
+ * `avatar` and `name` are the first valid entry of their kind. `feeds` is
+ * every feed entry that decodes, in the owner's order. `unknown` keeps every
+ * entry this reader could not read, an entry at the reserved index 2 among them.
  */
 export interface PublicProfile {
     avatar: ProfileAvatar | null;
     name: string | null;
-    nfts: ProfileNft[];
     feeds: ProfileFeed[];
     unknown: UnknownEntry[];
 }
 
 /**
  * What one write changes. A field left `undefined` keeps every live entry of
- * that kind; `null` clears the kind. `nfts` replaces every pin, since the pins
- * are one list. `feeds` replaces only the kinds it names, so a mood feed can
- * be set without touching a feed of another kind; `null` clears them all.
+ * that kind; `null` clears the kind. `feeds` replaces only the kinds it names,
+ * so a mood feed can be set without touching a feed of another kind; `null`
+ * clears them all. Entries this writer cannot read, those at the reserved
+ * index 2 included, are carried as read.
  */
 export interface ProfilePatch {
     avatar?: ProfileAvatar | null;
     /** `null` clears. An empty string is refused, so there is no third meaning. */
     name?: string | null;
-    nfts?: ProfileNft[] | null;
     feeds?: ProfileFeed[] | null;
 }
 
@@ -158,55 +143,4 @@ export interface LoadedAvatar {
     mimeType: AvatarMimeType;
     /** The image bytes, which hash to `cid`. */
     bytes: Uint8Array;
-}
-
-/** A pin the chain confirmed: the purse holds the instance, and it is what the pin says it is. */
-export interface PinnedNft {
-    nft: ProfileNft;
-    display: Extract<InstanceDisplay, { tag: "Found" }>;
-}
-
-/**
- * Why a pin was dropped. `NotFound` is an instance the chain does not have,
- * burned or never minted. `Moved` is an instance held by an account other than
- * the pin's purse. `Mismatch` is an instance that exists but was minted from a
- * different collection or item than the pin claims.
- */
-export type DroppedPinReason = "NotFound" | "Moved" | "Mismatch";
-
-/** A pin the chain did not confirm, and why. */
-export interface DroppedPin {
-    nft: ProfileNft;
-    reason: DroppedPinReason;
-}
-
-/** What one `getPinnedNfts` call returns. Every value was read at `at`. */
-export interface PinnedNftsResult {
-    at: FinalizedSnapshot;
-    /** The confirmed pins, in the record's order. */
-    pins: PinnedNft[];
-    /** The pins the chain did not confirm, in the record's order. */
-    dropped: DroppedPin[];
-}
-
-/**
- * The chain a pin check needs: everything `getInstanceDisplays` reads, plus
- * `Scarcity.Instances`, the instance to current owner index the nfts package
- * does not read. A `ChainClient<{ assetHub: paseo_asset_hub }>` satisfies it.
- */
-export interface ProfileNftsChain {
-    assetHub: NftsInstancesChain["assetHub"] & {
-        query: {
-            Scarcity: {
-                /** `Scarcity.Instances`: instance id → the SS58 account that holds it now. */
-                Instances: {
-                    getValues(
-                        keys: Array<[bigint]>,
-                        options: ReadAt,
-                    ): Promise<Array<string | undefined>>;
-                };
-            };
-        };
-    };
-    raw: NftsInstancesChain["raw"];
 }

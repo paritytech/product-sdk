@@ -39,14 +39,6 @@ export const profileAvatarCodec = Struct({ cid: Bytes(), format: u8 });
 /** `Name(String)`: a SCALE String, its compact length then the bytes, left as bytes for the UTF-8 check. */
 export const profileNameCodec = Bytes();
 
-/** `ProfileNft { instance: u64, collection: u32, item: u32, purse: [u8; 32] }`. */
-export const profileNftCodec = Struct({
-    instance: u64,
-    collection: u32,
-    item: u32,
-    purse: Hex(32),
-});
-
 /** `ProfileFeed { kind: String, topic: [u8; 32], signer: [u8; 32] }`, with `kind` left as bytes. */
 export const profileFeedCodec = Struct({ kind: Bytes(), topic: Hex(32), signer: Hex(32) });
 

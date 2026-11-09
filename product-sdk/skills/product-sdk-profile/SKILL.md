@@ -2,30 +2,31 @@
 name: product-sdk-profile
 description: >
   Use when a product shows or edits the public profile a person publishes under their dotNS
-  name: an avatar, a display name, pinned NFTs and the feeds the profile points at. Reach for
+  name: an avatar, a display name and the feeds the profile points at. Reach for
   it whenever the user mentions a profile, an avatar, a display name, a bio or a "card" for a
   dotNS or People username, wants to show who a contact is, or wants to let a person publish or
   change what others see about them, even if they do not say "profile". Covers getProfile and
   its three answers, getProfileRecord for the text as stored, decodeProfileRecord, loadAvatar
-  through the host's preimage lookup and never a gateway, getPinnedNfts and why a pin is
-  confirmed against the chain, the read-rewrite-prepare-submit-verify publish recipe with
+  through the host's preimage lookup and never a gateway, the read-rewrite-prepare-submit-verify
+  publish recipe with
   rewriteProfileRecord, submitAvatar, prepareSetProfile and verifyPublishedProfile, the
   ProfilePatch carry rules, why the SDK never signs, funds or repoints a resolver, moods on the
   profile's feed (deriveMoodFeed in every publish, setMood, readMood, watchMood, the fixed
   palette MOOD_KINDS and MOOD_INTENSITIES, and SignerMismatch meaning publish first), the labels
   it accepts (a DNS label or a dotted lite username such as alice.01), the ProfileError and
   DotNsError reasons, the record layout and PROFILE_ENTRY_INDEX where the next entry kind is
-  claimed.
+  claimed, with index 2 reserved for pinned NFTs.
 ---
 
 # Product SDK Profile
 
 `@parity/product-sdk/profile` reads and prepares writes of a person's **public profile**: one
-dotNS text record, `profile`, under the name they own. Four reads, five write steps, a mood
+dotNS text record, `profile`, under the name they own. Three reads, five write steps, a mood
 feed, and the product does the signing. Everything fallible returns a `Result`.
 
-A profile today carries an avatar on Bulletin, a display name, pinned Scarcity NFTs and the
-statement-store feeds it points at (a mood feed, for one). The host core decodes the same bytes
+A profile today carries an avatar on Bulletin, a display name and the statement-store feeds it
+points at (a mood feed, for one). Pinned NFTs are not part of it yet: index 2 is held for them,
+with no payload defined, and the SDK neither reads nor writes it. The host core decodes the same bytes
 to show a contact's avatar, so what this module reads is what hosts show.
 
 ## Quick Start
@@ -44,7 +45,7 @@ const result = await getProfile("alice", { runtime });
 if (!result.ok) showStale();                           // the chain could not be asked: keep what you have
 else if (result.value.tag === "NoProfile") clearCard(); // no record, or none a reader accepts
 else {
-    const { avatar, name, nfts, feeds } = result.value.profile;
+    const { avatar, name, feeds } = result.value.profile;
     heading.textContent = name ?? "alice";
     const manager = await getPreimageManager();
     const loaded = avatar && manager && (await loadAvatar(avatar, manager));
@@ -132,17 +133,6 @@ the timeout, the bytes did not match, or the CID is not a Bulletin preimage CID.
 not failed by it; show the name and ask again later. Avatar bytes outlive nothing: Bulletin
 drops them after its retention period, and the publisher uploads them again.
 
-### `getPinnedNfts`: the chain, not the record, says what is still held
-
-A pin says "this purse holds this instance, minted from this collection and item". The record
-is the owner's claim; `getPinnedNfts(chain, profile.nfts)` checks it against `Scarcity.Instances`
-and the display read of `@parity/product-sdk-nfts`, at one block, and answers `pins` (confirmed,
-with a display) and `dropped` (with a reason: `NotFound`, `Moved` or `Mismatch`). Draw only the
-confirmed ones. `chain` is the nfts package's chain contract plus `Scarcity.Instances`; a
-`getChainAPI("paseo")` client satisfies it. Pass `{ at }` from another result to read at the
-same block. A pin's `purse` is the holding account as 32-byte hex; `accountIdToHex` in
-`@parity/product-sdk/identity` makes it from an SS58 address.
-
 Feeds come back as data, `{ kind, topic, signer }`, and are not subscribed to here.
 
 ## Writes: the publish recipe
@@ -217,10 +207,10 @@ bytes stay on Bulletin until they lapse.
 |---|---|---|---|
 | `avatar` | keep what is there | drop every avatar entry | replace the first avatar this writer decodes, and put the new one first |
 | `name` | keep | drop | replace; empty is refused, so there is no third meaning |
-| `nfts` | keep | drop all | replace the whole list, since the pins are one list |
 | `feeds` | keep | drop all | replace only the kinds named, so the mood feed leaves a feed of another kind alone |
 
-Every entry of a kind this writer does not know is carried byte for byte, and so is an avatar
+Every entry of a kind this writer does not know is carried byte for byte, an entry at the
+reserved index 2 among them, and so is an avatar
 in a format it does not know or a feed it cannot read: not its to drop. A live text that is not
 a profile is **refused**, with the decoder's reason, rather than replaced, so a damaged record is
 never overwritten by accident. A product that means to replace it passes `null` as `live`. A
@@ -228,8 +218,7 @@ record that would be over 16 KiB is refused as `TooLarge` before it is written, 
 reader would refuse it and the profile would vanish silently.
 
 A patch value no entry can carry is `InvalidEntry`: a CID that is not a Bulletin preimage CID, an
-empty name or one over 64 bytes of UTF-8, a purse, topic or signer that is not 32 bytes of hex,
-an instance id outside u64.
+empty name or one over 64 bytes of UTF-8, a topic or signer that is not 32 bytes of hex.
 
 ### `submitAvatar(bytes, format, manager)`
 
@@ -313,8 +302,7 @@ else {
 ## Errors
 
 `ProfileError` reasons: `NotBase64`, `TooLarge`, `Malformed` from the decoder and the rewrite;
-`InvalidEntry` and `TooLarge` from the rewrite, `submitAvatar` and `getPinnedNfts`; `ChainRead`
-from `getPinnedNfts`, with the cause attached; `Host` from `submitAvatar` and the mood functions,
+`InvalidEntry` and `TooLarge` from the rewrite and `submitAvatar`; `Host` from `submitAvatar` and the mood functions,
 for a host call that failed or answered something unusable, with the cause attached where there
 is one; `SignerMismatch` and `Timeout` from the mood functions. The dotNS walk reports through
 `DotNsError`: `InvalidName`, `MissingOrigin`, `InvalidOrigin`, `Unauthorised`, `AddressDiscovery`
@@ -325,16 +313,20 @@ Both implement the `SdkError` marker, so `isSdkError` recognises them.
 ## The Record
 
 `PROFILE_ENTRY_INDEX` is `{ avatar: 0, name: 1, nft: 2, feed: 3 }`, the variant index that starts
-every entry. Index 0 is fixed by the RFC "Core-resolved public profiles"; 1 to 3 are proposed
-here and written by Seity. The table in `types.ts` is where the next index is claimed, with its
-payload, its reader rule and a pinned test vector; an index is never reused and a payload never
-changes once a writer has published it. The core keeps the kinds it does not know as opaque
+every entry. Index 0 is fixed by the RFC "Core-resolved public profiles"; 1 and 3 are proposed
+here and written by Seity. Index 2 is reserved for pinned NFTs with **no payload defined**: the
+SDK reads every entry there as `unknown` and carries it through a rewrite, and whoever designs
+NFT pins defines its payload in the table. Seity's test records on Paseo hold a
+`{ instance, collection, item, purse }` shape there that is not adopted; do not build on it.
+The table in `types.ts` is where the next index is claimed, with its payload, its reader rule
+and a pinned test vector; an index is never reused and a payload never changes once a writer
+has published it. The core keeps the kinds it does not know as opaque
 bytes, which is what makes claiming here safe.
 
 ## Running It Offline
 
 `examples/profile-example` is the worked version of everything above, against fixtures: read,
-load the avatar, confirm the pins, then the publish recipe with the product steps stubbed. Start
+load the avatar, then the publish recipe with the product steps stubbed. Start
 from it for a test or a demo. What it shows that the API does not:
 
 - `createFakeContractRuntime` from `@parity/product-sdk/testing` stands in for dotNS. The SDK
@@ -346,8 +338,6 @@ from it for a test or a demo. What it shows that the API does not:
 - The fake host in `@parity/product-sdk/testing` keys a submitted preimage by a cheap hash, and
   `submitAvatar` holds the host to the blake2b-256 digest, so hand-roll a `PreimageManager`
   over a `Map`, as the example and the avatar tests do.
-- Nothing exports a chain double for `getPinnedNfts`; the example's Scarcity stand-in is the
-  shape to copy.
 - For moods, a `HostStatementStore` double keeps one statement per signer and channel, proves
   with the feed's signer, and delivers a topic's statements as a page with `isComplete`. The
   example has one, and `deriveEntropy` can be any 32-byte hash of the context.

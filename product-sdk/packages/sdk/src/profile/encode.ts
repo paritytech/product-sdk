@@ -21,7 +21,6 @@ import {
     profileAvatarCodec,
     profileFeedCodec,
     profileNameCodec,
-    profileNftCodec,
     profileRecordCodec,
 } from "./codec.js";
 import { ProfileError } from "./errors.js";
@@ -33,7 +32,6 @@ import {
     PROFILE_RECORD_MAX_BYTES,
     type ProfileAvatar,
     type ProfileFeed,
-    type ProfileNft,
     type ProfilePatch,
 } from "./types.js";
 
@@ -66,24 +64,6 @@ function encodeName(name: string): Result<Uint8Array, ProfileError> {
         );
     }
     return ok(entry(PROFILE_ENTRY_INDEX.name, profileNameCodec.enc(bytes)));
-}
-
-function encodeNft(nft: ProfileNft): Result<Uint8Array, ProfileError> {
-    const isU32 = (id: number) => Number.isInteger(id) && id >= 0 && id <= 0xffff_ffff;
-    // A pin that went through JSON comes back with its instance as a string,
-    // which the range checks let through and the codec throws on.
-    if (
-        typeof nft.instance !== "bigint" ||
-        nft.instance < 0n ||
-        nft.instance > 0xffff_ffff_ffff_ffffn
-    ) {
-        return invalid("an instance id is a u64");
-    }
-    if (!isU32(nft.collection) || !isU32(nft.item)) {
-        return invalid("a collection id and an item id are u32");
-    }
-    if (!isHex32(nft.purse)) return invalid("a purse is a 32-byte account id as 0x hex");
-    return ok(entry(PROFILE_ENTRY_INDEX.nft, profileNftCodec.enc(nft)));
 }
 
 function encodeFeed(feed: ProfileFeed): Result<Uint8Array, ProfileError> {
@@ -129,13 +109,12 @@ export function encodeProfileRecord(entries: Uint8Array[]): Result<string, Profi
  *     keeps it. Clearing drops every avatar entry: with no new avatar in
  *     front, a kept one would be the avatar a newer reader shows.
  *   - A name replaces every name entry; `null` drops them.
- *   - Pins replace every pin entry as one list; `null` drops them.
  *   - Feeds replace the feed entries of the kinds they name and leave the
  *     others; `null` drops them all.
  *   - Every entry this writer cannot read is carried as read, whatever its
- *     index: an unknown kind, or a known kind whose payload does not decode,
- *     which the reader keeps as `unknown` too. The one exception is the
- *     avatar on clear, above.
+ *     index: an unknown kind, the reserved index 2, or a known kind whose
+ *     payload does not decode, which the reader keeps as `unknown` too. The
+ *     one exception is the avatar on clear, above.
  *
  * Replaced and added entries go after the carried ones, in the patch's order.
  */
@@ -167,8 +146,6 @@ export function rewriteProfileRecord(
                 return patch.avatar !== null;
             case "name":
                 return patch.name === undefined;
-            case "nft":
-                return patch.nfts === undefined;
             case "feed":
                 if (patch.feeds === undefined) return true;
                 return patch.feeds !== null && !replacedFeeds.has(known.value.kind);
@@ -178,7 +155,6 @@ export function rewriteProfileRecord(
 
     const added = [
         ...(typeof patch.name === "string" ? [encodeName(patch.name)] : []),
-        ...(patch.nfts ?? []).map(encodeNft),
         ...(patch.feeds ?? []).map(encodeFeed),
     ];
     for (const encoded of added) {

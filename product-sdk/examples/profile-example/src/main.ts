@@ -10,15 +10,12 @@ import type {
     SignedStatement,
     StatementsPage,
 } from "@parity/product-sdk/host";
-import { accountIdToHex, dotNsTld, namehash } from "@parity/product-sdk/identity";
+import { dotNsTld, namehash } from "@parity/product-sdk/identity";
 import {
     MOOD_FEED_KIND,
     type Mood,
     PROFILE_TEXT_RECORD_KEY,
     type DotNsClientOptions,
-    type ProfileNft,
-    type ProfileNftsChain,
-    getPinnedNfts,
     getProfile,
     getProfileRecord,
     loadAvatar,
@@ -39,23 +36,10 @@ const LABEL = "alice";
 const TLD = dotNsTld(".paseo");
 const NODE = namehash(`${LABEL}${TLD.suffix}`, TLD);
 const CONTENT_RESOLVER = "0x3333333333333333333333333333333333333333";
-/** The account the registry authorises for `alice.paseo`, and the purse that holds her NFTs. */
+/** The account the registry authorises for `alice.paseo`. */
 const OWNER = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-const OTHER = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
-const PURSE = accountIdToHex(OWNER);
-const BLOCK = { hash: `0x${"66".repeat(32)}`, number: 100 };
 /** Stand-in image bytes. The SDK never sniffs them: the record declares the format. */
 const AVATAR_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
-
-const pin = (instance: bigint, collection: number, item: number): ProfileNft => ({
-    instance,
-    collection,
-    item,
-    purse: PURSE,
-});
-const HELD = pin(9n, 7, 3);
-const GIVEN_AWAY = pin(12n, 7, 4);
-const NEW_PIN = pin(21n, 8, 1);
 
 function unwrap<T, E extends Error>(result: Result<T, E>): T {
     if (!result.ok) throw result.error;
@@ -126,77 +110,6 @@ const preimages: PreimageManager = {
     lookup(key, callback) {
         queueMicrotask(() => callback(bulletin.get(key) ?? null));
         return { unsubscribe() {}, onInterrupt: () => () => {} };
-    },
-};
-
-// ---------------------------------------------------------------------------
-// Fixture: Scarcity on Asset Hub, at one finalized block.
-//
-// Instance 12 was minted to the owner and has since moved to another account.
-// ---------------------------------------------------------------------------
-
-const instances = new Map([
-    [HELD.instance, { collection: HELD.collection, item: HELD.item, owner: OWNER }],
-    [
-        GIVEN_AWAY.instance,
-        { collection: GIVEN_AWAY.collection, item: GIVEN_AWAY.item, owner: OTHER },
-    ],
-    [NEW_PIN.instance, { collection: NEW_PIN.collection, item: NEW_PIN.item, owner: OWNER }],
-]);
-
-const nftChain: ProfileNftsChain = {
-    assetHub: {
-        query: {
-            Scarcity: {
-                ItemDefs: {
-                    async getValues(keys, { at }) {
-                        assert.equal(at, BLOCK.hash);
-                        return keys.map(() => ({
-                            supply: 100,
-                            live_supply: 40,
-                            transferability: { type: "Transferable" },
-                        }));
-                    },
-                },
-                Instances: {
-                    async getValues(keys, { at }) {
-                        assert.equal(at, BLOCK.hash);
-                        return keys.map(([id]) => instances.get(id)?.owner);
-                    },
-                },
-            },
-        },
-        apis: {
-            ScarcityApi: {
-                async metadata_batch(queries, { at }) {
-                    assert.equal(at, BLOCK.hash);
-                    return queries.map((query) => {
-                        assert.equal(query.type, "Instance");
-                        const id = query.value as bigint;
-                        const minted = instances.get(id);
-                        return {
-                            resolved: minted && {
-                                type: "Instance" as const,
-                                value: {
-                                    instance: id,
-                                    collection: minted.collection,
-                                    item: minted.item,
-                                },
-                            },
-                            collection: [],
-                            item: [],
-                            instance: [],
-                        };
-                    });
-                },
-            },
-        },
-    },
-    raw: {
-        assetHub: {
-            getFinalizedBlock: async () => BLOCK,
-            getBestBlocks: async () => [BLOCK],
-        },
     },
 };
 
@@ -295,7 +208,6 @@ async function seedRecord(): Promise<void> {
         rewriteProfileRecord(null, {
             avatar,
             name: "Alice",
-            nfts: [HELD, GIVEN_AWAY],
             feeds: [feed],
         }),
     );
@@ -314,11 +226,6 @@ async function main(): Promise<void> {
     console.log(
         `  avatar: ${profile.avatar ? `${profile.avatar.format} ${profile.avatar.cid}` : "(none)"}`,
     );
-    for (const nft of profile.nfts) {
-        console.log(
-            `  pinned NFT: instance ${nft.instance} (collection ${nft.collection}, item ${nft.item})`,
-        );
-    }
     for (const feed of profile.feeds) {
         console.log(`  feed: ${feed.kind} on topic ${feed.topic.slice(0, 10)}…`);
     }
@@ -330,22 +237,6 @@ async function main(): Promise<void> {
     console.log(
         `Loaded the avatar through the preimage lookup: ${loaded.bytes.length} bytes, ${loaded.mimeType}.`,
     );
-
-    const pinned = unwrap(await getPinnedNfts(nftChain, profile.nfts));
-    assert.deepEqual(
-        pinned.pins.map((p) => p.nft.instance),
-        [HELD.instance],
-    );
-    assert.deepEqual(pinned.dropped, [{ nft: GIVEN_AWAY, reason: "Moved" }]);
-    for (const { nft, display } of pinned.pins) {
-        console.log(
-            `  confirmed: instance ${nft.instance}, ${display.transferability ?? "unknown"}`,
-        );
-    }
-    for (const { nft, reason } of pinned.dropped) {
-        console.log(`  dropped: instance ${nft.instance}, ${reason}`);
-    }
-    console.log(`Pins checked at block ${pinned.at.blockNumber}.`);
 
     // --- Publish ------------------------------------------------------------
     // Reads keep `opts`: a read dry-runs as the origin it is given, and on a
@@ -364,12 +255,10 @@ async function main(): Promise<void> {
     //    holds; a record another product built would be taken over here.
     const feed = unwrap(await deriveMoodFeed(LABEL, opts, statementStore, deriveEntropy));
 
-    // 4. The new text. `nfts` replaces the whole list, so it keeps the pins the
-    //    chain confirmed and adds one; the pin that moved away is left out.
+    // 4. The new text. The avatar is left out of the patch, so it is carried.
     const text = unwrap(
         rewriteProfileRecord(live, {
             name: "Alice Liddell",
-            nfts: [...pinned.pins.map((p) => p.nft), NEW_PIN],
             feeds: [feed],
         }),
     );
@@ -398,15 +287,7 @@ async function main(): Promise<void> {
     assert.equal(after.profile.name, "Alice Liddell");
     assert.deepEqual(after.profile.avatar, profile.avatar);
     assert.deepEqual(after.profile.feeds, profile.feeds);
-    const repinned = unwrap(await getPinnedNfts(nftChain, after.profile.nfts));
-    assert.deepEqual(
-        repinned.pins.map((p) => p.nft.instance),
-        [HELD.instance, NEW_PIN.instance],
-    );
-    assert.deepEqual(repinned.dropped, []);
-    console.log(
-        `Verified: "${after.profile.name}", ${repinned.pins.length} confirmed pins, avatar and feed carried (offline fixture).`,
-    );
+    console.log(`Verified: "${after.profile.name}", avatar and feed carried (offline fixture).`);
 
     // --- Mood ---------------------------------------------------------------
     // One statement on the feed's topic, proved by the host; the record is not

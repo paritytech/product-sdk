@@ -9,7 +9,8 @@
  * string that starts with the entry's variant index. Owning the name is the
  * authenticity. The envelope and the `Avatar` entry are fixed by the RFC
  * "Core-resolved public profiles" in host-rust-core, which the core decodes
- * with for hosts; the `Name`, `Nft` and `Feed` entries are proposed here, and
+ * with for hosts; the `Name` and `Feed` entries are proposed here, index 2 is
+ * held for pinned NFTs with no payload yet, and
  * {@link PROFILE_ENTRY_INDEX} is the table where the next index is claimed. A
  * reader keeps every entry it cannot read, and a writer puts it back.
  *
@@ -33,8 +34,6 @@
  *   - `loadAvatar(avatar, manager)` fetches the avatar bytes through the host's
  *     preimage lookup and keeps them only if they hash to the CID and are
  *     within the RFC's bound. Never a gateway.
- *   - `getPinnedNfts(chain, nfts)` confirms each pinned NFT against
- *     `Scarcity.Instances` and `getInstanceDisplays` at one block.
  *
  * Writes, in the order the core's publisher makes them:
  *
@@ -94,7 +93,6 @@ export {
     DEFAULT_AVATAR_TIMEOUT_MS,
 } from "./avatar.js";
 export type { LoadAvatarOptions } from "./avatar.js";
-export { getPinnedNfts } from "./pins.js";
 export { rewriteProfileRecord } from "./encode.js";
 export { prepareSetProfile } from "./write.js";
 export type { PreparedProfileWrite } from "./write.js";
@@ -137,19 +135,13 @@ export {
 } from "./types.js";
 export type {
     AvatarMimeType,
-    DroppedPin,
-    DroppedPinReason,
     LoadedAvatar,
-    PinnedNft,
-    PinnedNftsResult,
     ProfilePatch,
     ProfileAvatar,
     ProfileAvatarFormat,
     ProfileEntryName,
     ProfileFeed,
     ProfileLookup,
-    ProfileNft,
-    ProfileNftsChain,
     PublicProfile,
     UnknownEntry,
 } from "./types.js";

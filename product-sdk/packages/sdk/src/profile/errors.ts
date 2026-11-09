@@ -11,8 +11,7 @@ export type ProfileErrorReason =
     | "NotBase64" // the record text is not standard base64 with padding
     | "TooLarge" // a record over the 16 KiB bound, or an avatar over 2 MiB
     | "Malformed" // not exactly one SCALE ProfileRecord
-    | "ChainRead" // a chain read in getPinnedNfts failed; the cause is attached
-    | "InvalidEntry" // a patch value no entry can carry: a bad CID, name, purse, topic or signer
+    | "InvalidEntry" // a patch value no entry can carry: a bad CID, name, topic or signer
     | "Host" // a host call failed, or answered something unusable: an avatar keyed by something other than its digest, a proof no reader accepts; the cause is attached
     | "SignerMismatch" // the host signs moods as a key the record's feed does not name: publish from this product first
     | "Timeout"; // the mood feed's backfill did not finish in time

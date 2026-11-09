@@ -11,7 +11,6 @@ import {
     profileAvatarCodec,
     profileFeedCodec,
     profileNameCodec,
-    profileNftCodec,
     profileRecordCodec,
     utf8OrNull,
 } from "./codec.js";
@@ -23,7 +22,6 @@ import {
     PROFILE_RECORD_MAX_BYTES,
     type ProfileAvatar,
     type ProfileFeed,
-    type ProfileNft,
     type PublicProfile,
 } from "./types.js";
 
@@ -120,9 +118,9 @@ export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileE
  * Within a record that decodes, each entry is read on its own, as the RFC's
  * `WrapperKeepOpaque` reads it: the first `Avatar` whose payload decodes to a
  * format this reader knows wins, the first non-empty `Name` of at most 64
- * bytes of valid UTF-8 wins, every `Nft` and `Feed` that decodes is kept in
- * order, and every entry this reader cannot read, whether its index is unknown
- * or its payload is not one value of its kind, is kept as it was.
+ * bytes of valid UTF-8 wins, every `Feed` that decodes is kept in order, and
+ * every entry this reader cannot read, whether its index is unknown or
+ * reserved or its payload is not one value of its kind, is kept as it was.
  *
  * @example
  * ```ts
@@ -159,18 +157,6 @@ function readName(payload: Uint8Array): { text: string; byteLength: number } | n
     return text === null ? null : { text, byteLength: bytes.length };
 }
 
-function readNft(payload: Uint8Array): ProfileNft | null {
-    const decoded = decodeExact(profileNftCodec, payload);
-    return decoded === null
-        ? null
-        : {
-              instance: decoded.instance,
-              collection: decoded.collection,
-              item: decoded.item,
-              purse: decoded.purse as `0x${string}`,
-          };
-}
-
 function readFeed(payload: Uint8Array): ProfileFeed | null {
     const decoded = decodeExact(profileFeedCodec, payload);
     if (decoded === null) return null;
@@ -185,7 +171,7 @@ function readFeed(payload: Uint8Array): ProfileFeed | null {
 }
 
 function readEntries(entries: Uint8Array[]): PublicProfile {
-    const profile: PublicProfile = { avatar: null, name: null, nfts: [], feeds: [], unknown: [] };
+    const profile: PublicProfile = { avatar: null, name: null, feeds: [], unknown: [] };
     for (const entry of entries) {
         if (!readEntry(entry, profile)) profile.unknown.push({ bytes: entry });
     }
@@ -196,12 +182,12 @@ function readEntries(entries: Uint8Array[]): PublicProfile {
 export type KnownEntry =
     | { kind: "avatar"; value: ProfileAvatar }
     | { kind: "name"; value: { text: string; byteLength: number } }
-    | { kind: "nft"; value: ProfileNft }
     | { kind: "feed"; value: ProfileFeed };
 
 /**
  * One entry as a value of the kind its index names, or `null` when it is not
- * one: an index this module does not know, or a payload that does not decode.
+ * one: an index this module does not know or that has no payload defined (the
+ * reserved `nft`), or a payload that does not decode.
  * The one table from the index to the reader, for the reader, which keeps a
  * null as `unknown`, and the writer, which carries it as read. Claiming a new
  * index means a case here, a field on the patch, and a vector in the tests.
@@ -220,10 +206,6 @@ export function readKnown(entry: Uint8Array): KnownEntry | null {
         case PROFILE_ENTRY_INDEX.name: {
             const value = readName(payload);
             return value && { kind: "name", value };
-        }
-        case PROFILE_ENTRY_INDEX.nft: {
-            const value = readNft(payload);
-            return value && { kind: "nft", value };
         }
         case PROFILE_ENTRY_INDEX.feed: {
             const value = readFeed(payload);
@@ -247,9 +229,6 @@ function readEntry(entry: Uint8Array, profile: PublicProfile): boolean {
             if (known.value.byteLength > 0 && known.value.byteLength <= PROFILE_NAME_MAX_BYTES) {
                 profile.name ??= known.value.text;
             }
-            break;
-        case "nft":
-            profile.nfts.push(known.value);
             break;
         case "feed":
             profile.feeds.push(known.value);

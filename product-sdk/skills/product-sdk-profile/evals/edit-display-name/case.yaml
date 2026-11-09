@@ -1,8 +1,8 @@
 schema_version: "1.1"
-name: edit-name-and-pin-nft
+name: edit-display-name
 expected_outcome: |
   A saveProfile that reads the live text with getProfileRecord, rewrites it with a patch that
-  sets name and nfts, leaves avatar undefined so it is carried, puts the product's mood feed
+  sets name, leaves avatar undefined so it is carried, puts the product's mood feed
   from deriveMoodFeed in feeds as every publish does, prepares with
   prepareSetProfile using origin = owner, re-reads and compares against prepared.original before
   submitting, ensures the account is mapped, submits with the product's signer waiting for
