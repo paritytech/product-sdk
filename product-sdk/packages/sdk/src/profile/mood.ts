@@ -4,9 +4,9 @@
  * The public mood feed: a mood is one statement on the name's mood topic,
  * signed by the host's statement allowance key, gone a day after it was set.
  * The record's `mood` feed entry names the topic and the signer; nothing here
- * touches the record. Seity proved the feed first (`doc/MOOD_FEED.md` there);
- * the body, the expiry packing and the reader rule are its, carried over with
- * its vectors so a mood set from one product reads the same from another.
+ * touches the record. The body, the expiry packing and the reader rule are
+ * those of the product that published moods first, carried over with its
+ * vectors so a mood set from one product reads the same from another.
  *
  * The palette is fixed here so every product shows the same intent for the
  * same bytes. It grows by appending, never by renumbering, and an index a
@@ -110,8 +110,8 @@ export function moodTopicLabel(fullName: string): string {
  * The key the mood topic's entropy is derived under: the blake2b-256 of
  * {@link moodTopicLabel}. The host refuses a key over 32 bytes, and the label
  * is 22 bytes before the name, so the label itself only fits a name of 10
- * bytes or fewer. The hash fits every name, and is the one Seity applied
- * before this module did, so a name's topic is the same either way.
+ * bytes or fewer. The hash fits every name, and is the one the first mood
+ * publisher applied, so a name's topic is the same either way.
  * Kept off the barrel, as the label is.
  */
 export function moodTopicKey(fullName: string): Uint8Array {
@@ -255,10 +255,10 @@ function proofSigner(proof: StatementProof): Result<HexString, ProfileError> {
  * by kind, so a product that publishes takes the feed over: a mood set from
  * another product no longer shows until that product publishes again.
  *
- * The probe is an interim: the host does not yet say which key it signs
- * statements with, so one is asked for and read off the proof. It needs the
- * statement-store allowance, so the product requests that before its first
- * publish, not after. A host accessor for the key would make this a plain read.
+ * The host does not say which key it signs statements with, so one proof is
+ * asked for and the signer read off it; a host accessor for the key would
+ * make this a plain read. The proof needs the statement-store allowance, so
+ * the product requests that before its first publish, not after.
  */
 export async function deriveMoodFeed(
     label: string,

@@ -338,9 +338,9 @@ Both implement the `SdkError` marker, so `isSdkError` recognises them.
 
 `PROFILE_ENTRY_INDEX` is `{ avatar: 0, name: 1, nft: 2, feed: 3 }`, the variant index that starts
 every entry. Index 0 is fixed by the RFC "Core-resolved public profiles"; 1 and 3 are proposed
-here and written by Seity. Index 2 is reserved for pinned NFTs with **no payload defined**: the
+here and in use. Index 2 is reserved for pinned NFTs with **no payload defined**: the
 SDK reads every entry there as `unknown` and carries it through a rewrite, and whoever designs
-NFT pins defines its payload in the table. Seity's test records on Paseo hold a
+NFT pins defines its payload in the table. Test records on Paseo hold a
 `{ instance, collection, item, purse }` shape there that is not adopted; do not build on it.
 The table in `types.ts` is where the next index is claimed, with its payload, its reader rule
 and a pinned test vector; an index is never reused and a payload never changes once a writer
@@ -392,7 +392,7 @@ from it for a test or a demo. What it shows that the API does not:
   by nobody. Publish with `deriveMoodFeed` in the patch first; `SignerMismatch` is that signal.
 - **Wrapping `deriveEntropy` to hash the key.** `deriveMoodFeed` already hands it a 32-byte
   key. Hashing again derives a different topic from every other product's, so the record's feed
-  and the moods set on it stop matching what others derive. Seity's `boundedEntropy` wrapper
+  and the moods set on it stop matching what others derive. a product's own hashing wrapper
   was the workaround before the SDK hashed; drop it on upgrade.
 - **Keeping a palette of your own.** Use `MOOD_KINDS` and `MOOD_INTENSITIES`; the index is the
   convention across products.

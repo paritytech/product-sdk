@@ -33,10 +33,10 @@ for (let i = 0; i < BASE64_ALPHABET.length; i++) BASE64_VALUE[BASE64_ALPHABET.ch
 
 /**
  * Standard base64 with padding, the one form the writer emits, decoded the way
- * the core's `decode_base64` does it: the length a multiple of four, at most
+ * a strict decoder does it: the length a multiple of four, at most
  * two padding characters, every digit in the alphabet, and the bits a final
  * partial group leaves over all zero. `null` for anything else. `atob` is not
- * used because it accepts what the core refuses.
+ * used because it accepts what other readers refuse.
  */
 export function decodeBase64Strict(text: string): Uint8Array | null {
     const unpadded = text.replace(/=+$/, "");
@@ -80,7 +80,7 @@ export function encodeBase64(bytes: Uint8Array): string {
  * The entries of a `profile` text-record value, each as the wrapper carries
  * it: the index byte, then the payload. The outer layer only; what each entry
  * holds is the reader's or the rewriter's question. The three errors are the
- * ones the core's `from_text` refuses a record for.
+ * ones every reader refuses a record for.
  */
 export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileError> {
     const bytes = decodeBase64Strict(text.trim());
@@ -111,10 +111,10 @@ export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileE
  * Decode a `profile` text-record value.
  *
  * Pure. The text is standard base64 of a SCALE `ProfileRecord`, trimmed first
- * as the core's `from_text` trims it. A value that is not base64, is over
+ * as every reader trims it. A value that is not base64, is over
  * {@link PROFILE_RECORD_MAX_BYTES} before parsing, or is not exactly one record
  * comes back on the `err` channel; `getProfile` treats every one of those as a
- * name with no profile, as the core does.
+ * name with no profile, as a host does.
  *
  * Within a record that decodes, each entry is read on its own, as the RFC's
  * `WrapperKeepOpaque` reads it: the first `Avatar` whose payload decodes to a

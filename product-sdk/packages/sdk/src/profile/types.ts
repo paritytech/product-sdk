@@ -3,15 +3,13 @@
 /**
  * The shapes of a public profile.
  *
- * The envelope and the `Avatar` entry are fixed by the RFC "Core-resolved
- * public profiles" in host-rust-core (`docs/rfcs/core-resolved-public-profiles.md`),
- * whose Rust types the core decodes with. The other entry kinds are proposed
- * here; {@link PROFILE_ENTRY_INDEX} holds the table and the claiming rule. The
- * names are kept as the RFC spells them so a later truapi-generated binding
- * reads the same.
+ * The envelope and the `Avatar` entry are the ones every host decodes, from
+ * the core's public-profile RFC; the other entry kinds are proposed here, and
+ * {@link PROFILE_ENTRY_INDEX} holds the table and the claiming rule. The names
+ * are the RFC's, so a later truapi-generated binding reads the same.
  */
 
-/** The dotNS text-record key a public profile lives under. */
+/** The DotNS text-record key a public profile lives under. */
 export const PROFILE_TEXT_RECORD_KEY = "profile";
 
 /** Reader-side bound: a decoded record larger than this is not a profile. */
@@ -29,23 +27,23 @@ export const PROFILE_AVATAR_MAX_BYTES = 2 * 1024 * 1024;
  * | Index | Entry    | Payload                                                          | Status                                      |
  * |-------|----------|------------------------------------------------------------------|---------------------------------------------|
  * | 0     | `Avatar` | `{ cid: [u8; 32], format: u8 }`: the CID's blake2b-256 digest, the format indexing `PROFILE_AVATAR_FORMATS` | accepted, RFC core-resolved-public-profiles |
- * | 1     | `Name`   | `String`: the display name, at most `PROFILE_NAME_MAX_BYTES` of UTF-8 | proposed 2026-10-30, written by Seity since |
+ * | 1     | `Name`   | `String`: the display name, at most `PROFILE_NAME_MAX_BYTES` of UTF-8 | proposed, in use                            |
  * | 2     | `Nft`    | not yet defined                                                  | reserved for pinned NFTs; see below          |
- * | 3     | `Feed`   | `{ kind: String, topic: [u8; 32], signer: [u8; 32] }`            | proposed 2026-10-30, written by Seity since |
+ * | 3     | `Feed`   | `{ kind: String, topic: [u8; 32], signer: [u8; 32] }`            | proposed, in use                            |
  *
  * This table is where the next index is proposed. An index is claimed by the
  * PR that adds it here, with its payload, its reader rule and a pinned test
  * vector in `record.test.ts`, and that PR's changeset names the claim. An
  * index is never reused, and a payload never changes once a writer has
- * published it. The RFC is amended when the core starts resolving a kind;
- * until then the core keeps the entry as opaque bytes, which is what makes
- * claiming here safe.
+ * published it. A reader keeps an entry of a kind it does not know as opaque
+ * bytes, which is what makes claiming here safe; the RFC is amended when
+ * hosts start resolving a kind.
  *
  * Index 2 is held for pinned NFTs, with no payload: the design is open, and
- * whoever picks it up defines the payload and the reader rule here. Seity's
- * test records on Paseo used `{ instance: u64, collection: u32, item: u32,
- * purse: [u8; 32] }` under it; that shape is not adopted, since it ties a pin
- * to a purse and not to the name's owner. Until then this module reads no
+ * whoever picks it up defines the payload and the reader rule here. Test
+ * records on Paseo hold `{ instance: u64, collection: u32, item: u32, purse:
+ * [u8; 32] }` under it; that shape is not adopted, since it ties a pin to a
+ * purse and not to the name's owner. Until then this module reads no
  * entry at index 2 and keeps each one as an {@link UnknownEntry}.
  *
  * Reader rules shared by every kind: the first `Avatar` that decodes is the

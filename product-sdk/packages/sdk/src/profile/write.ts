@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Prepare the one call that publishes a `profile` record: the owner's
- * `setText` on the deployment's content resolver, as the core's publisher
- * builds it. Signer-free, like every dotNS write in the identity module: the
+ * `setText` on the deployment's content resolver. Signer-free, like every
+ * DotNS write in the identity module: the
  * product submits the prepared call with its own signer, after mapping and
  * funding the account, which the SDK does not do for it.
  */

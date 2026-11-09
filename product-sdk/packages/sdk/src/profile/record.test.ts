@@ -4,9 +4,8 @@
 // The decoder against pinned bytes on the RFC's layout, and against the records
 // written before it, which must read as no profile. Every vector is a constant
 // here, the repo's convention: `src` ships to npm, so there is no fixture
-// directory. The pinned hex is what Seity's `profile-core` writes for the same
-// records (`profile-core/test/profile-envelope.test.ts`); the core's own
-// encoder, once it exists on this layout, should reproduce index 0's bytes.
+// directory. Index 0's vectors are the core's own (`public_profile/record/tests.rs`);
+// the `Name` and `Feed` vectors are what the first publisher of each kind wrote.
 import { describe, expect, test } from "vitest";
 
 import {
@@ -46,7 +45,7 @@ const VECTOR_HEX =
 const VECTOR_BASE64 = "CIgAC9G7V+P56oAZVqdw/hBo+VA4NUespF4dPTVNV9AUywwCHAEUQWxpY2U=";
 
 // Records written before the RFC moved to codec indices (`Vec<{ kind: String,
-// payload: Vec<u8> }>`), both by Seity on Paseo Next for devdevdev.01.paseo.
+// payload: Vec<u8> }>`), both published on Paseo for devdevdev.01.paseo.
 // Neither is a profile any more; the next publish replaces them.
 const PRE_RFC_CURRENT =
     "CBhhdmF0YXIBAfhiYWZrMmJ6YWNlYnRtdW41Znk2NjNkdmZ3eWMzMzZjeHdkbGhtc2VraTNtanNlazZ3bXN5Z3R2ZjJuYjRlZwIQbmFtZRhkZXZkZXY=";
@@ -57,11 +56,11 @@ const PRE_RFC_RUST_VECTOR_HEX =
     "08186176617461720101f86261666b32627a616365637632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f7632786b356c766f76327702106e616d6514416c696365";
 
 /**
- * A pin as Seity's test records on Paseo wrote it under index 2, before the
+ * A pin as test records on Paseo wrote it under index 2, before the
  * index was reserved with no payload: instance 2^40 + 7, collection 3, item
  * 258, a purse of 0xab bytes. Raw bytes, not a codec, since none is defined.
  */
-const SEITY_PIN = entry(2, hex(`07000000000100000300000002010000${"ab".repeat(32)}`));
+const LEGACY_PIN = entry(2, hex(`07000000000100000300000002010000${"ab".repeat(32)}`));
 
 function unwrap(text: string) {
     const r = decodeProfileRecord(text);
@@ -81,7 +80,7 @@ describe("decodeBase64Strict", () => {
         expect(decodeBase64Strict("QQ==")).toEqual(utf8("A"));
     });
 
-    test("refuses what the core refuses", () => {
+    test("refuses non-canonical base64", () => {
         expect(decodeBase64Strict("QQ=")).toBeNull(); // not a multiple of four
         expect(decodeBase64Strict("QQ")).toBeNull();
         expect(decodeBase64Strict("Q===")).toBeNull(); // three padding characters
@@ -108,7 +107,7 @@ describe("decodeProfileRecord", () => {
     });
 
     test("decodes the core's vectors: the digest and each format, and an unknown kind kept in place", () => {
-        // From host-rust-core `public_profile/record/tests.rs`: the same CID in
+        // From the core's `public_profile/record/tests.rs`: the same CID in
         // each of the four formats, a record that round-trips byte for byte.
         const formats = ["png", "jpeg", "webp", "gif"] as const;
         for (const [i, format] of formats.entries()) {
@@ -136,19 +135,19 @@ describe("decodeProfileRecord", () => {
         expect(read.unknown).toEqual([{ bytes: hex(extended).subarray(2) }]);
     });
 
-    test("index 2 is reserved with no payload: a Seity test pin is kept as unknown, in place", () => {
+    test("index 2 is reserved with no payload: a legacy test pin is kept as unknown, in place", () => {
         expect(PROFILE_ENTRY_INDEX.nft).toBe(2);
-        expect(SEITY_PIN).toHaveLength(49);
+        expect(LEGACY_PIN).toHaveLength(49);
         const profile = unwrap(
             record([
-                SEITY_PIN,
+                LEGACY_PIN,
                 entry(PROFILE_ENTRY_INDEX.name, name("Alice")),
                 entry(2, new Uint8Array()),
             ]),
         );
         expect(profile.name).toBe("Alice");
         expect(profile.unknown).toEqual([
-            { bytes: SEITY_PIN },
+            { bytes: LEGACY_PIN },
             { bytes: entry(2, new Uint8Array()) },
         ]);
     });

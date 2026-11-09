@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The mood feed against doubles of the host's statement store. The body, the
-// expiry packing and the reader rule are pinned to Seity's vectors
+// expiry packing and the reader rule are pinned to the first publisher's vectors
 // (`profile-core/test/mood-feed.test.ts` there), so a mood set by either reads
 // the same from the other. The fake store is hand-rolled because the host
 // package's fake has an inert statement store and no entropy domain.
@@ -59,7 +59,7 @@ const body = (mood: MoodChoice | null, setAt: number) => unwrap(encodeMoodBody(m
 const reason = <T>(result: Result<T, { reason: string }>) =>
     result.ok ? "ok" : result.error.reason;
 
-/** Seity's test helper, on this module's types. */
+/** The vectors' statement builder, on this module's types. */
 const statement = (
     mood: Mood | null,
     opts: { signer?: `0x${string}`; setAt?: number; seq?: number } = {},
@@ -161,7 +161,7 @@ function fakeStore(
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("the body, the expiry packing and the topic label", () => {
-    test("pin Seity's vectors", () => {
+    test("pin the published vectors", () => {
         expect(hex(body(CALM, CALM.setAt))).toBe(`0002${"c4d1496b00000000"}${"80510100"}`);
         expect(hex(body(null, NOW))).toBe(`ffff${"00d2496b00000000"}${"80510100"}`);
         expect(moodExpiry(NOW, 7)).toBe((BigInt(NOW + 86_400) << 32n) | 7n);
@@ -273,7 +273,7 @@ describe("deriveMoodFeed", () => {
     });
 
     test("the key is 32 bytes whatever the name, so a long name derives as the host allows", async () => {
-        // 40 bytes of label: the raw label is what the host refused on testing-seity.
+        // 40 bytes of label: the raw label is what a host refused.
         const derive = entropy(new Uint8Array(32).fill(0x11));
         const feed = await deriveMoodFeed("devdevdev.01", opts, fakeStore(), derive);
         expect(feed.ok).toBe(true);
@@ -282,8 +282,8 @@ describe("deriveMoodFeed", () => {
         expect(moodTopicKey("devdevdev.01.dot")).toEqual(key);
     });
 
-    test("the key is Seity's: blake2b-256 of the label, so no name's topic moves", () => {
-        // Seity's `boundedEntropy` hashed the label it was handed with blake2b-256.
+    test("the key is the blake2b-256 of the label, as the first publisher derived it, so no topic moves", () => {
+        // The first publisher hashed the label with blake2b-256 before handing it to the host.
         // The vector is Python's hashlib.blake2b(label, digest_size=32), an
         // implementation independent of the one under test.
         expect(bytesToHex(moodTopicKey("alice.paseo"))).toBe(

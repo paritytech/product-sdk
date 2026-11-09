@@ -1,8 +1,8 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Find a name's `profile` record: the DotNS walk the core's public-profile
- * reader makes, built on the identity module's TLD and address resolution.
+ * Find a name's `profile` record, by the walk a host makes for it, built on
+ * the identity module's TLD and address resolution.
  */
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
@@ -25,12 +25,12 @@ type HexString = `0x${string}`;
 
 const NO_PROFILE: ProfileLookup = { tag: "NoProfile" };
 
-/** `MAX_DNS_LABEL_LEN` in the core: the longest DNS label. */
+/** The longest DNS label. */
 const MAX_DNS_LABEL_LEN = 63;
-/** `MAX_BASE_LABEL_LEN` in the core: the longest base label the gateway pallet holds. */
+/** The longest base label the gateway pallet holds, so the longest lite username. */
 const MAX_BASE_LABEL_LEN = 32;
 
-/** The core's `is_dns_label`: one lowercase label with no edge hyphen. */
+/** One lowercase label with no edge hyphen: `is_dns_label`. */
 function isDnsLabel(value: string): boolean {
     return (
         value.length > 0 &&
@@ -42,9 +42,9 @@ function isDnsLabel(value: string): boolean {
 }
 
 /**
- * The core's `is_dotted_lite_username`: a lite name such as `alice.01`, a stem
- * of lowercase letters and exactly two digits after one dot, at most 32 bytes
- * in all, since the gateway pallet keys `LiteLabelOwner` by the dotted label.
+ * A lite name such as `alice.01`: a stem of lowercase letters and exactly two
+ * digits after one dot, at most 32 bytes in all, since the gateway pallet keys
+ * `LiteLabelOwner` by the dotted label. `is_dotted_lite_username`.
  */
 function isDottedLiteUsername(value: string): boolean {
     const dot = value.lastIndexOf(".");
@@ -60,15 +60,15 @@ function isDottedLiteUsername(value: string): boolean {
 }
 
 /**
- * The usernames the core resolves a profile for, `validate_username` in
- * `public_profile.rs`: a DNS label, or a dotted lite username. The same forms
- * the identity reader returns, and nothing looser: `alice.1` is not a lite name.
+ * The usernames a host resolves a profile for (`validate_username`): a DNS
+ * label, or a dotted lite username. The same forms the identity reader
+ * returns, and nothing looser: `alice.1` is not a lite name.
  */
 export function isAcceptableProfileLabel(label: string): boolean {
     return isDnsLabel(label) || isDottedLiteUsername(label);
 }
 
-/** `label` trimmed, lower-cased and without a trailing `.<tld>`, as the core prepares it. */
+/** `label` trimmed, lower-cased and without a trailing `.<tld>`. */
 export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
     return stripSuffix(label.trim().toLowerCase(), tld.suffix);
 }
@@ -80,13 +80,13 @@ export type ProfileLocation = ProfileName & {
 };
 
 /**
- * The node and the content resolver for `label`: the dotNS walk every profile
+ * The node and the content resolver for `label`: the DotNS walk every profile
  * read and write starts with.
  *
  * `label` is the name without its TLD, `alice` or `alice.01`; a trailing
  * `.<tld>` is tolerated. The TLD comes from the chain through `resolveTld`,
  * and the content resolver through `resolveDotNsContentResolver`, so `opts` is
- * what every other dotNS read takes.
+ * what every other DotNS read takes.
  *
  * The record lives on the deployment's content resolver, whatever resolver the
  * name itself points at; `prepareSetProfile` says why the pointer is left
@@ -127,7 +127,7 @@ export async function resolveProfileName(
     const tld = tldRes.value;
     const bare = normalizeProfileLabel(label, tld);
     if (!isAcceptableProfileLabel(bare)) {
-        return err(new DotNsError("InvalidName", `${JSON.stringify(label)} is not a dotNS name`));
+        return err(new DotNsError("InvalidName", `${JSON.stringify(label)} is not a DotNS name`));
     }
     return ok({ bare, tld, node: namehash(`${bare}${tld.suffix}`, tld) });
 }
@@ -160,10 +160,10 @@ export async function readProfileText(
 }
 
 /**
- * Read the public profile under a dotNS name. See {@link locateProfile} for
+ * Read the public profile under a DotNS name. See {@link locateProfile} for
  * what `label` and `opts` are and where the record is read from.
  *
- * Three answers, the same three the core gives a host:
+ * Three answers, the same three a host shows:
  *
  *   - `ok({ tag: "Found", profile })`: the name has a record. Either of
  *     `avatar` and `name` may still be absent.
@@ -232,7 +232,7 @@ export async function getProfileRecord(
 
 /**
  * Whether the content resolver now holds exactly `text` for `label`: the
- * check a publisher makes once its write is final, as the core's does, so a
+ * check a publisher makes once its write is final, so a
  * write the chain included but did not apply, or one overtaken by another
  * writer, is not reported as published. `""` asks whether the record is
  * cleared.

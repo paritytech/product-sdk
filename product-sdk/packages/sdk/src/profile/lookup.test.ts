@@ -1,7 +1,7 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The dotNS walk through `createFakeContractRuntime`: the real ABI codec, no
+// The DotNS walk through `createFakeContractRuntime`: the real ABI codec, no
 // chain. The TLD is supplied so the walk starts at the protocol registry's
 // content resolver.
 import { createFakeContractRuntime, fakeDryRunResult } from "@parity/product-sdk-contracts/testing";
@@ -59,7 +59,7 @@ const GET = `get@${at(DOTNS_ADDRESSES.protocolRegistry)}`;
 const TEXT = `text@${at(CONTENT_RESOLVER)}`;
 
 describe("label rules", () => {
-    test("accept what the core accepts: a DNS label, or a dotted lite username", () => {
+    test("accept a DNS label, or a dotted lite username", () => {
         expect(isAcceptableProfileLabel("alice")).toBe(true);
         expect(isAcceptableProfileLabel("alice01")).toBe(true);
         expect(isAcceptableProfileLabel("alice-smith")).toBe(true);
@@ -69,7 +69,7 @@ describe("label rules", () => {
         expect(isAcceptableProfileLabel(`${"a".repeat(29)}.01`)).toBe(true); // 32 bytes
     });
 
-    test("refuse what the core refuses", () => {
+    test("refuse everything else", () => {
         expect(isAcceptableProfileLabel("")).toBe(false);
         expect(isAcceptableProfileLabel("a".repeat(64))).toBe(false);
         expect(isAcceptableProfileLabel("Alice")).toBe(false);
@@ -160,7 +160,7 @@ describe("getProfile", () => {
 
     test("a text call that reverts is a failure, not an absent record", async () => {
         // The content resolver has `text`, so a revert is something wrong, as
-        // the core treats it; the reverse-resolver case no longer arises
+        // a host treats it; the reverse-resolver case no longer arises
         // because the name's own resolver is not consulted.
         const runtime = runtimeWith({ text: fakeDryRunResult({ revert: true }) });
         const r = await getProfile("alice", { runtime, tld: DOT_TLD });
@@ -278,7 +278,7 @@ describe("getProfileRecord", () => {
         expect(calls(runtime)).toEqual([GET]);
     });
 
-    test("refuses a label the core would not resolve", async () => {
+    test("refuses a label no host resolves", async () => {
         const r = await getProfileRecord("Alice!", opts(runtimeWith({})));
         expect(r.ok ? null : r.error.reason).toBe("InvalidName");
     });

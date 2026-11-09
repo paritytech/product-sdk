@@ -106,7 +106,7 @@ export type {
     UnknownEntry,
 } from "./types.js";
 
-// The inputs the lookup shares with every other dotNS read.
+// The inputs the lookup shares with every other DotNS read.
 export type { DotNsClientOptions } from "../identity/dotns-registry.js";
 export { DotNsError } from "../identity/dotns-errors.js";
 export type { DotNsErrorReason } from "../identity/dotns-errors.js";

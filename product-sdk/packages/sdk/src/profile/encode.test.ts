@@ -1,8 +1,8 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The writer against the bytes the reader pins, and against the core's own
-// publisher rules (`ProfileRecord::set_avatar` and its tests in host-rust-core).
+// The writer against the bytes the reader pins, and against the host
+// publisher's rules (`ProfileRecord::set_avatar` and its tests in the core).
 // Expected records are built from the codecs directly, as `record.test.ts`
 // builds its vectors, so a test asserts the layout and not only a round trip.
 import { blake2b256, bytesToHex } from "@parity/product-sdk-crypto";
@@ -43,8 +43,8 @@ const feed = (kind: string) =>
 const OPAQUE = new Uint8Array([9, 1, 2, 3]);
 /** An avatar in a format this writer does not know: index 0, but no avatar for this reader. */
 const FUTURE_AVATAR = avatar("avatar", 9);
-/** A pin as Seity's test records wrote it at the reserved index 2: `record.test.ts` has the layout. */
-const SEITY_PIN = new Uint8Array([
+/** A pin as test records on Paseo wrote it at the reserved index 2: `record.test.ts` has the layout. */
+const LEGACY_PIN = new Uint8Array([
     2,
     7,
     0,
@@ -152,12 +152,12 @@ describe("rewriteProfileRecord", () => {
     });
 
     test("an entry at the reserved index 2 is carried byte for byte, whatever the patch", () => {
-        const live = record([avatar("other", 0), SEITY_PIN, name("Alice"), feed("mood")]);
+        const live = record([avatar("other", 0), LEGACY_PIN, name("Alice"), feed("mood")]);
         expect(rewrite(live, {})).toBe(live);
         expect(
             rewrite(live, { avatar: { cid: CID, format: "png" }, name: "Bob", feeds: [MOOD] }),
-        ).toBe(record([avatar("avatar", 0), SEITY_PIN, name("Bob"), feed("mood")]));
-        expect(rewrite(live, { avatar: null, name: null, feeds: null })).toBe(record([SEITY_PIN]));
+        ).toBe(record([avatar("avatar", 0), LEGACY_PIN, name("Bob"), feed("mood")]));
+        expect(rewrite(live, { avatar: null, name: null, feeds: null })).toBe(record([LEGACY_PIN]));
     });
 
     test("feeds replace only the kinds they name, and null drops them all", () => {
@@ -245,14 +245,14 @@ describe("an entry this writer cannot read is carried, whatever its index", () =
     });
 
     test("what the writer carries is what the reader reports as unknown", () => {
-        const text = rewrite(record([BAD_NAME, SEITY_PIN, BAD_FEED]), {
+        const text = rewrite(record([BAD_NAME, LEGACY_PIN, BAD_FEED]), {
             name: "A",
             feeds: null,
         });
         const read = decodeProfileRecord(text);
         expect(read.ok && read.value.unknown.map((u) => u.bytes)).toEqual([
             BAD_NAME,
-            SEITY_PIN,
+            LEGACY_PIN,
             BAD_FEED,
         ]);
     });

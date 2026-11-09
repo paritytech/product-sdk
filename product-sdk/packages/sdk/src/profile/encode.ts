@@ -5,12 +5,11 @@
  * knows, and the rewrite that applies a change to what a name already holds.
  *
  * The record on chain is one value, so every change is read, change, write
- * back; {@link rewriteProfileRecord} is the change. Its rules are the core's
- * where the core has one (`ProfileRecord::set_avatar` in host-rust-core) and
- * Seity's for the kinds the core does not yet know: an entry this writer cannot
- * read is carried byte for byte, a live record that is not a profile is
- * refused rather than replaced, and a record no reader would accept is never
- * produced.
+ * back; {@link rewriteProfileRecord} is the change. Its rules match the host
+ * publisher's `set_avatar` where one exists and extend them to the kinds
+ * proposed here: an entry this writer cannot read is carried byte for byte, a
+ * live record that is not a profile is refused rather than replaced, and a
+ * record no reader would accept is never produced.
  */
 import { concatBytes, utf8ToBytes } from "@parity/product-sdk-crypto";
 import { type Result, err, ok } from "@parity/result";
@@ -96,16 +95,16 @@ export function encodeProfileRecord(entries: Uint8Array[]): Result<string, Profi
  * The text-record value after applying `patch` to what the name holds.
  *
  * `live` is the value the resolver holds now, `""` or `null` for none. A live
- * value that is not a profile is refused on the `err` channel, as the core's
- * publisher refuses it, so a damaged record is never overwritten by accident;
+ * value that is not a profile is refused on the `err` channel, so a damaged
+ * record is never overwritten by accident;
  * a product that means to replace it passes `null`.
  *
  * Per kind:
  *
  *   - A new avatar replaces the first avatar this writer can decode and goes
  *     first, ahead of every other entry, so it is the one every reader shows.
- *     An avatar in a format this writer does not know is kept, as the core
- *     keeps it. Clearing drops every avatar entry: with no new avatar in
+ *     An avatar in a format this writer does not know is kept, as every
+ *     other writer keeps it. Clearing drops every avatar entry: with no new avatar in
  *     front, a kept one would be the avatar a newer reader shows.
  *   - A name replaces every name entry; `null` drops them.
  *   - Feeds replace the feed entries of the kinds they name and leave the

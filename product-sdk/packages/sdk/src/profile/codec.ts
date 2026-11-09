@@ -12,13 +12,12 @@
  * here reads entries as bytes and the reader decodes each one on its own.
  *
  * Strings are carried as `Bytes` rather than `str` on purpose. scale-ts's `str`
- * replaces invalid UTF-8 with U+FFFD, while the core's `String` decode fails
+ * replaces invalid UTF-8 with U+FFFD, while a SCALE `String` decode fails
  * on it, so the UTF-8 check is made here with a fatal decoder and a bad string
- * is a failed decode, as it is in the core. The avatar format travels as its
+ * is a failed decode, as it is for every other reader. The avatar format travels as its
  * raw index and is mapped to a name by the reader, so an index the reader does
  * not know is a failed decode there too, matching `ProfileAvatarFormat`.
  */
-import { publicKeysEqual } from "@parity/product-sdk-address";
 import {
     Bytes,
     type Codec,
@@ -44,10 +43,13 @@ export const profileFeedCodec = Struct({ kind: Bytes(), topic: Hex(32), signer: 
 
 /**
  * A mood statement's body, `kind u8 | intensity u8 | set_at u64 | ttl_secs u32`,
- * 14 bytes: the layout Seity's mood feed fixed, which is SCALE for this struct.
+ * 14 bytes: a layout already published, which is SCALE for this struct.
  * Not a record entry; it travels in the statement store.
  */
 export const moodBodyCodec = Struct({ kind: u8, intensity: u8, setAt: u64, ttlSecs: u32 });
+
+const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
+    a.length === b.length && a.every((byte, i) => byte === b[i]);
 
 /** Whether `value` is 32 bytes as `0x` hex: an account id, a topic, a signer. */
 export function isHex32(value: string): boolean {
@@ -61,7 +63,7 @@ export function isHex32(value: string): boolean {
  * `decode_all`, which refuses trailing bytes and a truncated input, and keeps
  * the bytes opaque when that fails. scale-ts decoders stop reading and say
  * nothing about what is left, and read a short tail as a shorter value. The
- * check here is the one the core's own test makes: the decoded value re-encodes
+ * check here is the re-encoding one: the decoded value re-encodes
  * to the writer's bytes. Trailing bytes make the re-encoding shorter, a
  * truncated field makes it differ, a non-minimal compact length re-encodes
  * minimal, and a value that does not decode at all is not one value.
@@ -69,7 +71,7 @@ export function isHex32(value: string): boolean {
 export function decodeExact<T>(codec: Codec<T>, bytes: Uint8Array): T | null {
     try {
         const value = codec.dec(bytes);
-        return publicKeysEqual(codec.enc(value), bytes) ? value : null;
+        return bytesEqual(codec.enc(value), bytes) ? value : null;
     } catch {
         return null;
     }
@@ -77,7 +79,7 @@ export function decodeExact<T>(codec: Codec<T>, bytes: Uint8Array): T | null {
 
 // `ignoreBOM` keeps a leading U+FEFF as part of the text, as Rust's `String`
 // decode does. Without it a name behind a byte-order mark would be three bytes
-// shorter here than in the core, and the 64-byte rule would disagree.
+// shorter here than in a Rust reader, and the 64-byte rule would disagree.
 const strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** `bytes` as a string, or `null` when they are not valid UTF-8. */

@@ -55,7 +55,7 @@ const digestOf = (bytes: Uint8Array) => `0x${bytesToHex(blake2b256(bytes))}` as 
 
 /**
  * How long the host's preimage lookup is given before the avatar is reported
- * missing this time. The core's `AVATAR_TIMEOUT`. A lookup is a subscription
+ * missing this time, the wait a host's own reader allows. A lookup is a subscription
  * the host answers from its cache or from Bulletin, so a first read can take
  * a while.
  */
@@ -156,7 +156,7 @@ const tooLarge = (bytes: Uint8Array) =>
  * blake2b-256 digest as a Bulletin CID, and the declared format.
  *
  * Pure, so the record can be rewritten and the write prepared before the
- * bytes go to Bulletin, the order the core's publisher keeps: a write that
+ * bytes go to Bulletin: a write that
  * would fail then spends no Bulletin allowance. `submitAvatar` stores the
  * bytes afterwards and holds the host to this same digest. Bytes over
  * {@link PROFILE_AVATAR_MAX_BYTES}, which every reader refuses, are

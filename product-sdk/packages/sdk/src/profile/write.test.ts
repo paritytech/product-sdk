@@ -136,7 +136,7 @@ describe("prepareSetProfile", () => {
         expect(runtime.calls).toHaveLength(0);
     });
 
-    test("refuses a label the core would not resolve", async () => {
+    test("refuses a label no host resolves", async () => {
         const { runtime } = authorised();
         const r = await prepareSetProfile("Alice!", RECORD, opts(runtime, SIGNER));
         expect(r.ok ? null : r.error.reason).toBe("InvalidName");

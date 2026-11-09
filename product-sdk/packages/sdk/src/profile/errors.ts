@@ -3,9 +3,9 @@
 import type { SdkError } from "@parity/product-sdk-errors";
 
 /**
- * Why a profile read or write failed. The first three match the core's
- * `ProfileRecordError` plus its base64 check. The dotNS walk in `getProfile`
- * and `prepareSetProfile` reports through `DotNsError` instead.
+ * Why a profile read or write failed. The first three are the reasons a
+ * record is refused as not a profile. The DotNS walk in `getProfile` and
+ * `prepareSetProfile` reports through `DotNsError` instead.
  */
 export type ProfileErrorReason =
     | "NotBase64" // the record text is not standard base64 with padding
