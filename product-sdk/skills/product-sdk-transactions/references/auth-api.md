@@ -54,7 +54,7 @@ type LogoutStatus =
   | { step: "error"; message: string };
 
 interface SessionAddresses {
-  rootAddress: string;             // SS58 of the mobile root account (input for lookupUsername, from @parity/product-sdk-individuality)
+  rootAddress: string;             // SS58 of the mobile root account; the main account `//product//peopl.<tld>/0` under RFC-0028 (input for lookupUsername, from @parity/product-sdk-individuality)
   productAddress: string;          // SS58 of the derived product account — signs on-chain
   productH160: `0x${string}`;      // same product pubkey as a 20-byte EVM address (Revive/contracts)
 }

@@ -34,7 +34,7 @@
  * import { displayUsername, lookupUsername } from "@parity/product-sdk-individuality";
  *
  * const chain = await getChainAPI("paseo");
- * const usernames = await lookupUsername(chain, { account: rootAddress });
+ * const usernames = await lookupUsername(chain, { account: rootAddress }); // the main account
  * if (usernames.ok && usernames.value !== null) {
  *     console.log(displayUsername(usernames.value));
  * }

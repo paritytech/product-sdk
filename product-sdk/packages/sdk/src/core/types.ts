@@ -246,7 +246,13 @@ export interface SignMessageWithDotNsIdentityArgs {
 export interface DotNsIdentitySignature {
     /** Username used for the lookup. */
     username: string;
-    /** Raw `AccountId32` owner resolved from `Resources.UsernameOwnerOf`. */
+    /**
+     * Raw `AccountId32` owner resolved from `Resources.UsernameOwnerOf`.
+     *
+     * Under RFC-0028 (https://github.com/paritytech/trinity-user-agents/pull/1974, draft) this is the person's main account,
+     * `//product//peopl.<tld>/0`, which is also the session's identity account.
+     * The host's legacy signer accepts it for that reason, from any product.
+     */
     accountId: `0x${string}`;
     /** Signature bytes returned by the host wallet. */
     signature: Uint8Array;

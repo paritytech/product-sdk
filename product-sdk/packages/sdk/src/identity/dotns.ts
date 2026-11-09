@@ -170,6 +170,11 @@ export function normalizeDotNsName(name: string, suffix: string): string {
  * 32-byte key use `accountIdBytes` from `@parity/product-sdk-address`, and
  * {@link accountIdToHex} for the hex form.
  *
+ * Under RFC-0028 (https://github.com/paritytech/trinity-user-agents/pull/1974, draft) the
+ * owner of a person's lite and full usernames is their main account,
+ * `//product//peopl.<tld>/0`. This function is account-agnostic and returns
+ * whatever the chain stores.
+ *
  * The `username` is UTF-8 encoded as-is — no normalization is applied. Pass
  * the exact byte string the chain stores (typically with the `.dot` suffix).
  *
