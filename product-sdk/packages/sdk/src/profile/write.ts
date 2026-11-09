@@ -7,14 +7,13 @@
  * product submits the prepared call with its own signer, after mapping and
  * funding the account, which the SDK does not do for it.
  */
-import { ss58ToH160 } from "@parity/product-sdk-address";
 import type { BatchableCall } from "@parity/product-sdk-tx";
 import { type Result, err, ok } from "@parity/result";
 
 import { DOTNS_CONTENT_RESOLVER_WRITE_ABI, DOTNS_REGISTRY_ABI } from "../identity/dotns-abis.js";
 import { contractOf, resolveDotNsAddresses } from "../identity/dotns-addresses.js";
 import { DotNsError } from "../identity/dotns-errors.js";
-import type { DotNsClientOptions } from "../identity/dotns-registry.js";
+import { type DotNsClientOptions, requireWriteOrigin } from "../identity/dotns-registry.js";
 import type { ProfileError } from "./errors.js";
 import { locateProfile, readProfileText } from "./lookup.js";
 import { decodeRecordEntries } from "./record.js";
@@ -65,18 +64,9 @@ export async function prepareSetProfile(
         const readable = decodeRecordEntries(value);
         if (!readable.ok) return readable;
     }
-    const origin = opts.origin;
-    if (!origin) {
-        return err(new DotNsError("MissingOrigin", "prepareSetProfile needs opts.origin (SS58)"));
-    }
-    let self: `0x${string}`;
-    try {
-        self = ss58ToH160(origin);
-    } catch (cause) {
-        return err(
-            new DotNsError("InvalidOrigin", "opts.origin is not an SS58 address", { cause }),
-        );
-    }
+    const writer = requireWriteOrigin(opts, "prepareSetProfile");
+    if (!writer.ok) return writer;
+    const { origin, h160: self } = writer.value;
 
     const located = await locateProfile(label, opts);
     if (!located.ok) return located;

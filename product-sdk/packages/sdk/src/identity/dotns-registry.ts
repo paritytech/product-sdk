@@ -164,6 +164,34 @@ export interface DotNsClientOptions {
     tld?: DotNsTld;
 }
 
+/**
+ * The origin a write runs as, and its H160: the `msg.sender` pallet-revive
+ * derives from it, which an authorisation check compares against. Every dotNS
+ * write is owner-gated, so a missing origin is `MissingOrigin` rather than a
+ * dry-run from the fallback account that reverts and reads as a contract
+ * problem, and one `ss58ToH160` cannot decode is `InvalidOrigin` rather than
+ * a throw out of a function that promises a `Result`. `fn` names the caller
+ * in the message.
+ *
+ * @internal Shared by the identity and profile writes; not on the barrel.
+ */
+export function requireWriteOrigin(
+    opts: DotNsClientOptions,
+    fn: string,
+): Result<{ origin: SS58String; h160: HexString }, DotNsError> {
+    const origin = opts.origin;
+    if (!origin) return err(new DotNsError("MissingOrigin", `${fn} needs opts.origin (SS58)`));
+    try {
+        return ok({ origin, h160: ss58ToH160(origin) });
+    } catch (cause) {
+        return err(
+            new DotNsError("InvalidOrigin", `opts.origin is not a valid SS58 address: ${origin}`, {
+                cause,
+            }),
+        );
+    }
+}
+
 /** Arguments for {@link prepareDotNsRegistration}. */
 export interface RegisterDotNsArgs {
     /** The name to register, e.g. `"alice.paseo"` — or the bare label `"alice"`. */
@@ -654,10 +682,9 @@ export async function setDotNsRecord(
     }
     // Both calls are owner-gated, so a dry-run from the fallback account would
     // revert and the error would look like a contract problem.
-    const origin = opts.origin;
-    if (!origin) {
-        return err(new DotNsError("MissingOrigin", "setDotNsRecord needs opts.origin (SS58)"));
-    }
+    const writer = requireWriteOrigin(opts, "setDotNsRecord");
+    if (!writer.ok) return writer;
+    const { origin } = writer.value;
     const node = namehash(normalized, tld);
     const addrs = await resolveDotNsAddresses(opts);
     if (!addrs.ok) return addrs;
@@ -809,12 +836,11 @@ export async function prepareDotNsRegistration(
     if (!isValidDotNsName(normalized, tld.suffix)) {
         return err(nameError(args.name, normalized, tld));
     }
-    const origin = opts.origin;
-    if (!origin) {
-        return err(
-            new DotNsError("MissingOrigin", "prepareDotNsRegistration needs opts.origin (SS58)"),
-        );
-    }
+    // register compares msg.sender against the owner; msg.sender is derived
+    // from the SS58 origin, so the H160 predicts the branch.
+    const writer = requireWriteOrigin(opts, "prepareDotNsRegistration");
+    if (!writer.ok) return writer;
+    const { origin, h160: payer } = writer.value;
     // The registrar takes the bare label, without the TLD suffix.
     const label = stripSuffix(normalized, tld.suffix);
     const addrs = await resolveDotNsAddresses(opts);
@@ -823,21 +849,6 @@ export async function prepareDotNsRegistration(
     const popRulesAddr = addrs.value.popRules;
     const secret = `0x${bytesToHex(randomBytes(32))}` as HexString;
     const registration = { label, owner: args.owner, secret, reserved: args.reserved ?? false };
-    // register compares msg.sender against the owner; msg.sender is derived
-    // from the SS58 origin, so derive it the same way to predict the branch.
-    // ss58ToH160 throws on an undecodable address, and this sits outside the
-    // try below, so guard it here rather than letting it escape the Result.
-    let payer: HexString;
-    try {
-        payer = ss58ToH160(origin);
-    } catch (cause) {
-        return err(
-            new DotNsError("InvalidOrigin", `opts.origin is not a valid SS58 address: ${origin}`, {
-                cause,
-            }),
-        );
-    }
-
     try {
         const controller = contractOf(
             opts.runtime,
