@@ -1,5 +1,12 @@
 # @parity/product-sdk-chain-client
 
+## 0.13.9
+
+### Patch Changes
+
+- Updated dependencies [5dab257]
+  - @parity/product-sdk-host@0.33.0
+
 ## 0.13.8
 
 ### Patch Changes
