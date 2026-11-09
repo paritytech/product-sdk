@@ -57,8 +57,6 @@ export const PROFILE_AVATAR_MAX_BYTES = 2 * 1024 * 1024;
  */
 export const PROFILE_ENTRY_INDEX = { avatar: 0, name: 1, nft: 2, feed: 3 } as const;
 
-export type ProfileEntryName = keyof typeof PROFILE_ENTRY_INDEX;
-
 /**
  * The formats an avatar may be in. The index is what travels: `png` is 0,
  * `jpeg` is 1, `webp` is 2 and `gif` is 3, as the core's shared `ImageFormat`

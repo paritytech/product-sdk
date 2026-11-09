@@ -57,7 +57,7 @@ export type MoodIntensity = (typeof MOOD_INTENSITIES)[number];
 export const MOOD_TTL_SECS = 24 * 60 * 60;
 
 /** How long a read waits for the host to finish the topic's backfill. */
-export const DEFAULT_MOOD_READ_TIMEOUT_MS = 15_000;
+const DEFAULT_MOOD_READ_TIMEOUT_MS = 15_000;
 
 /** A mood as a reader sees it. Times are Unix seconds. */
 export interface Mood {
@@ -450,7 +450,7 @@ export function watchMood(
 
 /** Options for {@link readMood}. */
 export interface ReadMoodOptions {
-    /** Default {@link DEFAULT_MOOD_READ_TIMEOUT_MS}. */
+    /** Default 15 s. */
     timeoutMs?: number;
     signal?: AbortSignal;
 }

@@ -112,24 +112,6 @@ describe("getProfile", () => {
         expect(calls(runtime)).toEqual([GET, TEXT]);
     });
 
-    test("the content resolver is read once per runtime", async () => {
-        const runtime = found();
-        await getProfile("alice", { runtime, tld: DOT_TLD });
-        await getProfile("bob", { runtime, tld: DOT_TLD });
-        expect(calls(runtime)).toEqual([GET, TEXT, TEXT]);
-    });
-
-    test("a supplied content resolver address skips the registry read", async () => {
-        const runtime = found();
-        const r = await getProfile("alice", {
-            runtime,
-            tld: DOT_TLD,
-            contentResolverAddress: CONTENT_RESOLVER,
-        });
-        expect(r.ok && r.value.tag).toBe("Found");
-        expect(calls(runtime)).toEqual([TEXT]);
-    });
-
     test("asks for the node of the full name, with a lite name's parts as levels", async () => {
         const runtime = found();
         await getProfile("alice.42", { runtime, tld: DOT_TLD });

@@ -59,10 +59,10 @@ const digestOf = (bytes: Uint8Array) => `0x${bytesToHex(blake2b256(bytes))}` as 
  * the host answers from its cache or from Bulletin, so a first read can take
  * a while.
  */
-export const DEFAULT_AVATAR_TIMEOUT_MS = 30_000;
+const DEFAULT_AVATAR_TIMEOUT_MS = 30_000;
 
 /** The MIME type each declared format maps to. */
-export const AVATAR_MIME_TYPES: Record<ProfileAvatarFormat, AvatarMimeType> = {
+const AVATAR_MIME_TYPES: Record<ProfileAvatarFormat, AvatarMimeType> = {
     png: "image/png",
     jpeg: "image/jpeg",
     webp: "image/webp",
@@ -70,7 +70,7 @@ export const AVATAR_MIME_TYPES: Record<ProfileAvatarFormat, AvatarMimeType> = {
 };
 
 export interface LoadAvatarOptions {
-    /** Default {@link DEFAULT_AVATAR_TIMEOUT_MS}. */
+    /** Default 30 s. */
     timeoutMs?: number;
     signal?: AbortSignal;
 }

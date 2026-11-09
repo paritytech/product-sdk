@@ -1,10 +1,8 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Find a name's `profile` record: the dotNS walk the host core's
- * public-profile reader makes (truapi `public_profile.rs`, not yet on main),
- * built on the identity module's TLD and address
- * resolution.
+ * Find a name's `profile` record: the DotNS walk the core's public-profile
+ * reader makes, built on the identity module's TLD and address resolution.
  */
 import { createLogger } from "@parity/product-sdk-logger";
 import { type Result, err, ok } from "@parity/result";
@@ -91,10 +89,8 @@ export type ProfileLocation = ProfileName & {
  * what every other dotNS read takes.
  *
  * The record lives on the deployment's content resolver, whatever resolver the
- * name itself points at. Every name is minted pointing at the reverse
- * resolver, and its profile is on the content resolver all the same; the
- * core's public-profile reader reads and writes it there, and so does this
- * module.
+ * name itself points at; `prepareSetProfile` says why the pointer is left
+ * alone.
  */
 export async function locateProfile(
     label: string,
