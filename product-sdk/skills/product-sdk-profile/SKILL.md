@@ -238,11 +238,17 @@ the current text, dry-runs `setText` as the origin and returns `{ call, text, or
 stranger fails as `DotNsError` reason `Unauthorised` before the dry-run; a text no reader accepts
 fails as `ProfileError` before the chain is asked.
 
-It never calls `setResolver`. A name minted through the gateway is parked on the reverse
-resolver, and the record is still written and read on the deployment's content resolver, because
-`setText` checks the registry's authorisation and not the pointer, and every reader that matters,
-the host core and this SDK, finds the record there. Repointing would buy nothing and would fight
-the address record's pointer.
+It never calls `setResolver`. Every name is minted pointing at the reverse resolver, and the
+record is still written and read on the deployment's content resolver, because `setText` checks
+the registry's authorisation and not the pointer. That is where dotNS keeps text records, where
+dotns-sdk reads them, and where the host core's public-profile reader reads a profile (truapi
+`public_profile.rs`, not yet on main). Repointing would buy nothing, and it can cost the name its
+address: an address is read only while the pointer is the forward resolver, which is where
+`setDotNsRecord` puts it.
+
+Hosts follow the pointer for one text record, a product's `manifest`, and none of them reads a
+profile that way. If a host's profile view comes up empty for a name whose record verifies, it
+is reading through the pointer; that is a host bug to report, not a reason to repoint.
 
 ### What the product owns
 
@@ -362,7 +368,8 @@ from it for a test or a demo. What it shows that the API does not:
   `original`; if the record changed, submitting it erases the other write.
 - **Fetching an avatar from a gateway.** The CID is a Bulletin preimage; `loadAvatar` goes through
   the host so no third party learns who is being looked at.
-- **Calling `setResolver` first.** Not needed, and it fights `setDotNsRecord`.
+- **Calling `setResolver` first.** Not needed, and it fights `setDotNsRecord`: an address is
+  read only while the pointer is the forward resolver, so repointing loses the name's address.
 - **Expecting the SDK to find the signer or fund the account.** It prepares; the product publishes.
 - **Hard-coding the TLD.** It is read from the chain; `.paseo` and `.dot` are different networks.
 - **Setting a mood before the record names the feed.** A mood on a topic no record names is seen

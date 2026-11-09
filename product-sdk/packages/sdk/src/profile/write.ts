@@ -46,8 +46,10 @@ export interface PreparedProfileWrite {
  * registry: its owner, or an address or operator the owner approved, the
  * same rule the content resolver's `setText` enforces. Anyone else fails as
  * `Unauthorised` before the dry-run rather than as a revert. The node's
- * resolver pointer is left alone: `setText` does not consult it, and every
- * reader that matters finds the record on the content resolver without it.
+ * resolver pointer is left alone: `setText` does not consult it, readers of a
+ * profile find the record on the content resolver without it, and an address
+ * is read only while it is the forward resolver, so moving it would lose a
+ * name's address record.
  *
  * The call is sized by a dry-run as the origin, which needs the origin's
  * account mapped in pallet-revive; `ensureContractAccountMapped` from

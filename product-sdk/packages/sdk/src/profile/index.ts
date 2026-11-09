@@ -15,11 +15,17 @@
  * reader keeps every entry it cannot read, and a writer puts it back.
  *
  * The record lives on the deployment's content resolver, whatever resolver the
- * name itself points at: the host core reads and writes it there, and so does
- * this module. A name the gateway minted is parked on the reverse resolver
- * and takes a `profile` record all the same, because the resolver's `setText`
- * checks the registry's authorisation for the node and not its pointer. So
- * nothing here calls `setResolver`, and nothing needs to.
+ * name itself points at. That is where dotNS keeps text records, where
+ * dotns-sdk reads them, and where the host core's public-profile reader
+ * (truapi `public_profile.rs`, not yet on main) reads and writes a profile;
+ * this module does the same. Every name is minted pointing at the reverse
+ * resolver and takes a `profile` record all the same, because the content
+ * resolver's `setText` checks the registry's authorisation for the node and
+ * not its pointer. So nothing here calls `setResolver`, and nothing should:
+ * an address is read only while the pointer is the forward resolver, so
+ * repointing a name that has an address record would lose it. A host that
+ * follows the pointer for a product's `manifest` text does not read profiles
+ * that way.
  *
  * Reads:
  *

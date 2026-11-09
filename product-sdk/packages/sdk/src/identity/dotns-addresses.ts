@@ -64,7 +64,8 @@ export const DOTNS_REGISTRY_KEYS = {
  * product's `manifest` and a person's `profile`. Not a member of
  * {@link DOTNS_REGISTRY_KEYS}, because nothing here pins its address or builds
  * a call against it: a text-record read resolves it from the chain through
- * {@link resolveDotNsContentResolver}, as the host core does.
+ * {@link resolveDotNsContentResolver}, as dotns-sdk and the host core's
+ * public-profile reader do.
  */
 export const DOTNS_CONTENT_RESOLVER_KEY: HexString =
     "0x636f6e74656e745265736f6c7665720000000000000000000000000000000000";
@@ -160,8 +161,9 @@ const contentResolverCache: RuntimeCache<HexString | null> = new WeakMap();
  * records rather than a failure. `opts.contentResolverAddress` skips the read.
  *
  * Read from the chain rather than pinned because a text record lives on this
- * contract whatever resolver the name itself points at: the host core reads a
- * person's `profile` straight from it, and `getProfile` does the same.
+ * contract whatever resolver the name itself points at: dotns-sdk reads text
+ * there, the host core's public-profile reader reads a person's `profile`
+ * straight from it, and `getProfile` does the same.
  */
 export async function resolveDotNsContentResolver(
     opts: DotNsClientOptions,
