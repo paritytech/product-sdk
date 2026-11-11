@@ -4,7 +4,8 @@ description: >
   Author, check and draw a Pocket card face in product-sdk.
   Use when: adding a card to the Polkadot app's Pocket tab, writing a card face in JSX, turning a
   component into a RendererNode, a card draws blank or is refused, wiring a worker that draws a live
-  card, or writing the static preview face the approval sheet shows.
+  card, writing the static preview face the approval sheet shows, giving a card a back the user turns
+  over, or putting an image made at run time, such as a code, on a card.
   Covers @parity/product-sdk-react-renderer (JSX components, createRenderer, drawPocketCard),
   @parity/product-sdk-renderer (validateFace, assertFaceValid, host limits) and
   @parity/product-sdk-host (getPocketManager, card list, removal).
@@ -84,8 +85,9 @@ Modifiers are plain props on any of them except `Effect`: `padding`, `margin`, `
 `width`, `height`, `minWidth`, `minHeight`, `fillMaxWidth`, `fillMaxHeight`, `opacity`, `blendingMode`.
 
 The vocabulary is small and closed: 11 node types, 12 modifiers, **9 semantic colour tokens**, 5
-typography presets, one effect. No literal colours, no gradients. Images come from a Bulletin CID or a
-path inside your archive, never a URL.
+typography presets, one effect. No literal colours, no gradients. Images come from a Bulletin CID, a
+path inside your archive, or their own bytes (see [an image made at run time](#an-image-made-at-run-time)), never a
+URL.
 
 **A press is `onClick`, not an action id.** react-renderer mints the id behind `onClick` and routes the
 press back to that handler, so you never name one and never match on one. The same goes for `onValueChange`
@@ -242,6 +244,61 @@ await pocket.removeCard("loyalty");  // rejects on a card the host placed itself
 
 Drawing the same card twice replaces the handler rather than stacking one, and different cards never
 interfere, so one worker can draw as many as its manifest declares.
+
+## The back of a card
+
+A card can have a back, which the user turns to on the opened card. Name the back's static file in the
+manifest, beside `preview`:
+
+```json
+{ "id": "loyalty", "title": "Loyalty", "preview": "pocket/partial.json", "back": "pocket/back.json" }
+```
+
+A card without `back` has only a front and never turns. Declare one only once the worker is built on a
+release that knows the back, since an older worker cannot decode the back's render context.
+
+Draw the back like the front, with `side: "back"`:
+
+```tsx
+drawPocketCard(pocket, "loyalty", <LoyaltyCard />);
+drawPocketCard(pocket, "loyalty", <LoyaltyCardBack />, { side: "back" });
+```
+
+The back is its own tree, and a press on it reaches that tree alone, even when both sides name the same
+action. State both sides show belongs above both trees, as the example's stamps do. Until the worker draws
+the back, the host shows the last back it kept, else the `back` file, so a worker that never draws one leaves
+the card on that file. Without React, the manager takes the side too: `pocket.drawCard(id, draw, "back")`
+and `pocket.subscribeCardAction(id, callback, "back")`.
+
+### An image made at run time
+
+An `Image` can carry its own bytes, for a picture the worker makes, such as a member's code:
+
+```tsx
+import { bytesToHex } from "@parity/product-sdk-utils";
+
+<Image source={{ tag: "Inline", value: `0x${bytesToHex(png)}` }} width={96} height={96} fit="Contain" />
+```
+
+The bytes must be a PNG, JPEG or WebP of at most 64 KiB, and `validateFace` refuses anything else; an SVG is
+refused because it can load outside addresses. They travel in the tree, so every redraw sends them again,
+and as hex they count twice toward a host's byte cap. A static file may carry one too.
+
+### Turning the card from the page
+
+The Widget page under an opened card can turn it, for a user who does not know it turns:
+
+```ts
+import { getTruApi } from "@parity/product-sdk-host";
+
+const truApi = await getTruApi();
+const result = await truApi?.expandedCard.setBackShown({ shown: true });
+```
+
+It succeeds as soon as the turn starts, and when that side is already up. It fails with `UserMoving` while
+the user is dragging the card, so try again once they let go; `NoBack` when the card has no back to show;
+`NotPresented` when the page is not under its card; and `Unsupported` on a host that cannot turn cards.
+`setFaceShown` also answers `UserMoving` while the user turns the card.
 
 ## The preview face, and the worker bundle
 

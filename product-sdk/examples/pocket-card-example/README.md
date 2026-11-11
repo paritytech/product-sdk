@@ -1,7 +1,7 @@
 # Pocket card example
 
-A worker that draws one Pocket card, `loyalty`, and generates the static faces the host's approval sheet
-shows before the card is added.
+A worker that draws one Pocket card, `loyalty`, front and back, and generates the static faces the host's
+approval sheet shows before the card is added, and the static back it shows until the worker draws one.
 
 The point of it is that the live card and the approval sheet come from **one module**. A sheet that
 disagrees with the card it is offering is worse than no sheet.
@@ -13,19 +13,21 @@ pnpm --filter "@parity/product-sdk-pocket-card-example" test        # the faces 
 pnpm --filter "@parity/product-sdk-pocket-card-example" build       # faces, bundle, and the ASCII check
 ```
 
-`build` does three things in order. It writes `dist/pocket/*.json`, checking each face before writing it.
+`build` does three things in order. It writes `dist/pocket/*.json`, the preview states and `back.json`,
+checking each before writing it.
 It bundles the worker to a single `dist/worker.js`. Then it asserts that bundle is ASCII.
 
 ## The files
 
 | File | What it is |
 |---|---|
-| `src/face.tsx` | the face, authored in JSX with `@parity/product-sdk-react-renderer` |
+| `src/face.tsx` | the face and the back, authored in JSX with `@parity/product-sdk-react-renderer` |
+| `src/member-code.ts` | the QR code on the back, as the hex an inline image carries |
 | `src/worker.tsx` | the worker entry, drawing through `getPocketManager()` |
 | `src/render.ts` | mounts a face once and hands back the tree it produced |
-| `src/write-faces.tsx` | writes and checks the approval sheet faces, and checks the manifest agrees |
-| `src/face.test.tsx` | every state of the card draws, and fits android as the text that ships |
-| `src/worker.test.tsx` | the stamps survive the card leaving the screen and coming back |
+| `src/write-faces.tsx` | writes and checks the static faces and back, and checks the manifest agrees |
+| `src/face.test.tsx` | every state of the card draws, and the back draws, as the text that ships |
+| `src/worker.test.tsx` | the stamps survive the card leaving the screen, and a stamp on the back counts |
 | `scripts/check-bundle.mjs` | the bundle is ASCII only |
 | `manifest/worker.json` | what the product publishes so the host knows the card exists |
 

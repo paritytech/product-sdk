@@ -36,4 +36,5 @@ export type {
     PocketCardElement,
     PocketCardPress,
     PocketCardDrawer,
+    PocketCardSide,
 } from "./pocket.js";

@@ -5,8 +5,8 @@
  * through it.
  *
  * A client has one slot, and registering again replaces whatever was there. But
- * the renderer serves three kinds of body: a Pocket card face, a chat message,
- * and an input widget. A product may well want more than one of them, so the
+ * the renderer serves several kinds of body: a Pocket card's front and back, a
+ * chat message, and an input widget. A product may well want more than one of them, so the
  * slot is owned here and dispatched by context, and each surface claims only
  * the contexts it draws. Claiming one leaves the others free.
  *
@@ -123,7 +123,8 @@ export interface RendererManager {
      * Draw one kind of body. Returns a handle that gives the context back.
      *
      * Reach for a surface's own wrapper where there is one. `getPocketManager()`
-     * claims `PocketCard` for you and routes it per card.
+     * claims `PocketCard`, and `PocketCardBack` once a back is drawn, and routes
+     * them per card.
      */
     draw(tag: RenderContextTag, handler: RenderHandler): RenderRegistration;
 }
