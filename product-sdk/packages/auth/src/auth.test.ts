@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { createAuthClient } from "./auth.js";
 import type { AuthConfig } from "./types.js";
@@ -21,7 +24,6 @@ const config: AuthConfig = {
     dappId: "test-app",
     productId: "test.dot",
     derivationIndex: 0,
-    peopleEndpoints: ["wss://example.com/people"],
 };
 
 describe("createAuthClient", () => {
@@ -45,5 +47,33 @@ describe("createAuthClient", () => {
         await expect(
             client.clearLocalAppStorage("/nonexistent/dir/should-not-exist-xyz"),
         ).resolves.toBeUndefined();
+    });
+
+    // A CLI may point storageDir at its own config folder, so logout must
+    // remove only the session it stored there.
+    test("clearLocalAppStorage removes the session and old session files and nothing else", async () => {
+        const root = await mkdtemp(join(tmpdir(), "auth-clear-"));
+        try {
+            const storageDir = join(root, "my-cli");
+            for (const dir of ["core", "product", "plugins"]) {
+                await mkdir(join(storageDir, dir), { recursive: true });
+                await writeFile(join(storageDir, dir, "f"), "x");
+            }
+            await writeFile(join(storageDir, "config.json"), "{}");
+            await writeFile(join(root, "test-app_SsoSessions.json"), "x");
+            await writeFile(join(root, "other-app_SsoSessions.json"), "x");
+
+            await createAuthClient({ ...config, storageDir }).clearLocalAppStorage(root);
+
+            expect({
+                storageDir: (await readdir(storageDir)).sort(),
+                root: (await readdir(root)).sort(),
+            }).toEqual({
+                storageDir: ["config.json", "plugins"],
+                root: ["my-cli", "other-app_SsoSessions.json"],
+            });
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
     });
 });

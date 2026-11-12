@@ -16,7 +16,7 @@
 /**
  * Pure formatters that map the `LoginStatus` / `LogoutStatus` streams to
  * one-line terminal messages. No I/O, no terminal deps — `import type` only,
- * so this module stays unit-testable without the SSO stack.
+ * so this module stays unit-testable without the pairing host.
  */
 import type { LoginStatus, LogoutStatus } from "../auth.js";
 
@@ -26,8 +26,6 @@ export function renderLoginStatus(status: LoginStatus): string {
             return "Waiting for you to scan the QR code with your phone…";
         case "paired":
             return "Paired — finishing sign-in…";
-        case "pending":
-            return `Working: ${status.stage}…`;
         case "success":
             return `Signed in as ${status.address}`;
         case "error":
