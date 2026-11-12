@@ -42,7 +42,7 @@ function deferredResult() {
     const pending = new Promise<never>((_resolve, rejectPending) => {
         reject = rejectPending;
     });
-    return { result: new ResultAsync(pending), reject: (error: unknown) => reject(error) };
+    return { result: new ResultAsync(pending), reject };
 }
 
 /** The truapi chain domain, answering every follow and read from one block. */

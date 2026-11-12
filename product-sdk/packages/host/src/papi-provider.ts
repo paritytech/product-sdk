@@ -66,6 +66,10 @@ const JSON_RPC_INTERNAL_ERROR = -32603;
 /** JSON-RPC method-not-found code for chainHead methods the host doesn't serve. */
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 
+/** The first wait before a synthetic stop, doubled on each one in a row. */
+const SHORTEST_STOP_DELAY_MS = 250;
+const LONGEST_STOP_DELAY_MS = 4000;
+
 /** A `chainHead_v1_followEvent` payload (loosely typed — consumed by PAPI's substrate-client). */
 type FollowEvent = { event: string } & Record<string, unknown>;
 
@@ -254,18 +258,18 @@ export function createHostPapiProvider(
         // Transport failures are synthesized as Stop below. PAPI retries Stop
         // synchronously, so pace only that synthetic path (not genuine Stop).
         let disconnected = false;
-        let transportRetryDelay = 250;
+        let transportRetryDelay = SHORTEST_STOP_DELAY_MS;
         /**
-         * Reads answered with a lost follow since a read last succeeded.
+         * Whether a read was answered with a lost follow since a read last succeeded.
          *
          * A follow that reached `Initialized` and then lost a read does not show that
          * the host is stable, so `Initialized` leaves the refollow delay growing while
-         * this is above zero, and only a read that succeeds brings the delay back.
+         * this is set, and only a read that succeeds brings the delay back.
          */
-        let lostReadsSinceSuccess = 0;
+        let lostReadSinceSuccess = false;
         function readSucceeded(): void {
-            lostReadsSinceSuccess = 0;
-            transportRetryDelay = 250;
+            lostReadSinceSuccess = false;
+            transportRetryDelay = SHORTEST_STOP_DELAY_MS;
         }
         const interruptedFollows = new Map<string, { timer?: ReturnType<typeof setTimeout> }>();
         function cancelTransportStop(subscription: string): void {
@@ -448,11 +452,11 @@ export function createHostPapiProvider(
                     hostError(id)(error);
                     return;
                 }
-                if (heldForStop(id, followSubscriptionId)) return;
                 holdRead(id, followSubscriptionId);
+                if (interruptedFollows.has(followSubscriptionId)) return;
                 // The frame ending this follow may never come, and only a stop ends the hold.
                 interruptFollow(followSubscriptionId, follow, error);
-                lostReadsSinceSuccess += 1;
+                lostReadSinceSuccess = true;
                 try {
                     follow.unsubscribe();
                 } catch (thrown) {
@@ -480,7 +484,7 @@ export function createHostPapiProvider(
             const pending: { timer?: ReturnType<typeof setTimeout> } = {};
             interruptedFollows.set(followSubscriptionId, pending);
             const delay = transportRetryDelay;
-            transportRetryDelay = Math.min(transportRetryDelay * 2, 4000);
+            transportRetryDelay = Math.min(transportRetryDelay * 2, LONGEST_STOP_DELAY_MS);
             const cause = reason === undefined ? "ended by the host" : formatHostError(reason);
             log.warn(
                 `chainHead follow ${followSubscriptionId} interrupted (${cause}): ${state}, stop in ${delay} ms`,
@@ -527,8 +531,8 @@ export function createHostPapiProvider(
                             interruptedFollows.has(followSubscriptionId)
                         )
                             return;
-                        if (item.tag === "Initialized" && lostReadsSinceSuccess === 0)
-                            transportRetryDelay = 250;
+                        if (item.tag === "Initialized" && !lostReadSinceSuccess)
+                            transportRetryDelay = SHORTEST_STOP_DELAY_MS;
                         const age = followAges.get(followSubscriptionId);
                         if (age !== undefined && item.tag !== "Stop") {
                             age.events += 1;
@@ -1663,6 +1667,31 @@ if (import.meta.vitest) {
         vi.advanceTimersByTime(250);
         expect(f.messages).toEqual([stopEvent, heldAnswer(2), heldAnswer(3)]);
     });
+
+    test.each([
+        ["header", "chainHead_v1_header", ["p:41", "0xhash"]],
+        ["body", "chainHead_v1_body", ["p:41", "0xhash"]],
+        [
+            "storage",
+            "chainHead_v1_storage",
+            ["p:41", "0xhash", [{ key: "0x01", type: "value" }], null],
+        ],
+        ["call", "chainHead_v1_call", ["p:41", "0xhash", "Core_version", "0x"]],
+    ])(
+        "a %s read sent while the stop is pending never reaches the host",
+        (_label, method, params) => {
+            vi.useFakeTimers();
+            const f = followWithFailingReads(lostFollow);
+            f.observers[0]?.error(new Error("transport closed"));
+
+            f.conn.send({ jsonrpc: "2.0", id: 2, method, params });
+            expect(f.hostCalls).toEqual([]);
+            expect(f.messages).toEqual([]);
+
+            vi.advanceTimersByTime(250);
+            expect(f.messages).toEqual([stopEvent, heldAnswer(2)]);
+        },
+    );
 
     test("unfollow answers the reads held for its follow", () => {
         vi.useFakeTimers();
