@@ -255,9 +255,9 @@ export function createHostPapiProvider(
         const activeBroadcasts = new Set<string>();
         const followOperations = new Map<string, Map<string, BufferedOperation>>();
         const pendingOperationStarts = new Map<string, number>();
+        let disconnected = false;
         // A stop this provider makes up is paced, because PAPI follows again at
         // once. A Stop from the host is not.
-        let disconnected = false;
         let transportRetryDelay = SHORTEST_STOP_DELAY_MS;
         /**
          * Whether a read was answered with a lost follow since a read last succeeded.
@@ -621,7 +621,14 @@ export function createHostPapiProvider(
                     followAges.delete(followSubId);
                     cancelTransportStop(followSubId);
                     activeFollows.delete(followSubId);
-                    if (follow) follow.unsubscribe();
+                    try {
+                        follow?.unsubscribe();
+                    } catch (thrown) {
+                        log.warn(
+                            `chainHead follow ${followSubId}: unsubscribe failed on unfollow`,
+                            { error: formatHostError(thrown) },
+                        );
+                    }
                     followOperations.delete(followSubId);
                     pendingOperationStarts.delete(followSubId);
                     sendJsonRpcResponse(id, null);
@@ -1716,6 +1723,21 @@ if (import.meta.vitest) {
         expect(f.messages).toHaveLength(2);
     });
 
+    test("unfollow answers the held reads when its unsubscribe throws", () => {
+        vi.useFakeTimers();
+        const f = followWithFailingReads({
+            unsubscribe: () => {
+                throw new Error("provider already closed");
+            },
+        });
+        f.read(2);
+
+        f.conn.send({ jsonrpc: "2.0", id: 3, method: "chainHead_v1_unfollow", params: ["p:41"] });
+
+        expect(f.messages).toEqual([{ jsonrpc: "2.0", id: 3, result: null }, heldAnswer(2)]);
+        expect(lines).toContain("warn: chainHead follow p:41: unsubscribe failed on unfollow");
+    });
+
     test("disconnect drops the held reads without answering them", () => {
         vi.useFakeTimers();
         const f = followWithFailingReads();
@@ -1791,6 +1813,7 @@ if (import.meta.vitest) {
         });
         f.read(3);
 
+        expect(answerHeader).toBeDefined();
         answerHeader?.();
         expect(f.messages).toEqual([{ jsonrpc: "2.0", id: 2, result: "0x01" }]);
         f.messages.length = 0;
@@ -1832,6 +1855,7 @@ if (import.meta.vitest) {
         vi.advanceTimersByTime(250);
         conn.send({ jsonrpc: "2.0", id: 4, method: "chainHead_v1_follow", params: [true] });
 
+        expect(answerHeader).toBeDefined();
         answerHeader?.();
         conn.send({
             jsonrpc: "2.0",
