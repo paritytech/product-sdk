@@ -584,15 +584,14 @@ const MAX_INLINE_IMAGE_BYTES = 64 * 1024;
  * and takes PNG, JPEG or WebP only; the format is the host's to check.
  */
 function validateInlineImage(value: unknown, path: string, verdict: Verdict): void {
-    if (absent(value)) {
-        verdict.error(path, "missing-field", `'${leaf(path)}' is required`);
-        return;
-    }
-    if (typeof value !== "string" || !/^0x(?:[0-9a-fA-F]{2})*$/.test(value)) {
+    validateValue(value, { kind: "string" }, path, true, verdict);
+    if (typeof value !== "string") return;
+    // No image is empty, so "0x" alone is refused with the rest.
+    if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(value)) {
         verdict.error(
             path,
             "inline-image-not-hex",
-            "inline image bytes must be a '0x'-prefixed hex string of whole bytes",
+            "inline image bytes must be a '0x'-prefixed hex string of at least one whole byte",
         );
         return;
     }
@@ -601,7 +600,7 @@ function validateInlineImage(value: unknown, path: string, verdict: Verdict): vo
         verdict.error(
             path,
             "inline-image-too-large",
-            `an inline image is ${bytes} bytes, past the ${MAX_INLINE_IMAGE_BYTES} the protocol allows`,
+            `an inline image is ${bytes} bytes, past the 64 KiB (${MAX_INLINE_IMAGE_BYTES} bytes) the protocol allows`,
         );
     }
 }
@@ -797,6 +796,8 @@ if (import.meta.vitest) {
             expect(errorCodes(image({ tag: "Bulletin", value: "bafybeigdyrzt" }))).toEqual([]);
             expect(errorCodes(image({ tag: "Archive", value: "logo.png" }))).toEqual([]);
             expect(errorCodes(image({ tag: "Inline", value: "0x89504e47" }))).toEqual([]);
+            // Hex encoders differ in case; both spellings are the same bytes.
+            expect(errorCodes(image({ tag: "Inline", value: "0xFFD8FF" }))).toEqual([]);
         });
 
         // The host decodes inline bytes itself, so what it cannot carry is
@@ -806,8 +807,11 @@ if (import.meta.vitest) {
                 tag: "Image",
                 value: { props: { source: { tag: "Inline", value } } },
             });
+            expect(errorCodes(image(undefined))).toEqual(["missing-field"]);
+            expect(errorCodes(image(new Uint8Array([1])))).toEqual(["wrong-type"]);
             expect(errorCodes(image("logo.png"))).toEqual(["inline-image-not-hex"]);
             expect(errorCodes(image("0xabc"))).toEqual(["inline-image-not-hex"]);
+            expect(errorCodes(image("0x"))).toEqual(["inline-image-not-hex"]);
             expect(errorCodes(image(`0x${"00".repeat(64 * 1024 + 1)}`))).toEqual([
                 "inline-image-too-large",
             ]);
