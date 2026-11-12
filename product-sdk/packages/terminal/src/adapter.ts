@@ -13,7 +13,8 @@ import { join } from "node:path";
 
 import { createLogger } from "@parity/product-sdk-logger";
 import { asProductId, createClient, createTransport, type TrUApiClient } from "@parity/truapi";
-import type { AuthState, SessionUiInfo } from "@parity/truapi-host";
+import type { AuthState, SessionUiInfo, TrUApiProductProvider } from "@parity/truapi-host";
+import { getPublicKey } from "@scure/sr25519";
 import {
     createHeadlessHostCallbacks,
     createNodePairingHostRuntime,
@@ -103,6 +104,40 @@ export function defaultStorageDir(appId: string): string {
     return join(homedir(), ".polkadot-apps", name);
 }
 
+/** The order of the Ristretto group sr25519 scalars live in. */
+const SR25519_ORDER = 2n ** 252n + 27742317777372353535851937790883648493n;
+
+function littleEndianToBigInt(bytes: Uint8Array): bigint {
+    let value = 0n;
+    for (let i = bytes.length - 1; i >= 0; i--) value = (value << 8n) | BigInt(bytes[i]!);
+    return value;
+}
+
+/**
+ * The public keys an sr25519 secret can stand for, as the core reads it:
+ * schnorrkel's canonical scalar first, then the ed25519-expanded form, whose
+ * scalar is multiplied by the cofactor. `@scure/sr25519` takes only the
+ * expanded form of a reduced scalar, so each reading is re-encoded that way.
+ */
+function statementPublicKeys(secret: Uint8Array): Uint8Array[] {
+    const key = littleEndianToBigInt(secret.subarray(0, 32));
+    const keys: Uint8Array[] = [];
+    for (const scalar of [key, key >> 3n]) {
+        const expanded = new Uint8Array(secret);
+        let encoded = (scalar % SR25519_ORDER) << 3n;
+        for (let i = 0; i < 32; i++) {
+            expanded[i] = Number(encoded & 0xffn);
+            encoded >>= 8n;
+        }
+        try {
+            keys.push(getPublicKey(expanded));
+        } catch {
+            // Not a valid key in this reading.
+        }
+    }
+    return keys;
+}
+
 export async function createTerminalAdapter(
     options: TerminalAdapterOptions,
 ): Promise<TerminalAdapter> {
@@ -172,26 +207,41 @@ export async function createTerminalAdapter(
         else log.warn("could not restore the stored session", { cause });
     });
 
-    const clients = new Map<string, Promise<TrUApiClient>>();
-    const client = (productId = options.appId) => {
+    interface ProductClient {
+        provider: TrUApiProductProvider;
+        client: TrUApiClient;
+    }
+    const clients = new Map<string, Promise<ProductClient>>();
+    const productClient = (productId: string) => {
         let created = clients.get(productId);
         if (!created) {
-            created = runtime
+            const creating = runtime
                 .createProvider({ productId: asProductId(productId) })
-                .then((provider) =>
-                    createClient(
+                .then((provider) => {
+                    // A core closes for good, on a frame error among others, so
+                    // the next call opens a fresh one.
+                    provider.subscribeClose?.(() => {
+                        if (clients.get(productId) === creating) clients.delete(productId);
+                    });
+                    const client = createClient(
                         createTransport(provider, {
                             requestTimeoutMs:
                                 options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
                         }),
-                    ),
-                );
+                    );
+                    return { provider, client };
+                });
+            created = creating;
             clients.set(productId, created);
             // A failed creation is not kept, so the next call tries again.
-            created.catch(() => clients.delete(productId));
+            created.catch(() => {
+                if (clients.get(productId) === creating) clients.delete(productId);
+            });
         }
         return created;
     };
+    const client = (productId = options.appId) =>
+        productClient(productId).then((created) => created.client);
 
     let destroyed: Promise<void> | undefined;
     return {
@@ -247,10 +297,16 @@ export async function createTerminalAdapter(
         },
 
         async logout() {
-            const paired = authState.tag === "Connected";
-            // Armed before disconnecting: the core sends the wallet's notice in the background.
-            const notified = paired
-                ? chainConnections.nextStatementSubmit(LOGOUT_NOTICE_TIMEOUT_MS)
+            // The core signs the wallet's notice with the session's statement
+            // key, which is gone once the session is.
+            const statementKey =
+                authState.tag === "Connected" ? await runtime.getDeviceStatementKey() : undefined;
+            // Armed before disconnecting: the core sends the notice in the background.
+            const notified = statementKey
+                ? chainConnections.nextStatementSubmit(
+                      statementPublicKeys(statementKey),
+                      LOGOUT_NOTICE_TIMEOUT_MS,
+                  )
                 : undefined;
             await runtime.disconnectSession();
             if (notified && !(await notified)) {
@@ -261,9 +317,27 @@ export async function createTerminalAdapter(
         },
 
         destroy() {
-            destroyed ??= Promise.resolve()
-                .then(() => runtime.dispose())
-                .finally(() => chainConnections.closeAll());
+            destroyed ??= (async () => {
+                const open = await Promise.allSettled(clients.values());
+                // The core may let open operations finish before it tears down,
+                // and closes every product's core when it does. Chains stay up
+                // until then, so an operation is not cut off partway.
+                const tornDown = open.map(
+                    (created) =>
+                        new Promise<void>((resolve) => {
+                            if (created.status !== "fulfilled") return resolve();
+                            const { subscribeClose } = created.value.provider;
+                            if (!subscribeClose) return resolve();
+                            subscribeClose(() => resolve());
+                        }),
+                );
+                try {
+                    runtime.dispose();
+                    await Promise.all(tornDown);
+                } finally {
+                    chainConnections.closeAll();
+                }
+            })();
             return destroyed;
         },
     };
@@ -282,6 +356,24 @@ if (import.meta.vitest) {
         bulletin: { ...TerminalNetworks["paseo-next-v2"].bulletin, endpoint: "ws://127.0.0.1:9" },
         assetHub: { ...TerminalNetworks["paseo-next-v2"].assetHub, endpoint: "ws://127.0.0.1:9" },
     };
+
+    describe("statementPublicKeys", () => {
+        test("reads a canonical secret and an expanded one as the same key", async () => {
+            const { secretFromSeed } = await import("@scure/sr25519");
+            const expanded = secretFromSeed(new Uint8Array(32).fill(7));
+            let scalar = (littleEndianToBigInt(expanded.subarray(0, 32)) >> 3n) % SR25519_ORDER;
+            const canonical = new Uint8Array(expanded);
+            for (let i = 0; i < 32; i++) {
+                canonical[i] = Number(scalar & 0xffn);
+                scalar >>= 8n;
+            }
+            const publicKey = getPublicKey(expanded);
+            expect([
+                statementPublicKeys(canonical)[0],
+                statementPublicKeys(expanded).at(-1),
+            ]).toEqual([publicKey, publicKey]);
+        });
+    });
 
     describe("createTerminalAdapter", () => {
         // Offline, the core shows the pairing link, then fails pairing when it

@@ -17,10 +17,16 @@ The core handles pairing, the session, allowances and signing. It is the same Ru
 
 **`@parity/product-sdk-terminal` API**
 
-- `createTerminalAdapter` is now `async`. The adapter has `appId`, `storageDir`, `runtime`, `session`, `authState`, `onAuthStateChange`, `login`, `logout`, `client` and `destroy`. `logout` resolves once the wallet has been told, and rejects when it could not be reached within 30 s.
+- `createTerminalAdapter` is now `async`. The adapter is no longer a `PappAdapter`: `sso`, `sessions` and `allowance` are gone. Pair with `login()` in place of `sso.authenticate()`, and read the session from `session` and `onAuthStateChange`. The adapter has `appId`, `storageDir`, `runtime`, `session`, `authState`, `onAuthStateChange`, `login`, `logout`, `client` and `destroy`. `storageDir` is always set. `logout` resolves once the wallet has been told, and rejects when it could not be reached within 30 s. `destroy` lets the core finish open operations, for up to 30 s, before it closes the chain connections.
+- `TerminalAdapterOptions.endpoints` is replaced by `network`. `hostMetadata` is `{ name?, version?, icon? }`. There are new `requestTimeoutMs`, `logLevel` and `approvals` options.
 - Signers and helpers take the adapter instead of a `UserSession`: `createSessionSigner`, `createSessionSignerForAccount`, `deriveProductPublicKey`, `deriveEntropy`, `getStatementStoreProver` and `requestResourceAllocation`.
+- `deriveEntropy(adapter, productId, key)` now returns a `Promise<Uint8Array>`.
+- `getStatementStoreProver(adapter, productId?)` has no `sessionId` parameter, and returns an async `StatementStoreProver`.
+- `deriveProductPublicKey(adapter, ref)` has no `options` parameter.
+- `sessionRootPublicKey` takes a `TerminalSession`.
+- A lapsed session allowance fails signing with `AllowanceExpiredError`, naming `statementStore` or `bulletin`. A PGAS or AutoSigning allowance failure is a plain error, fixed by `requestResourceAllocation`.
 - `requestResourceAllocation(adapter, resources, { productId? })` returns one outcome per resource: `"Allocated"`, `"Rejected"` or `"NotAvailable"`. It has no `onExisting` option, because the core increases an existing allowance.
-- New: `submitPreimage`, `submitStatement`, `defaultStorageDir`, `approveAll`, and the `approvals` option for answering the core's approval prompts.
+- New: `submitPreimage`, `submitStatement`, `defaultStorageDir`, `approveAll`, and the types `LoginOptions`, `TerminalSession`, `TerminalApprovalRequest`, `TerminalApprovals`, `TerminalChain`, `TerminalNetwork`, `TerminalNetworkName`, `TerminalStack`, `AllocationOutcome`, `Statement`, `SignedStatement`, `StatementProof`, `StatementStoreProver` and `AuthState`.
 - `StatementStoreNetworks` is replaced by `TerminalNetworks`, keyed by network. Each carries the network's signed Trinity stack and the genesis hash and endpoint of its People, Bulletin and Asset Hub chains. Only `"paseo-next-v2"` is defined; `previewnet` is gone.
 - Removed:
   - `waitForSessions`, `getProductSubtreePublicKey`, `ProductSubtreeOptions` and `INCOMPLETE_SESSION_MESSAGE`.
@@ -36,6 +42,7 @@ The core handles pairing, the session, allowances and signing. It is the same Ru
 - `SessionHandle` now has `adapter` and `session` in place of `userSession`. `ResolvedSigner.userSession` is now `session`.
 - `LoginHandle.authPromise` is now `session`, and `LogoutHandle.session` is removed.
 - `requestAllocation(handle, resources?)` takes the `SessionHandle` and has no `onExisting` argument.
+- The re-exported `createSessionSigner`, `deriveProductPublicKey` and `sessionRootPublicKey` take what the terminal's do: the adapter, or a `TerminalSession` for `sessionRootPublicKey`.
 - `requestResourceAllocation(adapter, productId, resources?)` takes the adapter, and returns the string outcomes above.
 - The Bulletin resource tag is `BulletinAllowance` (it was `BulletInAllowance`).
 - `LoginStatus` has no `pending` step.

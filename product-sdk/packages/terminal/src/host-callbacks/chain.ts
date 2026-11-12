@@ -96,12 +96,14 @@ export function openJsonRpcConnection(
 export interface TerminalChains {
     provider: ChainProvider;
     /**
-     * Resolves `true` once a `statement_submit` request has gone out and been
-     * answered, or gone out on a connection the core then closed itself (as it
-     * does for a fire-and-forget submit), or `false` after `timeoutMs`. Call it
-     * before the action that submits, so the request cannot be missed.
+     * Resolves `true` once a `statement_submit` of a statement signed by one
+     * of `signers` (public keys) has gone out and been answered, or gone out on a
+     * connection the core then closed itself (as it does for a fire-and-forget
+     * submit), or `false` after `timeoutMs`. Statements other keys sign do not
+     * count. Call it before the action that submits, so the request cannot be
+     * missed.
      */
-    nextStatementSubmit(timeoutMs: number): Promise<boolean>;
+    nextStatementSubmit(signers: Uint8Array[], timeoutMs: number): Promise<boolean>;
     /** Close every socket, including one still connecting, and refuse new ones. */
     closeAll(): void;
 }
@@ -123,33 +125,38 @@ export function createChainProvider(
         [...endpointByGenesis].map(([hash, endpoint]) => [hash.toLowerCase(), endpoint]),
     );
     const sockets = new Set<SocketLike>();
-    const submitWaiters = new Set<() => void>();
+    /** Each waiter's notify, with its signers' public keys in hex without `0x`. */
+    const submitWaiters = new Map<() => void, string[]>();
     let closedAll = false;
-    const submitted = () => {
-        for (const notify of submitWaiters) notify();
-    };
 
     // Tracked per connection, so one closing cannot stand in for a submit sent on another.
     function connectionHooks(): ConnectionHooks {
-        const pendingSubmits = new Set<unknown>();
+        const pendingSubmits = new Map<unknown, (() => void)[]>();
         return {
             created(socket) {
                 sockets.add(socket);
                 socket.addEventListener("close", () => sockets.delete(socket));
             },
             sent(request) {
-                if (submitWaiters.size > 0 && request.includes('"statement_submit"')) {
-                    pendingSubmits.add(requestId(request));
-                }
+                if (submitWaiters.size === 0 || !request.includes('"statement_submit"')) return;
+                const lowered = request.toLowerCase();
+                const waiting = [...submitWaiters]
+                    .filter(([, signers]) => signers.some((signer) => lowered.includes(signer)))
+                    .map(([notify]) => notify);
+                if (waiting.length > 0) pendingSubmits.set(requestId(request), waiting);
             },
             received(response) {
-                if (pendingSubmits.size > 0 && pendingSubmits.delete(requestId(response)))
-                    submitted();
+                if (pendingSubmits.size === 0) return;
+                const id = requestId(response);
+                const waiting = pendingSubmits.get(id);
+                if (!waiting) return;
+                pendingSubmits.delete(id);
+                for (const notify of waiting) notify();
             },
             closing() {
-                if (pendingSubmits.size === 0) return;
+                for (const waiting of pendingSubmits.values())
+                    for (const notify of waiting) notify();
                 pendingSubmits.clear();
-                submitted();
             },
         };
     }
@@ -164,7 +171,7 @@ export function createChainProvider(
                 return openJsonRpcConnection(endpoint, openSocket, connectionHooks());
             },
         },
-        nextStatementSubmit(timeoutMs) {
+        nextStatementSubmit(signers, timeoutMs) {
             return new Promise((resolve) => {
                 const settle = (answered: boolean) => {
                     clearTimeout(timer);
@@ -173,7 +180,10 @@ export function createChainProvider(
                 };
                 const onAnswered = () => settle(true);
                 const timer = setTimeout(() => settle(false), timeoutMs);
-                submitWaiters.add(onAnswered);
+                submitWaiters.set(
+                    onAnswered,
+                    signers.map((signer) => toHex(signer).slice(2).toLowerCase()),
+                );
             });
         },
         closeAll() {
@@ -250,6 +260,10 @@ if (import.meta.vitest) {
         });
 
         // Logout waits on this, so the wallet's notice is not cut off by teardown.
+        const SIGNER = new Uint8Array(32).fill(0x5a);
+        const signed = `0x00${"5a".repeat(32)}00`;
+        const otherSigned = `0x00${"5b".repeat(32)}00`;
+
         test("reports a statement_submit once it is answered, and times out without one", async () => {
             const { socket, sent } = fakeSocket();
             const chains = createChainProvider(
@@ -259,10 +273,10 @@ if (import.meta.vitest) {
             const connecting = chains.provider.connect(new Uint8Array([0xab]));
             socket.emit("open");
             const connection = await connecting;
-            const answered = chains.nextStatementSubmit(5_000);
+            const answered = chains.nextStatementSubmit([SIGNER], 5_000);
             connection.send(JSON.stringify({ id: 7, method: "chain_getBlockHash", params: [] }));
             connection.send(
-                JSON.stringify({ id: 8, method: "statement_submit", params: ["0x00"] }),
+                JSON.stringify({ id: 8, method: "statement_submit", params: [signed] }),
             );
             socket.emit("message", { data: JSON.stringify({ id: 7, result: "0x01" }) });
             const beforeAnswer = await Promise.race([answered, Promise.resolve("pending")]);
@@ -271,7 +285,7 @@ if (import.meta.vitest) {
                 sent: sent.length,
                 beforeAnswer,
                 answered: await answered,
-                unanswered: await chains.nextStatementSubmit(10),
+                unanswered: await chains.nextStatementSubmit([SIGNER], 10),
             }).toEqual({ sent: 2, beforeAnswer: "pending", answered: true, unanswered: false });
         });
 
@@ -287,14 +301,36 @@ if (import.meta.vitest) {
             const submitting = chains.provider.connect(new Uint8Array([0xab]));
             sockets[1]!.socket.emit("open");
             const [otherConnection, submitConnection] = await Promise.all([other, submitting]);
-            const delivered = chains.nextStatementSubmit(5_000);
+            const delivered = chains.nextStatementSubmit([SIGNER], 5_000);
             submitConnection.send(
-                JSON.stringify({ id: "truapi:0", method: "statement_submit", params: ["0x00"] }),
+                JSON.stringify({ id: "truapi:0", method: "statement_submit", params: [signed] }),
             );
             otherConnection.close();
             const afterOtherClosed = await Promise.race([delivered, Promise.resolve("pending")]);
             submitConnection.close();
             expect([afterOtherClosed, await delivered]).toEqual(["pending", true]);
+        });
+
+        test("ignores a statement another key signed", async () => {
+            const { socket } = fakeSocket();
+            const chains = createChainProvider(
+                new Map([["0xab", "wss://x"]]),
+                () => socket as never,
+            );
+            const connecting = chains.provider.connect(new Uint8Array([0xab]));
+            socket.emit("open");
+            const connection = await connecting;
+            const notice = chains.nextStatementSubmit([SIGNER], 5_000);
+            connection.send(
+                JSON.stringify({ id: 1, method: "statement_submit", params: [otherSigned] }),
+            );
+            socket.emit("message", { data: JSON.stringify({ id: 1, result: { status: "new" } }) });
+            const afterOther = await Promise.race([notice, Promise.resolve("pending")]);
+            connection.send(
+                JSON.stringify({ id: 2, method: "statement_submit", params: [signed] }),
+            );
+            socket.emit("message", { data: JSON.stringify({ id: 2, result: { status: "new" } }) });
+            expect([afterOther, await notice]).toEqual(["pending", true]);
         });
 
         test("closeAll closes a socket still connecting and refuses new connections", async () => {

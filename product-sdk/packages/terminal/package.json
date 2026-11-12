@@ -33,6 +33,7 @@
         "@parity/truapi-host": "catalog:",
         "@polkadot-api/signers-common": "catalog:",
         "@polkadot-api/utils": "^0.4.0",
+        "@scure/sr25519": "^2.2.0",
         "neverthrow": "^8.2.0",
         "qrcode": "^1.5.4"
     },

@@ -80,12 +80,22 @@ export function buildTransactionPayload(
 }
 
 /**
- * The core renews allowances itself, so a lapsed one surfaces only as a
- * failure naming it. Typed so callers can tell the user to re-pair.
+ * The core renews the session's allowances itself, so a lapsed one surfaces
+ * only as a failure naming it. Typed so callers can tell the user to re-pair.
+ * A product allowance the wallet grants on request (PGAS, AutoSigning) is not
+ * the session's, so its failure stays plain: the fix is `requestResourceAllocation`.
  */
 function signingError(what: string, error: unknown): Error {
     const description = describeCallError(error);
-    if (/allowance/i.test(description)) return new AllowanceExpiredError("statementStore", error);
+    if (
+        /allowance/i.test(description) &&
+        !/pgas|smart.?contract|auto.?signing/i.test(description)
+    ) {
+        return new AllowanceExpiredError(
+            /bulletin/i.test(description) ? "bulletin" : "statementStore",
+            error,
+        );
+    }
     return new Error(`${what} failed: ${description}`);
 }
 
@@ -179,11 +189,21 @@ if (import.meta.vitest) {
                 tag: "Unknown",
                 value: { reason: "no allowance set for account" },
             });
+            const bulletin = signingError("Wallet signing", {
+                tag: "Unknown",
+                value: { reason: "Bulletin allowance remained unavailable to dry-run" },
+            });
+            const pgas = signingError("Wallet signing", {
+                tag: "Unknown",
+                value: { reason: "no PGAS allowance for account index 2" },
+            });
             const rejected = signingError("Wallet signing", { tag: "Rejected" });
-            expect([lapsed instanceof AllowanceExpiredError, rejected.message]).toEqual([
-                true,
-                "Wallet signing failed: Rejected",
-            ]);
+            expect([
+                lapsed instanceof AllowanceExpiredError && lapsed.resource,
+                bulletin instanceof AllowanceExpiredError && bulletin.resource,
+                pgas instanceof AllowanceExpiredError,
+                rejected.message,
+            ]).toEqual(["statementStore", "bulletin", false, "Wallet signing failed: Rejected"]);
         });
     });
 
