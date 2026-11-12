@@ -1,5 +1,66 @@
 # @parity/product-sdk-pocket-card-example
 
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies [5dab257]
+  - @parity/product-sdk-host@0.33.0
+  - @parity/product-sdk-react-renderer@0.8.0
+  - @parity/product-sdk-renderer@0.11.0
+
+## 0.0.15
+
+### Patch Changes
+
+- Updated dependencies [a708cb6]
+  - @parity/product-sdk-host@0.32.0
+  - @parity/product-sdk-react-renderer@0.7.0
+  - @parity/product-sdk-renderer@0.10.0
+
+## 0.0.14
+
+### Patch Changes
+
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+  - @parity/product-sdk-host@0.31.0
+  - @parity/product-sdk-react-renderer@0.6.0
+  - @parity/product-sdk-renderer@0.9.0
+
+## 0.0.13
+
+### Patch Changes
+
+- Updated dependencies [f33ca4f]
+- Updated dependencies [f33ca4f]
+  - @parity/product-sdk-host@0.30.1
+
+## 0.0.12
+
+### Patch Changes
+
+- Updated dependencies [f508532]
+  - @parity/product-sdk-host@0.30.0
+
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [e9bfd25]
+  - @parity/product-sdk-host@0.29.0
+  - @parity/product-sdk-react-renderer@0.5.0
+  - @parity/product-sdk-renderer@0.8.0
+
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+  - @parity/product-sdk-host@0.28.0
+
 ## 0.0.9
 
 ### Patch Changes

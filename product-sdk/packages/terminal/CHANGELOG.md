@@ -1,5 +1,72 @@
 # @parity/product-sdk-terminal
 
+## 0.13.9
+
+### Patch Changes
+
+- Updated dependencies [5dab257]
+  - @parity/product-sdk-host@0.33.0
+  - @parity/product-sdk-signer@0.17.9
+  - @parity/product-sdk-keys@0.5.9
+
+## 0.13.8
+
+### Patch Changes
+
+- Updated dependencies [a708cb6]
+  - @parity/product-sdk-host@0.32.0
+  - @parity/product-sdk-signer@0.17.8
+  - @parity/product-sdk-keys@0.5.8
+
+## 0.13.7
+
+### Patch Changes
+
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+  - @parity/product-sdk-host@0.31.0
+  - @parity/product-sdk-signer@0.17.7
+  - @parity/product-sdk-keys@0.5.7
+
+## 0.13.6
+
+### Patch Changes
+
+- Updated dependencies [f33ca4f]
+- Updated dependencies [f33ca4f]
+  - @parity/product-sdk-host@0.30.1
+  - @parity/product-sdk-signer@0.17.6
+  - @parity/product-sdk-keys@0.5.6
+
+## 0.13.5
+
+### Patch Changes
+
+- Updated dependencies [f508532]
+  - @parity/product-sdk-host@0.30.0
+  - @parity/product-sdk-signer@0.17.5
+  - @parity/product-sdk-keys@0.5.5
+
+## 0.13.4
+
+### Patch Changes
+
+- Updated dependencies [e9bfd25]
+  - @parity/product-sdk-host@0.29.0
+  - @parity/product-sdk-signer@0.17.4
+  - @parity/product-sdk-keys@0.5.4
+
+## 0.13.3
+
+### Patch Changes
+
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+  - @parity/product-sdk-host@0.28.0
+  - @parity/product-sdk-signer@0.17.3
+  - @parity/product-sdk-keys@0.5.3
+
 ## 0.13.2
 
 ### Patch Changes

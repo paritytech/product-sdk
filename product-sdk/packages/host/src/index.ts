@@ -39,6 +39,9 @@ export {
     createHostPreimageManager,
     requestResourceAllocation,
     createProofAuthorized,
+    // Brands a product identifier for the wire shapes that take a `ProductId`
+    // (e.g. an `NftPurseRead` permission's `Product` owner).
+    asProductId,
     // Hex helpers
     toHex,
     fromHex,
@@ -50,6 +53,7 @@ export type {
     ResultAsync,
     AllocatableResource,
     AllocationOutcome,
+    ProductId,
     RemotePermission,
 } from "./truapi.js";
 
@@ -71,6 +75,7 @@ export {
     HostUnavailableError,
     HostCallFailedError,
     HostResponseDecodeError,
+    HostTimeoutError,
     isHostError,
     formatHostError,
 } from "./errors.js";
@@ -153,11 +158,12 @@ export type {
 } from "./pocket.js";
 
 // Payments (RFC-0006)
-export { getPaymentManager } from "./payments.js";
-export type { PaymentManager } from "./payments.js";
+export { getPaymentManager, newPaymentId } from "./payments.js";
+export type { PaymentManager, PaymentRequest, TopUpRequest } from "./payments.js";
 export type {
     HostPaymentBalanceSubscribeItem,
     HostPaymentStatusSubscribeItem,
+    HostPaymentTopUpStatusSubscribeItem,
     PaymentTopUpSource,
 } from "@parity/truapi";
 

@@ -190,6 +190,17 @@ export const DOTNS_POP_RULES_ABI: AbiEntry[] = [
     },
     {
         type: "function",
+        name: "isBaseNameReserved",
+        inputs: [{ name: "baseName", type: "string" }],
+        outputs: [
+            { name: "isReserved", type: "bool" },
+            { name: "reservationOwner", type: "address" },
+            { name: "expiryTimestamp", type: "uint64" },
+        ],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
         name: "classifyName",
         inputs: [{ name: "name", type: "string" }],
         outputs: [

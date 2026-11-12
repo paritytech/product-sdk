@@ -22,7 +22,7 @@ import type {
     TrUApiClient,
 } from "@parity/truapi";
 
-import { getClient, subscribeWithInterrupt } from "./transport.js";
+import { getClient, subscribeAcrossResets } from "./transport.js";
 import { type RenderHandler, registerRenderContext, renderFailure } from "./renderer.js";
 import { fromHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
@@ -122,9 +122,12 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
     const ensureActionSubscription = () => {
         if (actionSubscription) return;
 
-        actionSubscription = subscribeWithInterrupt(chat.actionSubscribe(), (action) => {
-            for (const listener of actionListeners) listener.next(action);
-        });
+        actionSubscription = subscribeAcrossResets(
+            () => chat.actionSubscribe(),
+            (action) => {
+                for (const listener of actionListeners) listener.next(action);
+            },
+        );
         actionSubscription.onInterrupt((reason) => {
             actionSubscription = undefined;
             for (const listener of actionListeners) listener.interrupt?.(reason);
@@ -140,8 +143,8 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
     const ensureRendererActionSubscription = () => {
         if (rendererActionSubscription) return;
 
-        rendererActionSubscription = subscribeWithInterrupt(
-            client.renderer.actionSubscribe(),
+        rendererActionSubscription = subscribeAcrossResets(
+            () => client.renderer.actionSubscribe(),
             ({ context, actionId, payload }) => {
                 if (context.tag !== "ChatMessage") return;
                 // A button press carries an empty payload.
@@ -207,7 +210,10 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
             return { messageId: response.messageId };
         },
         subscribeChatList(callback) {
-            return subscribeWithInterrupt(chat.listSubscribe(), (item) => callback(item.rooms));
+            return subscribeAcrossResets(
+                () => chat.listSubscribe(),
+                (item) => callback(item.rooms),
+            );
         },
         subscribeAction(callback) {
             const listener: ActionListener = { next: callback };
@@ -417,5 +423,39 @@ if (import.meta.vitest) {
         expect(stopActions).not.toHaveBeenCalled();
         messageSubscription.unsubscribe();
         expect(stopActions).toHaveBeenCalledOnce();
+    });
+
+    // The host holds actions while no stream is open, so a product that opens
+    // the stream again loses none; one that passed the reset on would stop
+    // hearing the user until it restarted.
+    test("a connection reset reopens the action stream without interrupting listeners", async () => {
+        const { emitConnectionStatus, setTruApiClient } = await import("./transport.js");
+        const { ConnectionResetError, SubscriptionError } = await import("@parity/truapi");
+        const observers: Array<{ error?(reason: unknown): void }> = [];
+        const actionSubscribe = vi.fn(() => ({
+            subscribe(observer: { error?(reason: unknown): void }) {
+                observers.push(observer);
+                return { subscriptionId: "action-subscription", unsubscribe() {} };
+            },
+        }));
+        const client = { chat: { actionSubscribe } } as unknown as TrUApiClient;
+        setTruApiClient(client);
+        try {
+            const interrupts: unknown[] = [];
+            adaptChatManager(client)
+                .subscribeAction(() => {})
+                .onInterrupt((reason) => interrupts.push(reason));
+
+            observers[0]?.error?.(
+                new SubscriptionError("interrupted", { cause: new ConnectionResetError() }),
+            );
+            emitConnectionStatus("disconnected");
+            emitConnectionStatus("connected");
+
+            expect(actionSubscribe).toHaveBeenCalledTimes(2);
+            expect(interrupts).toEqual([]);
+        } finally {
+            setTruApiClient(null);
+        }
     });
 }

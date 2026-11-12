@@ -1,5 +1,47 @@
 # @parity/product-sdk-tx
 
+## 0.5.9
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.5.9
+
+## 0.5.8
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.5.8
+
+## 0.5.7
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.5.7
+
+## 0.5.6
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.5.6
+
+## 0.5.5
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.5.5
+
+## 0.5.4
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.5.4
+
+## 0.5.3
+
+### Patch Changes
+
+- @parity/product-sdk-keys@0.5.3
+
 ## 0.5.2
 
 ### Patch Changes

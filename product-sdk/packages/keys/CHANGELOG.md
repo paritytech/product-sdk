@@ -1,5 +1,47 @@
 # @parity/product-sdk-keys
 
+## 0.5.9
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.25
+
+## 0.5.8
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.24
+
+## 0.5.7
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.23
+
+## 0.5.6
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.22
+
+## 0.5.5
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.21
+
+## 0.5.4
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.20
+
+## 0.5.3
+
+### Patch Changes
+
+- @parity/product-sdk-local-storage@0.3.19
+
 ## 0.5.2
 
 ### Patch Changes

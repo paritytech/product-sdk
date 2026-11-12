@@ -18,7 +18,10 @@
  * @module
  */
 import type { SdkError } from "@parity/product-sdk-errors";
-import type { scale } from "@parity/truapi";
+import { createLogger } from "@parity/product-sdk-logger";
+import { ConnectionResetError, RequestTimeoutError, type scale } from "@parity/truapi";
+
+const log = createLogger("host");
 
 /**
  * What a `Domain`-tagged call error carries. Widened from truapi's per-domain
@@ -152,7 +155,8 @@ export class HostCallFailedError extends HostError {
  * and the `@parity/truapi` version the product is built against disagree on the
  * wire shape of that call — a protocol-version skew. A host channel that closed
  * mid-call looks identical from here, so this does not assert the skew; the
- * real error is preserved on {@link cause}.
+ * real error is preserved on {@link cause}. A call the host never answers is
+ * the {@link HostTimeoutError} subclass, whose message says so.
  *
  * The truapi client catches the decode throw in its message handler and turns
  * it into a promise rejection, then wraps the call with
@@ -176,13 +180,95 @@ export class HostResponseDecodeError extends HostError {
     }
 }
 
+/**
+ * A host call got no answer before the truapi client's deadline. The client
+ * asks the host to cancel the call, but the host may already have acted on it,
+ * for example a person approving on their phone, so check the outcome before
+ * retrying. The client's {@link RequestTimeoutError} is preserved on
+ * {@link cause}.
+ *
+ * It is a {@link HostResponseDecodeError}, so code that handles a call the
+ * client could not complete handles a timeout too, but its message does not
+ * blame a protocol-version skew.
+ */
+export class HostTimeoutError extends HostResponseDecodeError {
+    /** How long the client waited, in milliseconds. */
+    readonly timeoutMs: number;
+
+    constructor(call: string, cause: RequestTimeout) {
+        super(call, cause);
+        this.message = `The host did not answer ${call} within ${formatWait(cause.timeoutMs)}.`;
+        this.name = "HostTimeoutError";
+        this.timeoutMs = cause.timeoutMs;
+    }
+}
+
+/** The shape of the truapi client's {@link RequestTimeoutError} this package relies on. */
+type RequestTimeout = Error & { timeoutMs: number };
+
+/**
+ * Whether `cause` is the truapi client's {@link RequestTimeoutError}. Matched
+ * by name, not `instanceof`: a host may inject a client bundled with its own
+ * copy of `@parity/truapi`.
+ */
+function isRequestTimeout(cause: unknown): cause is RequestTimeout {
+    return (
+        cause instanceof Error &&
+        cause.name === "RequestTimeoutError" &&
+        typeof (cause as { timeoutMs?: unknown }).timeoutMs === "number"
+    );
+}
+
+/**
+ * Whether `cause` is the {@link ConnectionResetError} of the truapi client,
+ * matched by name for the same reason as {@link isRequestTimeout}.
+ */
+function isConnectionReset(cause: unknown): cause is Error {
+    return cause instanceof Error && cause.name === "ConnectionResetError";
+}
+
+function formatWait(ms: number): string {
+    return ms < 1000 ? `${ms}ms` : `${Math.round(ms / 1000)}s`;
+}
+
+/**
+ * The typed error for a host call whose `ResultAsync` rejected: a
+ * {@link HostTimeoutError} when the client's deadline passed, otherwise a
+ * {@link HostResponseDecodeError}. One already typed passes through.
+ *
+ * A call that a reset of the host link rejected is logged at warn, with the
+ * reason the link closed, so the app log shows which calls the drop cost.
+ *
+ * @internal
+ */
+export function hostRejectionError(call: string, cause: unknown): HostResponseDecodeError {
+    if (cause instanceof HostResponseDecodeError) return cause;
+    if (isConnectionReset(cause)) {
+        const closeReason = cause.cause === undefined ? "" : ` (${formatHostError(cause.cause)})`;
+        log.warn(`${call}: the host link was reset mid-call${closeReason}`);
+    }
+    return isRequestTimeout(cause)
+        ? new HostTimeoutError(call, cause)
+        : new HostResponseDecodeError(call, cause);
+}
+
 /** Check whether a value is any {@link HostError}. */
 export function isHostError(error: unknown): error is HostError {
     return error instanceof HostError;
 }
 
 if (import.meta.vitest) {
-    const { test, expect, describe } = import.meta.vitest;
+    const { test, expect, describe, beforeEach } = import.meta.vitest;
+    const { configure } = await import("@parity/product-sdk-logger");
+
+    const lines: string[] = [];
+    configure({
+        level: "warn",
+        handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
+    });
+    beforeEach(() => {
+        lines.length = 0;
+    });
 
     describe("host error classes", () => {
         test("HostError is the base class", () => {
@@ -235,6 +321,80 @@ if (import.meta.vitest) {
             // The rendered cause is in the message, not just on `.cause`.
             expect(e.message).toContain("Offset is outside the bounds of the DataView");
             expect(e.message).toContain("protocol-version skew");
+        });
+
+        test("HostTimeoutError names the call and the wait, and keeps the client's error", () => {
+            const cause = new RequestTimeoutError("p:17", 12, 0, 390_000);
+            const error = new HostTimeoutError("requestResourceAllocation", cause);
+            // Code that handles a decode error keeps handling a timeout.
+            expect({
+                isDecodeError: error instanceof HostResponseDecodeError,
+                error,
+            }).toMatchObject({
+                isDecodeError: true,
+                error: {
+                    name: "HostTimeoutError",
+                    call: "requestResourceAllocation",
+                    timeoutMs: 390_000,
+                    message: "The host did not answer requestResourceAllocation within 390s.",
+                    cause,
+                },
+            });
+        });
+
+        test("hostRejectionError tells a timeout from a decode failure", () => {
+            // A client bundled with its own copy of `@parity/truapi` throws
+            // another class with the same name and shape.
+            const bundledTimeout = Object.assign(new Error("timed out"), {
+                name: "RequestTimeoutError",
+                timeoutMs: 500,
+            });
+            const causes = [
+                new RequestTimeoutError("p:1", 12, 0, 120_000),
+                bundledTimeout,
+                new RangeError("Offset is outside the bounds of the DataView"),
+            ];
+            expect(
+                causes.map((cause) => {
+                    const error = hostRejectionError("signRaw", cause);
+                    return error instanceof HostTimeoutError ? error.message : error.name;
+                }),
+            ).toEqual([
+                "The host did not answer signRaw within 120s.",
+                "The host did not answer signRaw within 500ms.",
+                "HostResponseDecodeError",
+            ]);
+        });
+
+        test("a call the reset rejected is logged at warn with its label and the close reason", () => {
+            const closed = new Error("websocket closed (ws://127.0.0.1:9955)");
+            const reset = new ConnectionResetError({ cause: closed });
+            const bundledReset = Object.assign(new Error("TrUAPI host connection interrupted"), {
+                name: "ConnectionResetError",
+                cause: closed,
+            });
+
+            hostRejectionError("createTransaction failed", reset);
+            hostRejectionError("signRaw failed", bundledReset);
+            hostRejectionError("getUserId", new ConnectionResetError());
+
+            expect(lines).toEqual([
+                "warn: createTransaction failed: the host link was reset mid-call (websocket closed (ws://127.0.0.1:9955))",
+                "warn: signRaw failed: the host link was reset mid-call (websocket closed (ws://127.0.0.1:9955))",
+                "warn: getUserId: the host link was reset mid-call",
+            ]);
+        });
+
+        test("a timeout, a decode failure or an already typed rejection is not logged", () => {
+            const causes = [
+                new RequestTimeoutError("p:1", 12, 0, 120_000),
+                new RangeError("Offset is outside the bounds of the DataView"),
+                new HostResponseDecodeError("getUserId", new ConnectionResetError()),
+            ];
+
+            for (const cause of causes) hostRejectionError("getUserId", cause);
+
+            expect(lines).toEqual([]);
         });
 
         test("isHostError narrows host errors only", () => {

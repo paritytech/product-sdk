@@ -1,5 +1,211 @@
 # @parity/product-sdk
 
+## 0.44.0
+
+### Minor Changes
+
+- 5dab257: **Pair with a truapi 0.29.0 host.** `@parity/truapi` moves from `^0.28.0` to `^0.29.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `1ddad8b65de84b98` to `22e6584ca33f86cd`, so the schema a product speaks no longer matches a host still on 0.28.0. Every host surface has to move in the same window.
+
+  What changed in the truapi surface, and how `@parity/product-sdk-host` absorbs it:
+
+  - **Product identifiers are branded.** The wire now types `dotNsIdentifier`, `ProductProofContext.productId`, `listRingVrfKeys`'s `owner`, `getProductContext`'s `productId` and an `NftPurseRead` permission's `Product` owner as `ProductId`, a branded string. The SDK keeps plain strings on its own surface: `ProductAccount`, `ProductAccountLookup` and `ProductProofContext` are now SDK-owned types whose `dotNsIdentifier` / `productId` stay `string`, and the host adapter brands them with `asProductId` at the wire boundary. Nothing changes for callers of `getProductAccount`, `signVrf`, `listRingVrfKeys`, `getProductAccountAlias` or `createRingVRFProof`. The one place the brand reaches product code is a `RemotePermission` built by hand for `requestPermission` with an `NftPurseRead` `Product` owner: brand that value with the newly re-exported `asProductId`; the `ProductId` type is re-exported next to it.
+  - **A `fundingProvider` domain joins the client**, the worker side of the funding modality: host-initiated `onAssign` / `onCancel` / `onSettleCancel` handlers plus `report` and `presentFrame`. The SDK does not model it yet. `createFakeHost()` lists it as not modeled, so touching it in a test throws a descriptive error like the other unmodeled domains.
+  - **`funding.request` answers with the session's `intent`** (`HostFundingResponse`) instead of nothing, and the request no longer carries a caller-chosen `id`. The SDK does not wrap `funding`, so this reaches only products calling it through `getTruApi()`.
+  - **Payments move to `V2`.** `payment.request` and `payment.topUp` gain an optional `funding` intent and the `AlreadyExists` / `FundingNotServed` errors; the `V1` shapes live on as `V01HostPayment*`. `getPaymentManager()` is unchanged: it never sets `funding`, and the generated client picks the version.
+
+### Patch Changes
+
+- Updated dependencies [5dab257]
+  - @parity/product-sdk-host@0.33.0
+  - @parity/product-sdk-renderer@0.11.0
+  - @parity/product-sdk-chain-client@0.13.9
+  - @parity/product-sdk-cloud-storage@0.13.9
+  - @parity/product-sdk-individuality@0.11.6
+  - @parity/product-sdk-local-storage@0.3.25
+  - @parity/product-sdk-signer@0.17.9
+  - @parity/product-sdk-keys@0.5.9
+  - @parity/product-sdk-contracts@0.11.9
+  - @parity/product-sdk-tx@0.5.9
+  - @parity/product-sdk-reputation@0.1.2
+
+## 0.43.0
+
+### Minor Changes
+
+- a708cb6: **Pair with a truapi 0.28.0 host.** `@parity/truapi` moves from `^0.27.0` to `^0.28.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `72bf858138ead26e` to `1ddad8b65de84b98`, so the schema a product speaks no longer matches a host still on 0.27.0. Every host surface has to move in the same window.
+
+### Patch Changes
+
+- Updated dependencies [a708cb6]
+  - @parity/product-sdk-host@0.32.0
+  - @parity/product-sdk-renderer@0.10.0
+  - @parity/product-sdk-chain-client@0.13.8
+  - @parity/product-sdk-cloud-storage@0.13.8
+  - @parity/product-sdk-individuality@0.11.5
+  - @parity/product-sdk-local-storage@0.3.24
+  - @parity/product-sdk-signer@0.17.8
+  - @parity/product-sdk-keys@0.5.8
+  - @parity/product-sdk-contracts@0.11.8
+  - @parity/product-sdk-tx@0.5.8
+  - @parity/product-sdk-reputation@0.1.1
+
+## 0.42.0
+
+### Minor Changes
+
+- a413d28: Add schema-based attestation reads, writes, revocations, and Honour tally reads. Expose the package through `@parity/product-sdk/reputation`.
+- a413d28: **Pair with a truapi 0.27.0 host.** `@parity/truapi` moves from `^0.26.0` to `^0.27.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `5f68beddf80f7b9a` to `72bf858138ead26e`, so the schema a product speaks no longer matches a host still on 0.26.0. Every host surface has to move in the same window.
+
+  **Surface changes carried through `@parity/product-sdk-host`.** truapi 0.27 adds an `nftPurse` domain, modeled as not-supported by the testing fake. The change is additive, so nothing the host package already exposed changes.
+
+### Patch Changes
+
+- a413d28: Chat and Pocket streams survive a host connection reset in native hosts, where the container reconnects to the host after the connection drops. The chat action stream, the renderer action streams for chat messages and Pocket cards, and the chat room and Pocket card lists are opened again once the host is connected again, and their listeners are not interrupted. The host holds actions while no stream is open, so presses and messages sent during the reset still arrive. Before this, a reset interrupted the chat action stream and both lists, left buttons in chat messages unresponsive until a message was rendered again, and left buttons in Pocket cards unresponsive until the product restarted. In a sandbox-hosted product, a closed connection still ends these streams and reaches `onInterrupt`. A Pocket card that subscribes after its action stream ended for another reason also opens it again.
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+  - @parity/product-sdk-reputation@0.1.0
+  - @parity/product-sdk-host@0.31.0
+  - @parity/product-sdk-renderer@0.9.0
+  - @parity/product-sdk-chain-client@0.13.7
+  - @parity/product-sdk-cloud-storage@0.13.7
+  - @parity/product-sdk-individuality@0.11.4
+  - @parity/product-sdk-local-storage@0.3.23
+  - @parity/product-sdk-signer@0.17.7
+  - @parity/product-sdk-keys@0.5.7
+  - @parity/product-sdk-contracts@0.11.7
+  - @parity/product-sdk-tx@0.5.7
+
+## 0.41.1
+
+### Patch Changes
+
+- f33ca4f: `isDotNsAvailable` reports a name under a live PopRules reservation as unavailable when PopRules refuses it to everyone. From DotNS 1.1.0 a reservation keeps the name off public registration for every account, its holder included, so a reserved name read as available while `prepareDotNsRegistration` failed with `NameReserved`. Up to DotNS 1.0.0 the holder may still register it, and the name stays available.
+- f33ca4f: A follow whose host connection dies while it is still starting now reports that loss, so PAPI refollows. The interrupt is held until the caller registers for it and is delivered exactly once, and the follow is recorded before that registration so the replay is not read as belonging to a superseded follow. Without this the product kept a follow id the host had already dropped, and every chain read bound to it failed until the product was restarted.
+- f33ca4f: **The host package logs at warn when its link to the host drops and when it comes back, names each host call that a reset of the link rejected, and follows the life of each PAPI chainHead follow subscription.**
+
+  - `[host] host link lost`
+  - `[host] host link back after <ms> ms`
+  - `[host] <call>: the host link was reset mid-call (<close reason>)`
+  - `[host:papi] chainHead follow <id> interrupted (<cause>): up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight, stop in <ms> ms`
+  - `[host:papi] chainHead follow <id> stopped by the host: up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight`
+  - `[host:papi] chainHead follow <id> restarted <ms> ms after the stop`
+  - `[host:papi] chainHead follow <id> unfollowed: up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight`
+
+  The first follow of a provider logs `chainHead follow <id> started` at info.
+
+- Updated dependencies [f33ca4f]
+- Updated dependencies [f33ca4f]
+  - @parity/product-sdk-host@0.30.1
+  - @parity/product-sdk-chain-client@0.13.6
+  - @parity/product-sdk-cloud-storage@0.13.6
+  - @parity/product-sdk-individuality@0.11.3
+  - @parity/product-sdk-local-storage@0.3.22
+  - @parity/product-sdk-signer@0.17.6
+  - @parity/product-sdk-keys@0.5.6
+  - @parity/product-sdk-contracts@0.11.6
+  - @parity/product-sdk-tx@0.5.6
+
+## 0.41.0
+
+### Minor Changes
+
+- f508532: `PaymentManager` follows the host's payments by id. `topUp({ id, amount, source, into? })` and `requestPayment({ id, amount, destination, from? })` take a 32-byte id the product chooses, so starting one again after a restart is answered `AlreadyExists` instead of moving funds twice. `requestPayment` resolves with nothing, `subscribePaymentStatus(id, …)` follows a payment by that id, and the new `subscribeTopUpStatus(id, …)` follows a top-up to `Claimed { finalized: true }`, `ClaimedPartially` or `NotClaimed`. `newPaymentId()` makes a random id for a product with nothing to derive one from. Breaking: the positional `topUp(amount, source, into?)` and `requestPayment(amount, destination, from?)` signatures and the `{ id }` response are gone. Needs the `@parity/truapi` release that carries payments by id; `RemotePermission` gains `BalanceAccess` with it. `subscribeBalance` needs `BalanceAccess`: the balance is the user's, per purse, and a grant revoked while subscribed ends the subscription with `PermissionDenied`.
+
+### Patch Changes
+
+- f508532: `getApprovedCollections("previewnet")` lists the demo collections on Previewnet Asset Hub: Coffee and Tea, Jobs and Sports. Previewnet answered an empty list before.
+- Updated dependencies [f508532]
+- Updated dependencies [f508532]
+  - @parity/product-sdk-host@0.30.0
+  - @parity/product-sdk-nfts@0.4.1
+  - @parity/product-sdk-chain-client@0.13.5
+  - @parity/product-sdk-cloud-storage@0.13.5
+  - @parity/product-sdk-individuality@0.11.2
+  - @parity/product-sdk-local-storage@0.3.21
+  - @parity/product-sdk-signer@0.17.5
+  - @parity/product-sdk-keys@0.5.5
+  - @parity/product-sdk-contracts@0.11.5
+  - @parity/product-sdk-tx@0.5.5
+
+## 0.40.0
+
+### Minor Changes
+
+- e9bfd25: **Pair with a truapi 0.26.0 host.** `@parity/truapi` moves from `^0.25.0` to `^0.26.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `3c45e49b26c1ab97` to `5f68beddf80f7b9a`, so the schema a product speaks no longer matches a host still on 0.25.0. Every host surface has to move in the same window.
+
+  **Surface changes carried through `@parity/product-sdk-host`.** truapi 0.26 makes the caller own the id for a payment and a top-up, so a reload can keep watching an in-flight session and a retry is idempotent. `PaymentManager.requestPayment` and `topUp` now take an optional `id` (a random 32-byte hex by default) and both return `{ id }`; `subscribePaymentStatus`'s first argument is that same `id`. truapi also adds a `funding` domain (modeled as not-supported by the testing fake) and a `BalanceAccess` remote permission, which passes through `requestPermission` unchanged.
+
+### Patch Changes
+
+- Updated dependencies [e9bfd25]
+  - @parity/product-sdk-host@0.29.0
+  - @parity/product-sdk-renderer@0.8.0
+  - @parity/product-sdk-chain-client@0.13.4
+  - @parity/product-sdk-cloud-storage@0.13.4
+  - @parity/product-sdk-individuality@0.11.1
+  - @parity/product-sdk-local-storage@0.3.20
+  - @parity/product-sdk-signer@0.17.4
+  - @parity/product-sdk-keys@0.5.4
+  - @parity/product-sdk-contracts@0.11.4
+  - @parity/product-sdk-tx@0.5.4
+
+## 0.39.0
+
+### Minor Changes
+
+- 45dc779: **A host call that gets no answer in time fails with `HostTimeoutError`, whose message no longer blames a protocol-version skew.**
+
+  A truapi `RequestTimeoutError` becomes `HostTimeoutError`, which names the call and how long the client waited, and keeps the original error as `cause`. It is a subclass of `HostResponseDecodeError`, so existing `instanceof HostResponseDecodeError` checks and `WithDecodeError<E>` still cover it; check `instanceof HostTimeoutError` to tell a timeout apart.
+
+- 45dc779: Add game registration in one call, so every product that signs players up for the weekly game (the game's app and chat, the personhood product) runs the same steps and gives the same answers.
+
+  - `registerForGame(chain, capabilities, options)` reads the seat, binds the lite alias when the free route needs it, decides the prize-draw entries at the best block, then hands the call, signed under the origin its route needs, to a `submit` capability. Registration is judged by the chain's clock, and the sign-up resolves at the best block unless `waitFor: "finalized"` is asked for. The draws never block the sign-up: a draw that is not open yet, or a read that fails, costs the tickets, and the outcome says why. An abort before the broadcast sends nothing.
+  - Every outcome, and every `GameRegistrationError`, carries a report and names the step that failed and whether a retry can help; `registrationRetryDelay` gives the backoff. A declined signature is never asked for again. A failure's `code` is always a name (the chain's error name, or one of `GameRegistrationOwnCode` such as `Timeout`, `Network` or `HostRefused`), never free text; what the error said is in `message` and `cause`.
+  - `readGameSeat` and the pure `deriveSeat` give the route (`returning`, `free`, `deposit` or `unfunded`), so every product shows the same answer.
+  - `bindGameSeat` runs the bind on its own: a current binding and a bind that cannot succeed ask for no proof, the `Game.LiteInvites` pin is checked before it goes out, and a bind no block holds within `timeoutMs` fails with `landingUnknown`.
+  - `GAME_PRODUCT_NAME`, `GAME_ACCOUNT_INDEX` and `gameProductId` name the game account in one place.
+  - The new `@parity/product-sdk-individuality/host` entry builds the capabilities from a host with `hostGameRegistrationCapabilities({ tld, accountIndex? })`, submitting through `@parity/product-sdk-tx`; `accountIndex` defaults to `GAME_ACCOUNT_INDEX`. It finds the personhood keys by chain and collection id, whatever pallet index the host lists them under, so no index is hard-coded. The main entry imports neither. The umbrella reaches it as `@parity/product-sdk/individuality/host`.
+
+- 45dc779: Add `getApprovedCollections(network)`, the collections apps offer for claims on a network, as plain ids. Any owner can register a collection for claims, so which ones to offer players is a product decision, now kept in one place instead of in each app.
+
+### Patch Changes
+
+- 45dc779: A host call that rejects now answers PAPI with a JSON-RPC error. truapi
+  rejects a call on a timeout, a closed transport or an abort, and the chain
+  provider answered only from the two arms of `.match`, which a rejection never
+  reaches. A timed-out `chainHead_v1_storage`, `chainHead_v1_call` or
+  `chainHead_v1_unpin` therefore stayed unsettled for good, and a best-block
+  watch that waited on it stopped with no error.
+
+  The provider now answers through the new `matchHostResult`, which runs on the
+  same `matchGuarded` path as `unwrapHostResult` and `mapHostResult`. A
+  rejection reaches the error arm as a `HostResponseDecodeError`.
+
+- 45dc779: Pace the stop the PAPI provider synthesizes when a host follow stream is
+  interrupted. polkadot-api refollows on a stop at once, so while the host's
+  chain connection is down every interrupt used to turn into an immediate new
+  follow, in a tight loop. The synthetic stop now waits 250 ms, doubling to a
+  4 s cap, and the delay resets when a follow delivers `Initialized`. A genuine
+  `Stop` item from the host is still forwarded at once. Unfollow and disconnect
+  cancel a pending stop, and a disconnected provider ignores further requests.
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+- Updated dependencies [45dc779]
+  - @parity/product-sdk-host@0.28.0
+  - @parity/product-sdk-individuality@0.11.0
+  - @parity/product-sdk-nfts@0.4.0
+  - @parity/product-sdk-chain-client@0.13.3
+  - @parity/product-sdk-cloud-storage@0.13.3
+  - @parity/product-sdk-local-storage@0.3.19
+  - @parity/product-sdk-signer@0.17.3
+  - @parity/product-sdk-keys@0.5.3
+  - @parity/product-sdk-contracts@0.11.3
+  - @parity/product-sdk-tx@0.5.3
+
 ## 0.38.0
 
 ### Minor Changes

@@ -12,15 +12,19 @@
  * @module
  */
 
-import type { ObservableLike, TrUApiClient } from "@parity/truapi";
+import { SubscriptionError } from "@parity/truapi";
+import type { ObservableLike, Observer, TrUApiClient } from "@parity/truapi";
 import {
     type ConnectionStatus,
     getClientSync as sandboxGetClientSync,
     isCorrectEnvironment as sandboxIsCorrectEnvironment,
     subscribeConnectionStatus as sandboxSubscribeConnectionStatus,
 } from "@parity/truapi/sandbox";
+import { createLogger } from "@parity/product-sdk-logger";
 
 import type { HostSubscription } from "./types.js";
+
+const log = createLogger("host");
 
 /** A {@link HostSubscription} carrying the transport-assigned subscription id. */
 export interface TransportSubscription extends HostSubscription {
@@ -81,7 +85,10 @@ export function setTruApiClient(client: TrUApiClient | null): void {
  * is set, otherwise the sandbox client (`null` outside a host container).
  */
 export function getClientSync(): TrUApiClient | null {
-    return clientOverride ?? sandboxGetClientSync();
+    if (clientOverride !== null) return clientOverride;
+    const client = sandboxGetClientSync();
+    if (client !== null) watchLink();
+    return client;
 }
 
 /**
@@ -138,6 +145,30 @@ function notifyLocalStatusListeners(status: HostConnectionStatus): void {
     for (const listener of [...localStatusListeners]) listener(status);
 }
 
+let linkWatched = false;
+let linkUp = false;
+let linkLostAt: number | null = null;
+
+function recordLinkStatus(status: HostConnectionStatus): void {
+    if (status === "connected") {
+        if (linkLostAt !== null) log.warn(`host link back after ${Date.now() - linkLostAt} ms`);
+        linkUp = true;
+        linkLostAt = null;
+    } else if (status === "disconnected" && linkUp) {
+        linkUp = false;
+        linkLostAt = Date.now();
+        log.warn("host link lost");
+    }
+}
+
+// Started where the client is built, not at import, because the package
+// declares itself free of side effects.
+function watchLink(): void {
+    if (linkWatched) return;
+    linkWatched = true;
+    sandboxSubscribeConnectionStatus(recordLinkStatus);
+}
+
 /**
  * Test-only: push `status` to every {@link subscribeConnectionStatus} subscriber,
  * so a product can exercise its reconnecting / offline UI. The host-side
@@ -190,6 +221,7 @@ export function subscribeConnectionStatus(
         return () => void localStatusListeners.delete(onLocal);
     }
 
+    watchLink();
     const unsubscribeSandbox = sandboxSubscribeConnectionStatus((status) => deliver(status, true));
     return () => {
         localStatusListeners.delete(onLocal);
@@ -204,22 +236,35 @@ export function subscribeConnectionStatus(
  * subscription server-side — which the generated client surfaces as either
  * `complete` (a host interrupt frame) or `error` (transport close). Shared by
  * the statement-store and preimage adapters, which both expose this shape.
+ *
+ * An interrupt is terminal and is delivered exactly once. A caller can only
+ * register for it after this returns, so one that lands during `subscribe` —
+ * the host connection already gone — is held and replayed on registration
+ * rather than dropped, which would leave the caller treating a dead
+ * subscription as live.
  */
 export function subscribeWithInterrupt<Item, Reason = never>(
     observable: ObservableLike<Item, Reason>,
     onNext: (item: Item) => void,
 ): TransportSubscription {
     let interruptCallback: ((reason?: unknown) => void) | undefined;
+    let interrupt: { reason?: unknown } | undefined;
+    const interrupted = (reason?: unknown) => {
+        if (interrupt) return;
+        interrupt = { reason };
+        interruptCallback?.(reason);
+    };
     const sub = observable.subscribe({
         next: onNext,
-        error: (reason) => interruptCallback?.(reason),
-        complete: () => interruptCallback?.(),
+        error: (reason) => interrupted(reason),
+        complete: () => interrupted(),
     });
     return {
         subscriptionId: sub.subscriptionId,
         unsubscribe: () => sub.unsubscribe(),
         onInterrupt: (callback) => {
             interruptCallback = callback;
+            if (interrupt) callback(interrupt.reason);
             return () => {
                 if (interruptCallback === callback) interruptCallback = undefined;
             };
@@ -227,10 +272,128 @@ export function subscribeWithInterrupt<Item, Reason = never>(
     };
 }
 
+/**
+ * Like {@link subscribeWithInterrupt}, but a stream that a host connection reset
+ * ends is opened again with `open` once the host is connected again. Only for
+ * streams that lose nothing in between: the action streams, whose items the
+ * host holds while no stream is open, and the list streams, which open with the
+ * current list. Any other interrupt still ends the subscription and reaches
+ * `onInterrupt`.
+ *
+ * It is opened again on the first `"connected"` after a status that is not,
+ * counting the status current when the stream ends. `@parity/truapi` reports a
+ * status other than `"connected"` between a reset and the next connection, but
+ * may fail the stream before that status arrives, while the old connection
+ * still reads `"connected"`. Opening on that status would dial a host that is
+ * not listening yet. This never dials the host itself; the client reconnects
+ * on its own.
+ */
+export function subscribeAcrossResets<Item, Reason = never>(
+    open: () => ObservableLike<Item, Reason>,
+    onNext: (item: Item) => void,
+): HostSubscription {
+    let current: HostSubscription | undefined;
+    let stopWaiting: (() => void) | undefined;
+    let stopped = false;
+    let interruptCallback: ((reason?: unknown) => void) | undefined;
+    let interrupt: { reason?: unknown } | undefined;
+
+    const end = (reason?: unknown) => {
+        interrupt = { reason };
+        interruptCallback?.(reason);
+    };
+
+    const start = () => {
+        const subscription = subscribeWithInterrupt(open(), onNext);
+        // `unsubscribe` can run before this stream is recorded: from an item it
+        // delivers while opening, or from a status listener that a status change
+        // still calls after `unsubscribe` removed it.
+        if (stopped) {
+            subscription.unsubscribe();
+            return;
+        }
+        current = subscription;
+        subscription.onInterrupt((reason) => {
+            if (stopped || current !== subscription) return;
+            current = undefined;
+            if (isConnectionReset(reason)) waitForReconnect();
+            else end(reason);
+        });
+    };
+
+    const waitForReconnect = () => {
+        let lost = false;
+        let reconnected = false;
+        const unsubscribe = subscribeConnectionStatus((status) => {
+            if (status !== "connected") {
+                lost = true;
+                return;
+            }
+            if (!lost || reconnected) return;
+            reconnected = true;
+            stopWaiting?.();
+            stopWaiting = undefined;
+            try {
+                start();
+            } catch (error) {
+                end(error);
+            }
+        });
+        if (reconnected) unsubscribe();
+        else stopWaiting = unsubscribe;
+    };
+
+    start();
+    return {
+        unsubscribe() {
+            stopped = true;
+            stopWaiting?.();
+            stopWaiting = undefined;
+            current?.unsubscribe();
+            current = undefined;
+        },
+        onInterrupt(callback) {
+            interruptCallback = callback;
+            if (interrupt) callback(interrupt.reason);
+            return () => {
+                if (interruptCallback === callback) interruptCallback = undefined;
+            };
+        },
+    };
+}
+
+/**
+ * Whether a stream ended because the host connection was reset. The injected
+ * client can come from the container's own copy of `@parity/truapi`, whose error
+ * classes are not this bundle's, so the reset is recognised by name.
+ */
+function isConnectionReset(reason: unknown): boolean {
+    let error: unknown = reason;
+    while (error instanceof Error) {
+        if (error.name === "ConnectionResetError") return true;
+        error = error.cause;
+    }
+    return false;
+}
+
 if (import.meta.vitest) {
-    const { test, expect, afterEach } = import.meta.vitest;
+    const { test, expect, afterEach, beforeEach, vi } = import.meta.vitest;
+    const { configure } = await import("@parity/product-sdk-logger");
 
     afterEach(() => setTruApiClient(null));
+    afterEach(() => vi.useRealTimers());
+
+    const lines: string[] = [];
+    configure({
+        level: "warn",
+        handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
+    });
+    beforeEach(() => {
+        lines.length = 0;
+        linkWatched = false;
+        linkUp = false;
+        linkLostAt = null;
+    });
 
     // Environment detection and client building are covered by `@parity/truapi`'s
     // own sandbox tests; here we only assert the local glue degrades outside a
@@ -357,6 +520,61 @@ if (import.meta.vitest) {
         unsubscribe();
     });
 
+    test("a link drop and its return are logged at warn with the gap", () => {
+        vi.useFakeTimers();
+
+        recordLinkStatus("connecting");
+        recordLinkStatus("connected");
+        recordLinkStatus("disconnected");
+        recordLinkStatus("connecting");
+        vi.advanceTimersByTime(140);
+        recordLinkStatus("connected");
+
+        expect(lines).toEqual(["warn: host link lost", "warn: host link back after 140 ms"]);
+    });
+
+    test("a second drop before the link is back is logged once, with the gap from the first", () => {
+        vi.useFakeTimers();
+        recordLinkStatus("connected");
+
+        recordLinkStatus("disconnected");
+        recordLinkStatus("connecting");
+        vi.advanceTimersByTime(250);
+        recordLinkStatus("disconnected");
+        recordLinkStatus("connecting");
+        vi.advanceTimersByTime(1_000);
+        recordLinkStatus("connected");
+
+        expect(lines).toEqual(["warn: host link lost", "warn: host link back after 1250 ms"]);
+    });
+
+    test("a connect with no drop before it is not logged", () => {
+        recordLinkStatus("disconnected");
+        recordLinkStatus("connecting");
+        recordLinkStatus("connected");
+        recordLinkStatus("connecting");
+        recordLinkStatus("connected");
+
+        expect(lines).toEqual([]);
+    });
+
+    test("subscribing to the status starts the link log once", () => {
+        const unsubscribe = subscribeConnectionStatus(() => {});
+        const second = subscribeConnectionStatus(() => {});
+
+        expect(linkWatched).toBe(true);
+        unsubscribe();
+        second();
+    });
+
+    test("a status pushed through the test seam is not logged", () => {
+        emitConnectionStatus("connected");
+        emitConnectionStatus("disconnected");
+        emitConnectionStatus("connected");
+
+        expect(lines).toEqual([]);
+    });
+
     test("a listener that unsubscribes itself mid-notification is safe", () => {
         setTruApiClient({} as TrUApiClient);
         const statuses: HostConnectionStatus[] = [];
@@ -401,5 +619,76 @@ if (import.meta.vitest) {
         const subscription = subscribeWithInterrupt(observable, () => {});
 
         expect(subscription.subscriptionId).toBe("p:17");
+    });
+
+    // The caller cannot register `onInterrupt` until `subscribeWithInterrupt`
+    // has returned, so a transport that is already gone ends the stream first.
+    // Dropping that leaves the caller believing the subscription is live.
+    test("subscribeWithInterrupt reports an error that landed before onInterrupt", () => {
+        const observable = {
+            subscribe: (observer: Partial<Observer<never, string>>) => {
+                observer.error?.(
+                    new SubscriptionError("Subscription interrupted", {
+                        reason: "the transport was already gone",
+                    }),
+                );
+                return { subscriptionId: "p:18", unsubscribe: () => {} };
+            },
+            [Symbol.observable]() {
+                return this;
+            },
+        } as ObservableLike<never, string>;
+
+        const subscription = subscribeWithInterrupt(observable, () => {});
+        const reasons: unknown[] = [];
+        subscription.onInterrupt((reason) =>
+            reasons.push((reason as SubscriptionError<string>).reason),
+        );
+
+        expect(reasons).toEqual(["the transport was already gone"]);
+    });
+
+    test("subscribeWithInterrupt reports a completion that landed before onInterrupt", () => {
+        const observable = {
+            subscribe: (observer: Partial<Observer<never, never>>) => {
+                observer.complete?.();
+                return { subscriptionId: "p:19", unsubscribe: () => {} };
+            },
+            [Symbol.observable]() {
+                return this;
+            },
+        } as ObservableLike<never>;
+
+        const subscription = subscribeWithInterrupt(observable, () => {});
+        let interrupted = false;
+        subscription.onInterrupt(() => {
+            interrupted = true;
+        });
+
+        expect(interrupted).toBe(true);
+    });
+
+    test("subscribeWithInterrupt reports a later interrupt only once", () => {
+        let fail: ((reason: string) => void) | undefined;
+        const observable = {
+            subscribe: (observer: Partial<Observer<never, string>>) => {
+                fail = (reason) =>
+                    observer.error?.(new SubscriptionError("Subscription interrupted", { reason }));
+                return { subscriptionId: "p:20", unsubscribe: () => {} };
+            },
+            [Symbol.observable]() {
+                return this;
+            },
+        } as ObservableLike<never, string>;
+
+        const subscription = subscribeWithInterrupt(observable, () => {});
+        const reasons: unknown[] = [];
+        subscription.onInterrupt((reason) =>
+            reasons.push((reason as SubscriptionError<string>).reason),
+        );
+        fail?.("gone");
+        fail?.("gone again");
+
+        expect(reasons).toEqual(["gone"]);
     });
 }

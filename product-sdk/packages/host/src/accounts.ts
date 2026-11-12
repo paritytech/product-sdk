@@ -30,6 +30,7 @@
  */
 
 import { errAsync, okAsync, ResultAsync } from "neverthrow";
+import { RequestTimeoutError, asProductId } from "@parity/truapi";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { AccountId } from "polkadot-api";
 
@@ -43,7 +44,7 @@ import type {
     LegacyAccount as WireLegacyAccount,
     ProductAccount as WireProductAccount,
     ProductAccountId,
-    ProductProofContext,
+    ProductProofContext as WireProductProofContext,
     RawPayload,
     RegisteredRingVrfKey as WireRegisteredRingVrfKey,
     RingLocation,
@@ -65,7 +66,7 @@ import type {
 } from "@parity/truapi";
 
 import { getClient, subscribeWithInterrupt } from "./transport.js";
-import { HostResponseDecodeError } from "./errors.js";
+import { HostResponseDecodeError, type HostTimeoutError, hostRejectionError } from "./errors.js";
 import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
@@ -73,28 +74,34 @@ import type { HostSubscription } from "./types.js";
  * Ring VRF request shapes, re-exported from `@parity/truapi`:
  * - `RingLocation` — where the ring lives (`{ chainId, junctions }`; junctions
  *   address the ring via `PalletInstance` / `CollectionId` steps).
- * - `ProductProofContext` — the product-scoped proof context
- *   (`{ productId, suffix }`), expanded by the host into the 32-byte context a
- *   proof or alias is bound to.
  * - `DerivationIndex` — the tagged selector `ProductProofContext.suffix`
  *   carries: `{ tag: "Index", value: number }` for a plain index, or
  *   `{ tag: "Raw", value: HexString }` for a raw 32-byte index.
  */
-export type {
-    DerivationIndex,
-    ProductProofContext,
-    RingLocation,
-    RingVrfKeyDisclosure,
-} from "@parity/truapi";
+export type { DerivationIndex, RingLocation, RingVrfKeyDisclosure } from "@parity/truapi";
+
+/**
+ * The product-scoped proof context (`{ productId, suffix }`), expanded by the
+ * host into the 32-byte context a proof or alias is bound to.
+ *
+ * `productId` is the plain product identifier (e.g. `"myapp.dot"`). The wire
+ * types it as a branded `ProductId`; the adapter brands it at the boundary, so
+ * product code keeps passing strings.
+ */
+export type ProductProofContext = Omit<WireProductProofContext, "productId"> & {
+    /** The product the context is scoped to, e.g. `"myapp.dot"`. */
+    productId: string;
+};
 
 // The account/alias shapes come from `@parity/truapi`'s generated specs; we
 // derive the SDK-facing views from them so the field inventory tracks the
 // protocol automatically, and override only the fields the adapter re-encodes:
 // byte fields decoded from `0x`-prefixed `HexString`s to `Uint8Array`s, and
 // the tagged derivation-index selector kept as a plain `number` (wrapped back
-// into `Index` at the wire boundary). Shapes re-exported verbatim (e.g.
-// `ProductProofContext`) track the wire as-is. Same pattern as
-// `@parity/product-sdk-statement-store`.
+// into `Index` at the wire boundary), and the branded `ProductId` kept as a
+// plain `string` (branded with `asProductId` at the wire boundary). Shapes
+// re-exported verbatim (e.g. `RingLocation`) track the wire as-is. Same
+// pattern as `@parity/product-sdk-statement-store`.
 
 /**
  * One of the user's existing wallet accounts, surfaced through the host and
@@ -117,24 +124,28 @@ export type HostAccount = Omit<WireLegacyAccount, "publicKey"> & {
  *
  * Combines `@parity/truapi`'s `ProductAccountId` (the `{ dotNsIdentifier,
  * derivationIndex }` lookup key) with the `ProductAccount` payload, with
- * `publicKey` decoded to bytes and `derivationIndex` kept as the plain
- * numeric index (the adapter wraps it into the wire's tagged
- * {@link DerivationIndex} selector).
+ * `publicKey` decoded to bytes, `dotNsIdentifier` kept as a plain string
+ * (the adapter brands it as the wire's `ProductId`), and `derivationIndex`
+ * kept as the plain numeric index (the adapter wraps it into the wire's
+ * tagged {@link DerivationIndex} selector).
  */
-export type ProductAccount = Omit<ProductAccountId, "derivationIndex"> &
-    Omit<WireProductAccount, "publicKey"> & {
-        /** Plain account index within the product subtree. */
-        derivationIndex: number;
-        /** Raw public key bytes. */
-        publicKey: Uint8Array;
-    };
+export type ProductAccount = Omit<WireProductAccount, "publicKey"> & {
+    /** The product the account is derived for, e.g. `"myapp.dot"`. */
+    dotNsIdentifier: string;
+    /** Plain account index within the product subtree. */
+    derivationIndex: number;
+    /** Raw public key bytes. */
+    publicKey: Uint8Array;
+};
 
 /**
  * How callers address a product account: app identifier plus an optional index,
  * defaulting to 0. A {@link ProductAccount} satisfies this, so an account from
  * {@link AccountsProvider.getProductAccount} can be passed straight back in.
  */
-export type ProductAccountLookup = Omit<ProductAccountId, "derivationIndex"> & {
+export type ProductAccountLookup = {
+    /** The product the account is derived for, e.g. `"myapp.dot"`. */
+    dotNsIdentifier: string;
     /** Plain account index within the product subtree. Defaults to 0. */
     derivationIndex?: number;
 };
@@ -252,7 +263,8 @@ export type VrfSignature = { [K in keyof WireVrfSignature]: Uint8Array };
  * A call's declared `Err` channel, plus {@link HostResponseDecodeError}: any
  * host reply can fail to decode if the host and the product's `@parity/truapi`
  * client are on different protocol versions, so every decoded call can surface
- * it in addition to its own typed errors.
+ * it in addition to its own typed errors. A call the host never answers
+ * surfaces as its {@link HostTimeoutError} subclass.
  */
 export type WithDecodeError<E> = E | HostResponseDecodeError;
 
@@ -265,9 +277,10 @@ export type WithDecodeError<E> = E | HostResponseDecodeError;
  * the signer factories return a synchronous PAPI `TxCreator`. The `err`
  * channel carries truapi's canonical `CallErrorValue` envelope around the
  * per-call versioned domain error, exactly as the generated client returns it,
- * plus a {@link HostResponseDecodeError} for the case where the host's reply
- * cannot be decoded at all (a host/client protocol-version skew) — see
- * {@link WithDecodeError}.
+ * plus a {@link HostResponseDecodeError} when the host's reply cannot be
+ * decoded at all (a host/client protocol-version skew) or, as its
+ * {@link HostTimeoutError} subclass, when the host does not answer in time;
+ * see {@link WithDecodeError}.
  */
 export interface AccountsProvider {
     getUserId(): ResultAsync<
@@ -414,7 +427,8 @@ export interface AccountsProvider {
 }
 
 /**
- * Build the wire `ProductAccountId`: default the index to 0, wrap it as `Index`.
+ * Build the wire `ProductAccountId`: brand the identifier, default the index
+ * to 0, wrap it as `Index`.
  *
  * Destructured rather than spread, so passing a full {@link ProductAccount}
  * cannot leak its `publicKey` onto the wire.
@@ -423,7 +437,15 @@ function toWireProductAccountId({
     dotNsIdentifier,
     derivationIndex = 0,
 }: ProductAccountLookup): ProductAccountId {
-    return { dotNsIdentifier, derivationIndex: { tag: "Index", value: derivationIndex } };
+    return {
+        dotNsIdentifier: asProductId(dotNsIdentifier),
+        derivationIndex: { tag: "Index", value: derivationIndex },
+    };
+}
+
+/** Build the wire `ProductProofContext`: brand the product identifier. */
+function toWireProofContext({ productId, suffix }: ProductProofContext): WireProductProofContext {
+    return { productId: asProductId(productId), suffix };
 }
 
 // The SS58 address the host's raw-signing calls match a legacy (wallet) account
@@ -445,17 +467,18 @@ function toBytesPayload(data: Uint8Array): RawPayload {
  * `ResultAsync.fromSafePromise`, which installs no rejection handler — so when
  * the host's reply doesn't match the client's codec (a version skew), that
  * rejection escapes the `Result` channel rather than landing on its err side,
- * surfacing as a raw `RangeError`. Wrapping the call re-homes that rejection as
- * a typed {@link HostResponseDecodeError} that names the call, while ok values
- * and the call's own typed `Err` values pass through untouched.
+ * surfacing as a raw `RangeError`. A call the host never answers rejects the
+ * same way, with the client's `RequestTimeoutError`. Wrapping the call turns
+ * the rejection into a typed {@link HostTimeoutError} or
+ * {@link HostResponseDecodeError} that names the call, while ok values and the
+ * call's own typed `Err` values pass through untouched.
  */
 function guardDecode<T, E>(
     call: string,
     result: ResultAsync<T, E>,
-): ResultAsync<T, E | HostResponseDecodeError> {
-    return ResultAsync.fromPromise(
-        Promise.resolve(result),
-        (cause) => new HostResponseDecodeError(call, cause),
+): ResultAsync<T, WithDecodeError<E>> {
+    return ResultAsync.fromPromise(Promise.resolve(result), (cause) =>
+        hostRejectionError(call, cause),
     ).andThen((inner) => inner);
 }
 
@@ -504,7 +527,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
         listRingVrfKeys(owner, disclosure = "Anonymized") {
             return guardDecode(
                 "listRingVrfKeys",
-                account.listRingVrfKeys({ owner, disclosure }).map((keys) =>
+                account.listRingVrfKeys({ owner: asProductId(owner), disclosure }).map((keys) =>
                     keys.map((key) => ({
                         ...key,
                         handle: key.handle as unknown as RingVrfKeyHandle,
@@ -519,7 +542,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 account
                     .getAccountAlias({
                         keyHandle: keyHandle as unknown as ProductAccountId,
-                        context,
+                        context: toWireProofContext(context),
                         ringLocation: location,
                     })
                     .map((response) => ({
@@ -545,7 +568,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 account
                     .createAccountProof({
                         keyHandle: keyHandle as unknown as ProductAccountId,
-                        context,
+                        context: toWireProofContext(context),
                         ringLocation: location,
                         message: toHex(message),
                     })
@@ -1226,6 +1249,17 @@ if (import.meta.vitest) {
                 RING,
                 MESSAGE,
             );
+
+        test("a call the host never answers becomes a HostTimeoutError, not a decode error", async () => {
+            const timeout = new RequestTimeoutError("p:17", 12, 0, 390_000);
+            const result = await callProof(ResultAsync.fromSafePromise(Promise.reject(timeout)));
+
+            expect(result._unsafeUnwrapErr()).toMatchObject({
+                name: "HostTimeoutError",
+                call: "createRingVRFProof",
+                cause: timeout,
+            });
+        });
 
         test("a thrown decode error (RangeError) becomes a HostResponseDecodeError naming the call", async () => {
             const rangeError = new RangeError("Offset is outside the bounds of the DataView");

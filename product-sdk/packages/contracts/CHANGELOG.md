@@ -1,5 +1,61 @@
 # @parity/product-sdk-contracts
 
+## 0.11.9
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.17.9
+- @parity/product-sdk-keys@0.5.9
+- @parity/product-sdk-tx@0.5.9
+
+## 0.11.8
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.17.8
+- @parity/product-sdk-keys@0.5.8
+- @parity/product-sdk-tx@0.5.8
+
+## 0.11.7
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.17.7
+- @parity/product-sdk-keys@0.5.7
+- @parity/product-sdk-tx@0.5.7
+
+## 0.11.6
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.17.6
+- @parity/product-sdk-keys@0.5.6
+- @parity/product-sdk-tx@0.5.6
+
+## 0.11.5
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.17.5
+- @parity/product-sdk-keys@0.5.5
+- @parity/product-sdk-tx@0.5.5
+
+## 0.11.4
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.17.4
+- @parity/product-sdk-keys@0.5.4
+- @parity/product-sdk-tx@0.5.4
+
+## 0.11.3
+
+### Patch Changes
+
+- @parity/product-sdk-signer@0.17.3
+- @parity/product-sdk-keys@0.5.3
+- @parity/product-sdk-tx@0.5.3
+
 ## 0.11.2
 
 ### Patch Changes
