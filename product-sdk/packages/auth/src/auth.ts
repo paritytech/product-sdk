@@ -77,10 +77,13 @@ function destroyQuietly(adapter: TerminalAdapter): void {
  * The three addresses we surface from a paired session.
  *
  * - `rootAddress` — SS58 of `session.rootAccountId`, the `rootUserAccountId`
- *   the mobile app sent over the SSO handshake (bare-mnemonic sr25519 root on
- *   current mobile builds). Keyed by `Resources.Consumers` on the People
- *   parachain, so it's the right input for `lookupUsername` from
- *   `@parity/product-sdk-individuality`, which reads that account's usernames.
+ *   the mobile app sent over the SSO handshake. On hosts implementing RFC-0028
+ *   (https://github.com/paritytech/trinity-user-agents/pull/1974, draft) this is the
+ *   person's main account, `//product//peopl.<tld>/0`, which owns their
+ *   usernames; on earlier mobile builds it is the bare-mnemonic sr25519 root.
+ *   Keyed by `Resources.Consumers` on the People parachain, so it's the right
+ *   input for `lookupUsername` from `@parity/product-sdk-individuality`, which
+ *   reads that account's usernames.
  * - `productAddress` — SS58 of the product account derived via
  *   `product/{productId}/{index}` from `rootAccountId`. This is what actually
  *   signs on-chain transactions from the CLI.

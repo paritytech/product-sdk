@@ -83,7 +83,7 @@ Passing both, or neither, is an `err` result and costs no round trip. The option
 
 The other direction, and the one a results or profile screen needs. `lookupUsername(chain, { account })`
 reads `Resources.Consumers`, which is keyed by account and carries both names plus the credibility.
-The account is what a paired session already gives you as `rootAddress`.
+The account is what a paired session already gives you as `rootAddress`. Under RFC-0028 ([draft](https://github.com/paritytech/trinity-user-agents/pull/1974)) that is the person's main account, `//product//peopl.<tld>/0`, which owns both their lite (`name.NN`) and full (`name`) usernames and keys `Resources.Consumers`. The function itself takes any account.
 
 ```ts
 import { getChainAPI } from "@parity/product-sdk-chain-client";

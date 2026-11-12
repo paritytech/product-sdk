@@ -6,6 +6,11 @@
  * `Resources.UsernameOwnerOf` answers "who owns this username". This module
  * answers the reverse, which is what a profile or results screen needs.
  *
+ * Under RFC-0028 (https://github.com/paritytech/trinity-user-agents/pull/1974, draft) the
+ * account that owns a person's usernames, and that keys `Resources.Consumers`,
+ * is their main account, `//product//peopl.<tld>/0`. Nothing here depends on
+ * that: the functions take whatever account they are given.
+ *
  * Three facts about the record come from the pallet, not from the descriptor,
  * and none of them is visible to the compiler:
  *
@@ -242,7 +247,9 @@ export interface LookupUsernameOptions extends ConsumersReadAt {
  * asked and answered.
  *
  * The account is the input the SDK already hands callers: `rootAddress` from a
- * paired session keys this map.
+ * paired session keys this map. On hosts implementing RFC-0028 that is the
+ * person's main account, `//product//peopl.<tld>/0`, which owns both their lite
+ * and full usernames.
  *
  * **Not an authorization oracle.** This is a client-side read in a client-side
  * library, and a backend that trusts "the SDK said this name is theirs" is

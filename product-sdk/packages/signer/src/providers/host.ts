@@ -722,9 +722,11 @@ export class HostProvider implements SignerProvider {
         //
         // On hosts that don't enumerate accounts (PoP / product-account
         // hosts), `getLegacyAccounts()` returns `[]` by design — the host
-        // exposes only per-dapp product accounts and never the user's
-        // identity account. The implicit derivation path matches that
-        // contract: derive the per-dapp account using the consumer's
+        // exposes only per-dapp product accounts and never enumerates the
+        // user's identity account (under RFC-0028, `//product//peopl.<tld>/0`,
+        // the username owner; the host's legacy signer still accepts it by
+        // explicit request, as the session's identity account). The implicit
+        // derivation path matches that contract: derive the per-dapp account using the consumer's
         // `dappName` as the identifier, surface it on `connect()`. When
         // the host rejects the derivation (typically because the dapp's
         // dotNS identifier isn't registered for this user), we resolve
