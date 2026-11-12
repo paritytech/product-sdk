@@ -21,7 +21,7 @@ The core handles pairing, the session, allowances and signing. It is the same Ru
 - Signers and helpers take the adapter instead of a `UserSession`: `createSessionSigner`, `createSessionSignerForAccount`, `deriveProductPublicKey`, `deriveEntropy`, `getStatementStoreProver` and `requestResourceAllocation`.
 - `requestResourceAllocation(adapter, resources, { productId? })` returns one outcome per resource: `"Allocated"`, `"Rejected"` or `"NotAvailable"`. It has no `onExisting` option, because the core increases an existing allowance.
 - New: `submitPreimage`, `submitStatement`, `defaultStorageDir`, `approveAll`, and the `approvals` option for answering the core's approval prompts.
-- `StatementStoreNetworks` is replaced by `TerminalNetworks`, keyed by network with genesis hashes and endpoints for People, Bulletin and Asset Hub. Only `"paseo-next-v2"` is defined; `previewnet` is gone.
+- `StatementStoreNetworks` is replaced by `TerminalNetworks`, keyed by network. Each carries the network's signed Trinity stack and the genesis hash and endpoint of its People, Bulletin and Asset Hub chains. Only `"paseo-next-v2"` is defined; `previewnet` is gone.
 - Removed:
   - `waitForSessions`, `getProductSubtreePublicKey`, `ProductSubtreeOptions` and `INCOMPLETE_SESSION_MESSAGE`.
   - `getBulletinSigner`, `hasBulletinAllowance`, `hasStatementStoreAllowance`, `ensureSlotAccountSigner`, `createSlotAccountSigner`, `getCachedAllocation` and `sendResourceAllocation`. Use `submitPreimage`, `getStatementStoreProver` and `requestResourceAllocation`; the allowance keys stay in the core.

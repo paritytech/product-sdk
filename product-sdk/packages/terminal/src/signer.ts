@@ -10,7 +10,7 @@
 import { deriveProductAccountPublicKey } from "@parity/product-sdk-keys";
 import { AllowanceExpiredError } from "@parity/product-sdk-signer/errors";
 import { createHostTxCreator, type HostTxRequest } from "@parity/product-sdk-host/tx-creator";
-import type { ProductAccountId, ProductAccountTxPayload } from "@parity/truapi";
+import { asProductId, type ProductAccountId, type ProductAccountTxPayload } from "@parity/truapi";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { fromHex, toHex } from "@polkadot-api/utils";
 
@@ -41,7 +41,7 @@ const SUBTREE_TIMEOUT_MS = 120_000;
 
 function productAccountId(ref: ProductAccountRef): ProductAccountId {
     return {
-        dotNsIdentifier: ref.productId,
+        dotNsIdentifier: asProductId(ref.productId),
         derivationIndex: { tag: "Index", value: ref.derivationIndex },
     };
 }
@@ -57,7 +57,7 @@ export async function deriveProductPublicKey(
     ref: ProductAccountRef,
 ): Promise<Uint8Array> {
     const subtree = await adapter.runtime.getProductSubtreePublicKey(
-        ref.productId,
+        asProductId(ref.productId),
         SUBTREE_TIMEOUT_MS,
     );
     if (!subtree) throw new Error("No paired session: log in before deriving a product account");

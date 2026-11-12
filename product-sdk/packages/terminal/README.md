@@ -41,7 +41,7 @@ try {
 | Option | Default | |
 |---|---|---|
 | `appId` | required | The product this CLI acts as: a dotNS id ending in `.dot`, `.paseo` or `.testnet`, e.g. `"my-cli.dot"`, or `localhost`. Scopes accounts and storage. |
-| `network` | `"paseo-next-v2"` | A name from `TerminalNetworks`, or your own `{ name, people, bulletin, assetHub }` with genesis hashes and endpoints. |
+| `network` | `"paseo-next-v2"` | A name from `TerminalNetworks`, or your own `{ stack, people, bulletin, assetHub }`: a signed Trinity stack (`pointer` and `descriptor`) and the genesis hash and endpoint of each of its chains. |
 | `storageDir` | `~/.polkadot-apps/<appId>` | This app's own directory. The session lives in `core/` and the product's storage in `product/`, written atomically with mode `0600`. |
 | `hostMetadata` | `{ name: appId }` | Name, version and icon shown on the phone while pairing. |
 | `approvals` | `approveAll` | Answers the core's approval prompts (see below). |

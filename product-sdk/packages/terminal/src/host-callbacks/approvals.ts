@@ -9,6 +9,7 @@
  * instead. Device permissions (camera, location, ...) are denied: a terminal
  * has none of those devices.
  */
+import { asProductId } from "@parity/truapi";
 import type { PermissionDecision, UserConfirmationReview } from "@parity/truapi-host";
 import type { WebWorkerHostCallbacks } from "@parity/truapi-host/node";
 
@@ -45,7 +46,7 @@ export function createApprovalCallbacks(
 
 if (import.meta.vitest) {
     const { describe, test, expect } = import.meta.vitest;
-    const product = { productId: "my-cli.dot", executionKind: "App" as const };
+    const product = { productId: asProductId("my-cli.dot"), executionKind: "App" as const };
 
     describe("createApprovalCallbacks", () => {
         test("forwards each review and remote permission to the policy and maps its answer", async () => {

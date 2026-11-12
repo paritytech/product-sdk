@@ -7,14 +7,24 @@
  * host pairs with a terminal on the same preset.
  */
 
+import { PASEO_NEXT_V2_STACK } from "./stacks.js";
+
 export interface TerminalChain {
     genesisHash: `0x${string}`;
     endpoint: string;
 }
 
+/** A Trinity stack: its pointer and the signed descriptor it names. */
+export interface TerminalStack {
+    /** The stack's link, `polkadotapp://stack?key=0x…&url=…`. */
+    pointer: string;
+    /** The signed descriptor as served, which the core checks against the pointer's key. */
+    descriptor: string;
+}
+
 export interface TerminalNetwork {
-    /** Network name the core reports with the host's chain set. */
-    name: string;
+    /** The stack the core takes its chains and network from. Its chains must be the ones below. */
+    stack: TerminalStack;
     people: TerminalChain;
     bulletin: TerminalChain;
     assetHub: TerminalChain;
@@ -22,7 +32,7 @@ export interface TerminalNetwork {
 
 export const TerminalNetworks = {
     "paseo-next-v2": {
-        name: "paseo",
+        stack: PASEO_NEXT_V2_STACK,
         people: {
             genesisHash: "0x4a2b5b737de1da59e209b0000a876ec2fa20035dc34fd292a848da32d255ad48",
             endpoint: "wss://paseo-people-next-system-rpc.polkadot.io",
@@ -69,7 +79,10 @@ if (import.meta.vitest) {
 
     describe("resolveNetwork", () => {
         test("defaults to paseo-next-v2, passes a custom network through, and refuses unknown names", () => {
-            const custom = { ...TerminalNetworks["paseo-next-v2"], name: "custom" };
+            const custom = {
+                ...TerminalNetworks["paseo-next-v2"],
+                people: { ...TerminalNetworks["paseo-next-v2"].people, endpoint: "wss://custom" },
+            };
             expect([resolveNetwork(), resolveNetwork(custom)]).toEqual([
                 TerminalNetworks["paseo-next-v2"],
                 custom,

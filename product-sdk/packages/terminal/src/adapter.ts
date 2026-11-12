@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { createLogger } from "@parity/product-sdk-logger";
-import { createClient, createTransport, type TrUApiClient } from "@parity/truapi";
+import { asProductId, createClient, createTransport, type TrUApiClient } from "@parity/truapi";
 import type { AuthState, SessionUiInfo } from "@parity/truapi-host";
 import {
     createHeadlessHostCallbacks,
@@ -144,13 +144,7 @@ export async function createTerminalAdapter(
                     }
                 },
             },
-            supportedChains: {
-                network: network.name,
-                chains: Object.entries(chains).map(([identifier, chain]) => ({
-                    identifier: identifier as "People" | "Bulletin" | "AssetHub",
-                    genesisHash: chain.genesisHash,
-                })),
-            },
+            servedChains: Object.values(chains).map((chain) => chain.genesisHash),
             ...createApprovalCallbacks(options.approvals ?? approveAll),
         }),
         {
@@ -162,9 +156,10 @@ export async function createTerminalAdapter(
                     platform: "Cli",
                 },
                 platform: { type: process.platform, version: process.version },
-                people: { genesisHash: network.people.genesisHash },
-                bulletin: { genesisHash: network.bulletin.genesisHash },
-                assetHub: { genesisHash: network.assetHub.genesisHash },
+                stack: {
+                    pointer: network.stack.pointer,
+                    descriptor: new TextEncoder().encode(network.stack.descriptor),
+                },
                 pairing: { deeplinkScheme: "polkadotapp" },
             },
             logLevel: options.logLevel,
@@ -181,13 +176,16 @@ export async function createTerminalAdapter(
     const client = (productId = options.appId) => {
         let created = clients.get(productId);
         if (!created) {
-            created = runtime.createProvider({ productId }).then((provider) =>
-                createClient(
-                    createTransport(provider, {
-                        requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-                    }),
-                ),
-            );
+            created = runtime
+                .createProvider({ productId: asProductId(productId) })
+                .then((provider) =>
+                    createClient(
+                        createTransport(provider, {
+                            requestTimeoutMs:
+                                options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+                        }),
+                    ),
+                );
             clients.set(productId, created);
             // A failed creation is not kept, so the next call tries again.
             created.catch(() => clients.delete(productId));

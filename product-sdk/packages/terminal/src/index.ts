@@ -15,7 +15,12 @@ export type {
 export { approveAll } from "./host-callbacks/approvals.js";
 export type { TerminalApprovalRequest, TerminalApprovals } from "./host-callbacks/approvals.js";
 export { TerminalNetworks } from "./networks.js";
-export type { TerminalChain, TerminalNetwork, TerminalNetworkName } from "./networks.js";
+export type {
+    TerminalChain,
+    TerminalNetwork,
+    TerminalNetworkName,
+    TerminalStack,
+} from "./networks.js";
 export {
     createSessionSigner,
     createSessionSignerForAccount,
