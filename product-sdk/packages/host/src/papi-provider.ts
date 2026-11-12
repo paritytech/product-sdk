@@ -269,7 +269,11 @@ export function createHostPapiProvider(
         let lostReadSinceSuccess = false;
         const interruptedFollows = new Map<string, { timer?: ReturnType<typeof setTimeout> }>();
         function readSucceeded(followSubscriptionId: string): void {
-            if (interruptedFollows.has(followSubscriptionId)) return;
+            if (
+                !activeFollows.has(followSubscriptionId) ||
+                interruptedFollows.has(followSubscriptionId)
+            )
+                return;
             lostReadSinceSuccess = false;
             transportRetryDelay = SHORTEST_STOP_DELAY_MS;
         }
@@ -420,7 +424,6 @@ export function createHostPapiProvider(
             else heldReads.set(followSubscriptionId, [id]);
         }
 
-        /** Hold a read sent on a follow already known to have ended. */
         function heldForStop(id: JsonRpcRequest["id"], followSubscriptionId: string): boolean {
             if (!interruptedFollows.has(followSubscriptionId)) return false;
             holdRead(id, followSubscriptionId);
@@ -448,14 +451,13 @@ export function createHostPapiProvider(
 
         const readError =
             (id: JsonRpcRequest["id"], followSubscriptionId: string) => (error: unknown) => {
+                if (heldForStop(id, followSubscriptionId)) return;
                 const follow = activeFollows.get(followSubscriptionId);
-                const stopPending = interruptedFollows.has(followSubscriptionId);
-                if (!follow || (!stopPending && !endsFollow(error))) {
+                if (!follow || !endsFollow(error)) {
                     hostError(id)(error);
                     return;
                 }
                 holdRead(id, followSubscriptionId);
-                if (stopPending) return;
                 // The frame ending this follow may never come, and only a stop ends the hold.
                 interruptFollow(followSubscriptionId, follow, error);
                 lostReadSinceSuccess = true;
@@ -1565,12 +1567,12 @@ if (import.meta.vitest) {
         timers.restore();
     });
 
-    /** A follow whose reads fail with `error`, and the host calls it received. */
+    /** A follow whose call reads lose the follow unless `rejections` is given, and the host calls it received. */
     function followWithFailingReads(
-        error: unknown,
         options: {
             unsubscribe?: () => void;
             deferMatch?: (method: string, resolve: () => unknown) => boolean;
+            rejections?: Record<string, unknown>;
         } = {},
     ) {
         const observers: FollowObserver[] = [];
@@ -1578,7 +1580,8 @@ if (import.meta.vitest) {
         const hostCalls: string[] = [];
         const client = makeFakeClient({
             unsubscribe,
-            errors: { callHead: error },
+            errors: options.rejections ? undefined : { callHead: lostFollow },
+            rejections: options.rejections,
             deferMatch: options.deferMatch,
             onCall: (method) => hostCalls.push(method),
             captureObserver: (o) => observers.push(o),
@@ -1621,7 +1624,6 @@ if (import.meta.vitest) {
         },
     });
 
-    /** Follow again up to an Initialized item. */
     function refollow(
         f: { conn: JsonRpcConnection; messages: JsonRpcMessage[]; observers: FollowObserver[] },
         id: number,
@@ -1653,7 +1655,7 @@ if (import.meta.vitest) {
 
     test("a read on a lost follow stays unanswered until the stop is out", () => {
         vi.useFakeTimers();
-        const f = followWithFailingReads(lostFollow);
+        const f = followWithFailingReads();
 
         f.read(2);
         expect(f.messages).toEqual([]);
@@ -1665,7 +1667,7 @@ if (import.meta.vitest) {
 
     test("a read sent after the follow was interrupted goes no further than the provider", () => {
         vi.useFakeTimers();
-        const f = followWithFailingReads(lostFollow);
+        const f = followWithFailingReads();
         f.observers[0]?.error(new Error("transport closed"));
 
         f.read(2);
@@ -1690,7 +1692,7 @@ if (import.meta.vitest) {
         "a %s read sent while the stop is pending never reaches the host",
         (_label, method, params) => {
             vi.useFakeTimers();
-            const f = followWithFailingReads(lostFollow);
+            const f = followWithFailingReads();
             f.observers[0]?.error(new Error("transport closed"));
 
             f.conn.send({ jsonrpc: "2.0", id: 2, method, params });
@@ -1704,7 +1706,7 @@ if (import.meta.vitest) {
 
     test("unfollow answers the reads held for its follow", () => {
         vi.useFakeTimers();
-        const f = followWithFailingReads(lostFollow);
+        const f = followWithFailingReads();
         f.read(2);
 
         f.conn.send({ jsonrpc: "2.0", id: 3, method: "chainHead_v1_unfollow", params: ["p:41"] });
@@ -1716,7 +1718,7 @@ if (import.meta.vitest) {
 
     test("disconnect drops the held reads without answering them", () => {
         vi.useFakeTimers();
-        const f = followWithFailingReads(lostFollow);
+        const f = followWithFailingReads();
         f.read(2);
 
         f.conn.disconnect();
@@ -1726,7 +1728,7 @@ if (import.meta.vitest) {
     });
 
     test("a lost-follow answer for an id this provider never issued fails at once", () => {
-        const f = followWithFailingReads(lostFollow);
+        const f = followWithFailingReads();
 
         f.conn.send({
             jsonrpc: "2.0",
@@ -1740,7 +1742,7 @@ if (import.meta.vitest) {
 
     test("a host that keeps losing the follow is refollowed at a growing pace", () => {
         vi.useFakeTimers();
-        const f = followWithFailingReads(lostFollow);
+        const f = followWithFailingReads();
 
         for (const [index, delay] of [250, 500, 1000, 2000, 4000, 4000].entries()) {
             const id = index + 2;
@@ -1757,7 +1759,7 @@ if (import.meta.vitest) {
         ["header", "chainHead_v1_header"],
     ])("after a %s read the host answers, refollows start again at 250 ms", (_label, method) => {
         vi.useFakeTimers();
-        const f = followWithFailingReads(lostFollow);
+        const f = followWithFailingReads();
         loseAndRefollow(f, 2);
         loseAndRefollow(f, 3);
         f.conn.send({ jsonrpc: "2.0", id: 4, method, params: ["p:41", "0xhash"] });
@@ -1774,7 +1776,7 @@ if (import.meta.vitest) {
     test("a read the host answers while the stop is pending does not bring the refollow pace back", () => {
         vi.useFakeTimers();
         let answerHeader: (() => unknown) | undefined;
-        const f = followWithFailingReads(lostFollow, {
+        const f = followWithFailingReads({
             deferMatch: (method, resolve) => {
                 if (method !== "getHeadHeader") return false;
                 answerHeader = resolve;
@@ -1799,60 +1801,98 @@ if (import.meta.vitest) {
         expectAfter(f.messages, 500, [stopEvent, heldAnswer(5)]);
     });
 
-    test("a read the host rejects after the follow stream drops waits for the stop and is not counted as lost", async () => {
+    test("a read the host answers after the stop does not bring the refollow pace back", () => {
         vi.useFakeTimers();
-        const { ConnectionResetError } = await import("@parity/truapi");
-        const observers: FollowObserver[] = [];
+        let follows = 0;
+        let answerHeader: (() => unknown) | undefined;
         const client = makeFakeClient({
-            rejections: { callHead: new ConnectionResetError() },
-            captureObserver: (o) => observers.push(o),
+            errors: { callHead: lostFollow },
+            subscriptionId: () => `p:${++follows}`,
+            deferMatch: (method, resolve) => {
+                if (method !== "getHeadHeader") return false;
+                answerHeader = resolve;
+                return true;
+            },
         });
         const messages: JsonRpcMessage[] = [];
         const conn = createHostPapiProvider(client, "0xfeed")((m) => messages.push(m));
-        const f = { conn, messages, observers };
-        refollow(f, 1);
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
         conn.send({
             jsonrpc: "2.0",
             id: 2,
-            method: "chainHead_v1_call",
-            params: ["p:41", "0xhash", "Core_version", "0x"],
+            method: "chainHead_v1_header",
+            params: ["p:1", "0xhash"],
         });
+        conn.send({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "chainHead_v1_call",
+            params: ["p:1", "0xhash", "Core_version", "0x"],
+        });
+        vi.advanceTimersByTime(250);
+        conn.send({ jsonrpc: "2.0", id: 4, method: "chainHead_v1_follow", params: [true] });
 
-        observers.at(-1)?.error(new Error("transport closed"));
+        answerHeader?.();
+        conn.send({
+            jsonrpc: "2.0",
+            id: 5,
+            method: "chainHead_v1_call",
+            params: ["p:2", "0xhash", "Core_version", "0x"],
+        });
+        messages.length = 0;
+
+        expectAfter(messages, 500, [
+            {
+                jsonrpc: "2.0",
+                method: "chainHead_v1_followEvent",
+                params: { subscription: "p:2", result: { event: "stop" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 5,
+                error: { code: -32603, message: "chainHead follow p:2 ended" },
+            },
+        ]);
+    });
+
+    test("a read the host rejects after the follow stream drops waits for the stop and is not counted as lost", async () => {
+        vi.useFakeTimers();
+        const { ConnectionResetError } = await import("@parity/truapi");
+        const f = followWithFailingReads({
+            rejections: { callHead: new ConnectionResetError() },
+        });
+        f.observers.at(-1)?.next({
+            tag: "Initialized",
+            value: { finalizedBlockHashes: ["0x01"] },
+        });
+        f.messages.length = 0;
+        f.read(2);
+
+        f.observers.at(-1)?.error(new Error("transport closed"));
         await vi.advanceTimersByTimeAsync(0);
-        expectAfter(messages, 250, [stopEvent, heldAnswer(2)]);
+        expectAfter(f.messages, 250, [stopEvent, heldAnswer(2)]);
         refollow(f, 3);
-        observers.at(-1)?.error(new Error("transport closed"));
+        f.observers.at(-1)?.error(new Error("transport closed"));
 
-        expectAfter(messages, 250, [stopEvent]);
+        expectAfter(f.messages, 250, [stopEvent]);
     });
 
     test("a read the host fails with any error after the follow stream drops waits for the stop", async () => {
         vi.useFakeTimers();
-        const observers: FollowObserver[] = [];
-        const client = makeFakeClient({
+        const f = followWithFailingReads({
             rejections: { callHead: new Error("boom") },
-            captureObserver: (o) => observers.push(o),
         });
-        const messages: JsonRpcMessage[] = [];
-        const conn = createHostPapiProvider(client, "0xfeed")((m) => messages.push(m));
-        refollow({ conn, messages, observers }, 1);
-        conn.send({
-            jsonrpc: "2.0",
-            id: 2,
-            method: "chainHead_v1_call",
-            params: ["p:41", "0xhash", "Core_version", "0x"],
-        });
+        f.read(2);
 
-        observers.at(-1)?.error(new Error("transport closed"));
+        f.observers.at(-1)?.error(new Error("transport closed"));
         await vi.advanceTimersByTimeAsync(0);
 
-        expectAfter(messages, 250, [stopEvent, heldAnswer(2)]);
+        expectAfter(f.messages, 250, [stopEvent, heldAnswer(2)]);
     });
 
     test("a read on a lost follow whose unsubscribe throws still gets its stop", () => {
         vi.useFakeTimers();
-        const f = followWithFailingReads(lostFollow, {
+        const f = followWithFailingReads({
             unsubscribe: () => {
                 throw new Error("provider already closed");
             },

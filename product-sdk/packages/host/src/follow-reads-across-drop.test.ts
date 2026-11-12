@@ -107,10 +107,14 @@ function fakeHost(answers: BodyAnswer[]) {
     };
 }
 
+const openClients: ReturnType<typeof createClient>[] = [];
+
 /** A real polkadot-api client whose follow on the fake host has `blockHash` ready. */
 async function readyClient(answers: BodyAnswer[] = []) {
+    vi.useFakeTimers();
     const host = fakeHost(answers);
     const papi = createClient(createHostPapiProvider(host.client, "0xfeed"));
+    openClients.push(papi);
     const settle = () => vi.advanceTimersByTimeAsync(5);
     const followReady = async (index: number) => {
         host.announceBlock(index);
@@ -140,12 +144,12 @@ function watch<T>(read: Promise<T>) {
 const BODY = [Uint8Array.from([1, 2])];
 
 afterEach(() => {
+    for (const papi of openClients.splice(0)) papi.destroy();
     vi.useRealTimers();
 });
 
 describe("a read across a host link drop works", () => {
     test("in flight when the link drops resolves from the new follow", async () => {
-        vi.useFakeTimers();
         const inFlight = deferredResult();
         const c = await readyClient([() => inFlight.result]);
 
@@ -166,11 +170,9 @@ describe("a read across a host link drop works", () => {
         expect(c.bodyReadsOn).toEqual(["p:1", "p:2"]);
         expect(read.error).toBeUndefined();
         expect(read.value).toEqual(BODY);
-        c.papi.destroy();
     });
 
     test("sent while the stop is pending never reaches the host on the old follow", async () => {
-        vi.useFakeTimers();
         const c = await readyClient();
 
         c.follows[0]!.observer.error(new ConnectionResetError());
@@ -185,7 +187,6 @@ describe("a read across a host link drop works", () => {
 
         expect(c.bodyReadsOn).toEqual(["p:2"]);
         expect(read.value).toEqual(BODY);
-        c.papi.destroy();
     });
 
     test.each([
@@ -195,7 +196,6 @@ describe("a read across a host link drop works", () => {
     ])(
         "answered %s while its stream looks alive stops that follow and resolves from the new one",
         async (_label, reason) => {
-            vi.useFakeTimers();
             const c = await readyClient([
                 () =>
                     errAsync({
@@ -214,14 +214,12 @@ describe("a read across a host link drop works", () => {
 
             expect(c.bodyReadsOn).toEqual(["p:1", "p:2"]);
             expect(read.value).toEqual(BODY);
-            c.papi.destroy();
         },
     );
 });
 
 describe("a read across a host link drop fails", () => {
     test("answered with any other host error still fails the caller at once", async () => {
-        vi.useFakeTimers();
         const c = await readyClient([
             () => errAsync({ tag: "HostFailure", value: { reason: "no such block" } }),
         ]);
@@ -231,6 +229,5 @@ describe("a read across a host link drop fails", () => {
 
         expect(String(read.error)).toContain("no such block");
         expect(c.follows).toHaveLength(1);
-        c.papi.destroy();
     });
 });
