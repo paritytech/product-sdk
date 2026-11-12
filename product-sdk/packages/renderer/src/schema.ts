@@ -255,8 +255,12 @@ export const SHAPE_SCHEMA: Record<ShapeTag, FieldKind | null> = {
     Square: null,
 };
 
-/** The image sources. Both carry a string. */
-export const IMAGE_SOURCE_TAGS = closedSet<ImageSource["tag"]>()(["Bulletin", "Archive"] as const);
+/** The image sources. `Bulletin` and `Archive` carry a string, `Inline` the image's own bytes as hex. */
+export const IMAGE_SOURCE_TAGS = closedSet<ImageSource["tag"]>()([
+    "Bulletin",
+    "Archive",
+    "Inline",
+] as const);
 
 /*
  * The tables above are object literals, so a plain `TABLE[tag]` lookup reaches
