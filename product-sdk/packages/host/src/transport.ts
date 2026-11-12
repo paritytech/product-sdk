@@ -363,11 +363,13 @@ export function subscribeAcrossResets<Item, Reason = never>(
 }
 
 /**
- * Whether a stream ended because the host connection was reset. The injected
- * client can come from the container's own copy of `@parity/truapi`, whose error
- * classes are not this bundle's, so the reset is recognised by name.
+ * Whether a stream or call ended because the host connection was reset.
+ *
+ * The injected client can come from the copy of `@parity/truapi` that the container
+ * ships, whose error classes are not those of this bundle, so the reset is recognised
+ * by name.
  */
-function isConnectionReset(reason: unknown): boolean {
+export function isConnectionReset(reason: unknown): boolean {
     let error: unknown = reason;
     while (error instanceof Error) {
         if (error.name === "ConnectionResetError") return true;
