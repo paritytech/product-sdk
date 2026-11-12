@@ -126,6 +126,19 @@ import { createContractRuntime } from "@parity/product-sdk-contracts";
 const runtime = createContractRuntime(client.raw.assetHub, { atBest: true });
 ```
 
+`client.raw.<name>` is the product's single `PolkadotClient` for that chain, shared by every
+`createChainClient` config and SDK package that uses the chain. Never call `.destroy()` on it
+directly: that closes the chain for all of them. Release your hold with `client.destroy()`.
+
+## One Follow Per Chain
+
+The host allows a product only a few `chainHead_v1_follow` subscriptions per chain, and each
+polkadot-api client holds one. `createChainClient` therefore keeps one client per chain for the
+whole product: configs that include the same chain share it, and the chain closes only when the
+last `ChainClient` holding it is destroyed. Don't build your own client from `getHostProvider`
+for a chain you already reach through `createChainClient` or `getClient`; in development the
+host provider logs an error when a product opens a second follow on a chain.
+
 ## Environment Support
 
 > **WARNING:** Only the `"paseo"` and `"devnet"` environments are currently available. Using `"polkadot"` or `"kusama"` will throw an error.
@@ -171,11 +184,13 @@ destroyAll();
 
 2. **Using unavailable environments** — Only `"paseo"` and `"devnet"` work. `"polkadot"` and `"kusama"` throw.
 
-3. **Not cleaning up** — Call `client.destroy()` when done to close the host provider connections.
+3. **Not cleaning up** — Call `client.destroy()` when done to release the chains it holds; a chain closes once no other client holds it.
 
 4. **Barrel importing descriptors** — Use subpath imports: `@parity/product-sdk-descriptors/paseo-bulletin`, NOT `@parity/product-sdk-descriptors`.
 
 5. **Missing polkadot-api** — It's a peer dependency. Always install it alongside chain-client.
+
+6. **Building an extra client for a chain you already have** — `createClient(await getHostProvider(genesis))` opens another follow on the chain. Use `createChainClient` or `getClient(descriptor)` so the product shares one client per chain.
 
 ## Reference Files
 

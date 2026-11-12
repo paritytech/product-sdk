@@ -26,7 +26,7 @@ export { getChainAPI } from "./presets.js";
 export type { Environment, PresetChains } from "./presets.js";
 
 // Types
-export type { ChainClient, ChainClientConfig, ChainEntry } from "./types.js";
+export type { ChainClient, ChainClientConfig, ChainEntry, SharedChain } from "./types.js";
 
 // Well-known chain genesis hashes
 export { WellKnownChain } from "./well-known-chain.js";

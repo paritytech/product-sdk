@@ -487,6 +487,9 @@ importers:
         specifier: 'catalog:'
         version: 3.2.1(esbuild@0.28.1)(rxjs@7.8.2)
     devDependencies:
+      '@polkadot-api/substrate-bindings':
+        specifier: 'catalog:'
+        version: 0.21.2
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
@@ -4603,14 +4606,14 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.4.0
       '@polkadot-api/utils': 0.4.0
-      '@scure/base': 2.2.0
+      '@scure/base': 2.4.0
       scale-ts: 1.6.1
 
   '@polkadot-api/substrate-bindings@0.20.3':
     dependencies:
       '@noble/hashes': 2.4.0
       '@polkadot-api/utils': 0.4.0
-      '@scure/base': 2.2.0
+      '@scure/base': 2.4.0
       scale-ts: 1.6.1
 
   '@polkadot-api/substrate-bindings@0.21.2':

@@ -87,6 +87,10 @@ client.destroy();
 
 ---
 
+`destroy()` gives back this client's hold on each of its chains. A chain shared with another
+`createChainClient` config stays open until that config is destroyed too. Calling `destroy()`
+twice is safe.
+
 ## destroyAll
 
 Destroy all active chain clients. Useful for cleanup in tests.
@@ -114,12 +118,14 @@ interface ChainClient<C extends ChainMap> {
     // Typed APIs for each chain (e.g., client.assetHub)
     [chainName: string]: TypedApi<Descriptor>;
 
-    // Raw PAPI clients for advanced use
+    // Raw PAPI clients for advanced use. Each is the product's one client for
+    // that chain, shared with every other config that uses the chain; calling
+    // `.destroy()` on it directly closes the chain for all of them.
     raw: {
         [chainName: string]: PolkadotClient;
     };
 
-    // Cleanup
+    // Release this client's hold on its chains
     destroy(): void;
 }
 ```

@@ -51,14 +51,36 @@ export interface ChainClientConfig<
 export type ChainClient<TChains extends Record<string, ChainDefinition>> = {
     [K in string & keyof TChains]: TypedApi<TChains[K]>;
 } & {
-    /** Raw `PolkadotClient` instances, keyed by chain name. Use for advanced APIs like `createContractRuntime`. */
+    /**
+     * Raw `PolkadotClient` instances, keyed by chain name. Use for advanced APIs
+     * like `createContractRuntime`.
+     *
+     * Each one is the product's single client for that chain, shared with every
+     * other `createChainClient` config and SDK package that uses the chain.
+     * Calling `.destroy()` on it directly tears the chain down for all of them;
+     * release this client's hold with {@link ChainClient.destroy} instead.
+     */
     raw: { [K in string & keyof TChains]: PolkadotClient };
-    /** Destroy all connections managed by this client. */
+    /**
+     * Release this client's hold on each of its chains. A chain's shared
+     * connection closes once no other client holds it. Safe to call more than
+     * once.
+     */
     destroy: () => void;
 };
 
-/** Internal per-chain state stored in the HMR-safe cache. */
-export interface ChainEntry {
-    client: PolkadotClient;
+/**
+ * A chain's single shared `PolkadotClient`, held in the HMR-safe cache under
+ * its genesis hash and counted by how many {@link ChainClient}s use it.
+ */
+export interface SharedChain {
+    /** The client, or the promise of it while it is being created. */
+    client: PolkadotClient | Promise<PolkadotClient>;
+    /** Typed APIs built over the client, one per descriptor. */
     api: Map<ChainDefinition, unknown>;
+    /** How many `ChainClient`s hold this chain. The client closes at zero. */
+    users: number;
 }
+
+/** @deprecated Use {@link SharedChain}. */
+export type ChainEntry = SharedChain;
