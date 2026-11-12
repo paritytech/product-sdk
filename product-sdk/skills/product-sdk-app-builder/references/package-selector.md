@@ -143,7 +143,7 @@ auth ← address, keys, terminal, tx  (CLI QR/mobile sign-in + session signers)
 chain-client ← descriptors, host  (provides .raw for ContractRuntime creation)
 contracts ← tx, signer, keys, logger  (needs ContractRuntime from @parity/product-sdk-contracts)
 cloud-storage ← chain-client, descriptors, host, logger, tx
-statement-store ← host, logger, utils  (+ @novasamatech/sdk-statement, @polkadot-api/substrate-client)
+statement-store ← host, logger, utils  (+ @polkadot-api/substrate-client)
 ```
 
 Note: `contracts` no longer depends on `chain-client`. Create ContractRuntime yourself from `client.raw.<chain>` and pass it to `ContractManager` or `createContract`.

@@ -162,7 +162,7 @@ function deriveProductAccountPublicKey(
 
 A product account sits at `//product//{productId}/{derivationIndex}`. The two `//product//{productId}` junctions are **hard**, so no public key can reach across them: `productSubtreePublicKey` must come from the Account Holder, and a root account public key will not do. Only the final index step is soft, which is what lets a paired host derive accounts locally.
 
-Get it from `getProductSubtreePublicKey` in `@parity/product-sdk-terminal`, which fetches once per product and caches. In a CLI, prefer terminal's `deriveProductPublicKey(session, ref)`, which does both steps.
+In a CLI, use `deriveProductPublicKey(adapter, { productId, derivationIndex })` from `@parity/product-sdk-terminal` (also exported by `@parity/product-sdk-auth`). It asks the paired wallet for the subtree key through the adapter and derives the account in one step. With an auth `SessionHandle`, pass `handle.adapter`.
 
 `DerivationIndex` comes from `@parity/product-sdk-utils`:
 

@@ -36,7 +36,6 @@ export {
     createSessionSigner,
     deriveProductPublicKey,
     sessionRootPublicKey,
-    INCOMPLETE_SESSION_MESSAGE,
 } from "./sessionSigner.js";
 export type { ProductAccountRef } from "./sessionSigner.js";
 
@@ -48,7 +47,6 @@ export type {
     AllocatableResource,
     AllocationOutcome,
     AllocationSummary,
-    OnExistingAllowancePolicy,
     ResourceTag,
 } from "./allocations.js";
 
