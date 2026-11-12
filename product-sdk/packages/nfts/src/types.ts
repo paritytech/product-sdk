@@ -64,8 +64,8 @@ export type Claimant = { tag: "Account"; address: string } | { tag: "Person"; al
  * into later blocks, and the credits are not known until that block is built.
  * A block whose root the claims chain had deleted, once every leaf was spent or
  * past its deadline, keeps its awards a while longer: those read as `claimed`
- * where the leaf is spent, with the leaf index but no time, and the rest of the
- * block as one `unprovable` entry.
+ * where the leaf is spent, with the leaf index but no time or game index, and
+ * the rest of the block as one `unprovable` entry.
  */
 export type ClaimState = "earned" | "claimable" | "claimed" | "unprovable";
 
@@ -74,22 +74,27 @@ export interface Claim {
     /**
      * The credit hash, `0x` prefixed, as `NftClaimCreditAwards` stores it, or
      * `null` when the awards of its block are gone and the hash with them. A
-     * `null` entry stands for a whole block, whose credit count is unknown.
+     * `null` entry stands for a whole block whose credit count is unknown, or
+     * for the unspent leaves of a finished tree.
      */
     hash: string | null;
     /** The People chain block the credit was awarded in. */
     awardBlock: number;
     /**
-     * When the award block was rooted, in Unix seconds, or `null` for a block
-     * whose root has not been recorded yet.
+     * When the award block was rooted, in Unix seconds. `null` while the block
+     * has no root yet, and for a `claimed` credit of a finished tree, whose root
+     * is gone and whose award record holds no time.
      */
     awardedAt: number | null;
-    /** The game the award block belongs to, or `null` before its root exists. */
+    /**
+     * The game the award block belongs to. `null` while the block has no root
+     * yet, and for a `claimed` credit of a finished tree, as for `awardedAt`.
+     */
     gameIndex: number | null;
     /**
      * Where the credit sits in the tree of its award block, which a proof binds
-     * to it and a claim spends, or `null` while the block is rootless or once
-     * its awards were pruned.
+     * to it and a claim spends. `null` while the block has no root yet or once
+     * its awards were pruned. A `claimed` credit of a finished tree keeps it.
      */
     leafIndex: number | null;
     /**

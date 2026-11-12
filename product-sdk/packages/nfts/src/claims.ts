@@ -10,9 +10,9 @@
  * read from the award chunks instead so a fresh award shows within seconds. The
  * Asset Hub side says whether the root arrived and, per leaf index, whether it
  * is spent, which is what turns a credit into `earned`, `claimable` or `claimed`.
- * A rootless block far behind the People head is one the claims chain finished
- * with and had the root deleted, so its awards are read against the Asset Hub
- * bitmap instead: a spent leaf is `claimed`, the rest `unprovable`.
+ * A rootless block below the pinned People block has had its root deleted, so its
+ * awards are read against the Asset Hub bitmap instead: a spent leaf is `claimed`,
+ * and the unspent leaves of the block are one `unprovable` entry.
  *
  * The shape follows `fetchCredits` and `fetchClaimStates` in scarcity-stash, with
  * one difference: a block whose awards were pruned before its proofs were read
@@ -49,7 +49,8 @@ export interface GetClaimsOptions {
     /**
      * The People block to read the awards at, as PAPI's `at`: `"finalized"`, the
      * default, `"best"` to see an award a best-block watch just saw, or a
-     * snapshot another People read already pinned.
+     * snapshot another People read already pinned. A snapshot's number must be
+     * that of its hash: a rootless block below it is read as finished.
      */
     individualityAt?: BlockAt;
     /** Forwarded into every underlying pull, so an aborted caller stops the batch. */
@@ -125,16 +126,6 @@ async function readAwardChunks(
  * integrity failures and land on the `err` channel instead.
  */
 const UNPROVABLE = new Set(["AwardsPruned", "UnknownCreditTree"]);
-
-/**
- * How far behind the People head a rootless block can be while its tree is
- * still to be built: the root comes in the block after the buffer's, and a
- * buffer runs at most `MAX_PENDING_CREDIT_TREES` (8) blocks ahead when awarding
- * spilled. A rootless block further back has lost its root: the claims chain
- * finished with its tree, every leaf spent or past its deadline, and had the
- * root deleted, while the awards stay until their own TTL.
- */
-const ROOT_PENDING_BLOCKS = 16;
 
 function unprovable(awardBlock: number, awardedAt: number | null, gameIndex: number | null): Claim {
     return {
@@ -225,13 +216,16 @@ export async function getClaims(
         ]);
 
         const rootedBlocks = [...rooted.keys()];
+        // The pallet roots a block's buffer in the block after it, so at the
+        // pinned block every lower block with awards has had its root, and a
+        // lower block without one has had it deleted. A block whose awards are
+        // gone as well has nothing to check against the bitmap.
         const finished = new Set(
-            rootless.filter((block) => people.blockNumber - block > ROOT_PENDING_BLOCKS),
+            rootless.filter((block, i) => block < people.blockNumber && chunks[i].length > 0),
         );
         // Every rooted block, not only the ones whose tree is still on Asset Hub:
-        // the bitmap outlives the tree, so a claim made before the sweep still
-        // reads as claimed after it. The finished rootless blocks are read for
-        // the same reason.
+        // the last claim removes the tree and keeps the bitmap. The finished
+        // rootless blocks are read for the same reason.
         const bitmapBlocks = [...rootedBlocks, ...finished];
         const bitmaps =
             bitmapBlocks.length === 0
@@ -295,9 +289,10 @@ export async function getClaims(
                 return;
             }
             if (finished.has(block)) {
-                // The tree is finished, so each leaf is spent or past its deadline.
-                // What was never spent is one unprovable entry for the block, as a
-                // pruned block is.
+                // The tree is finished. After the last claim the bitmap is whole,
+                // after the expiry sweep it is gone, and a bitmap with gaps means the
+                // Asset Hub block is older than the People one. Unspent leaves are
+                // one unprovable entry for the block, as for a pruned block.
                 const bitmap = bitmapOf.get(block) ?? new Uint8Array();
                 let unspent = false;
                 for (const { award, leafIndex } of mine) {
@@ -345,8 +340,8 @@ if (import.meta.vitest) {
 
     const PEOPLE = { hash: `0x${"11".repeat(32)}`, number: 500 };
     const ASSET_HUB = { hash: `0x${"22".repeat(32)}`, number: 900 };
-    // A rootless block the People head has only just passed: its tree is still to come.
-    const FRESH = PEOPLE.number - 1;
+    // The pinned block, whose root comes in the next block.
+    const FRESH = PEOPLE.number;
     const ALICE = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
     const claimant = { tag: "Account", address: ALICE } as const;
     type Key = { type: "Account" | "Person"; value: string };
@@ -419,9 +414,12 @@ if (import.meta.vitest) {
                             getValues: async (keys: Array<[number]>) => {
                                 calls.push(`claimed:${keys.map(([b]) => b).join(",")}`);
                                 return keys.map(([b]) => {
-                                    const bits = new Uint8Array(4);
-                                    for (const i of state.claimed?.[b] ?? [])
-                                        bits[i >> 3] |= 1 << (i & 7);
+                                    const spent = state.claimed?.[b];
+                                    // No bitmap decodes as the map's default, an empty vector.
+                                    if (spent === undefined) return new Uint8Array(0);
+                                    const size = (Math.max(0, ...spent) >> 3) + 1;
+                                    const bits = new Uint8Array(size);
+                                    for (const i of spent) bits[i >> 3] |= 1 << (i & 7);
                                     return bits;
                                 });
                             },
@@ -596,7 +594,7 @@ if (import.meta.vitest) {
         });
 
         test("a rootless block is read from the awards buffer, for this claimant only", async () => {
-            const { chain } = fakeChain({
+            const { chain, calls } = fakeChain({
                 blocks: [FRESH],
                 roots: [],
                 awards: {
@@ -620,9 +618,42 @@ if (import.meta.vitest) {
                     state: "earned",
                 },
             ]);
+            // Still to be rooted, so no bitmap is read.
+            expect(calls.filter((c) => c.startsWith("claimed"))).toEqual([]);
         });
 
-        test("a rootless block far behind the head is a finished tree: a spent leaf is claimed, the rest unprovable", async () => {
+        test("a spilled block above the pinned block is earned with its hash, and no bitmap is read", async () => {
+            const { chain, calls } = fakeChain({
+                blocks: [PEOPLE.number + 3],
+                roots: [],
+                awards: { [PEOPLE.number + 3]: [{ claimant: key, credit: h(5) }] },
+            });
+            const result = await getClaims(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.claims.map((c) => [c.hash, c.leafIndex, c.state])).toEqual([
+                [h(5), null, "earned"],
+            ]);
+            expect(calls.filter((c) => c.startsWith("claimed"))).toEqual([]);
+        });
+
+        test("a rootless block one below the pinned block has lost its root: a spent leaf is claimed", async () => {
+            const { chain, calls } = fakeChain({
+                blocks: [PEOPLE.number - 1],
+                roots: [],
+                awards: { [PEOPLE.number - 1]: [{ claimant: key, credit: h(5) }] },
+                claimed: { [PEOPLE.number - 1]: [0] },
+            });
+            const result = await getClaims(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.claims.map((c) => [c.hash, c.leafIndex, c.state])).toEqual([
+                [h(5), 0, "claimed"],
+            ]);
+            expect(calls).toContain(`claimed:${PEOPLE.number - 1}`);
+        });
+
+        test("a finished tree read at an older Asset Hub block: the spent leaf is claimed, the rest one unprovable entry", async () => {
             const { chain, calls } = fakeChain({
                 blocks: [11],
                 roots: [],
@@ -680,6 +711,62 @@ if (import.meta.vitest) {
                 [h(5), 0, "claimed"],
                 [h(7), 1, "claimed"],
             ]);
+        });
+
+        test("a finished tree the expiry sweep removed, bitmap and all, is one unprovable entry", async () => {
+            const { chain, calls } = fakeChain({
+                blocks: [11],
+                roots: [],
+                awards: { 11: [{ claimant: key, credit: h(5) }] },
+            });
+            const result = await getClaims(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.claims).toEqual([unprovable(11, null, null)]);
+            expect(calls).toContain("claimed:11");
+        });
+
+        test("a finished tree's leaf index counts across chunks of 32", async () => {
+            const { chain } = fakeChain({ blocks: [11], roots: [], claimed: { 11: [32] } });
+            const others = Array.from({ length: AWARDS_PER_CHUNK }, (_, i) => ({
+                claimant: { type: "Account", value: "5Bob" } as Key,
+                credit: h(200 + i),
+            }));
+            const awards = chain.individuality.query.NftCredits.NftClaimCreditAwards as {
+                getValues: (keys: Array<[number, number]>) => Promise<unknown[][]>;
+            };
+            awards.getValues = async (keys) =>
+                keys.map(([, chunk]) =>
+                    chunk === 0 ? others : chunk === 1 ? [{ claimant: key, credit: h(5) }] : [],
+                );
+            const result = await getClaims(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.value.claims.map((c) => [c.hash, c.leafIndex, c.state])).toEqual([
+                [h(5), 32, "claimed"],
+            ]);
+        });
+
+        test("a rooted block and a finished block in one read each use their own bitmap", async () => {
+            const { chain, calls } = fakeChain({
+                blocks: [10, 11],
+                roots: [root(10)],
+                proofs: { 10: proof([1, 2]) },
+                trees: [10],
+                awards: { 11: [{ claimant: key, credit: h(5) }] },
+                claimed: { 10: [1], 11: [0] },
+            });
+            const result = await getClaims(chain, { claimant });
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(
+                result.value.claims.map((c) => [c.awardBlock, c.hash, c.leafIndex, c.state]),
+            ).toEqual([
+                [11, h(5), 0, "claimed"],
+                [10, h(1), 0, "claimable"],
+                [10, h(2), 1, "claimed"],
+            ]);
+            expect(calls).toContain("claimed:10,11");
         });
 
         test("a rootless block with more awards than one window is read whole", async () => {
@@ -775,7 +862,7 @@ if (import.meta.vitest) {
         });
 
         test("a past block with no root and no awards is unprovable, not dropped", async () => {
-            const { chain } = fakeChain({ blocks: [11], roots: [] });
+            const { chain, calls } = fakeChain({ blocks: [11], roots: [] });
             const result = await getClaims(chain, { claimant });
             expect(result.ok).toBe(true);
             if (!result.ok) return;
@@ -790,6 +877,8 @@ if (import.meta.vitest) {
                     state: "unprovable",
                 },
             ]);
+            // Nothing to check against a bitmap.
+            expect(calls.filter((c) => c.startsWith("claimed"))).toEqual([]);
         });
 
         test("a block still to come is earned with no hash yet", async () => {
