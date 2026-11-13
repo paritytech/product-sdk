@@ -1,5 +1,43 @@
 # @parity/product-sdk
 
+## 0.45.0
+
+### Minor Changes
+
+- 705abbd: **Pair with a truapi 0.31.0 host.** `@parity/truapi` moves from `^0.29.0` to `^0.31.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `22e6584ca33f86cd` to `cebcc89a5e45bbd3`, so the schema a product speaks no longer matches a host still on 0.29.0. Every host surface has to move in the same window.
+
+  What changed in the truapi surface, and how the SDK absorbs it:
+
+  - **An image can be carried in the tree itself.** `ImageSource` gains `Inline`, whose value is the image's own bytes as `0x`-prefixed hex: PNG, JPEG or WebP, at most 64 KiB. `@parity/product-sdk-renderer` accepts the new source and checks it: `validateFace` reports `inline-image-not-hex` for a value that is not whole hex bytes and `inline-image-too-large` for one past the protocol's cap, next to the existing `unknown-image-source`. `@parity/product-sdk-react-renderer`'s `Image` takes `source={{ tag: "Inline", value: "0x..." }}` through the shared type with no change of its own.
+  - **Two more render contexts.** `RenderContext` gains `PocketCardBack`, the back of a card whose definition declares one, and `ChatRoomFooter`, a card a product docks under a room's messages. `getRendererManager().draw()` and `registerRenderContext` accept both tags; the Pocket and chat managers do not route them yet, so a product that draws one claims the context itself.
+  - **A room footer can be a card.** `ChatRoomFooter` is now a tagged union with `TextInput`, `Empty` and `Card`, and the client still takes the plain strings for the first two. `getChatManager()` does not set footers, so this reaches only products calling `chat.setRoomFooter` through `getTruApi()`.
+  - **`createTransaction` can report `ChainUnavailable`** when the chain stayed unreachable and nothing was signed. The SDK's signers forward the error unchanged, as they do every creation error; the protocol says a product may retry it with a bound on the attempts, and the SDK does not retry it for you.
+  - **The funding provider domain grows** with quotes, deposits, payout and refund steps, and progress details. The SDK does not model `fundingProvider`; `createFakeHost()` still lists it as not modeled.
+  - **`expandedCard.setBackShown`** turns the card above a widget. Not modeled by the SDK; reachable through `getTruApi()`.
+  - `@parity/truapi-host` moves to `^0.31.0` alongside, which also ships the `./node` entry the terminal's move onto the truapi core depends on.
+
+### Patch Changes
+
+- 705abbd: A product holds one `chainHead_v1_follow` per chain, however many `createChainClient` calls ask for that chain. `createChainClient` keeps one shared `PolkadotClient` per genesis hash, counted by the callers holding it: a config that includes a chain another config already opened reuses its client, two calls starting at once on the same chain end up with one, calls with the same descriptors share one set of typed APIs and raw clients, and `destroy()` on a `ChainClient` only gives back that call's hold, so the chain stays open for every other caller until the last one is destroyed. `destroy()` is safe to call more than once, a config that fails to start gives back the chains it took without closing them for anyone else, and `client.raw.<name>` is the chain's shared client, so calling `.destroy()` on it directly closes the chain for every other user. While a chain is still connecting, `isConnected` is `false` and `getClient` throws saying to await the `createChainClient` call connecting it; `destroyAll()` during that time rejects the call. A chain the host refuses still gets the stand-in that throws `ChainNotSupportedError` on use and holds no shared client.
+
+  Outside production builds, the host-routed PAPI provider logs an error through the SDK logger when a second connection in the same product opens a follow on a chain another connection already follows: `chain <genesis> now has <n> follows from this product: share one client per chain (createChainClient / getClient) instead of creating another.` It counts connections, not follows, so a client that follows again after a stop is never reported.
+
+- 705abbd: Chain reads made while the host link drops no longer fail with `unknown follow subscription id` or `TrUAPI host connection interrupted`. The host-routed PAPI provider holds a read whose follow has ended until polkadot-api has seen the stop, and polkadot-api then sends it again on its new follow. A read answered with a lost follow now also starts that stop, so a follow the host has dropped recovers without a reload. When the host keeps losing each new follow, the read waits while the provider follows again after a wait that doubles from 250 ms up to 4 s.
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+  - @parity/product-sdk-chain-client@0.13.10
+  - @parity/product-sdk-host@0.34.0
+  - @parity/product-sdk-renderer@0.12.0
+  - @parity/product-sdk-cloud-storage@0.13.10
+  - @parity/product-sdk-individuality@0.11.7
+  - @parity/product-sdk-local-storage@0.3.26
+  - @parity/product-sdk-signer@0.17.10
+  - @parity/product-sdk-keys@0.5.10
+  - @parity/product-sdk-contracts@0.11.10
+  - @parity/product-sdk-tx@0.5.10
+  - @parity/product-sdk-reputation@0.1.3
+
 ## 0.44.0
 
 ### Minor Changes

@@ -1,5 +1,16 @@
 # @parity/product-sdk-pocket-card-example
 
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+  - @parity/product-sdk-host@0.34.0
+  - @parity/product-sdk-react-renderer@0.9.0
+  - @parity/product-sdk-renderer@0.12.0
+
 ## 0.0.16
 
 ### Patch Changes
