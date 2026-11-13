@@ -27,6 +27,7 @@
         "polkadot-api": "catalog:"
     },
     "devDependencies": {
+        "@polkadot-api/substrate-bindings": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

@@ -54,6 +54,7 @@ import { createLogger } from "@parity/product-sdk-logger";
 import { formatHostError } from "./errors.js";
 import {
     isConnectionReset,
+    isProductionBuild,
     subscribeWithInterrupt,
     type TransportSubscription,
 } from "./transport.js";
@@ -91,6 +92,47 @@ const FOLLOW_LOST =
 /** Whether a read failed because the follow it named has ended, not because of the read. */
 function endsFollow(error: unknown): boolean {
     return isConnectionReset(error) || FOLLOW_LOST.test(formatHostError(error));
+}
+
+/**
+ * The provider connections of this product that hold an active follow, per chain.
+ *
+ * The host allows a product few `chainHead_v1_follow`s per chain and polkadot-api
+ * holds one per client, so a second connection following a chain is a second
+ * client on it, which `createChainClient` / `getClient` would have shared. A
+ * product's iframe or Worker has its own module instance, so this counts one
+ * product. Keyed by connection, not by follow: a client that follows again
+ * during stop recovery is still one client while its follows overlap.
+ */
+const followersByChain = new Map<HexString, Set<object>>();
+
+/**
+ * Record whether `connection` holds a follow on `genesisHash`, and report the
+ * chain's follows outside production whenever a connection joins a chain
+ * another connection already follows.
+ */
+function noteFollower(genesisHash: HexString, connection: object, following: boolean): void {
+    const followers = followersByChain.get(genesisHash);
+    if (!following) {
+        if (followers?.delete(connection) && followers.size === 0) {
+            followersByChain.delete(genesisHash);
+        }
+        return;
+    }
+    if (followers?.has(connection)) return;
+    const joined = followers ?? new Set<object>();
+    joined.add(connection);
+    followersByChain.set(genesisHash, joined);
+    if (joined.size > 1 && !isProductionBuild()) {
+        log.error(
+            `chain ${genesisHash} now has ${joined.size} follows from this product: share one client per chain (createChainClient / getClient) instead of creating another.`,
+        );
+    }
+}
+
+/** Forget every follower. For tests, which reuse a chain across providers. */
+export function resetFollowersForTests(): void {
+    followersByChain.clear();
 }
 
 /** Return the operation id carried by an operation follow item. */
@@ -281,6 +323,10 @@ export function createHostPapiProvider(
             const pending = interruptedFollows.get(subscription);
             interruptedFollows.delete(subscription);
             if (pending?.timer !== undefined) clearTimeout(pending.timer);
+        }
+        /** Tell the chain's follower set whether this connection still follows. */
+        function syncFollower(): void {
+            noteFollower(genesisHash, connection, activeFollows.size > 0);
         }
         const heldReads = new Map<string, JsonRpcRequest["id"][]>();
         const followAges = new Map<
@@ -507,6 +553,9 @@ export function createHostPapiProvider(
                 followAges.delete(followSubscriptionId);
                 sendFollowEvent(followSubscriptionId, { event: "stop" });
                 releaseHeldReads(followSubscriptionId);
+                // After the stop is delivered, so a client that follows again at
+                // once is still the one client this connection is on the chain.
+                syncFollower();
             }, delay);
         }
 
@@ -542,7 +591,9 @@ export function createHostPapiProvider(
                             age.events += 1;
                             age.lastEventAt = Date.now();
                         }
-                        if (item.tag === "Stop" && activeFollows.delete(followSubscriptionId)) {
+                        const stopped =
+                            item.tag === "Stop" && activeFollows.delete(followSubscriptionId);
+                        if (stopped) {
                             log.warn(
                                 `chainHead follow ${followSubscriptionId} stopped by the host: ${followState(followSubscriptionId)}`,
                             );
@@ -554,6 +605,9 @@ export function createHostPapiProvider(
                             pendingOperationStarts.delete(followSubscriptionId);
                         }
                         forwardFollowItem(followSubscriptionId, item);
+                        // After the stop is delivered, so a client that follows again at
+                        // once is still the one client this connection is on the chain.
+                        if (stopped) syncFollower();
                     };
                     ref.handle = subscribeWithInterrupt(
                         chain.followHeadSubscribe({ request: { genesisHash, withRuntime } }),
@@ -582,6 +636,7 @@ export function createHostPapiProvider(
                     // waiting to be recorded would read as a superseded one and
                     // the stop that makes the consumer refollow would be lost.
                     activeFollows.set(followSubscriptionId, ref.handle);
+                    syncFollower();
                     followOperations.set(followSubscriptionId, new Map());
                     pendingOperationStarts.set(followSubscriptionId, 0);
                     const startedAt = Date.now();
@@ -621,6 +676,7 @@ export function createHostPapiProvider(
                     followAges.delete(followSubId);
                     cancelTransportStop(followSubId);
                     activeFollows.delete(followSubId);
+                    syncFollower();
                     try {
                         follow?.unsubscribe();
                     } catch (thrown) {
@@ -821,7 +877,7 @@ export function createHostPapiProvider(
             }
         }
 
-        return {
+        const connection: JsonRpcConnection = {
             send(message) {
                 if (disconnected) return;
                 // A synchronous throw inside a handler (e.g. a malformed positional
@@ -845,6 +901,7 @@ export function createHostPapiProvider(
                     cancelTransportStop(subscription);
                 const handles = [...activeFollows.values()];
                 activeFollows.clear();
+                syncFollower();
                 for (const handle of handles) handle.unsubscribe();
                 followOperations.clear();
                 pendingOperationStarts.clear();
@@ -862,6 +919,7 @@ export function createHostPapiProvider(
                 activeBroadcasts.clear();
             },
         };
+        return connection;
     };
 }
 
@@ -880,6 +938,7 @@ if (import.meta.vitest) {
     });
     beforeEach(() => {
         lines.length = 0;
+        resetFollowersForTests();
     });
 
     type FollowObserver = {
@@ -2006,5 +2065,169 @@ if (import.meta.vitest) {
             "stopTransaction",
             { genesisHash: "0xfeed", operationId: "bc1" },
         ]);
+    });
+
+    // --- one follow per chain per product ---
+
+    /** A provider connection on `genesisHash` over its own fake host, with follows the test drives. */
+    function connectionOn(genesisHash: `0x${string}`, { refollowOnStop = false } = {}) {
+        const observers: FollowObserver[] = [];
+        let count = 0;
+        let id = 0;
+        const client = makeFakeClient({
+            subscriptionId: () => `${genesisHash}:${++count}`,
+            captureObserver: (o) => observers.push(o),
+        });
+        const followRequest = () => ({
+            jsonrpc: "2.0" as const,
+            id: ++id,
+            method: "chainHead_v1_follow",
+            params: [true],
+        });
+        // A consumer that follows again as soon as its follow stops, as polkadot-api does.
+        const conn = createHostPapiProvider(
+            client,
+            genesisHash,
+        )((message) => {
+            const event =
+                "params" in message
+                    ? (message.params as { result?: FollowEvent }).result
+                    : undefined;
+            if (refollowOnStop && event?.event === "stop") conn.send(followRequest());
+        });
+        const follow = () => {
+            conn.send(followRequest());
+            return {
+                subscription: `${genesisHash}:${count}`,
+                observer: observers[observers.length - 1]!,
+            };
+        };
+        const unfollow = (subscription: string) =>
+            conn.send({
+                jsonrpc: "2.0",
+                id: ++id,
+                method: "chainHead_v1_unfollow",
+                params: [subscription],
+            });
+        return { conn, follow, unfollow };
+    }
+
+    const followErrors = () => lines.filter((line) => line.startsWith("error: chain "));
+    const extraFollows = (n: number) =>
+        `error: chain 0xfeed now has ${n} follows from this product: share one client per chain (createChainClient / getClient) instead of creating another.`;
+
+    test("a second connection following a chain this product already follows is one error", () => {
+        const first = connectionOn("0xfeed");
+        first.follow();
+        expect(followErrors()).toEqual([]);
+
+        const second = connectionOn("0xfeed");
+        second.follow();
+        expect(followErrors()).toEqual([extraFollows(2)]);
+
+        // More follows on a connection already counted are the same client.
+        second.follow();
+        first.follow();
+        expect(followErrors()).toEqual([extraFollows(2)]);
+
+        // Each further connection is one more client, reported with its count.
+        connectionOn("0xfeed").follow();
+        expect(followErrors()).toEqual([extraFollows(2), extraFollows(3)]);
+    });
+
+    test("connections following different chains are no error", () => {
+        connectionOn("0xfeed").follow();
+        connectionOn("0xbeef").follow();
+        connectionOn("0xcafe").follow();
+        expect(followErrors()).toEqual([]);
+    });
+
+    test("one connection that follows again after a Stop is no error", () => {
+        const c = connectionOn("0xfeed");
+        const { observer } = c.follow();
+        observer.next({ tag: "Stop" });
+        c.follow();
+        c.follow().observer.next({ tag: "Stop" });
+        expect(followErrors()).toEqual([]);
+    });
+
+    test("one connection that follows again while its lost follow waits for its stop is no error", () => {
+        vi.useFakeTimers();
+        const c = connectionOn("0xfeed");
+        const { observer } = c.follow();
+        observer.error(new Error("transport closed"));
+        // The old follow is still active until the synthetic stop, so the two overlap.
+        c.follow();
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        expect(followErrors()).toEqual([]);
+    });
+
+    test("a stop on either of two connections, answered with a refollow at once, is not reported again", () => {
+        const first = connectionOn("0xfeed", { refollowOnStop: true });
+        const { observer } = first.follow();
+        const second = connectionOn("0xfeed", { refollowOnStop: true });
+        const other = second.follow().observer;
+        expect(followErrors()).toEqual([extraFollows(2)]);
+
+        observer.next({ tag: "Stop" });
+        other.next({ tag: "Stop" });
+        expect(followErrors()).toEqual([extraFollows(2)]);
+    });
+
+    test("a lost follow's stop on one of two connections, answered with a refollow at once, is not reported again", () => {
+        vi.useFakeTimers();
+        const first = connectionOn("0xfeed", { refollowOnStop: true });
+        const { observer } = first.follow();
+        connectionOn("0xfeed").follow();
+        expect(followErrors()).toEqual([extraFollows(2)]);
+
+        observer.error(new Error("transport closed"));
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        expect(followErrors()).toEqual([extraFollows(2)]);
+    });
+
+    test("a connection whose only follow stops leaves the chain, so the next connection is no error", () => {
+        vi.useFakeTimers();
+        connectionOn("0xfeed").follow().observer.next({ tag: "Stop" });
+        connectionOn("0xfeed").follow();
+        expect(followErrors()).toEqual([]);
+
+        connectionOn("0xbeef").follow().observer.error(new Error("transport closed"));
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        connectionOn("0xbeef").follow();
+        expect(followErrors()).toEqual([]);
+    });
+
+    test("a connection that unfollows its last follow leaves the chain, so the next connection is no error", () => {
+        const first = connectionOn("0xfeed");
+        const { subscription } = first.follow();
+        first.unfollow(subscription);
+        connectionOn("0xfeed").follow();
+        expect(followErrors()).toEqual([]);
+    });
+
+    test("the second connection closing and a new one opening is an error again", () => {
+        const first = connectionOn("0xfeed");
+        first.follow();
+        const second = connectionOn("0xfeed");
+        second.follow();
+        expect(followErrors()).toEqual([extraFollows(2)]);
+
+        // The chain is back to one client, so a new second client is a new episode:
+        // it is reported, since the product has made another extra client.
+        second.conn.disconnect();
+        connectionOn("0xfeed").follow();
+        expect(followErrors()).toEqual([extraFollows(2), extraFollows(2)]);
+    });
+
+    test("in a production build a second connection is no error", () => {
+        vi.stubEnv("NODE_ENV", "production");
+        try {
+            connectionOn("0xfeed").follow();
+            connectionOn("0xfeed").follow();
+            expect(followErrors()).toEqual([]);
+        } finally {
+            vi.unstubAllEnvs();
+        }
     });
 }

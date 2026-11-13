@@ -42,7 +42,12 @@ let clientOverride: TrUApiClient | null = null;
 // built itself, so it cannot know an injected client appeared or went away.
 const localStatusListeners = new Set<(status: HostConnectionStatus) => void>();
 
-function isProductionBuild(): boolean {
+/**
+ * Whether this is a production build, read from `process.env.NODE_ENV` so a
+ * bundler's replacement of it decides. The development-only checks of the host
+ * package key off this.
+ */
+export function isProductionBuild(): boolean {
     try {
         // Must stay a plain `process.env.NODE_ENV` member expression: bundlers
         // (Vite, esbuild, webpack) substitute it textually, which is how this

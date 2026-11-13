@@ -85,6 +85,10 @@ client.bulletin.query.TransactionStorage.BytesFee.getValue();
 client.destroy();
 ```
 
+`destroy()` gives back this client's hold on each of its chains. A chain another
+`createChainClient` call also holds stays open until that client is destroyed too. Calling
+`destroy()` twice is safe.
+
 ---
 
 ## destroyAll
@@ -93,6 +97,24 @@ Destroy all active chain clients. Useful for cleanup in tests.
 
 ```typescript
 function destroyAll(): void
+```
+
+## getClient
+
+The product's shared `PolkadotClient` for a chain, looked up by its descriptor's genesis hash.
+Throws when the chain is not connected, or when the `createChainClient` call connecting it has
+not resolved yet. Don't call `.destroy()` on it: every client that uses the chain shares it.
+
+```typescript
+function getClient(descriptor: ChainDefinition): PolkadotClient
+```
+
+## isConnected
+
+Whether the product's client for a chain exists and is ready. Synchronous, no side effects.
+
+```typescript
+function isConnected(descriptor: ChainDefinition): boolean
 ```
 
 ```typescript
@@ -114,12 +136,14 @@ interface ChainClient<C extends ChainMap> {
     // Typed APIs for each chain (e.g., client.assetHub)
     [chainName: string]: TypedApi<Descriptor>;
 
-    // Raw PAPI clients for advanced use
+    // Raw PAPI clients for advanced use. Each is the product's one client for
+    // that chain, shared with every other config that uses the chain; calling
+    // `.destroy()` on it directly closes the chain for all of them.
     raw: {
         [chainName: string]: PolkadotClient;
     };
 
-    // Cleanup
+    // Release this client's hold on its chains
     destroy(): void;
 }
 ```
