@@ -13,6 +13,7 @@ import type {
     ImageSource,
     Modifier,
     Size,
+    SlideToConfirmVariant,
 } from "./types.js";
 
 export type WidgetInstance = {
@@ -46,6 +47,7 @@ export const SERIALIZED_NODES = [
     "TextField",
     "Image",
     "Effect",
+    "SlideToConfirm",
 ] as const satisfies readonly RendererNode["tag"][];
 
 /**
@@ -126,7 +128,8 @@ function convertModifiers(props: Record<string, unknown>): Modifier[] {
  * What one widget puts under `value`.
  *
  * The protocol declares each node's fields exactly: `Spacer` carries no
- * `props`, `Spacer`, `TextField` and `Image` carry no `children`, and `Effect`
+ * `props`, `Spacer`, `TextField`, `Image` and `SlideToConfirm` carry no
+ * `children`, and `Effect`
  * carries no `modifiers`. A host ignores every key a node does not declare, so
  * an extra one draws nothing and shows up only as a validator warning.
  */
@@ -195,6 +198,21 @@ const WIDGET_SHAPES: Record<WidgetTag, WidgetShape> = {
         props: (props) => ({
             source: props.source as ImageSource,
             fit: props.fit as ImageFit | undefined,
+        }),
+    },
+    SlideToConfirm: {
+        modifiers: true,
+        children: false,
+        props: (props) => ({
+            text: (props.text as string | undefined) ?? "",
+            secondaryText: props.secondaryText as string | undefined,
+            confirmedText: props.confirmedText as string | undefined,
+            variant: props.variant as SlideToConfirmVariant | undefined,
+            accent: props.accent as string | undefined,
+            enabled: props.enabled as boolean | undefined,
+            loading: props.loading as boolean | undefined,
+            confirmed: props.confirmed as boolean | undefined,
+            confirmAction: props.confirmAction,
         }),
     },
     Effect: {

@@ -25,6 +25,7 @@ import type {
     Modifier,
     RendererNode,
     Shape,
+    SlideToConfirmVariant,
     TypographyStyle,
     VerticalAlignment,
 } from "@parity/truapi";
@@ -66,6 +67,11 @@ export const BUTTON_VARIANTS = closedSet<ButtonVariant>()([
     "Primary",
     "Secondary",
     "Text",
+] as const);
+
+export const SLIDE_TO_CONFIRM_VARIANTS = closedSet<SlideToConfirmVariant>()([
+    "Thumb",
+    "Reveal",
 ] as const);
 
 export const IMAGE_FITS = closedSet<ImageFit>()([
@@ -230,6 +236,20 @@ export const NODE_SCHEMA: Record<NodeTag, NodeSchema> = {
         },
     },
     Effect: { children: true, props: { effect: { type: enumOf(EFFECTS), required: true } } },
+    SlideToConfirm: {
+        modifiers: true,
+        props: {
+            text: { type: str, required: true },
+            secondaryText: { type: str },
+            confirmedText: { type: str },
+            variant: { type: enumOf(SLIDE_TO_CONFIRM_VARIANTS) },
+            accent: { type: enumOf(COLOR_TOKENS) },
+            enabled: { type: flag },
+            loading: { type: flag },
+            confirmed: { type: flag },
+            confirmAction: { type: str },
+        },
+    },
 };
 
 /** The modifiers, keyed by their `tag`, each mapped to what its `value` holds. */
