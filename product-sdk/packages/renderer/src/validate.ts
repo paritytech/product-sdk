@@ -638,10 +638,11 @@ function advise(
             "a Button with no 'clickAction' is inert: the host has no id to report when it is pressed",
         );
     }
-    // A loading or confirmed control takes no slide, so it needs no action to report one.
+    // A disabled, loading or confirmed control takes no slide, so it needs no action to report one.
     if (
         tag === "SlideToConfirm" &&
         absent(props.confirmAction) &&
+        props.enabled !== false &&
         props.loading !== true &&
         props.confirmed !== true
     ) {
@@ -1043,10 +1044,10 @@ if (import.meta.vitest) {
             expect(verdict.warnings.map((issue) => issue.code)).toEqual(["slide-without-action"]);
         });
 
-        // The prototype host drops the action once the slide is done, as its
-        // sample product does, so a loading or confirmed control is not a mistake.
+        // A product drops the action while the control takes no slide, as the
+        // Android sample does, so a disabled, loading or confirmed one is not a mistake.
         test("does not warn about a SlideToConfirm that takes no slide", () => {
-            for (const state of [{ loading: true }, { confirmed: true }]) {
+            for (const state of [{ enabled: false }, { loading: true }, { confirmed: true }]) {
                 const verdict = validateFace({
                     tag: "SlideToConfirm",
                     value: { props: { text: "Slide to register", ...state } },
