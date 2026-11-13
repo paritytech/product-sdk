@@ -37,7 +37,7 @@ export interface ResolvedSigner {
     address: string;
     source: SignerSource;
     /** Present for QR/mobile sessions; absent for local dev/SURI signers. */
-    userSession?: SessionHandle["userSession"];
+    session?: SessionHandle["session"];
     /** Root / product / H160 triple — present for QR/mobile sessions only. */
     addresses?: SessionAddresses;
     /** Tear down session adapter. Call in a finally block. No-op for dev signers. */

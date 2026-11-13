@@ -23,6 +23,8 @@ export type FaceIssueCode =
     | "unknown-modifier"
     | "unknown-shape"
     | "unknown-image-source"
+    | "inline-image-not-hex"
+    | "inline-image-too-large"
     | "unknown-enum"
     | "missing-field"
     | "wrong-type"
@@ -565,12 +567,42 @@ function validateImageSource(value: unknown, path: string, verdict: Verdict): vo
         verdict.error(
             path,
             "unknown-image-source",
-            `unknown image source '${tag}'. An image comes from a Bulletin CID or a path inside the product's own archive; the tree never carries a URL.`,
+            `unknown image source '${tag}'. An image comes from a Bulletin CID, a path inside the product's own archive or bytes carried inline; the tree never carries a URL.`,
         );
         return;
     }
     reportUnknownFields(value, ["tag", "value"], path, verdict);
-    validateValue(value.value, { kind: "string" }, `${path}.value`, true, verdict);
+    if (tag === "Inline") validateInlineImage(value.value, `${path}.value`, verdict);
+    else validateValue(value.value, { kind: "string" }, `${path}.value`, true, verdict);
+}
+
+/** The protocol's cap on an image carried in the tree itself. */
+const MAX_INLINE_IMAGE_BYTES = 64 * 1024;
+
+/**
+ * Inline bytes travel as `0x`-prefixed hex. The protocol caps them at 64 KiB
+ * and takes PNG, JPEG or WebP only; the format is the host's to check.
+ */
+function validateInlineImage(value: unknown, path: string, verdict: Verdict): void {
+    validateValue(value, { kind: "string" }, path, true, verdict);
+    if (typeof value !== "string") return;
+    // No image is empty, so "0x" alone is refused with the rest.
+    if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(value)) {
+        verdict.error(
+            path,
+            "inline-image-not-hex",
+            "inline image bytes must be a '0x'-prefixed hex string of at least one whole byte",
+        );
+        return;
+    }
+    const bytes = (value.length - 2) / 2;
+    if (bytes > MAX_INLINE_IMAGE_BYTES) {
+        verdict.error(
+            path,
+            "inline-image-too-large",
+            `an inline image is ${bytes} bytes, past the 64 KiB (${MAX_INLINE_IMAGE_BYTES} bytes) the protocol allows`,
+        );
+    }
 }
 
 function reportUnknownFields(
@@ -757,6 +789,33 @@ if (import.meta.vitest) {
                 value: { props: { source: { tag: "Url", value: "https://x" } } },
             };
             expect(errorCodes(face)).toEqual(["unknown-image-source"]);
+        });
+
+        test("accepts each image source, including bytes carried inline", () => {
+            const image = (source: unknown) => ({ tag: "Image", value: { props: { source } } });
+            expect(errorCodes(image({ tag: "Bulletin", value: "bafybeigdyrzt" }))).toEqual([]);
+            expect(errorCodes(image({ tag: "Archive", value: "logo.png" }))).toEqual([]);
+            expect(errorCodes(image({ tag: "Inline", value: "0x89504e47" }))).toEqual([]);
+            // Hex encoders differ in case; both spellings are the same bytes.
+            expect(errorCodes(image({ tag: "Inline", value: "0xFFD8FF" }))).toEqual([]);
+        });
+
+        // The host decodes inline bytes itself, so what it cannot carry is
+        // refused here: text that is not hex, and more than the protocol's 64 KiB.
+        test("refuses inline image bytes that are not hex or past 64 KiB", () => {
+            const image = (value: unknown) => ({
+                tag: "Image",
+                value: { props: { source: { tag: "Inline", value } } },
+            });
+            expect(errorCodes(image(undefined))).toEqual(["missing-field"]);
+            expect(errorCodes(image(new Uint8Array([1])))).toEqual(["wrong-type"]);
+            expect(errorCodes(image("logo.png"))).toEqual(["inline-image-not-hex"]);
+            expect(errorCodes(image("0xabc"))).toEqual(["inline-image-not-hex"]);
+            expect(errorCodes(image("0x"))).toEqual(["inline-image-not-hex"]);
+            expect(errorCodes(image(`0x${"00".repeat(64 * 1024 + 1)}`))).toEqual([
+                "inline-image-too-large",
+            ]);
+            expect(errorCodes(image(`0x${"00".repeat(64 * 1024)}`))).toEqual([]);
         });
 
         // Enum names are PascalCase. A product that writes a CSS colour, or the
