@@ -78,6 +78,7 @@ export {
     HostTimeoutError,
     isHostError,
     formatHostError,
+    hostErrorName,
 } from "./errors.js";
 export type { HostErrorPayload } from "./errors.js";
 
@@ -165,6 +166,52 @@ export type {
     HostPaymentStatusSubscribeItem,
     HostPaymentTopUpStatusSubscribeItem,
     PaymentTopUpSource,
+} from "@parity/truapi";
+
+// NFT purses
+export {
+    getNftPurseManager,
+    isNftPurseOperationFinished,
+    MAIN_NFT_PURSE_ID,
+    NFT_PURSE_MAX_ITEMS_PER_CALL,
+    NFT_PURSE_MAX_NAME_BYTES,
+    NFT_PURSE_MAX_PAGE_SIZE,
+} from "./nft-purses.js";
+export type { NftPurseManager, TerminalNftPurseStatus } from "./nft-purses.js";
+export type {
+    HostNftPurseCreateChequeRequest,
+    HostNftPurseCreateItemsRequest,
+    HostNftPurseCreatePurseRequest,
+    HostNftPurseCreateReceiveKeyRequest,
+    HostNftPurseDepositRequest,
+    HostNftPurseListPursesRequest,
+    HostNftPurseListenOneTimePaymentItem,
+    HostNftPurseListenOneTimePaymentRequest,
+    HostNftPurseListenPaymentInboxItem,
+    HostNftPurseListenPaymentInboxRequest,
+    HostNftPurseObserveOperationStatusRequest,
+    HostNftPurseQueryPurseRequest,
+    HostNftPurseRebalancePurseRequest,
+    HostNftPurseRefundRequest,
+    HostNftPurseRefundResponse,
+    HostNftPurseRevokeChequeRequest,
+    HostNftPurseTransferItemRequest,
+    NftPurseCheque,
+    NftPurseChequeDestination,
+    NftPurseChequeId,
+    NftPurseChequeRecipient,
+    NftPurseClearedItem,
+    NftPurseClearingReference,
+    NftPurseId,
+    NftPurseIdempotencyKey,
+    NftPurseInfoPage,
+    NftPurseItemKey,
+    NftPurseOwner,
+    NftPursePaymentTransmissionChannel,
+    NftPursePurse,
+    NftPurseReceiveKey,
+    NftPurseStatus,
+    X25519PublicKey,
 } from "@parity/truapi";
 
 // Notifications
