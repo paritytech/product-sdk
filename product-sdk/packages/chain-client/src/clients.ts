@@ -28,9 +28,26 @@ function unsupportedChainApi(error: ChainNotSupportedError): never {
     return new Proxy((() => {}) as () => void, handler) as never;
 }
 
-// One ChainClient per config, so the same descriptors give back the same
-// instance. The chains underneath are shared across configs by genesis hash.
-const clientInstances = new Map<string, Promise<ChainClient<any>>>();
+/** A started config: its typed APIs and raw clients, and the chains it holds. */
+interface BuiltConfig {
+    apis: Record<string, unknown>;
+    raw: Record<string, PolkadotClient>;
+    chains: AcquiredChain[];
+}
+
+/**
+ * A config in use. Every `createChainClient` call with the same descriptors
+ * gets a {@link ChainClient} over this one build, which holds its chains until
+ * the last of those callers destroys its client.
+ */
+interface ConfigEntry {
+    built: Promise<BuiltConfig>;
+    callers: number;
+}
+
+// One build per config, by fingerprint. The chains underneath are shared
+// across configs by genesis hash.
+const clientInstances = new Map<string, ConfigEntry>();
 
 /** Build a stable fingerprint from sorted chain names + genesis hashes. */
 function configFingerprint(chains: Record<string, ChainDefinition>): string {
@@ -113,7 +130,8 @@ function typedApi(shared: SharedChain, client: PolkadotClient, descriptor: Chain
  * is designed to run exclusively inside a host container (Polkadot Browser / Desktop).
  * Throws if no host provider is available; there is no direct-WebSocket fallback.
  *
- * Calling with the same descriptors returns the same instance. Underneath, each
+ * Calling with the same descriptors shares one set of typed APIs and raw clients,
+ * and each call's `destroy()` gives back only that call's hold. Underneath, each
  * chain has one `PolkadotClient` for the whole product, shared by every config
  * that includes it: the host allows a product few `chainHead_v1_follow`s per
  * chain, and polkadot-api holds one per client. A chain's client closes when the
@@ -145,18 +163,58 @@ export async function createChainClient<const TChains extends Record<string, Cha
     config: ChainClientConfig<TChains>,
 ): Promise<ChainClient<TChains>> {
     const fingerprint = configFingerprint(config.chains);
+    const entry = clientInstances.get(fingerprint) ?? startConfig(config, fingerprint);
+    // Counted now, so a caller that destroys its client before this call
+    // resolves leaves the chains open for it.
+    entry.callers += 1;
+    return entry.built.then(
+        (built) => chainClientOver<TChains>(built, fingerprint, entry),
+        (err) => {
+            entry.callers -= 1;
+            throw err;
+        },
+    );
+}
 
-    const existing = clientInstances.get(fingerprint);
-    if (existing) return existing as Promise<ChainClient<TChains>>;
+/** Start a config no caller holds yet and remember it under its fingerprint. */
+function startConfig(config: ChainClientConfig<any>, fingerprint: string): ConfigEntry {
+    const entry: ConfigEntry = {
+        callers: 0,
+        built: initChainClient(config).catch((err) => {
+            // initChainClient has released the chains it acquired. Forget the
+            // config so the next call for it starts over.
+            if (clientInstances.get(fingerprint) === entry) clientInstances.delete(fingerprint);
+            throw err;
+        }),
+    };
+    clientInstances.set(fingerprint, entry);
+    return entry;
+}
 
-    const promise = initChainClient(config, fingerprint).catch((err) => {
-        // initChainClient has released the chains it acquired. Forget the
-        // config so the next call for it starts over.
-        if (clientInstances.get(fingerprint) === promise) clientInstances.delete(fingerprint);
-        throw err;
-    });
-    clientInstances.set(fingerprint, promise);
-    return promise;
+/** One caller's {@link ChainClient} over a started config, owning one of its holds. */
+function chainClientOver<TChains extends Record<string, ChainDefinition>>(
+    built: BuiltConfig,
+    fingerprint: string,
+    entry: ConfigEntry,
+): ChainClient<TChains> {
+    let destroyed = false;
+    return {
+        ...built.apis,
+        raw: built.raw,
+        destroy() {
+            // Each caller gives back its hold once, however often it calls this.
+            if (destroyed) return;
+            destroyed = true;
+            entry.callers -= 1;
+            if (entry.callers > 0) return;
+            // `destroyAll()` has already forgotten a config it removed, and a
+            // later call may have started the same config again.
+            if (clientInstances.get(fingerprint) === entry) clientInstances.delete(fingerprint);
+            for (const { genesis, held } of built.chains) {
+                if (held) releaseChain(genesis, held.shared);
+            }
+        },
+    } as ChainClient<TChains>;
 }
 
 type AcquiredChain = {
@@ -169,18 +227,15 @@ type AcquiredChain = {
 };
 
 /* @integration */
-async function initChainClient<const TChains extends Record<string, ChainDefinition>>(
-    config: ChainClientConfig<TChains>,
-    fingerprint: string,
-): Promise<ChainClient<TChains>> {
-    const names = Object.keys(config.chains) as (string & keyof TChains)[];
+async function initChainClient(config: ChainClientConfig<any>): Promise<BuiltConfig> {
+    const names = Object.keys(config.chains);
 
     // Acquire every chain, waiting for all of them even when one fails: a hold
     // taken after a failure would otherwise never be given back.
     const outcomes = await Promise.allSettled(
         names.map(async (name): Promise<AcquiredChain> => {
             const descriptor = config.chains[name] as ChainDefinition;
-            const genesis = descriptor.genesis;
+            const genesis: string | undefined = descriptor.genesis;
             if (!genesis) {
                 throw new Error(`Descriptor for chain "${name}" has no genesis hash.`);
             }
@@ -234,20 +289,7 @@ async function initChainClient<const TChains extends Record<string, ChainDefinit
         }
     }
 
-    let destroyed = false;
-    return {
-        ...apis,
-        raw,
-        destroy() {
-            // Each hold is given back once, however often destroy() is called.
-            if (destroyed) return;
-            destroyed = true;
-            for (const { genesis, held } of entries) {
-                if (held) releaseChain(genesis, held.shared);
-            }
-            clientInstances.delete(fingerprint);
-        },
-    } as ChainClient<TChains>;
+    return { apis, raw, chains: entries };
 }
 
 /**
@@ -416,6 +458,32 @@ if (import.meta.vitest) {
         expect(isConnected(people)).toBe(false);
         expect(getClientCache().size).toBe(0);
         expect(clientInstances.size).toBe(0);
+    });
+
+    test("a config destroyed while another is still starting on the same chain leaves it alive", async () => {
+        let resolveBulletin: (provider: never) => void = () => {};
+        vi.mocked(createProvider).mockImplementation((genesis: string) =>
+            genesis === "0xbulletin"
+                ? new Promise<never>((resolve) => {
+                      resolveBulletin = resolve;
+                  })
+                : Promise.resolve({ genesis } as never),
+        );
+
+        const a = await createChainClient({ chains: { people } });
+        const pending = createChainClient({ chains: { people, bulletin } });
+        await Promise.resolve();
+        expect(shared("0xpeople")?.users).toBe(2);
+
+        a.destroy();
+        expect((a.raw.people as FakeClient).destroyed).toBe(0);
+
+        resolveBulletin({ genesis: "0xbulletin" } as never);
+        const b = await pending;
+        expect(b.raw.people).toBe(a.raw.people);
+        expect(getClient(people)).toBe(b.raw.people);
+        b.destroy();
+        expect((a.raw.people as FakeClient).destroyed).toBe(1);
     });
 
     test("destroy() twice on one ChainClient releases its hold once", async () => {
@@ -608,14 +676,34 @@ if (import.meta.vitest) {
         expect(getClient(people)).toBe(c.raw.people);
     });
 
+    test("a client destroyAll() tore down does not forget the same config a later call started", async () => {
+        const a = await createChainClient({ chains: { people } });
+        destroyAll();
+        const c = await createChainClient({ chains: { people } });
+
+        a.destroy();
+        expect(clientInstances.size).toBe(1);
+        const d = await createChainClient({ chains: { people } });
+        expect(d.raw.people).toBe(c.raw.people);
+        expect(shared("0xpeople")?.users).toBe(1);
+
+        c.destroy();
+        expect((c.raw.people as FakeClient).destroyed).toBe(0);
+        d.destroy();
+        expect((c.raw.people as FakeClient).destroyed).toBe(1);
+        expect(clientInstances.size).toBe(0);
+    });
+
     // --- config-level cache ---
 
-    test("createChainClient returns same promise for identical config", async () => {
-        const fakeResult = {} as ChainClient<any>;
-        const fp = configFingerprint({ a: people });
-        clientInstances.set(fp, Promise.resolve(fakeResult));
-        const result = await createChainClient({ chains: { a: people } });
-        expect(result).toBe(fakeResult);
+    test("createChainClient with the same config twice shares its typed APIs, raw clients and one hold", async () => {
+        const a = await createChainClient({ chains: { a: people } });
+        const b = await createChainClient({ chains: { a: people } });
+        expect(a.a).toBe(b.a);
+        expect(a.raw.a).toBe(b.raw.a);
+        expect(clientsFor("0xpeople")).toHaveLength(1);
+        expect(shared("0xpeople")?.users).toBe(1);
+        expect(clientInstances.size).toBe(1);
     });
 
     test("createChainClient deduplicates concurrent calls", async () => {
@@ -623,8 +711,38 @@ if (import.meta.vitest) {
             createChainClient({ chains: { x: people } }),
             createChainClient({ chains: { x: people } }),
         ]);
-        expect(a).toBe(b);
+        expect(a.x).toBe(b.x);
+        expect(a.raw.x).toBe(b.raw.x);
+        expect(clientsFor("0xpeople")).toHaveLength(1);
         expect(shared("0xpeople")?.users).toBe(1);
+    });
+
+    test("each caller with the same config owns its own hold, so destroying one keeps the chain for the other", async () => {
+        const a = await createChainClient({ chains: { people } });
+        const b = await createChainClient({ chains: { people } });
+
+        a.destroy();
+        a.destroy();
+        expect((b.raw.people as FakeClient).destroyed).toBe(0);
+        expect(getClient(people)).toBe(b.raw.people);
+        expect(clientInstances.size).toBe(1);
+
+        b.destroy();
+        expect((b.raw.people as FakeClient).destroyed).toBe(1);
+        expect(clientInstances.size).toBe(0);
+        expect(getClientCache().size).toBe(0);
+    });
+
+    test("a caller that destroys its client before another call for the same config resolves leaves the chain open", async () => {
+        const first = createChainClient({ chains: { people } });
+        const second = createChainClient({ chains: { people } });
+        const a = await first;
+        a.destroy();
+        const b = await second;
+        expect((b.raw.people as FakeClient).destroyed).toBe(0);
+        expect(getClient(people)).toBe(b.raw.people);
+        b.destroy();
+        expect((b.raw.people as FakeClient).destroyed).toBe(1);
     });
 
     test("createChainClient returns different results for different configs", async () => {

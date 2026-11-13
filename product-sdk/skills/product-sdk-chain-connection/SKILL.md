@@ -136,8 +136,9 @@ The host allows a product only a few `chainHead_v1_follow` subscriptions per cha
 polkadot-api client holds one. `createChainClient` therefore keeps one client per chain for the
 whole product: configs that include the same chain share it, and the chain closes only when the
 last `ChainClient` holding it is destroyed. Don't build your own client from `getHostProvider`
-for a chain you already reach through `createChainClient` or `getClient`; in development the
-host provider logs an error when a product opens a second follow on a chain.
+for a chain you already reach through `createChainClient` or `getClient`; outside production
+builds the host provider logs an error when a second client in the product follows a chain
+another client already follows.
 
 ## Environment Support
 
@@ -167,7 +168,8 @@ and `GenesisMismatchError` when a bundled descriptor's genesis disagrees with th
 
 ## Cleanup
 
-Always destroy clients when done to close WebSocket connections:
+Destroy a client when done. That gives back its hold on each chain, and a chain closes once no
+other client holds it:
 
 ```typescript
 // Single client

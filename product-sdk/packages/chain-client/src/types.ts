@@ -78,9 +78,12 @@ export interface SharedChain {
     client: PolkadotClient | Promise<PolkadotClient>;
     /** Typed APIs built over the client, one per descriptor. */
     api: Map<ChainDefinition, unknown>;
-    /** How many `ChainClient`s hold this chain. The client closes at zero. */
+    /**
+     * How many configs hold this chain, counted from the moment one asks for
+     * it. The client closes at zero.
+     */
     users: number;
 }
 
-/** @deprecated Use {@link SharedChain}. */
+/** An entry in the HMR-safe cache: the same shape as {@link SharedChain}. */
 export type ChainEntry = SharedChain;
