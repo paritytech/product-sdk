@@ -319,7 +319,7 @@ function createWalletApi(signerManager: SignerManager): WalletApi {
             // wired one up via `app.chain.connect({ ..., <name>: peopleChain })`.
             // Fall back to opening a transient connection so first-time users
             // don't have to think about chain lifecycles. The chain-client
-            // module caches by genesis fingerprint, so subsequent
+            // module keeps one client per chain, so subsequent
             // signMessageWithDotNsIdentity calls share whichever connection
             // got established first.
             const peopleClient = isConnected(args.peopleChain)

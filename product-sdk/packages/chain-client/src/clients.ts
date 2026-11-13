@@ -28,35 +28,6 @@ function unsupportedChainApi(error: ChainNotSupportedError): never {
     return new Proxy((() => {}) as () => void, handler) as never;
 }
 
-/** A started config: its typed APIs and raw clients, and the chains it holds. */
-interface BuiltConfig {
-    apis: Record<string, unknown>;
-    raw: Record<string, PolkadotClient>;
-    chains: AcquiredChain[];
-}
-
-/**
- * A config in use. Every `createChainClient` call with the same descriptors
- * gets a {@link ChainClient} over this one build, which holds its chains until
- * the last of those callers destroys its client.
- */
-interface ConfigEntry {
-    built: Promise<BuiltConfig>;
-    callers: number;
-}
-
-// One build per config, by fingerprint. The chains underneath are shared
-// across configs by genesis hash.
-const clientInstances = new Map<string, ConfigEntry>();
-
-/** Build a stable fingerprint from sorted chain names + genesis hashes. */
-function configFingerprint(chains: Record<string, ChainDefinition>): string {
-    return Object.entries(chains)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([name, desc]) => `${name}:${desc.genesis ?? "unknown"}`)
-        .join("|");
-}
-
 /** The chain's client, once {@link acquireChain} has resolved it. */
 function readyClient(entry: SharedChain): PolkadotClient | undefined {
     return entry.client instanceof Promise ? undefined : entry.client;
@@ -159,76 +130,11 @@ function typedApi(shared: SharedChain, client: PolkadotClient, descriptor: Chain
  * client.destroy();
  * ```
  */
+/* @integration */
 export async function createChainClient<const TChains extends Record<string, ChainDefinition>>(
     config: ChainClientConfig<TChains>,
 ): Promise<ChainClient<TChains>> {
-    const fingerprint = configFingerprint(config.chains);
-    const entry = clientInstances.get(fingerprint) ?? startConfig(config, fingerprint);
-    // Counted now, so a caller that destroys its client before this call
-    // resolves leaves the chains open for it.
-    entry.callers += 1;
-    return entry.built.then(
-        (built) => chainClientOver<TChains>(built, fingerprint, entry),
-        (err) => {
-            entry.callers -= 1;
-            throw err;
-        },
-    );
-}
-
-/** Start a config no caller holds yet and remember it under its fingerprint. */
-function startConfig(config: ChainClientConfig<any>, fingerprint: string): ConfigEntry {
-    const entry: ConfigEntry = {
-        callers: 0,
-        built: initChainClient(config).catch((err) => {
-            // initChainClient has released the chains it acquired. Forget the
-            // config so the next call for it starts over.
-            if (clientInstances.get(fingerprint) === entry) clientInstances.delete(fingerprint);
-            throw err;
-        }),
-    };
-    clientInstances.set(fingerprint, entry);
-    return entry;
-}
-
-/** One caller's {@link ChainClient} over a started config, owning one of its holds. */
-function chainClientOver<TChains extends Record<string, ChainDefinition>>(
-    built: BuiltConfig,
-    fingerprint: string,
-    entry: ConfigEntry,
-): ChainClient<TChains> {
-    let destroyed = false;
-    return {
-        ...built.apis,
-        raw: built.raw,
-        destroy() {
-            // Each caller gives back its hold once, however often it calls this.
-            if (destroyed) return;
-            destroyed = true;
-            entry.callers -= 1;
-            if (entry.callers > 0) return;
-            // `destroyAll()` has already forgotten a config it removed, and a
-            // later call may have started the same config again.
-            if (clientInstances.get(fingerprint) === entry) clientInstances.delete(fingerprint);
-            for (const { genesis, held } of built.chains) {
-                if (held) releaseChain(genesis, held.shared);
-            }
-        },
-    } as ChainClient<TChains>;
-}
-
-type AcquiredChain = {
-    name: string;
-    descriptor: ChainDefinition;
-    genesis: string;
-    /** The chain's shared entry and client, or `null` for a chain the host can't serve. */
-    held: { shared: SharedChain; client: PolkadotClient } | null;
-    error: ChainNotSupportedError | undefined;
-};
-
-/* @integration */
-async function initChainClient(config: ChainClientConfig<any>): Promise<BuiltConfig> {
-    const names = Object.keys(config.chains);
+    const names = Object.keys(config.chains) as (string & keyof TChains)[];
 
     // Acquire every chain, waiting for all of them even when one fails: a hold
     // taken after a failure would otherwise never be given back.
@@ -240,8 +146,7 @@ async function initChainClient(config: ChainClientConfig<any>): Promise<BuiltCon
                 throw new Error(`Descriptor for chain "${name}" has no genesis hash.`);
             }
             try {
-                const held = await acquireChain(genesis);
-                return { name, descriptor, genesis, held, error: undefined };
+                return { name, descriptor, genesis, chain: await acquireChain(genesis) };
             } catch (err) {
                 // A chain the host can't serve must not tank the whole multi-chain
                 // client — the supported chains stay usable, and this one surfaces a
@@ -252,7 +157,7 @@ async function initChainClient(config: ChainClientConfig<any>): Promise<BuiltCon
                         `Chain "${name}" is not supported by the host; its API will throw on use.`,
                         { genesis },
                     );
-                    return { name, descriptor, genesis, held: null, error: err };
+                    return { name, descriptor, genesis, chain: err };
                 }
                 throw err;
             }
@@ -267,9 +172,7 @@ async function initChainClient(config: ChainClientConfig<any>): Promise<BuiltCon
     if (failure) {
         // Give back only what this call took. A chain another config holds
         // stays open for it.
-        for (const { genesis, held } of entries) {
-            if (held) releaseChain(genesis, held.shared);
-        }
+        releaseChains(entries);
         throw failure.reason;
     }
 
@@ -278,18 +181,43 @@ async function initChainClient(config: ChainClientConfig<any>): Promise<BuiltCon
     const apis = {} as Record<string, unknown>;
     const raw = {} as Record<string, PolkadotClient>;
 
-    for (const { name, descriptor, held, error } of entries) {
-        if (held) {
-            apis[name] = typedApi(held.shared, held.client, descriptor);
-            raw[name] = held.client;
-        } else {
-            const api = unsupportedChainApi(error as ChainNotSupportedError);
+    for (const { name, descriptor, chain } of entries) {
+        if (chain instanceof ChainNotSupportedError) {
+            const api = unsupportedChainApi(chain);
             apis[name] = api;
             raw[name] = api as unknown as PolkadotClient;
+        } else {
+            apis[name] = typedApi(chain.shared, chain.client, descriptor);
+            raw[name] = chain.client;
         }
     }
 
-    return { apis, raw, chains: entries };
+    let destroyed = false;
+    return {
+        ...apis,
+        raw,
+        destroy() {
+            // Each hold is given back once, however often destroy() is called.
+            if (destroyed) return;
+            destroyed = true;
+            releaseChains(entries);
+        },
+    } as ChainClient<TChains>;
+}
+
+type AcquiredChain = {
+    name: string;
+    descriptor: ChainDefinition;
+    genesis: string;
+    /** The chain's shared entry and client, or the error for a chain the host can't serve. */
+    chain: { shared: SharedChain; client: PolkadotClient } | ChainNotSupportedError;
+};
+
+/** Give back every hold `entries` took. */
+function releaseChains(entries: AcquiredChain[]): void {
+    for (const { genesis, chain } of entries) {
+        if (!(chain instanceof ChainNotSupportedError)) releaseChain(genesis, chain.shared);
+    }
 }
 
 /**
@@ -299,7 +227,6 @@ async function initChainClient(config: ChainClientConfig<any>): Promise<BuiltCon
  */
 export function destroyAll(): void {
     clearClientCache();
-    clientInstances.clear();
 }
 
 /**
@@ -345,7 +272,7 @@ export function isConnected(descriptor: ChainDefinition): boolean {
 if (import.meta.vitest) {
     const { test, expect, beforeEach, vi } = import.meta.vitest;
 
-    // Mock the provider + PAPI client factories so initChainClient can run without
+    // Mock the provider + PAPI client factories so createChainClient can run without
     // a real host. vitest hoists these mocks into every test file that imports
     // this module, so they start out as the real functions and only the tests
     // here replace what they do.
@@ -384,7 +311,6 @@ if (import.meta.vitest) {
 
     beforeEach(() => {
         clearClientCache();
-        clientInstances.clear();
         providers.clear();
         vi.mocked(createProvider).mockReset();
         vi.mocked(createClient).mockReset();
@@ -457,7 +383,6 @@ if (import.meta.vitest) {
         expect(peopleClient.destroyed).toBe(1);
         expect(isConnected(people)).toBe(false);
         expect(getClientCache().size).toBe(0);
-        expect(clientInstances.size).toBe(0);
     });
 
     test("a config destroyed while another is still starting on the same chain leaves it alive", async () => {
@@ -513,8 +438,7 @@ if (import.meta.vitest) {
         expect(shared("0xpeople")?.users).toBe(1);
         expect(shared("0xboom")).toBeUndefined();
         expect(getClient(people)).toBe(a.raw.people);
-        // The failed config is forgotten, so asking again starts over.
-        expect(clientInstances.size).toBe(1);
+        // Asking again starts over.
         await expect(createChainClient({ chains: { people, boom } })).rejects.toThrow("host gone");
         expect(shared("0xpeople")?.users).toBe(1);
     });
@@ -548,7 +472,6 @@ if (import.meta.vitest) {
         expect(results.map((r) => r.status)).toEqual(["rejected", "rejected"]);
         expect(shared("0xpeople")).toBeUndefined();
         expect(getClientCache().size).toBe(0);
-        expect(clientInstances.size).toBe(0);
     });
 
     test("destroyAll() while a chain is being created rejects the config and closes the client once", async () => {
@@ -568,7 +491,6 @@ if (import.meta.vitest) {
         expect(clientsFor("0xpeople")[0]?.destroyed).toBe(1);
         expect(isConnected(people)).toBe(false);
         expect(getClientCache().size).toBe(0);
-        expect(clientInstances.size).toBe(0);
 
         // The chain can be opened again afterwards.
         vi.mocked(createProvider).mockImplementation(
@@ -664,7 +586,6 @@ if (import.meta.vitest) {
         expect(isConnected(people)).toBe(false);
         expect(() => getClient(people)).toThrow(/Chain not connected/);
         expect(getClientCache().size).toBe(0);
-        expect(clientInstances.size).toBe(0);
 
         // A client destroyed after destroyAll does not close the chain twice,
         // nor a chain a later config has since opened.
@@ -676,37 +597,34 @@ if (import.meta.vitest) {
         expect(getClient(people)).toBe(c.raw.people);
     });
 
-    test("a client destroyAll() tore down does not forget the same config a later call started", async () => {
+    test("a client destroyAll() tore down does not touch the chain later calls hold", async () => {
         const a = await createChainClient({ chains: { people } });
         destroyAll();
         const c = await createChainClient({ chains: { people } });
 
         a.destroy();
-        expect(clientInstances.size).toBe(1);
         const d = await createChainClient({ chains: { people } });
         expect(d.raw.people).toBe(c.raw.people);
-        expect(shared("0xpeople")?.users).toBe(1);
+        expect(shared("0xpeople")?.users).toBe(2);
 
         c.destroy();
         expect((c.raw.people as FakeClient).destroyed).toBe(0);
         d.destroy();
         expect((c.raw.people as FakeClient).destroyed).toBe(1);
-        expect(clientInstances.size).toBe(0);
     });
 
-    // --- config-level cache ---
+    // --- the same config more than once ---
 
-    test("createChainClient with the same config twice shares its typed APIs, raw clients and one hold", async () => {
+    test("createChainClient with the same config twice shares its typed APIs and raw clients, each call holding the chain", async () => {
         const a = await createChainClient({ chains: { a: people } });
         const b = await createChainClient({ chains: { a: people } });
         expect(a.a).toBe(b.a);
         expect(a.raw.a).toBe(b.raw.a);
         expect(clientsFor("0xpeople")).toHaveLength(1);
-        expect(shared("0xpeople")?.users).toBe(1);
-        expect(clientInstances.size).toBe(1);
+        expect(shared("0xpeople")?.users).toBe(2);
     });
 
-    test("createChainClient deduplicates concurrent calls", async () => {
+    test("two calls with the same config at once end up with one client", async () => {
         const [a, b] = await Promise.all([
             createChainClient({ chains: { x: people } }),
             createChainClient({ chains: { x: people } }),
@@ -714,7 +632,7 @@ if (import.meta.vitest) {
         expect(a.x).toBe(b.x);
         expect(a.raw.x).toBe(b.raw.x);
         expect(clientsFor("0xpeople")).toHaveLength(1);
-        expect(shared("0xpeople")?.users).toBe(1);
+        expect(shared("0xpeople")?.users).toBe(2);
     });
 
     test("each caller with the same config owns its own hold, so destroying one keeps the chain for the other", async () => {
@@ -725,11 +643,9 @@ if (import.meta.vitest) {
         a.destroy();
         expect((b.raw.people as FakeClient).destroyed).toBe(0);
         expect(getClient(people)).toBe(b.raw.people);
-        expect(clientInstances.size).toBe(1);
 
         b.destroy();
         expect((b.raw.people as FakeClient).destroyed).toBe(1);
-        expect(clientInstances.size).toBe(0);
         expect(getClientCache().size).toBe(0);
     });
 
@@ -756,14 +672,5 @@ if (import.meta.vitest) {
             createChainClient({ chains: { people, nameless: {} as ChainDefinition } }),
         ).rejects.toThrow(/no genesis hash/);
         expect(shared("0xpeople")).toBeUndefined();
-        expect(clientInstances.size).toBe(0);
-    });
-
-    // --- configFingerprint ---
-
-    test("configFingerprint is stable regardless of key order", () => {
-        const d1 = { genesis: "0x1" } as ChainDefinition;
-        const d2 = { genesis: "0x2" } as ChainDefinition;
-        expect(configFingerprint({ a: d1, b: d2 })).toBe(configFingerprint({ b: d2, a: d1 }));
     });
 }

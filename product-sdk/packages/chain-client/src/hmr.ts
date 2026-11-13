@@ -1,5 +1,6 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
+import type { PolkadotClient } from "polkadot-api";
 import type { SharedChain } from "./types.js";
 
 declare global {
@@ -25,28 +26,24 @@ export function clearClientCache(): void {
     cache.clear();
 }
 
+/** Close a client, ignoring one that is already closed. */
+function closeClient(client: PolkadotClient): void {
+    try {
+        client.destroy();
+    } catch {
+        // client may already be destroyed
+    }
+}
+
 /** Destroy a shared chain's client, now or once it exists. */
 export function destroyClient(entry: SharedChain): void {
     if (entry.client instanceof Promise) {
         // Still being created: close it as soon as it exists. A failed creation
         // has nothing to close.
-        entry.client.then(
-            (client) => {
-                try {
-                    client.destroy();
-                } catch {
-                    // client may already be destroyed
-                }
-            },
-            () => {},
-        );
+        entry.client.then(closeClient, () => {});
         return;
     }
-    try {
-        entry.client.destroy();
-    } catch {
-        // client may already be destroyed
-    }
+    closeClient(entry.client);
 }
 
 if (import.meta.vitest) {
