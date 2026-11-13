@@ -180,10 +180,10 @@ export async function getClaims(
     const holds = blockHolds();
     try {
         const { claimant, signal } = options;
-        const [people, assetHub] = await Promise.all([
-            pinAt(chain.raw.individuality, signal, options.individualityAt, holds),
-            pinBlock(chain, signal, options.at, holds),
-        ]);
+        // People is pinned first. It deletes a root only after the last claim on
+        // Asset Hub, so an Asset Hub block pinned after it has that claim.
+        const people = await pinAt(chain.raw.individuality, signal, options.individualityAt, holds);
+        const assetHub = await pinBlock(chain, signal, options.at, holds);
         const peopleAt = readAt(people, signal);
         const assetHubAt = readAt(assetHub, signal);
         const key = toClaimantKey(claimant);
@@ -483,6 +483,24 @@ if (import.meta.vitest) {
                 blockHash: best.hash,
                 blockNumber: best.number,
             });
+        });
+
+        test("pins the People block before the Asset Hub block", async () => {
+            const { chain } = fakeChain({ blocks: undefined });
+            const order: string[] = [];
+            chain.raw.individuality.getFinalizedBlock = async () => {
+                await Promise.resolve();
+                order.push("People pinned");
+                return PEOPLE;
+            };
+            chain.raw.assetHub.getFinalizedBlock = async () => {
+                order.push("Asset Hub pin starts");
+                return ASSET_HUB;
+            };
+
+            await getClaims(chain, { claimant });
+
+            expect(order).toEqual(["People pinned", "Asset Hub pin starts"]);
         });
 
         test("reads the People awards at the block it is given", async () => {
