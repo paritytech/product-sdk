@@ -35,6 +35,7 @@ export type FaceIssueCode =
     | "tree-too-deep"
     | "unknown-field"
     | "button-without-action"
+    | "slide-without-action"
     | "text-field-without-action"
     | "text-without-content"
     | "host-limit-depth"
@@ -647,7 +648,7 @@ function advise(
         verdict.warn(
             `${path}.props`,
             "slide-without-action",
-            "a SlideToConfirm with no 'confirmAction' is inert: the host has no id to report when the slide completes",
+            "a SlideToConfirm with no 'confirmAction' takes no slide: the host has no id to report when a slide completes",
         );
     }
     if (tag === "TextField" && absent(props.valueChangeAction)) {
