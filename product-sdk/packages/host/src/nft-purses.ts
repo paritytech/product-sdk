@@ -19,7 +19,8 @@
  *
  * When a host connection reset ends a subscription, the SDK opens it again
  * after the host is connected again. The callback can then get the same
- * update a second time.
+ * update a second time. When the host ends a subscription, `onInterrupt` is
+ * called with the host's error, or with no reason after a normal end.
  *
  * @module
  */
@@ -140,7 +141,9 @@ export interface NftPurseManager {
     /**
      * Cancels a cheque that this product created. The host moves the NFTs to
      * new items of the purse they came from. After that the private keys in
-     * the cheque cannot move the NFTs.
+     * the cheque cannot move the NFTs. Fails with `ItemsInUse` when the NFTs
+     * are already being moved, for example by a deposit of the cheque on this
+     * device. Calling it again moves only the NFTs whose move failed.
      */
     revokeCheque(request: HostNftPurseRevokeChequeRequest): Promise<void>;
     /**
@@ -157,7 +160,8 @@ export interface NftPurseManager {
     /**
      * Returns the X25519 public key that senders encrypt `Static` cheques to.
      * Every product gets the same one. The user has to agree to disclose their
-     * identity before the host returns it.
+     * identity before the host returns it, and the call fails with
+     * `PermissionDenied` when the user does not agree.
      */
     staticReceiveKey(): Promise<X25519PublicKey>;
     /**
@@ -281,6 +285,7 @@ function adaptNftPurseManager(client: TrUApiClient): NftPurseManager {
  * @example
  * ```ts
  * import {
+ *   asProductId,
  *   getNftPurseManager,
  *   isNftPurseOperationFinished,
  *   NFT_PURSE_MAX_PAGE_SIZE,
@@ -289,21 +294,27 @@ function adaptNftPurseManager(client: TrUApiClient): NftPurseManager {
  *
  * const purses = await getNftPurseManager();
  * if (purses) {
- *   const purse = await purses.createPurse({ name: "collectibles" });
- *   const [mintTarget] = await purses.createItems({ purse, count: 1 });
+ *   const owner = { tag: "Product", value: asProductId("collectibles.dot") } as const;
+ *   const purseNamed = async (name: string) => {
+ *     const existing = (await purses.listPurses({ owner })).find((purse) => purse.name === name);
+ *     return existing?.id ?? (await purses.createPurse({ name }));
+ *   };
+ *
+ *   const collectibles = await purseNamed("collectibles");
+ *   const archive = await purseNamed("archive");
+ *
+ *   const [mintTarget] = await purses.createItems({ purse: collectibles, count: 1 });
  *   // ...mint an NFT to `mintTarget` on chain...
  *
  *   const { items } = await purses.queryPurse({
- *     purse,
+ *     purse: collectibles,
  *     page: 0,
  *     pageSize: NFT_PURSE_MAX_PAGE_SIZE,
  *   });
- *
- *   const archive = await purses.createPurse({ name: "archive" });
  *   const idempotencyKey = toHex(crypto.getRandomValues(new Uint8Array(32)));
- *   await purses.rebalancePurse({ from: purse, to: archive, keys: items, idempotencyKey });
- *   const move = purses.observeOperationStatus({ idempotencyKey }, (status) => {
- *     if (isNftPurseOperationFinished(status)) move.unsubscribe();
+ *   await purses.rebalancePurse({ from: collectibles, to: archive, keys: items, idempotencyKey });
+ *   purses.observeOperationStatus({ idempotencyKey }, (status) => {
+ *     if (isNftPurseOperationFinished(status)) console.log(status.tag);
  *   });
  * }
  * ```
