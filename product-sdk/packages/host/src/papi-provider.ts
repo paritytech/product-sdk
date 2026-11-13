@@ -549,11 +549,13 @@ export function createHostPapiProvider(
                     return;
                 interruptedFollows.delete(followSubscriptionId);
                 activeFollows.delete(followSubscriptionId);
-                syncFollower();
                 stoppedAt = Date.now();
                 followAges.delete(followSubscriptionId);
                 sendFollowEvent(followSubscriptionId, { event: "stop" });
                 releaseHeldReads(followSubscriptionId);
+                // After the stop is delivered, so a client that follows again at
+                // once is still the one client this connection is on the chain.
+                syncFollower();
             }, delay);
         }
 
@@ -589,8 +591,9 @@ export function createHostPapiProvider(
                             age.events += 1;
                             age.lastEventAt = Date.now();
                         }
-                        if (item.tag === "Stop" && activeFollows.delete(followSubscriptionId)) {
-                            syncFollower();
+                        const stopped =
+                            item.tag === "Stop" && activeFollows.delete(followSubscriptionId);
+                        if (stopped) {
                             log.warn(
                                 `chainHead follow ${followSubscriptionId} stopped by the host: ${followState(followSubscriptionId)}`,
                             );
@@ -602,6 +605,9 @@ export function createHostPapiProvider(
                             pendingOperationStarts.delete(followSubscriptionId);
                         }
                         forwardFollowItem(followSubscriptionId, item);
+                        // After the stop is delivered, so a client that follows again at
+                        // once is still the one client this connection is on the chain.
+                        if (stopped) syncFollower();
                     };
                     ref.handle = subscribeWithInterrupt(
                         chain.followHeadSubscribe({ request: { genesisHash, withRuntime } }),
@@ -2064,17 +2070,33 @@ if (import.meta.vitest) {
     // --- one follow per chain per product ---
 
     /** A provider connection on `genesisHash` over its own fake host, with follows the test drives. */
-    function connectionOn(genesisHash: `0x${string}`) {
+    function connectionOn(genesisHash: `0x${string}`, { refollowOnStop = false } = {}) {
         const observers: FollowObserver[] = [];
         let count = 0;
+        let id = 0;
         const client = makeFakeClient({
             subscriptionId: () => `${genesisHash}:${++count}`,
             captureObserver: (o) => observers.push(o),
         });
-        const conn = createHostPapiProvider(client, genesisHash)(() => {});
-        let id = 0;
+        const followRequest = () => ({
+            jsonrpc: "2.0" as const,
+            id: ++id,
+            method: "chainHead_v1_follow",
+            params: [true],
+        });
+        // A consumer that follows again as soon as its follow stops, as polkadot-api does.
+        const conn = createHostPapiProvider(
+            client,
+            genesisHash,
+        )((message) => {
+            const event =
+                "params" in message
+                    ? (message.params as { result?: FollowEvent }).result
+                    : undefined;
+            if (refollowOnStop && event?.event === "stop") conn.send(followRequest());
+        });
         const follow = () => {
-            conn.send({ jsonrpc: "2.0", id: ++id, method: "chainHead_v1_follow", params: [true] });
+            conn.send(followRequest());
             return {
                 subscription: `${genesisHash}:${count}`,
                 observer: observers[observers.length - 1]!,
@@ -2136,7 +2158,43 @@ if (import.meta.vitest) {
         observer.error(new Error("transport closed"));
         // The old follow is still active until the synthetic stop, so the two overlap.
         c.follow();
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        expect(followErrors()).toEqual([]);
+    });
+
+    test("a stop on either of two connections, answered with a refollow at once, is not reported again", () => {
+        const first = connectionOn("0xfeed", { refollowOnStop: true });
+        const { observer } = first.follow();
+        const second = connectionOn("0xfeed", { refollowOnStop: true });
+        const other = second.follow().observer;
+        expect(followErrors()).toEqual([extraFollows(2)]);
+
+        observer.next({ tag: "Stop" });
+        other.next({ tag: "Stop" });
+        expect(followErrors()).toEqual([extraFollows(2)]);
+    });
+
+    test("a lost follow's stop on one of two connections, answered with a refollow at once, is not reported again", () => {
+        vi.useFakeTimers();
+        const first = connectionOn("0xfeed", { refollowOnStop: true });
+        const { observer } = first.follow();
+        connectionOn("0xfeed").follow();
+        expect(followErrors()).toEqual([extraFollows(2)]);
+
+        observer.error(new Error("transport closed"));
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        expect(followErrors()).toEqual([extraFollows(2)]);
+    });
+
+    test("a connection whose only follow stops leaves the chain, so the next connection is no error", () => {
+        vi.useFakeTimers();
+        connectionOn("0xfeed").follow().observer.next({ tag: "Stop" });
+        connectionOn("0xfeed").follow();
+        expect(followErrors()).toEqual([]);
+
+        connectionOn("0xbeef").follow().observer.error(new Error("transport closed"));
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        connectionOn("0xbeef").follow();
         expect(followErrors()).toEqual([]);
     });
 
@@ -2163,14 +2221,13 @@ if (import.meta.vitest) {
     });
 
     test("in a production build a second connection is no error", () => {
-        const original = process.env.NODE_ENV;
+        vi.stubEnv("NODE_ENV", "production");
         try {
-            process.env.NODE_ENV = "production";
             connectionOn("0xfeed").follow();
             connectionOn("0xfeed").follow();
             expect(followErrors()).toEqual([]);
         } finally {
-            process.env.NODE_ENV = original;
+            vi.unstubAllEnvs();
         }
     });
 }
