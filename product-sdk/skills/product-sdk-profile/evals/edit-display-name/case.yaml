@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: edit-display-name
+expected_outcome: |
+  A saveProfile that reads the live text with getProfileRecord, rewrites it with a patch that
+  sets name, leaves avatar undefined so it is carried, puts the product's mood feed
+  from deriveMoodFeed in feeds as every publish does, prepares with
+  prepareSetProfile using origin = owner, re-reads and compares against prepared.original before
+  submitting, ensures the account is mapped, submits with the product's signer waiting for
+  finalized, verifies with verifyPublishedProfile, never calls setResolver, and lists the
+  failure reasons per step (InvalidName, Unauthorised, InvalidEntry, TooLarge, the concurrent
+  change, a dispatch failure, funding).

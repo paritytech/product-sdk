@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: show-contact-card
+expected_outcome: |
+  A contact-card.ts that builds a contract runtime over Asset Hub, calls getProfile, treats
+  NoProfile and err differently (clear versus keep cached), loads the avatar through
+  getPreimageManager and loadAvatar with the declared MIME type and never a gateway, tells the
+  user that profiles carry no pinned NFTs yet (index 2 is reserved with no payload) instead of
+  decoding them, falls back to the label when name
+  is null, and whose note explains the three answers and refresh by avatar.cid.

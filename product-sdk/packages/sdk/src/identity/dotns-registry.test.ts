@@ -439,6 +439,17 @@ describe("origin", () => {
         expect(runtime.calls).toHaveLength(0);
     });
 
+    test("setDotNsRecord with a malformed origin fails before any call", async () => {
+        const runtime = runtimeWith({ resolver: REVERSE_RESOLVER });
+        const r = await setDotNsRecord(
+            { name: "alice.dot", address: TARGET },
+            { runtime, origin: "not-an-ss58-address" as SS58String, tld: DOT_TLD },
+        );
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("InvalidOrigin");
+        expect(runtime.calls).toHaveLength(0);
+    });
+
     test("prepareDotNsRegistration with a malformed origin fails before any call", async () => {
         // ss58ToH160 throws on an undecodable address. Every function here
         // promises a Result, so the throw has to be converted, not escape.
