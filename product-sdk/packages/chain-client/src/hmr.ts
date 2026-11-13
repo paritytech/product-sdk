@@ -31,7 +31,13 @@ export function destroyClient(entry: SharedChain): void {
         // Still being created: close it as soon as it exists. A failed creation
         // has nothing to close.
         entry.client.then(
-            (client) => client.destroy(),
+            (client) => {
+                try {
+                    client.destroy();
+                } catch {
+                    // client may already be destroyed
+                }
+            },
             () => {},
         );
         return;
@@ -44,7 +50,7 @@ export function destroyClient(entry: SharedChain): void {
 }
 
 if (import.meta.vitest) {
-    const { test, expect } = import.meta.vitest;
+    const { test, expect, vi } = import.meta.vitest;
 
     test("getClientCache returns a Map", () => {
         const cache = getClientCache();
@@ -65,6 +71,28 @@ if (import.meta.vitest) {
         expect(destroyed).toBe(0);
         await Promise.resolve();
         expect(destroyed).toBe(1);
+    });
+
+    test("destroyClient twice on a client still being created does not reject", async () => {
+        let destroyed = 0;
+        const client = {
+            destroy: () => {
+                destroyed += 1;
+                if (destroyed > 1) throw new Error("already destroyed");
+            },
+        } as never;
+        const entry: SharedChain = { client: Promise.resolve(client), api: new Map(), users: 0 };
+        const unhandled = vi.fn();
+        process.on("unhandledRejection", unhandled);
+        try {
+            destroyClient(entry);
+            destroyClient(entry);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        } finally {
+            process.off("unhandledRejection", unhandled);
+        }
+        expect(destroyed).toBe(2);
+        expect(unhandled).not.toHaveBeenCalled();
     });
 
     test("destroyClient ignores a creation that failed", async () => {

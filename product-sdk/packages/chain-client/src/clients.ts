@@ -57,23 +57,29 @@ async function acquireChain(genesis: string): Promise<{
     client: PolkadotClient;
 }> {
     const cache = getClientCache();
-    const existing = cache.get(genesis);
-    if (existing) {
-        existing.users += 1;
-        return { shared: existing, client: await existing.client };
+    let shared = cache.get(genesis);
+    if (shared) {
+        shared.users += 1;
+    } else {
+        const creating = createProvider(genesis).then((provider) => createClient(provider));
+        // Cached before any await, so a second call racing for this chain joins
+        // this creation instead of starting its own.
+        shared = { client: creating, api: new Map(), users: 1 };
+        cache.set(genesis, shared);
     }
-    const creating = createProvider(genesis).then((provider) => createClient(provider));
-    // Cached before any await, so a second call racing for this chain joins
-    // this creation instead of starting its own.
-    const shared: SharedChain = { client: creating, api: new Map(), users: 1 };
-    cache.set(genesis, shared);
     try {
-        const client = await creating;
+        const client = await shared.client;
+        // `destroyAll()` ran while the chain was being created: it has already
+        // scheduled this client's close, so it must not be handed out.
+        if (cache.get(genesis) !== shared) {
+            throw new Error(`Chain ${genesis} was destroyed while connecting.`);
+        }
         shared.client = client;
         return { shared, client };
     } catch (err) {
-        // Nothing was created, so the next call for this chain tries again.
-        if (cache.get(genesis) === shared) cache.delete(genesis);
+        // Give back the hold. A failed creation leaves nothing behind, so the
+        // next call for this chain tries again.
+        releaseChain(genesis, shared);
         throw err;
     }
 }
@@ -262,16 +268,21 @@ export function destroyAll(): void {
  * Either way it is the product's one client for the chain, shared by every
  * `ChainClient` that includes it, so don't call `.destroy()` on it directly.
  *
- * @throws If the chain has not been connected yet.
+ * @throws If the chain has not been connected, or is still connecting.
  */
 export function getClient(descriptor: ChainDefinition): PolkadotClient {
     const genesis = descriptor.genesis;
     if (!genesis) throw new Error("Descriptor has no genesis hash.");
     const entry = getClientCache().get(genesis);
-    const client = entry && readyClient(entry);
-    if (!client) {
+    if (!entry) {
         throw new Error(
             `Chain not connected (genesis: ${genesis}). Call createChainClient() first to establish connections.`,
+        );
+    }
+    const client = readyClient(entry);
+    if (!client) {
+        throw new Error(
+            `Chain not connected yet (genesis: ${genesis}). Await the createChainClient() call that is connecting it.`,
         );
     }
     return client;
@@ -456,6 +467,50 @@ if (import.meta.vitest) {
         expect(getClient(people)).toBe(a.raw.people);
     });
 
+    test("two configs racing for a chain whose creation fails both give back their hold", async () => {
+        vi.mocked(createProvider).mockImplementation(async (genesis: string) => {
+            await Promise.resolve();
+            throw new Error(`no ${genesis}`);
+        });
+
+        const results = await Promise.allSettled([
+            createChainClient({ chains: { people } }),
+            createChainClient({ chains: { people, bulletin } }),
+        ]);
+        expect(results.map((r) => r.status)).toEqual(["rejected", "rejected"]);
+        expect(shared("0xpeople")).toBeUndefined();
+        expect(getClientCache().size).toBe(0);
+        expect(clientInstances.size).toBe(0);
+    });
+
+    test("destroyAll() while a chain is being created rejects the config and closes the client once", async () => {
+        let resolveProvider: (provider: never) => void = () => {};
+        vi.mocked(createProvider).mockImplementation(
+            () =>
+                new Promise<never>((resolve) => {
+                    resolveProvider = resolve;
+                }),
+        );
+        const pending = createChainClient({ chains: { people } });
+        await Promise.resolve();
+        destroyAll();
+        resolveProvider({ genesis: "0xpeople" } as never);
+
+        await expect(pending).rejects.toThrow(/destroyed while connecting/);
+        expect(clientsFor("0xpeople")[0]?.destroyed).toBe(1);
+        expect(isConnected(people)).toBe(false);
+        expect(getClientCache().size).toBe(0);
+        expect(clientInstances.size).toBe(0);
+
+        // The chain can be opened again afterwards.
+        vi.mocked(createProvider).mockImplementation(
+            async (genesis: string) => ({ genesis }) as never,
+        );
+        const client = await createChainClient({ chains: { people } });
+        expect(getClient(people)).toBe(client.raw.people);
+        expect((client.raw.people as FakeClient).destroyed).toBe(0);
+    });
+
     // --- unsupported chains ---
 
     test("an unsupported chain gets the throwing stand-in and holds no shared entry", async () => {
@@ -503,7 +558,7 @@ if (import.meta.vitest) {
         await Promise.resolve();
         expect(shared("0xpeople")).toBeDefined();
         expect(isConnected(people)).toBe(false);
-        expect(() => getClient(people)).toThrow(/Chain not connected/);
+        expect(() => getClient(people)).toThrow(/not connected yet/);
 
         resolveProvider({ genesis: "0xpeople" } as never);
         const client = await pending;
