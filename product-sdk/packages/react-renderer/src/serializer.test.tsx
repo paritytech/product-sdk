@@ -9,7 +9,18 @@ import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import * as components from "./components.js";
-import { Box, Button, Column, Effect, Image, Row, Spacer, Text, TextField } from "./components.js";
+import {
+    Box,
+    Button,
+    Column,
+    Effect,
+    Image,
+    Row,
+    SlideToConfirm,
+    Spacer,
+    Text,
+    TextField,
+} from "./components.js";
 import { createRenderer } from "./renderer.js";
 import { SERIALIZED_MODIFIERS, SERIALIZED_NODES } from "./serializer.js";
 
@@ -70,6 +81,7 @@ describe("node fields", () => {
                 <Spacer height={8} />
                 <TextField value="" onValueChange={vi.fn(() => {})} />
                 <Image source={{ tag: "Archive", value: "logo.png" }} />
+                <SlideToConfirm text="Slide" onConfirm={vi.fn(() => {})} />
             </Column>,
         );
 
@@ -104,6 +116,13 @@ describe("node fields", () => {
                     <Button text="Redeem" onClick={vi.fn(() => {})} />
                 </Box>
                 <TextField value="" label="Code" onValueChange={vi.fn(() => {})} />
+                <SlideToConfirm
+                    text="Slide to redeem"
+                    secondaryText="12 points"
+                    accent="FgSuccess"
+                    fillMaxWidth
+                    onConfirm={vi.fn(() => {})}
+                />
             </Column>,
         );
 
