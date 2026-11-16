@@ -170,6 +170,8 @@ export type {
 
 // NFT purses
 export {
+    deriveRefundIdempotencyKey,
+    deriveRevokeIdempotencyKey,
     getNftPurseManager,
     isNftPurseOperationFinished,
     MAIN_NFT_PURSE_ID,

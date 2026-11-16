@@ -44,7 +44,9 @@ import type {
     HostNftPurseRevokeChequeRequest,
     HostNftPurseTransferItemRequest,
     NftPurseCheque,
+    NftPurseChequeId,
     NftPurseId,
+    NftPurseIdempotencyKey,
     NftPurseInfoPage,
     NftPurseItemKey,
     NftPursePurse,
@@ -53,9 +55,10 @@ import type {
     TrUApiClient,
     X25519PublicKey,
 } from "@parity/truapi";
+import { Blake2256 } from "@polkadot-api/substrate-bindings";
 
 import { getClient, subscribeAcrossResets } from "./transport.js";
-import { unwrapHostResult } from "./truapi.js";
+import { fromHex, toHex, unwrapHostResult } from "./truapi.js";
 import type { HostSubscription } from "./types.js";
 
 /**
@@ -84,6 +87,35 @@ export function isNftPurseOperationFinished(
     status: NftPurseStatus,
 ): status is FinishedNftPurseStatus {
     return status.tag === "Cleared" || status.tag === "Incomplete";
+}
+
+// The domains the host hashes in front of a cheque id.
+const REVOKE_KEY_DOMAIN = "nft-purse/revoke";
+const REFUND_KEY_DOMAIN = "nft-purse/refund";
+
+/** Returns `blake2_256(domain ‖ chequeId)`, the way the host derives the key. */
+function deriveChequeIdempotencyKey(
+    domain: string,
+    chequeId: NftPurseChequeId,
+): NftPurseIdempotencyKey {
+    const bytes = new Uint8Array([...new TextEncoder().encode(domain), ...fromHex(chequeId)]);
+    return toHex(Blake2256(bytes));
+}
+
+/**
+ * Returns the idempotency key to pass to `observeOperationStatus` for the
+ * revoke of a cheque.
+ */
+export function deriveRevokeIdempotencyKey(chequeId: NftPurseChequeId): NftPurseIdempotencyKey {
+    return deriveChequeIdempotencyKey(REVOKE_KEY_DOMAIN, chequeId);
+}
+
+/**
+ * Returns the idempotency key to pass to `observeOperationStatus` for the
+ * refund of a deposited cheque.
+ */
+export function deriveRefundIdempotencyKey(chequeId: NftPurseChequeId): NftPurseIdempotencyKey {
+    return deriveChequeIdempotencyKey(REFUND_KEY_DOMAIN, chequeId);
 }
 
 /**
@@ -125,8 +157,8 @@ export interface NftPurseManager {
      * Calls `onStatus` with the status of an operation until the operation is
      * finished. Use the idempotency key of a rebalance or a transfer, or the
      * cheque id of a deposit. For a revoke use
-     * `blake2_256("nft-purse/revoke" ‖ chequeId)`, and for a refund
-     * `blake2_256("nft-purse/refund" ‖ chequeId)`.
+     * {@link deriveRevokeIdempotencyKey}, and for a refund
+     * {@link deriveRefundIdempotencyKey}.
      */
     observeOperationStatus(
         request: HostNftPurseObserveOperationStatusRequest,
@@ -143,7 +175,9 @@ export interface NftPurseManager {
      * new items of the purse they came from. After that the private keys in
      * the cheque cannot move the NFTs. Fails with `ItemsInUse` when the NFTs
      * are already being moved, for example by a deposit of the cheque on this
-     * device. Calling it again moves only the NFTs whose move failed.
+     * device. Calling it again moves only the NFTs whose move failed. To
+     * follow the moves, pass {@link deriveRevokeIdempotencyKey} of the
+     * cheque id to `observeOperationStatus`.
      */
     revokeCheque(request: HostNftPurseRevokeChequeRequest): Promise<void>;
     /**
@@ -154,7 +188,9 @@ export interface NftPurseManager {
     /**
      * Moves the NFTs of a deposited cheque back to the public keys in the
      * cheque. Returns the items that the host started to move back and the
-     * items that were spent after the deposit.
+     * items that were spent after the deposit. To follow the moves, pass
+     * {@link deriveRefundIdempotencyKey} of the cheque id to
+     * `observeOperationStatus`.
      */
     refund(request: HostNftPurseRefundRequest): Promise<HostNftPurseRefundResponse>;
     /**
@@ -434,6 +470,23 @@ if (import.meta.vitest) {
             { tag: "Incomplete", value: { cleared: [], failed: [itemKey], reference } },
         ];
         expect(statuses.map(isNftPurseOperationFinished)).toEqual([false, false, true, true]);
+    });
+
+    // The expected keys are blake2b-256 of the domain's UTF-8 bytes followed
+    // by the 32 bytes of the cheque id, computed outside the SDK.
+    const chequeIdOfBytes0To31 =
+        "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+
+    test("deriveRevokeIdempotencyKey is blake2_256 of the revoke domain and the cheque id", () => {
+        expect(deriveRevokeIdempotencyKey(chequeIdOfBytes0To31)).toBe(
+            "0x26e36925d845b3d43ee8ab224ed439f54539aace61eac867ccba43f428e1eb5d",
+        );
+    });
+
+    test("deriveRefundIdempotencyKey is blake2_256 of the refund domain and the cheque id", () => {
+        expect(deriveRefundIdempotencyKey(chequeIdOfBytes0To31)).toBe(
+            "0xc7be3463ca7651eb67290fe53b5612c60beb7c0d0e60b3e66a91bd3dd83ebeea",
+        );
     });
 
     describe("adaptNftPurseManager", () => {
