@@ -74,7 +74,7 @@ export const NFT_PURSE_MAX_ITEMS_PER_CALL = 1000;
 export const NFT_PURSE_MAX_PAGE_SIZE = 100;
 
 /** The final status of an NFT move operation. */
-export type TerminalNftPurseStatus = Extract<NftPurseStatus, { tag: "Cleared" | "Incomplete" }>;
+export type FinishedNftPurseStatus = Extract<NftPurseStatus, { tag: "Cleared" | "Incomplete" }>;
 
 /**
  * Returns true when an operation is finished. `Cleared` means every NFT moved
@@ -82,7 +82,7 @@ export type TerminalNftPurseStatus = Extract<NftPurseStatus, { tag: "Cleared" | 
  */
 export function isNftPurseOperationFinished(
     status: NftPurseStatus,
-): status is TerminalNftPurseStatus {
+): status is FinishedNftPurseStatus {
     return status.tag === "Cleared" || status.tag === "Incomplete";
 }
 

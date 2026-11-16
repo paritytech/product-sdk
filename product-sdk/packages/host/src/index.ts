@@ -177,7 +177,7 @@ export {
     NFT_PURSE_MAX_NAME_BYTES,
     NFT_PURSE_MAX_PAGE_SIZE,
 } from "./nft-purses.js";
-export type { NftPurseManager, TerminalNftPurseStatus } from "./nft-purses.js";
+export type { FinishedNftPurseStatus, NftPurseManager } from "./nft-purses.js";
 export type {
     HostNftPurseCreateChequeRequest,
     HostNftPurseCreateItemsRequest,
