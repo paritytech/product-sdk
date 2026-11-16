@@ -4,7 +4,7 @@ The renderer protocol as data, plus a checker for it.
 
 The host draws a Pocket card face, and a rendered chat body, from a `RendererNode`: a closed vocabulary of
 layout and design tokens resolved by the host's own theme. A product names structure, never markup, colours
-or URLs. There are eleven node types, twelve modifiers, nine semantic colour tokens, five typography presets
+or URLs. There are twelve node types, twelve modifiers, nine semantic colour tokens, five typography presets
 and one effect.
 
 **This package does not build trees.** To write a face, reach for `@parity/product-sdk-react-renderer`,
@@ -33,8 +33,8 @@ verdict.warnings;  // what the protocol allows and no product means
 these.
 
 **Warnings are legal but suspect.** A prop name the host does not recognise and silently ignores, a
-`Button` with no `clickAction`, a `Text` with no `String` child. Each of these draws something, just not
-what you meant. Warnings never make a face invalid, so `ok` ignores them.
+`Button` with no `clickAction`, a `SlideToConfirm` with no `confirmAction` that can still be slid, a `Text`
+with no `String` child. Each of these draws something, just not what you meant. Warnings never make a face invalid, so `ok` ignores them.
 
 Every issue is a `FaceIssue` carrying three things:
 
@@ -140,5 +140,5 @@ and declares its `props`. `MODIFIER_SCHEMA[tag]` gives the `FieldKind` that modi
 
 The protocol's own vocabulary types are re-exported, so one import covers a face: `RendererNode`,
 `Modifier`, `Dimensions`, `Size`, `ColorToken`, `TypographyStyle`, `ButtonVariant`, `Shape`,
-`ImageSource`, `ImageFit`, `Effect`, `Arrangement`, `BlendingMode`, `ContentAlignment`,
-`HorizontalAlignment`, `VerticalAlignment`.
+`ImageSource`, `ImageFit`, `Effect`, `SlideToConfirmProps`, `SlideToConfirmVariant`, `Arrangement`,
+`BlendingMode`, `ContentAlignment`, `HorizontalAlignment`, `VerticalAlignment`.

@@ -12,6 +12,7 @@ import type {
     EffectProps,
     ImageProps,
     RowProps,
+    SlideToConfirmProps,
     SpacerProps,
     TextFieldProps,
     TextProps,
@@ -41,6 +42,12 @@ export function Button({ children, onClick, ...props }: PropsWithChildren<Button
     const clickAction = useAction(noop, onClick);
 
     return createElement("Button", { ...props, clickAction }, children);
+}
+
+export function SlideToConfirm({ onConfirm, ...props }: SlideToConfirmProps) {
+    const confirmAction = useAction(noop, onConfirm);
+
+    return createElement("SlideToConfirm", { ...props, confirmAction });
 }
 
 // TextField values arrive as bare UTF-8, with no length prefix.

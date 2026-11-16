@@ -7,6 +7,7 @@ export {
     Effect,
     Image,
     Row,
+    SlideToConfirm,
     Spacer,
     Text,
     TextField,

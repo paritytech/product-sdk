@@ -15,6 +15,7 @@ import type {
     ImageSource,
     Shape,
     Size,
+    SlideToConfirmVariant,
     TypographyStyle,
     VerticalAlignment,
 } from "@parity/truapi";
@@ -34,6 +35,7 @@ export type {
     ImageSource,
     Shape,
     Size,
+    SlideToConfirmVariant,
     TypographyStyle,
     VerticalAlignment,
 };
@@ -94,6 +96,36 @@ export interface ButtonProps extends BaseWidgetProps {
      * action at all. Leave it out and no `clickAction` is emitted.
      */
     onClick?(): void;
+}
+
+/**
+ * A control the person slides to confirm, for a step that should be deliberate
+ * rather than a tap. The host owns the drag and reports only a completed slide,
+ * so `onConfirm` runs once, with nothing passed, as a `Button`'s `onClick` does.
+ */
+export interface SlideToConfirmProps extends BaseWidgetProps {
+    /** The label on the track, such as "Slide to register". */
+    text: string;
+    /** A second line under the label, such as a date. */
+    secondaryText?: string;
+    /** What the control reads once the slide is done. Absent keeps `text`. */
+    confirmedText?: string;
+    /** `Thumb` (the default) moves a thumb along a track; `Reveal` peels the face away. */
+    variant?: SlideToConfirmVariant;
+    /** Tint of the thumb, or of the surface a `Reveal` uncovers. Absent leaves it to the host. */
+    accent?: ColorToken;
+    enabled?: boolean;
+    /** A loading control takes no slide. */
+    loading?: boolean;
+    /** Draw the control as already slid. A confirmed control takes no slide. */
+    confirmed?: boolean;
+    /**
+     * Run when a slide completes.
+     *
+     * Optional, because a control drawn where nothing is listening should name
+     * no action at all. Leave it out and no `confirmAction` is emitted.
+     */
+    onConfirm?(): void;
 }
 
 export interface TextFieldProps extends BaseWidgetProps {

@@ -79,17 +79,24 @@ export function LoyaltyFace({ stamps, goal, onStamp }: LoyaltyFaceProps) {
 }
 ```
 
-The components are `Box`, `Button`, `Column`, `Effect`, `Image`, `Row`, `Spacer`, `Text` and `TextField`.
+The components are `Box`, `Button`, `Column`, `Effect`, `Image`, `Row`, `SlideToConfirm`, `Spacer`, `Text`
+and `TextField`.
 Modifiers are plain props on any of them except `Effect`: `padding`, `margin`, `background`, `border`,
 `width`, `height`, `minWidth`, `minHeight`, `fillMaxWidth`, `fillMaxHeight`, `opacity`, `blendingMode`.
 
-The vocabulary is small and closed: 11 node types, 12 modifiers, **9 semantic colour tokens**, 5
+The vocabulary is small and closed: 12 node types, 12 modifiers, **9 semantic colour tokens**, 5
 typography presets, one effect. No literal colours, no gradients. Images come from a Bulletin CID, a
 path inside your archive or bytes carried inline as hex (PNG, JPEG or WebP, at most 64 KiB), never a URL.
 
 **A press is `onClick`, not an action id.** react-renderer mints the id behind `onClick` and routes the
 press back to that handler, so you never name one and never match on one. The same goes for `onValueChange`
-on a `TextField`.
+on a `TextField` and `onConfirm` on a `SlideToConfirm`.
+
+**A deliberate step is a slide, not a tap.** `SlideToConfirm` asks for a slide (`variant` `Thumb`, a thumb
+on a track, or `Reveal`, a face peeled away) with `text`, an optional `secondaryText`, the `confirmedText`
+shown once done and an `accent` token. The host owns the drag and calls `onConfirm` once, as a press would;
+it also offers a tap to screen readers. Only a host whose truapi knows the node can draw it, so a chat
+worker that may meet an older app should send a `Button` with the same action there.
 
 **Gaps in a row: prefer a margin over interleaved `Spacer` nodes, and name all four edges.** Interleaving
 spacers needs a keyed fragment per item, which React warns about, and it doubles the node count. A margin

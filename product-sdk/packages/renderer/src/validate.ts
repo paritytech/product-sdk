@@ -35,6 +35,7 @@ export type FaceIssueCode =
     | "tree-too-deep"
     | "unknown-field"
     | "button-without-action"
+    | "slide-without-action"
     | "text-field-without-action"
     | "text-without-content"
     | "host-limit-depth"
@@ -637,6 +638,20 @@ function advise(
             "a Button with no 'clickAction' is inert: the host has no id to report when it is pressed",
         );
     }
+    // A disabled, loading or confirmed control takes no slide, so it needs no action to report one.
+    if (
+        tag === "SlideToConfirm" &&
+        absent(props.confirmAction) &&
+        props.enabled !== false &&
+        props.loading !== true &&
+        props.confirmed !== true
+    ) {
+        verdict.warn(
+            `${path}.props`,
+            "slide-without-action",
+            "a SlideToConfirm with no 'confirmAction' takes no slide: the host has no id to report when a slide completes",
+        );
+    }
     if (tag === "TextField" && absent(props.valueChangeAction)) {
         verdict.warn(
             `${path}.props`,
@@ -720,6 +735,28 @@ if (import.meta.vitest) {
         // need is idiomatic, not incomplete.
         test("accepts a node with no modifiers, props or children at all", () => {
             expect(validateFace({ tag: "Column" }).errors).toEqual([]);
+        });
+
+        test("accepts a SlideToConfirm with every field set", () => {
+            const verdict = validateFace({
+                tag: "SlideToConfirm",
+                value: {
+                    modifiers: [{ tag: "FillWidth", value: true }],
+                    props: {
+                        text: "Next game",
+                        secondaryText: "Oct 7 at 4:00 PM",
+                        confirmedText: "I'll be there",
+                        variant: "Reveal",
+                        accent: "FgWarning",
+                        enabled: true,
+                        loading: false,
+                        confirmed: false,
+                        confirmAction: "register",
+                    },
+                },
+            });
+            expect(verdict.errors).toEqual([]);
+            expect(verdict.warnings).toEqual([]);
         });
 
         test("accepts a Box with no children, which is how a filled rectangle is drawn", () => {
@@ -828,6 +865,26 @@ if (import.meta.vitest) {
             expect(errorCodes(face)).toEqual(["unknown-enum"]);
         });
 
+        test("refuses a SlideToConfirm variant or accent outside the vocabulary", () => {
+            const slide = (props: Record<string, unknown>) => ({
+                tag: "SlideToConfirm",
+                value: { props: { text: "Slide", confirmAction: "go", ...props } },
+            });
+            expect(errorCodes(slide({ variant: "Peel" }))).toEqual(["unknown-enum"]);
+            expect(errorCodes(slide({ variant: "Thumb" }))).toEqual([]);
+            expect(errorCodes(slide({ accent: "Orange" }))).toEqual(["unknown-enum"]);
+        });
+
+        // The control draws its own label, so children are not part of it.
+        test("warns about children on a SlideToConfirm, which the host ignores", () => {
+            const verdict = validateFace({
+                tag: "SlideToConfirm",
+                value: { props: { text: "Slide", confirmAction: "go" }, children: [] },
+            });
+            expect(verdict.ok).toBe(true);
+            expect(verdict.warnings.map((issue) => issue.code)).toEqual(["unknown-field"]);
+        });
+
         test("names what was allowed when it refuses an enum", () => {
             const face = { tag: "Text", value: { props: { style: "Huge" } } };
             const [issue] = validateFace(face).errors;
@@ -857,6 +914,12 @@ if (import.meta.vitest) {
             expect(errorCodes({ tag: "Button", value: { props: { clickAction: "go" } } })).toEqual([
                 "missing-field",
             ]);
+        });
+
+        test("refuses a SlideToConfirm with no text", () => {
+            expect(
+                errorCodes({ tag: "SlideToConfirm", value: { props: { confirmAction: "go" } } }),
+            ).toEqual(["missing-field"]);
         });
 
         test("refuses an Image with no source", () => {
@@ -970,6 +1033,27 @@ if (import.meta.vitest) {
             const verdict = validateFace({ tag: "Button", value: { props: { text: "Add" } } });
             expect(verdict.ok).toBe(true);
             expect(verdict.warnings.map((issue) => issue.code)).toEqual(["button-without-action"]);
+        });
+
+        test("warns about a SlideToConfirm that cannot report a slide", () => {
+            const verdict = validateFace({
+                tag: "SlideToConfirm",
+                value: { props: { text: "Slide to register" } },
+            });
+            expect(verdict.ok).toBe(true);
+            expect(verdict.warnings.map((issue) => issue.code)).toEqual(["slide-without-action"]);
+        });
+
+        // A product drops the action while the control takes no slide, as the
+        // Android sample does, so a disabled, loading or confirmed one is not a mistake.
+        test("does not warn about a SlideToConfirm that takes no slide", () => {
+            for (const state of [{ enabled: false }, { loading: true }, { confirmed: true }]) {
+                const verdict = validateFace({
+                    tag: "SlideToConfirm",
+                    value: { props: { text: "Slide to register", ...state } },
+                });
+                expect(verdict.warnings).toEqual([]);
+            }
         });
 
         test("warns about a TextField that cannot report what was typed", () => {

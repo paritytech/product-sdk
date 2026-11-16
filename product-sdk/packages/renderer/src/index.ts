@@ -44,6 +44,8 @@ export type {
     RendererNode,
     Shape,
     Size,
+    SlideToConfirmProps,
+    SlideToConfirmVariant,
     TypographyStyle,
     VerticalAlignment,
 } from "@parity/truapi";

@@ -7,7 +7,18 @@ import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { act } from "react";
 
-import { Box, Button, Column, Effect, Image, Row, Spacer, Text, TextField } from "./components.js";
+import {
+    Box,
+    Button,
+    Column,
+    Effect,
+    Image,
+    Row,
+    SlideToConfirm,
+    Spacer,
+    Text,
+    TextField,
+} from "./components.js";
 import type { ActionCallback } from "./context.js";
 import { createRenderer } from "./renderer.js";
 
@@ -218,6 +229,56 @@ describe("custom components", () => {
 
             expect(onClick1).not.toHaveBeenCalled();
             expect(onClick2).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe("SlideToConfirm", () => {
+        it("serializes every prop and takes no children", async () => {
+            const { node } = await mount(
+                <SlideToConfirm
+                    text="Next game"
+                    secondaryText="Oct 7 at 4:00 PM"
+                    confirmedText="I'll be there"
+                    variant="Reveal"
+                    accent="FgWarning"
+                    enabled={true}
+                    loading={false}
+                    confirmed={false}
+                    fillMaxWidth
+                    onConfirm={vi.fn(() => {})}
+                />,
+            );
+            expect(node.tag).toBe("SlideToConfirm");
+            expect(node.value.props).toMatchObject({
+                text: "Next game",
+                secondaryText: "Oct 7 at 4:00 PM",
+                confirmedText: "I'll be there",
+                variant: "Reveal",
+                accent: "FgWarning",
+                enabled: true,
+                loading: false,
+                confirmed: false,
+            });
+            expect(node.value.modifiers).toEqual([{ tag: "FillWidth", value: true }]);
+            expect("children" in node.value).toBe(false);
+        });
+
+        it("calls onConfirm once when the confirmAction is dispatched", async () => {
+            const onConfirm = vi.fn(() => {});
+            const { node, dispatchAction } = await mount(
+                <SlideToConfirm text="Slide to register" onConfirm={onConfirm} />,
+            );
+            const confirmAction = node.value.props.confirmAction;
+            expect(typeof confirmAction).toBe("string");
+
+            await dispatchAction(confirmAction as string, new Uint8Array());
+
+            expect(onConfirm).toHaveBeenCalledTimes(1);
+        });
+
+        it("names no confirmAction when nothing listens", async () => {
+            const { node } = await mount(<SlideToConfirm text="Registered" confirmed />);
+            expect(node.value.props.confirmAction).toBeUndefined();
         });
     });
 
