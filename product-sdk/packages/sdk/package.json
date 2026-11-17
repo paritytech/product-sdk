@@ -56,6 +56,10 @@
             "import": "./dist/nfts/index.js",
             "types": "./dist/nfts/index.d.ts"
         },
+        "./profile": {
+            "import": "./dist/profile/index.js",
+            "types": "./dist/profile/index.d.ts"
+        },
         "./reputation": {
             "import": "./dist/reputation/index.js",
             "types": "./dist/reputation/index.d.ts"
@@ -106,6 +110,7 @@
         "@parity/product-sdk-local-storage": "workspace:*",
         "@parity/product-sdk-renderer": "workspace:*",
         "@parity/product-sdk-tx": "workspace:*",
+        "@polkadot-api/substrate-bindings": "catalog:",
         "polkadot-api": "catalog:"
     },
     "peerDependencies": {

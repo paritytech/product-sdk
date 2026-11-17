@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: set-and-show-mood
+expected_outcome: |
+  showMood takes the mood feed from profile.feeds (kind "mood"), reads it with readMood or
+  watchMood through the host statement store from getStatementStore, keeps a watch open and
+  returns its unsubscribe, treats an err from readMood as unknown (keep what was shown) rather
+  than as no mood, and renders from MOOD_KINDS and MOOD_INTENSITIES rather than a list of its
+  own. chooseMood calls setMood with the feed from the record and the store, never writes the
+  record for a mood, and clears with null. The explanation says a record without this product's
+  mood feed must be published once with deriveMoodFeed in the patch (the feed replaces the
+  record's mood feed by kind), that SignerMismatch from setMood is the signal, and that the
+  product requests the statement-store allowance with its first publish.

@@ -19,7 +19,9 @@ import {
     DOTNS_ROOT_GATEWAY_DISPATCHER_ABI,
 } from "./dotns-abis.js";
 import {
+    DOTNS_CONTENT_RESOLVER_KEY,
     DOTNS_REGISTRY_KEYS,
+    resolveDotNsContentResolver,
     sameAddress,
     type DotNsAddresses,
     type DotNsGatewayQueryApi,
@@ -143,6 +145,9 @@ describe("DOTNS_REGISTRY_KEYS", () => {
     test("the resolver key is `resolver`, not `contentResolver`", () => {
         const contentResolver = `0x${Buffer.from("contentResolver").toString("hex").padEnd(64, "0")}`;
         expect(DOTNS_REGISTRY_KEYS.resolver).not.toBe(contentResolver);
+        // The content resolver has its own key, outside the pinned table.
+        expect(DOTNS_CONTENT_RESOLVER_KEY).toBe(contentResolver);
+        expect(Object.values(DOTNS_REGISTRY_KEYS)).not.toContain(DOTNS_CONTENT_RESOLVER_KEY);
     });
 
     test("every discoverable address has a key, and every key an address", () => {
@@ -532,5 +537,61 @@ describe("the new ABI fragments round-trip", () => {
                 DISCOVERED.popRules,
             ),
         ).toBe(true);
+    });
+});
+
+describe("resolveDotNsContentResolver", () => {
+    const CONTENT_RESOLVER = addr("c1");
+
+    /** A protocol registry at the pinned address answering `get` for the content resolver key. */
+    function registryAnswering(answer: unknown) {
+        return createFakeContractRuntime({
+            abi: DOTNS_PROTOCOL_REGISTRY_ABI,
+            onQuery: ({ dest, functionName, args }) => {
+                if (
+                    functionName === "get" &&
+                    dest.toLowerCase() === DOTNS_ADDRESSES.protocolRegistry.toLowerCase()
+                ) {
+                    return String(args?.[0]) === DOTNS_CONTENT_RESOLVER_KEY ? answer : ZERO;
+                }
+                return undefined;
+            },
+        });
+    }
+
+    test("reads the content resolver from the protocol registry, once per runtime", async () => {
+        const runtime = registryAnswering(CONTENT_RESOLVER);
+        const first = await resolveDotNsContentResolver({ runtime });
+        const second = await resolveDotNsContentResolver({ runtime });
+        expect(first.ok && sameAddress(first.value, CONTENT_RESOLVER)).toBe(true);
+        expect(second).toEqual(first);
+        expect(runtime.calls.filter((c) => c.functionName === "get")).toHaveLength(1);
+    });
+
+    test("an unset content resolver is null, not a failure", async () => {
+        const r = await resolveDotNsContentResolver({ runtime: registryAnswering(ZERO) });
+        expect(r).toEqual({ ok: true, value: null });
+    });
+
+    test("a supplied address skips the read", async () => {
+        const runtime = registryAnswering(CONTENT_RESOLVER);
+        const r = await resolveDotNsContentResolver({
+            runtime,
+            contentResolverAddress: addr("c2"),
+        });
+        expect(r).toEqual({ ok: true, value: addr("c2") });
+        expect(runtime.calls).toHaveLength(0);
+    });
+
+    test("a failed read is a discovery failure, and is not cached", async () => {
+        const runtime = registryAnswering(
+            fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
+        );
+        const first = await resolveDotNsContentResolver({ runtime });
+        const second = await resolveDotNsContentResolver({ runtime });
+        expect(first.ok).toBe(false);
+        if (!first.ok) expect(first.error.reason).toBe("AddressDiscovery");
+        expect(second.ok).toBe(false);
+        expect(runtime.calls.filter((c) => c.functionName === "get")).toHaveLength(2);
     });
 });

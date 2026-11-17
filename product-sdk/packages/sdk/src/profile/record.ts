@@ -1,0 +1,219 @@
+// Copyright 2026 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
+/**
+ * Read a `profile` text-record value into a {@link PublicProfile}, by the
+ * RFC's reader rules and the per-kind rules in {@link PROFILE_ENTRY_INDEX}.
+ */
+import { type Result, err, ok } from "@parity/result";
+import {
+    decodeExact,
+    profileAvatarCodec,
+    profileFeedCodec,
+    profileNameCodec,
+    profileRecordCodec,
+    utf8OrNull,
+} from "./codec.js";
+import { digestCid } from "./avatar.js";
+import { ProfileError } from "./errors.js";
+import {
+    PROFILE_AVATAR_FORMATS,
+    PROFILE_ENTRY_INDEX,
+    PROFILE_NAME_MAX_BYTES,
+    PROFILE_RECORD_MAX_BYTES,
+    type ProfileAvatar,
+    type ProfileFeed,
+    type PublicProfile,
+} from "./types.js";
+
+/**
+ * Standard base64 with padding, the one form the writer emits, decoded the way
+ * a strict decoder does it: the text must be the canonical encoding of its
+ * bytes, so missing or surplus padding, set trailing bits, whitespace and the
+ * URL alphabet are all refused. `atob` alone accepts most of those; the
+ * round-trip through `btoa` is what refuses them.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
+export function decodeBase64Strict(text: string): Uint8Array | null {
+    let binary: string;
+    try {
+        binary = atob(text);
+    } catch {
+        return null;
+    }
+    if (btoa(binary) !== text) return null;
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+/**
+ * Standard base64 with padding: the one form the writer emits, and what {@link decodeBase64Strict} reads back.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
+export function encodeBase64(bytes: Uint8Array): string {
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+}
+
+/**
+ * The entries of a `profile` text-record value, each as the wrapper carries
+ * it: the index byte, then the payload. The outer layer only; what each entry
+ * holds is the reader's or the rewriter's question. The three errors are the
+ * ones every reader refuses a record for.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
+export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileError> {
+    const bytes = decodeBase64Strict(text.trim());
+    if (bytes === null) {
+        return err(new ProfileError("NotBase64", "the profile record is not standard base64"));
+    }
+    if (bytes.length > PROFILE_RECORD_MAX_BYTES) {
+        return err(
+            new ProfileError(
+                "TooLarge",
+                `the profile record is ${bytes.length} bytes, over the ${PROFILE_RECORD_MAX_BYTES}-byte bound`,
+            ),
+        );
+    }
+    const entries = decodeExact(profileRecordCodec, bytes);
+    if (entries === null) {
+        return err(
+            new ProfileError(
+                "Malformed",
+                "the profile record is not exactly one SCALE ProfileRecord",
+            ),
+        );
+    }
+    return ok(entries);
+}
+
+/**
+ * Decode a `profile` text-record value.
+ *
+ * Pure. The text is standard base64 of a SCALE `ProfileRecord`, trimmed first
+ * as every reader trims it. A value that is not base64, is over
+ * {@link PROFILE_RECORD_MAX_BYTES} before parsing, or is not exactly one record
+ * comes back on the `err` channel; `getProfile` treats every one of those as a
+ * name with no profile, as a host does.
+ *
+ * Within a record that decodes, each entry is read on its own, by the rules
+ * in {@link PROFILE_ENTRY_INDEX}; what this reader cannot read is kept as it
+ * was.
+ *
+ * @example
+ * ```ts
+ * const profile = decodeProfileRecord(text);
+ * if (profile.ok) {
+ *     heading.textContent = profile.value.name ?? label;
+ * }
+ * ```
+ */
+export function decodeProfileRecord(text: string): Result<PublicProfile, ProfileError> {
+    const entries = decodeRecordEntries(text);
+    if (!entries.ok) return entries;
+    return ok(readEntries(entries.value));
+}
+
+/** The avatar a payload holds, or `null` when it is not one digest and a format this reader knows. */
+function readAvatar(payload: Uint8Array): ProfileAvatar | null {
+    const decoded = decodeExact(profileAvatarCodec, payload);
+    if (decoded === null) return null;
+    const format = PROFILE_AVATAR_FORMATS[decoded.format];
+    return format === undefined ? null : { cid: digestCid(decoded.cid as `0x${string}`), format };
+}
+
+/**
+ * The name a payload holds with its length in bytes, or `null` when it is not
+ * one UTF-8 String. Whether the name is one this reader uses is the caller's
+ * rule: an empty or over-long name is still a known entry.
+ */
+function readName(payload: Uint8Array): { text: string; byteLength: number } | null {
+    const bytes = decodeExact(profileNameCodec, payload);
+    if (bytes === null) return null;
+    const text = utf8OrNull(bytes);
+    return text === null ? null : { text, byteLength: bytes.length };
+}
+
+function readFeed(payload: Uint8Array): ProfileFeed | null {
+    const decoded = decodeExact(profileFeedCodec, payload);
+    if (decoded === null) return null;
+    const kind = utf8OrNull(decoded.kind);
+    return kind === null
+        ? null
+        : {
+              kind,
+              topic: decoded.topic as `0x${string}`,
+              signer: decoded.signer as `0x${string}`,
+          };
+}
+
+function readEntries(entries: Uint8Array[]): PublicProfile {
+    const profile: PublicProfile = { avatar: null, name: null, feeds: [], unknown: [] };
+    for (const entry of entries) {
+        if (!readEntry(entry, profile)) profile.unknown.push({ bytes: entry });
+    }
+    return profile;
+}
+
+/** An entry of a kind this module knows, decoded. The `kind` is its name in {@link PROFILE_ENTRY_INDEX}. */
+export type KnownEntry =
+    | { kind: "avatar"; value: ProfileAvatar }
+    | { kind: "name"; value: { text: string; byteLength: number } }
+    | { kind: "feed"; value: ProfileFeed };
+
+/**
+ * One entry as a value of the kind its index names, or `null` when it is not
+ * one: an index this module does not know or that has no payload defined (the
+ * reserved `nft`), or a payload that does not decode.
+ * The one table from the index to the reader, for the reader, which keeps a
+ * null as `unknown`, and the writer, which carries it as read. Claiming a new
+ * index means a case here, a field on the patch, and a vector in the tests.
+ *
+ * @internal For the module's own files and tests; consumers use the entry points.
+ */
+export function readKnown(entry: Uint8Array): KnownEntry | null {
+    if (entry.length === 0) return null;
+    // A copy, not a view: the scale-ts decoders read from the start of the
+    // backing buffer and ignore a view's `byteOffset`, so a `subarray` would
+    // hand them the index byte and whatever precedes it.
+    const payload = entry.slice(1);
+    switch (entry[0]) {
+        case PROFILE_ENTRY_INDEX.avatar: {
+            const value = readAvatar(payload);
+            return value && { kind: "avatar", value };
+        }
+        case PROFILE_ENTRY_INDEX.name: {
+            const value = readName(payload);
+            return value && { kind: "name", value };
+        }
+        case PROFILE_ENTRY_INDEX.feed: {
+            const value = readFeed(payload);
+            return value && { kind: "feed", value };
+        }
+        default:
+            return null;
+    }
+}
+
+/** Read one entry into `profile`. `false` when it is not a known entry, the wrapper's cue to keep it as read. */
+function readEntry(entry: Uint8Array, profile: PublicProfile): boolean {
+    const known = readKnown(entry);
+    if (known === null) return false;
+    switch (known.kind) {
+        case "avatar":
+            profile.avatar ??= known.value;
+            break;
+        case "name":
+            // A known entry either way; only a non-empty name within the bound is used.
+            if (known.value.byteLength > 0 && known.value.byteLength <= PROFILE_NAME_MAX_BYTES) {
+                profile.name ??= known.value.text;
+            }
+            break;
+        case "feed":
+            profile.feeds.push(known.value);
+            break;
+    }
+    return true;
+}

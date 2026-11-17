@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: build-offline-profile-example
+expected_outcome: |
+  A new examples/profile-example package in the reputation-example shape: package.json with a
+  demo script, tsconfig, README, and src/main.ts that drives getProfileRecord, submitAvatar,
+  rewriteProfileRecord, prepareSetProfile, the re-read comparison against prepared.original and
+  verifyPublishedProfile through the fake contract runtime. It never calls setResolver, never
+  signs or submits, builds and runs cleanly, and the README says what a live app adds (signer,
+  mapping, funding, submission).
