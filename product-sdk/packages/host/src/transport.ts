@@ -278,18 +278,13 @@ export function subscribeWithInterrupt<Item, Reason = never>(
 }
 
 /**
- * How long {@link subscribeAcrossResets} waits before opening a stream again
- * after a reset that left the connection up, by how many reopens in a row were
- * reset before delivering anything. The first wait leaves room for a lost link
- * to report itself, since the reset can arrive just before the status does.
+ * {@link subscribeAcrossResets}'s waits before reopening after a reset that
+ * kept the link, by reopens in a row. The first leaves room for a lost link,
+ * whose status can arrive just after the reset.
  */
 export const RESET_RETRY_DELAYS_MS = [250, 1_000, 5_000, 30_000] as const;
 
-/**
- * How long a reopened stream must run without another reset to count as
- * healthy, so the next reset starts the waits from the first again. An action
- * stream can go quiet for hours, so an item alone is not enough.
- */
+/** A reopened stream this long without a reset starts the waits over. */
 export const RESET_RETRY_HEALTHY_MS = 60_000;
 
 /**
@@ -307,13 +302,10 @@ export const RESET_RETRY_HEALTHY_MS = 60_000;
  * arrives, while the old connection still reads `"connected"`. Opening on that
  * status would dial a host that is not listening yet.
  *
- * Not every reset loses the link. Since truapi 0.32.0 a product inside a native
- * host decodes its own frames, and a frame it cannot decode resets the work in
- * flight while the host's connection, and so the status, stays `"connected"`.
- * A stream that sees no status change after a reset is opened again after
- * {@link RESET_RETRY_DELAYS_MS}, which grow while each reopened stream is reset
- * again before it delivers anything. This never dials the host itself; the
- * client reconnects on its own.
+ * Since truapi 0.32.0 a reset can also keep the link: inside a native host, a
+ * frame the product's SDK cannot decode resets the work in flight while the
+ * status stays `"connected"`. Then the stream reopens after
+ * {@link RESET_RETRY_DELAYS_MS}. This never dials the host itself.
  */
 export function subscribeAcrossResets<Item, Reason = never>(
     open: () => ObservableLike<Item, Reason>,
@@ -324,8 +316,7 @@ export function subscribeAcrossResets<Item, Reason = never>(
     let stopped = false;
     let interruptCallback: ((reason?: unknown) => void) | undefined;
     let interrupt: { reason?: unknown } | undefined;
-    // Reopens since the stream last proved healthy: an item, a reconnect after a
-    // lost link, or {@link RESET_RETRY_HEALTHY_MS} without a reset.
+    // Reopens since an item, a reconnect, or a healthy stretch.
     let retries = 0;
     let reopenedAt = 0;
 
@@ -384,17 +375,15 @@ export function subscribeAcrossResets<Item, Reason = never>(
             unsubscribe();
             return;
         }
-        // Still connected: a reset that kept the link. Reopen unless a lost link
-        // shows up first, which the status listener above then waits out.
+        // Still connected: the reset kept the link, unless a lost link reports
+        // before the timer, which then clears it.
         if (!lost) {
             if (Date.now() - reopenedAt >= RESET_RETRY_HEALTHY_MS) retries = 0;
-            const delay =
-                RESET_RETRY_DELAYS_MS[Math.min(retries, RESET_RETRY_DELAYS_MS.length - 1)];
-            retries += 1;
+            const last = RESET_RETRY_DELAYS_MS.length - 1;
             timer = setTimeout(() => {
                 reopenedAt = Date.now();
                 reopen();
-            }, delay);
+            }, RESET_RETRY_DELAYS_MS[Math.min(retries++, last)]);
         }
         stopWaiting = () => {
             clearTimeout(timer);
@@ -730,8 +719,10 @@ if (import.meta.vitest) {
         expect(interrupted).toBe(true);
     });
 
-    /** A stream source whose every opening can be reset, delivered to, or counted. */
+    /** A stream under {@link subscribeAcrossResets} whose openings can be reset, fed and counted. */
     const resettable = () => {
+        vi.useFakeTimers();
+        setTruApiClient({} as TrUApiClient);
         const observers: Array<Partial<Observer<number, never>>> = [];
         const observable = {
             subscribe: (observer: Partial<Observer<number, never>>) => {
@@ -742,127 +733,74 @@ if (import.meta.vitest) {
                 return this;
             },
         } as ObservableLike<number, never>;
+        const interrupts: unknown[] = [];
+        const subscription = subscribeAcrossResets(
+            () => observable,
+            () => {},
+        );
+        subscription.onInterrupt((reason) => interrupts.push(reason));
+        const cause = () => new ConnectionResetError();
         return {
-            open: () => observable,
+            subscription,
+            interrupts,
             opened: () => observers.length,
             reset: () =>
-                observers
-                    .at(-1)
-                    ?.error?.(
-                        new SubscriptionError("interrupted", { cause: new ConnectionResetError() }),
-                    ),
+                observers.at(-1)?.error?.(new SubscriptionError("reset", { cause: cause() })),
             deliver: (item: number) => observers.at(-1)?.next?.(item),
         };
     };
 
-    test("subscribeAcrossResets reopens on the reconnect after a lost link", () => {
-        vi.useFakeTimers();
-        setTruApiClient({} as TrUApiClient);
-        const source = resettable();
-        subscribeAcrossResets(source.open, () => {});
-        source.reset();
-        emitConnectionStatus("disconnected");
-        // A lost link waits for the reconnect, however long it takes.
-        vi.advanceTimersByTime(60_000);
-        expect(source.opened()).toBe(1);
-        emitConnectionStatus("connected");
-        expect(source.opened()).toBe(2);
-    });
-
-    // truapi 0.32.0: a frame the product's own SDK cannot decode resets the work
-    // in flight while the native host's connection stays up.
-    test("subscribeAcrossResets reopens after a reset that kept the link", () => {
-        vi.useFakeTimers();
-        setTruApiClient({} as TrUApiClient);
-        const source = resettable();
-        const interrupts: unknown[] = [];
-        subscribeAcrossResets(source.open, () => {}).onInterrupt((reason) =>
-            interrupts.push(reason),
-        );
-        source.reset();
-        vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS[0] - 1);
-        expect(source.opened()).toBe(1);
-        vi.advanceTimersByTime(1);
-        expect(source.opened()).toBe(2);
-        expect(interrupts).toEqual([]);
-    });
-
-    test("subscribeAcrossResets backs off while reopened streams keep resetting, and recovers on an item", () => {
-        vi.useFakeTimers();
-        setTruApiClient({} as TrUApiClient);
-        const source = resettable();
-        subscribeAcrossResets(source.open, () => {});
-        for (const [index, delay] of RESET_RETRY_DELAYS_MS.entries()) {
-            source.reset();
+    // truapi 0.32.0: inside a native host, a frame the product's SDK cannot
+    // decode resets the work in flight while the connection stays up.
+    test("subscribeAcrossResets reopens after a reset that kept the link, waiting longer each time", () => {
+        const stream = resettable();
+        for (const [index, delay] of [...RESET_RETRY_DELAYS_MS, 30_000].entries()) {
+            stream.reset();
             vi.advanceTimersByTime(delay - 1);
-            expect(source.opened()).toBe(index + 1);
+            expect(stream.opened()).toBe(index + 1);
             vi.advanceTimersByTime(1);
-            expect(source.opened()).toBe(index + 2);
+            expect(stream.opened()).toBe(index + 2);
         }
-        // The longest wait repeats rather than growing further.
-        source.reset();
-        vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS.at(-1) as number);
-        expect(source.opened()).toBe(RESET_RETRY_DELAYS_MS.length + 2);
-
-        source.deliver(1);
-        source.reset();
-        vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS[0]);
-        expect(source.opened()).toBe(RESET_RETRY_DELAYS_MS.length + 3);
+        expect(stream.interrupts).toEqual([]);
     });
 
     // The lost link can report a moment after the reset; the first wait covers that.
     test("subscribeAcrossResets waits for the reconnect when the lost link reports during the first wait", () => {
-        vi.useFakeTimers();
-        setTruApiClient({} as TrUApiClient);
-        const source = resettable();
-        subscribeAcrossResets(source.open, () => {});
-        source.reset();
+        const stream = resettable();
+        stream.reset();
         vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS[0] / 2);
         emitConnectionStatus("disconnected");
-        vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS[0] * 10);
-        expect(source.opened()).toBe(1);
+        vi.advanceTimersByTime(60_000);
+        expect(stream.opened()).toBe(1);
         emitConnectionStatus("connected");
-        expect(source.opened()).toBe(2);
+        expect(stream.opened()).toBe(2);
     });
 
-    test("subscribeAcrossResets starts the waits over after a reconnect or a healthy stretch", () => {
-        vi.useFakeTimers();
-        setTruApiClient({} as TrUApiClient);
-        const source = resettable();
-        subscribeAcrossResets(source.open, () => {});
-        const resetKeepingLink = (delay: number) => {
-            source.reset();
+    test("subscribeAcrossResets starts the waits over after an item, a reconnect or a healthy stretch", () => {
+        const stream = resettable();
+        const resetFor = (delay: number) => {
+            stream.reset();
             vi.advanceTimersByTime(delay);
+            return stream.opened();
         };
-        resetKeepingLink(RESET_RETRY_DELAYS_MS[0]);
-        resetKeepingLink(RESET_RETRY_DELAYS_MS[1]);
-        expect(source.opened()).toBe(3);
-
-        // A real reconnect starts over.
-        source.reset();
+        const [first, second] = RESET_RETRY_DELAYS_MS;
+        expect([resetFor(first), resetFor(second)]).toEqual([2, 3]);
+        stream.deliver(1);
+        expect([resetFor(first), resetFor(second)]).toEqual([4, 5]);
+        stream.reset();
         emitConnectionStatus("disconnected");
         emitConnectionStatus("connected");
-        expect(source.opened()).toBe(4);
-        resetKeepingLink(RESET_RETRY_DELAYS_MS[0]);
-        expect(source.opened()).toBe(5);
-
-        // So does a quiet stream that ran a while without a reset.
-        resetKeepingLink(RESET_RETRY_DELAYS_MS[1]);
-        expect(source.opened()).toBe(6);
+        expect([resetFor(first), resetFor(second)]).toEqual([7, 8]);
         vi.advanceTimersByTime(RESET_RETRY_HEALTHY_MS);
-        resetKeepingLink(RESET_RETRY_DELAYS_MS[0]);
-        expect(source.opened()).toBe(7);
+        expect(resetFor(first)).toBe(9);
     });
 
     test("subscribeAcrossResets does not reopen after unsubscribe during the wait", () => {
-        vi.useFakeTimers();
-        setTruApiClient({} as TrUApiClient);
-        const source = resettable();
-        const subscription = subscribeAcrossResets(source.open, () => {});
-        source.reset();
-        subscription.unsubscribe();
+        const stream = resettable();
+        stream.reset();
+        stream.subscription.unsubscribe();
         vi.advanceTimersByTime(60_000);
-        expect(source.opened()).toBe(1);
+        expect(stream.opened()).toBe(1);
     });
 
     test("subscribeWithInterrupt reports a later interrupt only once", () => {

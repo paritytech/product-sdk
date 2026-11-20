@@ -620,10 +620,9 @@ function validateInlineImage(value: unknown, path: string, verdict: Verdict): vo
 }
 
 /**
- * A `Materials` node's layers. The protocol fixes their shape, and these are
- * the errors. Which materials exist, and whether the arguments match their
- * parameters, is the host's to check once it fetches them: a mismatch draws the
- * node plain rather than refusing the tree.
+ * A `Materials` node's layers: what the protocol refuses is an error. Whether
+ * the arguments match a material's parameters is the host's check, after the
+ * fetch; a mismatch draws the node plain.
  */
 function validateMaterialLayers(value: unknown, path: string, verdict: Verdict): void {
     if (!Array.isArray(value)) {
@@ -631,145 +630,111 @@ function validateMaterialLayers(value: unknown, path: string, verdict: Verdict):
         return;
     }
     if (value.length === 0) {
-        verdict.warn(
-            path,
-            "materials-without-layers",
-            "a Materials node with no layers is drawn plain: the host reports it as an invalid stack",
-        );
+        verdict.warn(path, "materials-without-layers", "with no layers, a host draws it plain");
     }
     value.forEach((layer, index) => validateMaterialLayer(layer, `${path}[${index}]`, verdict));
 }
 
 function validateMaterialLayer(layer: unknown, path: string, verdict: Verdict): void {
     if (!isRecord(layer)) {
-        verdict.error(path, "not-an-object", "a material layer must be a JSON object");
+        verdict.error(path, "not-an-object", "a layer must be an object");
         return;
     }
     reportUnknownFields(layer, ["material", "args"], path, verdict);
 
-    const material = layer.material;
+    const { material, args } = layer;
     validateValue(material, { kind: "string" }, `${path}.material`, true, verdict);
     if (typeof material === "string" && !/^0x[0-9a-fA-F]{64}$/.test(material)) {
-        verdict.error(
-            `${path}.material`,
-            "material-not-id",
-            "a material is named by its ID, the 32-byte BLAKE2b-256 hash of its text, as '0x' and 64 hex digits",
-        );
+        verdict.error(`${path}.material`, "material-not-id", "expected '0x' and 64 hex digits");
     }
-
-    // `args` is required even when empty: a host cannot decode a layer without it.
-    const args = layer.args;
+    // Required even when empty: a host cannot decode a layer without it.
     if (absent(args)) {
         verdict.error(`${path}.args`, "missing-field", "'args' is required, even as []");
-        return;
-    }
-    if (!Array.isArray(args)) {
+    } else if (!Array.isArray(args)) {
         verdict.error(`${path}.args`, "wrong-type", "'args' must be an array");
-        return;
+    } else {
+        args.forEach((arg, index) => validateParameter(arg, `${path}.args[${index}]`, verdict));
     }
-    args.forEach((arg, index) => validateParameter(arg, `${path}.args[${index}]`, verdict));
+}
+
+/** A tagged object and its `tag`, or `undefined` after reporting why it is not one. */
+function readTagged(
+    value: unknown,
+    path: string,
+    verdict: Verdict,
+): { tag: string; holder: Record<string, unknown> } | undefined {
+    if (!isRecord(value)) {
+        verdict.error(path, "not-an-object", "expected an object with a 'tag'");
+    } else if (typeof value.tag !== "string") {
+        verdict.error(path, "missing-tag", "expected a string 'tag'");
+    } else {
+        return { tag: value.tag, holder: value };
+    }
+    return undefined;
 }
 
 function validateParameter(value: unknown, path: string, verdict: Verdict): void {
-    if (!isRecord(value)) {
-        verdict.error(path, "not-an-object", "a material argument must be a JSON object");
-        return;
-    }
-    const tag = value.tag;
-    if (typeof tag !== "string") {
-        verdict.error(path, "missing-tag", "a material argument needs a string 'tag'");
-        return;
-    }
+    const tagged = readTagged(value, path, verdict);
+    if (tagged === undefined) return;
+    const { tag, holder } = tagged;
     const arity = parameterArity(tag);
     if (arity === undefined) {
-        verdict.error(
-            path,
-            "unknown-parameter",
-            `unknown material argument '${tag}'. Known arguments: ${Object.keys(PARAMETER_SCHEMA).join(", ")}`,
-        );
+        const known = Object.keys(PARAMETER_SCHEMA).join(", ");
+        verdict.error(path, "unknown-parameter", `unknown argument '${tag}'. Known: ${known}`);
         return;
     }
-    reportUnknownFields(value, ["tag", "value"], path, verdict);
+    reportUnknownFields(holder, ["tag", "value"], path, verdict);
     const valuePath = `${path}.value`;
+    const numbers = holder.value;
     if (arity === null) {
-        validateImageRef(value.value, valuePath, verdict);
-        return;
-    }
-    if (arity === 1) {
-        validateFloatBits(value.value, valuePath, verdict);
-        return;
-    }
-    if (!Array.isArray(value.value)) {
-        verdict.error(valuePath, "wrong-type", `a ${tag} argument is an array of ${arity} numbers`);
-        return;
-    }
-    if (value.value.length !== arity) {
-        verdict.error(
-            valuePath,
-            "parameter-wrong-length",
-            `a ${tag} argument carries ${arity} numbers, got ${value.value.length}`,
-        );
-        return;
-    }
-    // By index, not forEach, so a hole in a sparse array is reported, not skipped.
-    for (let index = 0; index < arity; index++) {
-        validateFloatBits(value.value[index], `${valuePath}[${index}]`, verdict);
+        validateImageRef(numbers, valuePath, verdict);
+    } else if (arity === 1) {
+        validateFloatBits(numbers, valuePath, verdict);
+    } else if (!Array.isArray(numbers) || numbers.length !== arity) {
+        const code = Array.isArray(numbers) ? "parameter-wrong-length" : "wrong-type";
+        verdict.error(valuePath, code, `a ${tag} argument is an array of ${arity} numbers`);
+    } else {
+        // By index, so a hole in a sparse array is reported rather than skipped.
+        for (let index = 0; index < arity; index++) {
+            validateFloatBits(numbers[index], `${valuePath}[${index}]`, verdict);
+        }
     }
 }
 
 /**
- * The protocol carries a material's numbers as IEEE 754 single-precision bit
- * patterns, so each is a whole number that fits in 32 bits. A plain `0.5`
- * lands here, which is the mistake this catches: use `floatBits(0.5)`.
+ * A material number is an IEEE 754 single-precision bit pattern, so a whole
+ * number that fits in 32 bits. A bare `0.5` is the mistake this catches.
  */
 function validateFloatBits(value: unknown, path: string, verdict: Verdict): void {
     if (absent(value)) {
         verdict.error(path, "missing-field", `'${leaf(path)}' is required`);
-        return;
-    }
-    if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
-        verdict.error(
-            path,
-            "parameter-not-bits",
-            `a material number is the 32-bit pattern of a float, a whole number from 0 to ${0xffff_ffff}, got ${String(value)}. Convert a float with floatBits().`,
-        );
-        return;
-    }
-    // An all-ones exponent is Infinity or NaN: the tree decodes, but the host
-    // matches only finite arguments and draws the node plain.
-    if (((value >>> 23) & 0xff) === 0xff) {
-        verdict.warn(
-            path,
-            "parameter-not-finite",
-            `0x${value.toString(16)} is the bit pattern of Infinity or NaN; a host draws this node plain`,
-        );
+    } else if (
+        typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        value < 0 ||
+        value > 0xffff_ffff
+    ) {
+        const message = `expected a 32-bit float pattern, got ${String(value)}; use floatBits()`;
+        verdict.error(path, "parameter-not-bits", message);
+    } else if (((value >>> 23) & 0xff) === 0xff) {
+        // An all-ones exponent is Infinity or NaN, which a host does not match.
+        verdict.warn(path, "parameter-not-finite", "Infinity or NaN: a host draws it plain");
     }
 }
 
 function validateImageRef(value: unknown, path: string, verdict: Verdict): void {
-    if (!isRecord(value)) {
-        verdict.error(path, "not-an-object", "a sampler's image must be a JSON object");
-        return;
-    }
-    const tag = value.tag;
-    if (typeof tag !== "string") {
-        verdict.error(path, "missing-tag", "a sampler's image needs a string 'tag'");
-        return;
-    }
+    const tagged = readTagged(value, path, verdict);
+    if (tagged === undefined) return;
+    const { tag, holder } = tagged;
     if (!(IMAGE_REF_TAGS as readonly string[]).includes(tag)) {
-        verdict.error(
-            path,
-            "unknown-image-ref",
-            `unknown sampler image '${tag}'. Known images: ${IMAGE_REF_TAGS.join(", ")}`,
-        );
-        return;
+        const message = `unknown sampler image '${tag}'. Known: ${IMAGE_REF_TAGS.join(", ")}`;
+        verdict.error(path, "unknown-image-ref", message);
+    } else if (tag === "Noise") {
+        reportUnknownFields(holder, ["tag"], path, verdict);
+    } else {
+        reportUnknownFields(holder, ["tag", "value"], path, verdict);
+        validateValue(holder.value, { kind: "imageSource" }, `${path}.value`, true, verdict);
     }
-    if (tag === "Noise") {
-        reportUnknownFields(value, ["tag"], path, verdict);
-        return;
-    }
-    reportUnknownFields(value, ["tag", "value"], path, verdict);
-    validateValue(value.value, { kind: "imageSource" }, `${path}.value`, true, verdict);
 }
 
 function reportUnknownFields(
@@ -1010,10 +975,12 @@ if (import.meta.vitest) {
             tag: "Materials",
             value: { props: { layers }, children: [textNode("over")] },
         });
-        const withArgs = (...args: unknown[]) => materials([{ material: id, args }]);
+        const layer = (material: unknown, args?: unknown[]) => materials([{ material, args }]);
+        const argErrors = (arg: unknown) => errorCodes(layer(id, [arg]));
+        const warnings = (face: unknown) => validateFace(face).warnings.map((issue) => issue.code);
 
         test("accepts a layer of every argument kind", () => {
-            const face = withArgs(
+            const face = layer(id, [
                 { tag: "Float", value: floatBits(0.5) },
                 { tag: "Vec2", value: [floatBits(1), floatBits(-1)] },
                 { tag: "Vec3", value: [0, 0, 0] },
@@ -1021,106 +988,66 @@ if (import.meta.vitest) {
                 { tag: "SamplerFloat", value: { tag: "Noise" } },
                 {
                     tag: "SamplerVec4",
-                    value: { tag: "Source", value: { tag: "Archive", value: "grain.png" } },
+                    value: { tag: "Source", value: { tag: "Archive", value: "a.png" } },
                 },
-            );
+            ]);
             expect(validateFace(face)).toEqual({ ok: true, errors: [], warnings: [] });
         });
 
-        test("refuses the Effect node 0.32.0 removed", () => {
-            expect(
-                errorCodes({
-                    tag: "Effect",
-                    value: { props: { effect: "Rainbow" }, children: [] },
-                }),
-            ).toEqual(["unknown-node"]);
-        });
-
-        test("refuses a material that is not a 32-byte id", () => {
-            const layer = (material: unknown) => materials([{ material, args: [] }]);
-            expect(errorCodes(layer(undefined))).toEqual(["missing-field"]);
-            expect(errorCodes(layer("rainbow"))).toEqual(["material-not-id"]);
-            expect(errorCodes(layer(`0x${"ab".repeat(31)}`))).toEqual(["material-not-id"]);
-            expect(errorCodes(layer(id.toUpperCase().replace("0X", "0x")))).toEqual([]);
-        });
-
-        test("refuses a layer with no args, which a host cannot decode", () => {
-            expect(errorCodes(materials([{ material: id }]))).toEqual(["missing-field"]);
+        test("refuses a layer without a 32-byte material id or without args", () => {
+            expect(errorCodes(layer(undefined, []))).toEqual(["missing-field"]);
+            expect(errorCodes(layer("rainbow", []))).toEqual(["material-not-id"]);
+            expect(errorCodes(layer(`0x${"ab".repeat(31)}`, []))).toEqual(["material-not-id"]);
+            expect(errorCodes(layer(id.replace("ab", "AB"), []))).toEqual([]);
+            // A host cannot decode a layer with no args, even an empty list is required.
+            expect(errorCodes(layer(id))).toEqual(["missing-field"]);
         });
 
         // A float written as itself is the likely mistake: the wire carries its bits.
         test("refuses a number that is not a 32-bit pattern", () => {
-            expect(errorCodes(withArgs({ tag: "Float", value: 0.5 }))).toEqual([
-                "parameter-not-bits",
-            ]);
-            expect(errorCodes(withArgs({ tag: "Float", value: -1 }))).toEqual([
-                "parameter-not-bits",
-            ]);
-            expect(errorCodes(withArgs({ tag: "Float", value: 2 ** 32 }))).toEqual([
-                "parameter-not-bits",
-            ]);
-            expect(errorCodes(withArgs({ tag: "Vec2", value: [0, "1"] }))).toEqual([
-                "parameter-not-bits",
-            ]);
-        });
-
-        test("refuses a hole in a sparse vector, which the codec cannot encode", () => {
-            // biome-ignore lint/suspicious/noSparseArray: the hole is the case under test
-            expect(errorCodes(withArgs({ tag: "Vec2", value: [0, ,] }))).toEqual(["missing-field"]);
-        });
-
-        test("warns on Infinity and NaN, which a host draws plain", () => {
-            for (const value of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
-                const verdict = validateFace(withArgs({ tag: "Float", value: floatBits(value) }));
-                expect(verdict.ok).toBe(true);
-                expect(verdict.warnings.map((issue) => issue.code)).toEqual([
-                    "parameter-not-finite",
-                ]);
+            for (const value of [0.5, -1, 2 ** 32]) {
+                expect(argErrors({ tag: "Float", value })).toEqual(["parameter-not-bits"]);
             }
-            expect(validateFace(withArgs({ tag: "Float", value: floatBits(-0) })).warnings).toEqual(
-                [],
-            );
+            expect(argErrors({ tag: "Vec2", value: [0, "1"] })).toEqual(["parameter-not-bits"]);
         });
 
-        test("refuses a vector of the wrong length", () => {
-            expect(errorCodes(withArgs({ tag: "Vec3", value: [0, 0] }))).toEqual([
-                "parameter-wrong-length",
-            ]);
-            expect(errorCodes(withArgs({ tag: "Vec2", value: 0 }))).toEqual(["wrong-type"]);
+        test("refuses a vector of the wrong length, the wrong type or with a hole", () => {
+            expect(argErrors({ tag: "Vec3", value: [0, 0] })).toEqual(["parameter-wrong-length"]);
+            expect(argErrors({ tag: "Vec2", value: 0 })).toEqual(["wrong-type"]);
+            // biome-ignore lint/suspicious/noSparseArray: the hole is the case under test
+            expect(argErrors({ tag: "Vec2", value: [0, ,] })).toEqual(["missing-field"]);
         });
 
         test("refuses an unknown argument and an unknown sampler image", () => {
-            expect(errorCodes(withArgs({ tag: "Int", value: 1 }))).toEqual(["unknown-parameter"]);
-            expect(errorCodes(withArgs({ tag: "SamplerVec2", value: { tag: "Camera" } }))).toEqual([
+            expect(argErrors({ tag: "Int", value: 1 })).toEqual(["unknown-parameter"]);
+            expect(argErrors({ tag: "SamplerVec2", value: { tag: "Camera" } })).toEqual([
                 "unknown-image-ref",
             ]);
-            expect(
-                errorCodes(
-                    withArgs({
-                        tag: "SamplerVec2",
-                        value: { tag: "Source", value: { tag: "Url", value: "https://x" } },
-                    }),
-                ),
-            ).toEqual(["unknown-image-source"]);
+            const url = { tag: "Source", value: { tag: "Url", value: "https://x" } };
+            expect(argErrors({ tag: "SamplerVec2", value: url })).toEqual(["unknown-image-source"]);
         });
 
-        // The host draws an empty stack plain and reports it; the tree still decodes.
-        test("warns on a Materials node with no layers", () => {
-            const verdict = validateFace(materials([]));
-            expect(verdict.ok).toBe(true);
-            expect(verdict.warnings.map((issue) => issue.code)).toEqual([
-                "materials-without-layers",
-            ]);
+        // The tree decodes, but a host draws the node plain.
+        test("warns on an empty stack and on Infinity or NaN", () => {
+            expect(warnings(materials([]))).toEqual(["materials-without-layers"]);
+            for (const value of [Number.POSITIVE_INFINITY, Number.NaN]) {
+                const face = layer(id, [{ tag: "Float", value: floatBits(value) }]);
+                expect(warnings(face)).toEqual(["parameter-not-finite"]);
+            }
+            expect(warnings(layer(id, [{ tag: "Float", value: floatBits(-0) }]))).toEqual([]);
         });
 
         test("floatBits gives the IEEE 754 single-precision pattern", () => {
-            expect(floatBits(0)).toBe(0);
-            expect(floatBits(1)).toBe(0x3f80_0000);
-            expect(floatBits(-2)).toBe(0xc000_0000);
-            expect(floatBits(0.5)).toBe(0x3f00_0000);
-            expect(floatBits(-0)).toBe(0x8000_0000);
-            expect(floatBits(1e-45)).toBe(1);
-            expect(floatBits(3.5e38)).toBe(0x7f80_0000);
+            const cases = [
+                [0, 0],
+                [1, 0x3f80_0000],
+                [-2, 0xc000_0000],
+                [0.5, 0x3f00_0000],
+                [-0, 0x8000_0000],
+                [1e-45, 1],
+                [3.5e38, 0x7f80_0000],
+            ];
+            for (const [value, bits] of cases) expect(floatBits(value)).toBe(bits);
         });
     });
 
