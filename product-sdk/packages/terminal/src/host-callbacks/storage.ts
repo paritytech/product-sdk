@@ -3,12 +3,14 @@
 /**
  * Core and product storage for the truapi core, as files under the terminal's
  * storage directory: `core/` holds the paired session and keys, `product/` the
- * product's `localStorage`.
+ * product's `localStorage`, one directory per product.
  */
+import { createHash } from "node:crypto";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { ok, type Result } from "neverthrow";
-import type { GenericError, HostLocalStorageChangeItem } from "@parity/truapi";
+import type { GenericError, HostLocalStorageChangeItem, ProductId } from "@parity/truapi";
 import { encodeCoreStorageKey, type CoreStorageKey } from "@parity/truapi-host";
 import type { WebWorkerHostCallbacks } from "@parity/truapi-host/node";
 import { toHex } from "@polkadot-api/utils";
@@ -28,31 +30,102 @@ export function createFileCoreStorage(storageDir: string): CoreStorage {
     };
 }
 
+/** The core's product-storage key prefix, up to and including its version. */
+const PRODUCT_KEY_PREFIX = "truapi:product-storage:v1:";
+
+const utf8 = new TextEncoder();
+
+/**
+ * The prefix of every key the core hands the host for `productId`'s values,
+ * as the core's `ProductStorageKey::owner_prefix` builds it. The id's length is
+ * in UTF-8 bytes, so one product's prefix never matches another product whose
+ * id merely starts with it.
+ */
+export function productOwnerPrefix(productId: string): string {
+    return `${PRODUCT_KEY_PREFIX}${utf8.encode(productId).length}:${productId}:`;
+}
+
+/** The owner prefix `key` starts with, or `undefined` for a key not in the core's format. */
+export function ownerPrefixOf(key: string): string | undefined {
+    const match = /^(\d+):/.exec(key.slice(PRODUCT_KEY_PREFIX.length));
+    if (!key.startsWith(PRODUCT_KEY_PREFIX) || match === null) return undefined;
+    const idStart = utf8.encode(key.slice(0, PRODUCT_KEY_PREFIX.length + match[0].length)).length;
+    const idEnd = idStart + Number(match[1]);
+    const bytes = utf8.encode(key);
+    if (bytes[idEnd] !== 0x3a) return undefined;
+    const productId = new TextDecoder().decode(bytes.subarray(idStart, idEnd));
+    const prefix = productOwnerPrefix(productId);
+    return key.startsWith(prefix) ? prefix : undefined;
+}
+
+/** Left in a product's directory by `clearProduct`: its flat values are no longer read. */
+const CLEARED_MARKER = "cleared";
+
+/**
+ * Product values live in one directory per product, so clearing a product's
+ * state empties one directory.
+ *
+ * Terminals before truapi 0.32.0 kept every product's values flat in
+ * `product/`, named by a hash of the key, so a flat file does not say which
+ * product owns it. Those files are still read, and move into their product's
+ * directory on the next write. `clearProduct` leaves them alone, since they may
+ * be another product's, and leaves a marker so the cleared product never reads
+ * them again.
+ */
 export function createFileProductStorage(storageDir: string): ProductStorage {
     const dir = join(storageDir, "product");
     const name = (key: string) => storageFileName("item", key);
+    const ownerDir = (prefix: string) =>
+        join(dir, `owner-${createHash("sha256").update(prefix).digest("hex").slice(0, 32)}`);
+    const keyDir = (key: string) => {
+        const prefix = ownerPrefixOf(key);
+        return prefix === undefined ? dir : ownerDir(prefix);
+    };
     const watchers = new Map<string, Set<(value: Uint8Array | undefined) => void>>();
     const changed = (key: string, value: Uint8Array | undefined) => {
         for (const notify of watchers.get(key) ?? []) notify(value);
     };
+    const read = async (key: string) => {
+        const owned = keyDir(key);
+        const value = await readStoredFile(owned, name(key));
+        if (value !== undefined || owned === dir) return value;
+        if ((await readStoredFile(owned, CLEARED_MARKER)) !== undefined) return undefined;
+        return readStoredFile(dir, name(key));
+    };
+    const removeLegacy = async (key: string) => {
+        if (keyDir(key) !== dir) await removeStoredFile(dir, name(key));
+    };
 
     return {
-        read: (key) => readStoredFile(dir, name(key)),
+        read,
         async write(key, value) {
-            await writeStoredFile(dir, name(key), value);
+            await writeStoredFile(keyDir(key), name(key), value);
+            await removeLegacy(key);
             changed(key, value);
         },
         async clear(key) {
-            await removeStoredFile(dir, name(key));
+            // The flat copy goes first, so a read during the clear never falls back to it.
+            await removeLegacy(key);
+            await removeStoredFile(keyDir(key), name(key));
             changed(key, undefined);
+        },
+        async clearProduct(productId) {
+            const prefix = productOwnerPrefix(productId);
+            const owned = ownerDir(prefix);
+            // The marker goes first, so a read during the clear never falls back to a flat value.
+            await writeStoredFile(owned, CLEARED_MARKER, new Uint8Array());
+            for (const entry of await readdir(owned)) {
+                if (entry !== CLEARED_MARKER) await rm(join(owned, entry), { force: true });
+            }
+            for (const key of [...watchers.keys()]) {
+                if (key.startsWith(prefix)) changed(key, undefined);
+            }
         },
         subscribeStorage(key) {
             return {
                 [Symbol.asyncIterator]() {
                     // The core reads the first item as the current value, then each change.
-                    const pending: Promise<Uint8Array | undefined>[] = [
-                        readStoredFile(dir, name(key)),
-                    ];
+                    const pending: Promise<Uint8Array | undefined>[] = [read(key)];
                     let wake: (() => void) | undefined;
                     let closed = false;
                     const notify = (value: Uint8Array | undefined) => {
@@ -97,7 +170,7 @@ export function createFileProductStorage(storageDir: string): ProductStorage {
 
 if (import.meta.vitest) {
     const { describe, test, expect, beforeEach, afterEach } = import.meta.vitest;
-    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { mkdtemp } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
 
     let dir: string;
@@ -135,6 +208,86 @@ if (import.meta.vitest) {
                 { value: "0x02" },
                 { value: undefined },
             ]);
+        });
+
+        const key = (productId: string, local: string) =>
+            `${productOwnerPrefix(productId)}${local}`;
+
+        // truapi 0.32.0 clears a product's storage when it clears the product's state.
+        test("clearProduct removes the product's values and keeps another product's", async () => {
+            const storage = createFileProductStorage(dir);
+            await storage.write(key("app.dot", "a"), new Uint8Array([1]));
+            await storage.write(key("app.dot", "b"), new Uint8Array([2]));
+            await storage.write(key("other.dot", "a"), new Uint8Array([3]));
+            await storage.clearProduct("app.dot" as ProductId);
+            expect(await storage.read(key("app.dot", "a"))).toBeUndefined();
+            expect(await storage.read(key("app.dot", "b"))).toBeUndefined();
+            expect(await storage.read(key("other.dot", "a"))).toEqual(new Uint8Array([3]));
+        });
+
+        test("clearProduct tells a subscription the value is gone", async () => {
+            const storage = createFileProductStorage(dir);
+            await storage.write(key("app.dot", "theme"), new Uint8Array([1]));
+            const items = storage.subscribeStorage(key("app.dot", "theme"))[Symbol.asyncIterator]();
+            await items.next();
+            await storage.clearProduct("app.dot" as ProductId);
+            const cleared = await items.next();
+            await items.return?.();
+            expect(cleared.value?._unsafeUnwrap()).toEqual({ value: undefined });
+        });
+
+        // Terminals before truapi 0.32.0 kept every product value flat in `product/`.
+        test("reads a flat value an older terminal wrote, moves it on write, hides it once cleared", async () => {
+            const stored = key("app.dot", "theme");
+            await writeStoredFile(
+                join(dir, "product"),
+                storageFileName("item", stored),
+                new Uint8Array([9]),
+            );
+            const storage = createFileProductStorage(dir);
+            expect(await storage.read(stored)).toEqual(new Uint8Array([9]));
+
+            await storage.write(stored, new Uint8Array([10]));
+            const flat = (await readdir(join(dir, "product"), { withFileTypes: true })).filter(
+                (entry) => entry.isFile(),
+            );
+            expect(flat).toEqual([]);
+            expect(await storage.read(stored)).toEqual(new Uint8Array([10]));
+
+            const hidden = key("app.dot", "other");
+            const kept = key("other.dot", "theme");
+            const flatDir = join(dir, "product");
+            await writeStoredFile(flatDir, storageFileName("item", hidden), new Uint8Array([1]));
+            await writeStoredFile(flatDir, storageFileName("item", kept), new Uint8Array([2]));
+            await storage.clearProduct("app.dot" as ProductId);
+            expect(await storage.read(stored)).toBeUndefined();
+            expect(await storage.read(hidden)).toBeUndefined();
+            // Another product's flat value stays: its owner cannot be told from its name.
+            expect(await storage.read(kept)).toEqual(new Uint8Array([2]));
+
+            // A write after the clear is read back as usual.
+            await storage.write(hidden, new Uint8Array([3]));
+            expect(await storage.read(hidden)).toEqual(new Uint8Array([3]));
+        });
+    });
+
+    describe("ownerPrefixOf", () => {
+        test("matches the core's length-prefixed owner, in UTF-8 bytes", () => {
+            expect(productOwnerPrefix("app.dot")).toBe("truapi:product-storage:v1:7:app.dot:");
+            expect(productOwnerPrefix("é.dot")).toBe("truapi:product-storage:v1:6:é.dot:");
+            expect(ownerPrefixOf("truapi:product-storage:v1:6:é.dot:theme")).toBe(
+                "truapi:product-storage:v1:6:é.dot:",
+            );
+            // A key of id "app.dot:x" is never read as product "app.dot".
+            expect(ownerPrefixOf(`${productOwnerPrefix("app.dot:x")}k`)).toBe(
+                productOwnerPrefix("app.dot:x"),
+            );
+        });
+
+        test("answers undefined for a key not in the core's format", () => {
+            expect(ownerPrefixOf("theme")).toBeUndefined();
+            expect(ownerPrefixOf("truapi:product-storage:v1:99:app.dot:theme")).toBeUndefined();
+            expect(ownerPrefixOf("truapi:product-storage:v1:x:app.dot:theme")).toBeUndefined();
         });
     });
 }
