@@ -27,6 +27,10 @@ overrides:
   # affects >=8.0.0 <8.21.0). Pulled transitively by smoldot (`^8.8.1`, satisfied)
   # and viem (pinned `8.20.1`, overridden). All major-8, so a patched minor.
   "ws": "^8.21.0"
+  # Force the patched `tinypool` (GHSA: prototype pollution in worker and run()
+  # options leads to RCE; affects <2.1.2, no 1.x backport). Pulled only by
+  # vitest 3 (`^1.1.1`), whose pool calls work unchanged on 2.x.
+  "tinypool": "^2.1.2"
 
 onlyBuiltDependencies:
   - "@biomejs/biome"
