@@ -33,6 +33,7 @@ export type FaceIssueCode =
     | "unknown-parameter"
     | "parameter-wrong-length"
     | "parameter-not-bits"
+    | "parameter-not-finite"
     | "unknown-image-ref"
     | "materials-without-layers"
     | "unknown-enum"
@@ -710,9 +711,10 @@ function validateParameter(value: unknown, path: string, verdict: Verdict): void
         );
         return;
     }
-    value.value.forEach((bits, index) =>
-        validateFloatBits(bits, `${valuePath}[${index}]`, verdict),
-    );
+    // By index, not forEach, so a hole in a sparse array is reported, not skipped.
+    for (let index = 0; index < arity; index++) {
+        validateFloatBits(value.value[index], `${valuePath}[${index}]`, verdict);
+    }
 }
 
 /**
@@ -730,6 +732,16 @@ function validateFloatBits(value: unknown, path: string, verdict: Verdict): void
             path,
             "parameter-not-bits",
             `a material number is the 32-bit pattern of a float, a whole number from 0 to ${0xffff_ffff}, got ${String(value)}. Convert a float with floatBits().`,
+        );
+        return;
+    }
+    // An all-ones exponent is Infinity or NaN: the tree decodes, but the host
+    // matches only finite arguments and draws the node plain.
+    if (((value >>> 23) & 0xff) === 0xff) {
+        verdict.warn(
+            path,
+            "parameter-not-finite",
+            `0x${value.toString(16)} is the bit pattern of Infinity or NaN; a host draws this node plain`,
         );
     }
 }
@@ -1005,7 +1017,7 @@ if (import.meta.vitest) {
                 { tag: "Float", value: floatBits(0.5) },
                 { tag: "Vec2", value: [floatBits(1), floatBits(-1)] },
                 { tag: "Vec3", value: [0, 0, 0] },
-                { tag: "Vec4", value: [0, 0, 0, 0xffff_ffff] },
+                { tag: "Vec4", value: [0, 0, 0, floatBits(1)] },
                 { tag: "SamplerFloat", value: { tag: "Noise" } },
                 {
                     tag: "SamplerVec4",
@@ -1052,6 +1064,24 @@ if (import.meta.vitest) {
             ]);
         });
 
+        test("refuses a hole in a sparse vector, which the codec cannot encode", () => {
+            // biome-ignore lint/suspicious/noSparseArray: the hole is the case under test
+            expect(errorCodes(withArgs({ tag: "Vec2", value: [0, ,] }))).toEqual(["missing-field"]);
+        });
+
+        test("warns on Infinity and NaN, which a host draws plain", () => {
+            for (const value of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+                const verdict = validateFace(withArgs({ tag: "Float", value: floatBits(value) }));
+                expect(verdict.ok).toBe(true);
+                expect(verdict.warnings.map((issue) => issue.code)).toEqual([
+                    "parameter-not-finite",
+                ]);
+            }
+            expect(validateFace(withArgs({ tag: "Float", value: floatBits(-0) })).warnings).toEqual(
+                [],
+            );
+        });
+
         test("refuses a vector of the wrong length", () => {
             expect(errorCodes(withArgs({ tag: "Vec3", value: [0, 0] }))).toEqual([
                 "parameter-wrong-length",
@@ -1088,6 +1118,9 @@ if (import.meta.vitest) {
             expect(floatBits(1)).toBe(0x3f80_0000);
             expect(floatBits(-2)).toBe(0xc000_0000);
             expect(floatBits(0.5)).toBe(0x3f00_0000);
+            expect(floatBits(-0)).toBe(0x8000_0000);
+            expect(floatBits(1e-45)).toBe(1);
+            expect(floatBits(3.5e38)).toBe(0x7f80_0000);
         });
     });
 

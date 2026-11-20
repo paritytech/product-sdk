@@ -9,7 +9,7 @@ import {
     NODE_SCHEMA,
     validateFace,
 } from "@parity/product-sdk-renderer";
-import type { MaterialInstance } from "@parity/truapi";
+import { type MaterialInstance, RendererNode } from "@parity/truapi";
 import type { ReactNode } from "react";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -133,5 +133,32 @@ describe("node fields", () => {
         );
 
         expect(validateFace(node)).toEqual({ ok: true, errors: [], warnings: [] });
+    });
+
+    // validateFace checks the JSON shape; the protocol's own codec is what the
+    // host decodes, so a face it accepts must survive the round trip unchanged.
+    it("serializes a Materials face the protocol codec encodes and decodes unchanged", async () => {
+        const layer: MaterialInstance = {
+            material: `0x${"ab".repeat(32)}`,
+            args: [
+                { tag: "Float", value: floatBits(0.5) },
+                { tag: "Vec2", value: [floatBits(1), floatBits(-1)] },
+                { tag: "Vec3", value: [0, 0, 0] },
+                { tag: "Vec4", value: [0, 0, 0, floatBits(1)] },
+                { tag: "SamplerFloat", value: { tag: "Noise" } },
+                {
+                    tag: "SamplerVec4",
+                    value: { tag: "Source", value: { tag: "Archive", value: "grain.png" } },
+                },
+            ],
+        };
+        const node = await serialize(
+            <Materials layers={[layer]}>
+                <Text>shiny</Text>
+            </Materials>,
+        );
+
+        expect(validateFace(node)).toEqual({ ok: true, errors: [], warnings: [] });
+        expect(RendererNode.dec(RendererNode.enc(node as RendererNode))).toEqual(node);
     });
 });

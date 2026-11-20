@@ -13,7 +13,10 @@ const scratch = new DataView(new ArrayBuffer(4));
  * carries a material's numbers.
  *
  * A `Float` or `VecN` argument holds bits, not the float itself, so `0.5` is
- * written `floatBits(0.5)`. Values round to the nearest single-precision float.
+ * written `floatBits(0.5)`. Values round to the nearest single-precision float,
+ * so one past its range becomes ±Infinity. A host matches only finite
+ * arguments and draws a node with Infinity or NaN plain, which `validateFace`
+ * warns about.
  *
  * @example
  * ```ts

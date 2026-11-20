@@ -14,7 +14,7 @@ What changed in the truapi surface, and how the SDK absorbs it:
   - `@parity/product-sdk-react-renderer` replaces the `Effect` component with `<Materials layers={...}>`.
   - `@parity/product-sdk-renderer` validates the node:
     - **Errors:** `validateFace` reports `missing-field` for a layer without `args` (an empty list is fine), `material-not-id` for a material that is not `0x` and 64 hex digits, `unknown-parameter` and `unknown-image-ref` for tags outside the protocol, `parameter-wrong-length` for a vector of the wrong arity, and `parameter-not-bits` for a number that is not a 32-bit pattern.
-    - **Warning:** it reports `materials-without-layers` for an empty stack, which a host draws plain.
+    - **Warning:** it reports `materials-without-layers` for an empty stack and `parameter-not-finite` for an Infinity or NaN argument, both of which a host draws plain.
   - **Writing numbers.** The protocol carries a material's numbers as IEEE 754 single-precision bit patterns, so the new `floatBits(0.5)` helper writes them; a bare `0.5` is refused.
   - **New type re-exports:** the renderer also re-exports `MaterialsProps`, `MaterialInstance`, `Parameter` and `ImageRef`, and no longer re-exports `Effect`.
   - **Migration:** replace `<Effect effect="Rainbow">…</Effect>` with `<Materials layers={[...]}>…</Materials>`, or drop the wrapper.
