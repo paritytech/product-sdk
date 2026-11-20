@@ -1,5 +1,14 @@
 # @parity/product-sdk-individuality
 
+## 0.11.8
+
+### Patch Changes
+
+- Updated dependencies [73fbe82]
+- Updated dependencies [73fbe82]
+  - @parity/product-sdk-host@0.35.0
+  - @parity/product-sdk-tx@0.5.11
+
 ## 0.11.7
 
 ### Patch Changes
