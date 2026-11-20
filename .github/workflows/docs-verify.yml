@@ -1,8 +1,8 @@
 name: "docs: Verify Build"
 
 on:
-    # docs-deploy.yml is in both filters for the guard job below. Filters are
-    # workflow-level, so the build job runs on it too.
+    # The build job is a required check, so the PR trigger has no `paths:`
+    # filter: the `changes` job decides whether it runs. See changed-paths.sh.
     push:
         branches: [main]
         paths:
@@ -13,12 +13,6 @@ on:
             - ".github/scripts/check-docs-deploy.sh"
     pull_request:
         branches: [main]
-        paths:
-            - "product-sdk/**"
-            - "docs/**"
-            - ".github/workflows/docs-verify.yml"
-            - ".github/workflows/docs-deploy.yml"
-            - ".github/scripts/check-docs-deploy.sh"
 
 # Read-only build: only needs to clone the repo to verify it builds.
 permissions:
@@ -31,8 +25,31 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+    changes:
+        name: "docs: Detect changes"
+        runs-on: parity-default
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            run: ${{ steps.paths.outputs.run }}
+        steps:
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/scripts
+            - id: paths
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: bash .github/scripts/changed-paths.sh '^(product-sdk/|docs/|\.github/workflows/docs-(verify|deploy)\.yml$|\.github/scripts/(check-docs-deploy|changed-paths)\.sh$)'
+
     build:
         name: "docs: Verify Generate & Build"
+        needs: changes
+        # Runs unless nothing relevant changed; a failed detector runs it anyway.
+        if: ${{ !cancelled() && needs.changes.outputs.run != 'false' }}
         runs-on: parity-default
         steps:
             - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -56,12 +73,16 @@ jobs:
             # Dependabot rewrites a pnpm lockfile without re-emitting the
             # `overrides:` block, so its PRs can never satisfy
             # `--frozen-lockfile` (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH). Let a
-            # Dependabot run regenerate the lockfile instead; every other run
-            # stays frozen so real drift still fails the build.
+            # Dependabot PR regenerate the lockfile instead; every other run
+            # stays frozen so real drift still fails the build. Keyed on the PR
+            # author, not `github.actor`, so merging main into the branch, which
+            # makes the merger the actor, keeps it unfrozen.
             - name: Set install flag
               id: install-flag
+              env:
+                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
               run: |
-                  if [ "${{ github.actor }}" = "dependabot[bot]" ]; then
+                  if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
                       echo "frozen=--no-frozen-lockfile" >> "$GITHUB_OUTPUT"
                   else
                       echo "frozen=--frozen-lockfile" >> "$GITHUB_OUTPUT"
