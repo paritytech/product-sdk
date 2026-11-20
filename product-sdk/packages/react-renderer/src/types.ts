@@ -9,10 +9,12 @@ import type {
     ColorToken,
     ContentAlignment,
     Dimensions,
-    Effect,
     HorizontalAlignment,
     ImageFit,
+    ImageRef,
     ImageSource,
+    MaterialInstance,
+    Parameter,
     Shape,
     Size,
     TypographyStyle,
@@ -28,10 +30,12 @@ export type {
     ColorToken,
     ContentAlignment,
     Dimensions,
-    Effect,
     HorizontalAlignment,
     ImageFit,
+    ImageRef,
     ImageSource,
+    MaterialInstance,
+    Parameter,
     Shape,
     Size,
     TypographyStyle,
@@ -112,6 +116,12 @@ export interface ImageProps extends BaseWidgetProps {
 }
 
 /** The one widget the protocol gives no modifiers, hence no {@link BaseWidgetProps}. */
-export interface EffectProps {
-    effect: Effect;
+export interface MaterialsProps {
+    /**
+     * The layers the host runs over the children, in drawing order. Each names a
+     * material by the hash of its text and gives one argument per parameter.
+     * Numbers are single-precision bit patterns: write `floatBits(0.5)` from
+     * `@parity/product-sdk-renderer`, not `0.5`.
+     */
+    layers: MaterialInstance[];
 }

@@ -1,5 +1,13 @@
 # @parity/product-sdk-statement-store
 
+## 0.7.11
+
+### Patch Changes
+
+- Updated dependencies [73fbe82]
+- Updated dependencies [73fbe82]
+  - @parity/product-sdk-host@0.35.0
+
 ## 0.7.10
 
 ### Patch Changes

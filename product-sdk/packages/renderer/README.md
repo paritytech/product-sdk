@@ -4,8 +4,9 @@ The renderer protocol as data, plus a checker for it.
 
 The host draws a Pocket card face, and a rendered chat body, from a `RendererNode`: a closed vocabulary of
 layout and design tokens resolved by the host's own theme. A product names structure, never markup, colours
-or URLs. There are eleven node types, twelve modifiers, nine semantic colour tokens, five typography presets
-and one effect.
+or URLs. There are eleven node types, twelve modifiers, nine semantic colour tokens and five typography
+presets. The one exception to the closed vocabulary is `Materials`: shader layers, named by the hash of
+material text published on Bulletin, that the host runs over the node's children.
 
 **This package does not build trees.** To write a face, reach for `@parity/product-sdk-react-renderer`,
 which authors one in JSX and serializes it to a `RendererNode`. What lives here is `validateFace`, which
@@ -140,5 +141,10 @@ and declares its `props`. `MODIFIER_SCHEMA[tag]` gives the `FieldKind` that modi
 
 The protocol's own vocabulary types are re-exported, so one import covers a face: `RendererNode`,
 `Modifier`, `Dimensions`, `Size`, `ColorToken`, `TypographyStyle`, `ButtonVariant`, `Shape`,
-`ImageSource`, `ImageFit`, `Effect`, `Arrangement`, `BlendingMode`, `ContentAlignment`,
-`HorizontalAlignment`, `VerticalAlignment`.
+`ImageSource`, `ImageFit`, `Arrangement`, `BlendingMode`, `ContentAlignment`,
+`HorizontalAlignment`, `VerticalAlignment`, and for materials `MaterialsProps`, `MaterialInstance`,
+`Parameter` and `ImageRef`.
+
+`floatBits(value)` gives the IEEE 754 single-precision bit pattern of a number. A material's `Float` and
+`VecN` arguments carry bits, not floats, so `0.5` is written `floatBits(0.5)`; `validateFace` refuses a
+number that is not a 32-bit pattern.

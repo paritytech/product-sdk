@@ -1,5 +1,12 @@
 # @parity/product-sdk-reputation
 
+## 0.1.4
+
+### Patch Changes
+
+- @parity/product-sdk-contracts@0.11.11
+- @parity/product-sdk-tx@0.5.11
+
 ## 0.1.3
 
 ### Patch Changes
