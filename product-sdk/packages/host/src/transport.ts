@@ -278,6 +278,14 @@ export function subscribeWithInterrupt<Item, Reason = never>(
 }
 
 /**
+ * How long {@link subscribeAcrossResets} waits before opening a stream again
+ * after a reset that left the connection up, by how many reopens in a row were
+ * reset before delivering anything. The first wait leaves room for a lost link
+ * to report itself, since the reset can arrive just before the status does.
+ */
+export const RESET_RETRY_DELAYS_MS = [250, 1_000, 5_000, 30_000] as const;
+
+/**
  * Like {@link subscribeWithInterrupt}, but a stream that a host connection reset
  * ends is opened again with `open` once the host is connected again. Only for
  * streams that lose nothing in between: the action streams, whose items the
@@ -286,12 +294,19 @@ export function subscribeWithInterrupt<Item, Reason = never>(
  * `onInterrupt`.
  *
  * It is opened again on the first `"connected"` after a status that is not,
- * counting the status current when the stream ends. `@parity/truapi` reports a
- * status other than `"connected"` between a reset and the next connection, but
- * may fail the stream before that status arrives, while the old connection
- * still reads `"connected"`. Opening on that status would dial a host that is
- * not listening yet. This never dials the host itself; the client reconnects
- * on its own.
+ * counting the status current when the stream ends. When the host loses its
+ * link, `@parity/truapi` reports a status other than `"connected"` between the
+ * reset and the next connection, but may fail the stream before that status
+ * arrives, while the old connection still reads `"connected"`. Opening on that
+ * status would dial a host that is not listening yet.
+ *
+ * Not every reset loses the link. Since truapi 0.32.0 a product inside a native
+ * host decodes its own frames, and a frame it cannot decode resets the work in
+ * flight while the host's connection, and so the status, stays `"connected"`.
+ * A stream that sees no status change after a reset is opened again after
+ * {@link RESET_RETRY_DELAYS_MS}, which grow while each reopened stream is reset
+ * again before it delivers anything. This never dials the host itself; the
+ * client reconnects on its own.
  */
 export function subscribeAcrossResets<Item, Reason = never>(
     open: () => ObservableLike<Item, Reason>,
@@ -302,6 +317,8 @@ export function subscribeAcrossResets<Item, Reason = never>(
     let stopped = false;
     let interruptCallback: ((reason?: unknown) => void) | undefined;
     let interrupt: { reason?: unknown } | undefined;
+    // Reopens since the last item or the last reconnect after a lost link.
+    let retries = 0;
 
     const end = (reason?: unknown) => {
         interrupt = { reason };
@@ -309,7 +326,10 @@ export function subscribeAcrossResets<Item, Reason = never>(
     };
 
     const start = () => {
-        const subscription = subscribeWithInterrupt(open(), onNext);
+        const subscription = subscribeWithInterrupt(open(), (item) => {
+            retries = 0;
+            onNext(item);
+        });
         // `unsubscribe` can run before this stream is recorded: from an item it
         // delivers while opening, or from a status listener that a status change
         // still calls after `unsubscribe` removed it.
@@ -329,12 +349,9 @@ export function subscribeAcrossResets<Item, Reason = never>(
     const waitForReconnect = () => {
         let lost = false;
         let reconnected = false;
-        const unsubscribe = subscribeConnectionStatus((status) => {
-            if (status !== "connected") {
-                lost = true;
-                return;
-            }
-            if (!lost || reconnected) return;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const reopen = () => {
+            if (reconnected) return;
             reconnected = true;
             stopWaiting?.();
             stopWaiting = undefined;
@@ -343,9 +360,33 @@ export function subscribeAcrossResets<Item, Reason = never>(
             } catch (error) {
                 end(error);
             }
+        };
+        const unsubscribe = subscribeConnectionStatus((status) => {
+            if (status !== "connected") {
+                lost = true;
+                clearTimeout(timer);
+                return;
+            }
+            if (!lost) return;
+            retries = 0;
+            reopen();
         });
-        if (reconnected) unsubscribe();
-        else stopWaiting = unsubscribe;
+        if (reconnected) {
+            unsubscribe();
+            return;
+        }
+        // Still connected: a reset that kept the link. Reopen unless a lost link
+        // shows up first, which the status listener above then waits out.
+        if (!lost) {
+            const delay =
+                RESET_RETRY_DELAYS_MS[Math.min(retries, RESET_RETRY_DELAYS_MS.length - 1)];
+            retries += 1;
+            timer = setTimeout(reopen, delay);
+        }
+        stopWaiting = () => {
+            clearTimeout(timer);
+            unsubscribe();
+        };
     };
 
     start();
@@ -386,6 +427,7 @@ export function isConnectionReset(reason: unknown): boolean {
 if (import.meta.vitest) {
     const { test, expect, afterEach, beforeEach, vi } = import.meta.vitest;
     const { configure } = await import("@parity/product-sdk-logger");
+    const { ConnectionResetError } = await import("@parity/truapi");
 
     afterEach(() => setTruApiClient(null));
     afterEach(() => vi.useRealTimers());
@@ -673,6 +715,109 @@ if (import.meta.vitest) {
         });
 
         expect(interrupted).toBe(true);
+    });
+
+    /** A stream source whose every opening can be reset, delivered to, or counted. */
+    const resettable = () => {
+        const observers: Array<Partial<Observer<number, never>>> = [];
+        const observable = {
+            subscribe: (observer: Partial<Observer<number, never>>) => {
+                observers.push(observer);
+                return { subscriptionId: `p:${observers.length}`, unsubscribe: () => {} };
+            },
+            [Symbol.observable]() {
+                return this;
+            },
+        } as ObservableLike<number, never>;
+        return {
+            open: () => observable,
+            opened: () => observers.length,
+            reset: () =>
+                observers
+                    .at(-1)
+                    ?.error?.(
+                        new SubscriptionError("interrupted", { cause: new ConnectionResetError() }),
+                    ),
+            deliver: (item: number) => observers.at(-1)?.next?.(item),
+        };
+    };
+
+    test("subscribeAcrossResets reopens on the reconnect after a lost link", () => {
+        vi.useFakeTimers();
+        setTruApiClient({} as TrUApiClient);
+        const source = resettable();
+        subscribeAcrossResets(source.open, () => {});
+        source.reset();
+        emitConnectionStatus("disconnected");
+        // A lost link waits for the reconnect, however long it takes.
+        vi.advanceTimersByTime(60_000);
+        expect(source.opened()).toBe(1);
+        emitConnectionStatus("connected");
+        expect(source.opened()).toBe(2);
+    });
+
+    // truapi 0.32.0: a frame the product's own SDK cannot decode resets the work
+    // in flight while the native host's connection stays up.
+    test("subscribeAcrossResets reopens after a reset that kept the link", () => {
+        vi.useFakeTimers();
+        setTruApiClient({} as TrUApiClient);
+        const source = resettable();
+        const interrupts: unknown[] = [];
+        subscribeAcrossResets(source.open, () => {}).onInterrupt((reason) =>
+            interrupts.push(reason),
+        );
+        source.reset();
+        vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS[0] - 1);
+        expect(source.opened()).toBe(1);
+        vi.advanceTimersByTime(1);
+        expect(source.opened()).toBe(2);
+        expect(interrupts).toEqual([]);
+    });
+
+    test("subscribeAcrossResets backs off while reopened streams keep resetting, and recovers on an item", () => {
+        vi.useFakeTimers();
+        setTruApiClient({} as TrUApiClient);
+        const source = resettable();
+        subscribeAcrossResets(source.open, () => {});
+        for (const [index, delay] of RESET_RETRY_DELAYS_MS.entries()) {
+            source.reset();
+            vi.advanceTimersByTime(delay);
+            expect(source.opened()).toBe(index + 2);
+        }
+        // The longest wait repeats rather than growing further.
+        source.reset();
+        vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS.at(-1) as number);
+        expect(source.opened()).toBe(RESET_RETRY_DELAYS_MS.length + 2);
+
+        source.deliver(1);
+        source.reset();
+        vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS[0]);
+        expect(source.opened()).toBe(RESET_RETRY_DELAYS_MS.length + 3);
+    });
+
+    // The container fires the reset before it reports the lost link.
+    test("subscribeAcrossResets waits for the reconnect when the lost link reports after the reset", () => {
+        vi.useFakeTimers();
+        setTruApiClient({} as TrUApiClient);
+        const source = resettable();
+        subscribeAcrossResets(source.open, () => {});
+        source.reset();
+        emitConnectionStatus("disconnected");
+        vi.advanceTimersByTime(RESET_RETRY_DELAYS_MS[0] * 10);
+        expect(source.opened()).toBe(1);
+        emitConnectionStatus("connected");
+        expect(source.opened()).toBe(2);
+    });
+
+    test("subscribeAcrossResets does not reopen after unsubscribe during the wait", () => {
+        vi.useFakeTimers();
+        setTruApiClient({} as TrUApiClient);
+        const source = resettable();
+        const subscription = subscribeAcrossResets(source.open, () => {});
+        source.reset();
+        subscription.unsubscribe();
+        vi.advanceTimersByTime(60_000);
+        expect(source.opened()).toBe(1);
     });
 
     test("subscribeWithInterrupt reports a later interrupt only once", () => {
