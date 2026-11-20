@@ -90,7 +90,9 @@ export function createFileProductStorage(storageDir: string): ProductStorage {
         const value = await readStoredFile(owned, name(key));
         if (value !== undefined || owned === dir) return value;
         if ((await readStoredFile(owned, CLEARED_MARKER)) !== undefined) return undefined;
-        return readStoredFile(dir, name(key));
+        // A first write of this key may move it out of the flat file between the
+        // two reads, so a miss on both looks in the product's directory again.
+        return (await readStoredFile(dir, name(key))) ?? readStoredFile(owned, name(key));
     };
     const removeLegacy = async (key: string) => {
         if (keyDir(key) !== dir) await removeStoredFile(dir, name(key));
@@ -114,8 +116,9 @@ export function createFileProductStorage(storageDir: string): ProductStorage {
             const owned = ownerDir(prefix);
             // The marker goes first, so a read during the clear never falls back to a flat value.
             await writeStoredFile(owned, CLEARED_MARKER, new Uint8Array());
+            // Only finished values: a `.partial` belongs to a write or clear still in flight.
             for (const entry of await readdir(owned)) {
-                if (entry !== CLEARED_MARKER) await rm(join(owned, entry), { force: true });
+                if (/^item-[0-9a-f]+\.bin$/.test(entry)) await removeStoredFile(owned, entry);
             }
             for (const key of [...watchers.keys()]) {
                 if (key.startsWith(prefix)) changed(key, undefined);
@@ -223,6 +226,23 @@ if (import.meta.vitest) {
             expect(await storage.read(key("app.dot", "a"))).toBeUndefined();
             expect(await storage.read(key("app.dot", "b"))).toBeUndefined();
             expect(await storage.read(key("other.dot", "a"))).toEqual(new Uint8Array([3]));
+        });
+
+        // A write in flight keeps its temporary file until it renames it into place.
+        test("clearProduct leaves another call's half-written file alone", async () => {
+            const storage = createFileProductStorage(dir);
+            await storage.write(key("app.dot", "a"), new Uint8Array([1]));
+            const owned = (await readdir(join(dir, "product"))).find((entry) =>
+                entry.startsWith("owner-"),
+            );
+            const partial = join(dir, "product", String(owned), "item-0.bin.1234.partial");
+            const { writeFile } = await import("node:fs/promises");
+            await writeFile(partial, new Uint8Array([2]));
+            await storage.clearProduct("app.dot" as ProductId);
+            expect(await storage.read(key("app.dot", "a"))).toBeUndefined();
+            expect(await readdir(join(dir, "product", String(owned)))).toContain(
+                "item-0.bin.1234.partial",
+            );
         });
 
         test("clearProduct tells a subscription the value is gone", async () => {
