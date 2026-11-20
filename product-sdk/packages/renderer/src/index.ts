@@ -26,6 +26,8 @@ export { assertFaceValid, FaceValidationError, validateFace } from "./validate.j
 export type { FaceIssue, FaceIssueCode, FaceVerdict, ValidateFaceOptions } from "./validate.js";
 
 export { androidLimits, KNOWN_HOST_LIMITS } from "./limits.js";
+
+export { floatBits } from "./materials.js";
 export type { HostLimits } from "./limits.js";
 
 /** The protocol's own vocabulary types, re-exported so one import covers a face. */
@@ -36,11 +38,14 @@ export type {
     ColorToken,
     ContentAlignment,
     Dimensions,
-    Effect,
     HorizontalAlignment,
     ImageFit,
+    ImageRef,
     ImageSource,
+    MaterialInstance,
+    MaterialsProps,
     Modifier,
+    Parameter,
     RendererNode,
     Shape,
     Size,

@@ -4,10 +4,21 @@
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { describe, expect, it, vi } from "vitest";
+import type { MaterialInstance } from "@parity/truapi";
 import type { ReactNode } from "react";
 import { act } from "react";
 
-import { Box, Button, Column, Effect, Image, Row, Spacer, Text, TextField } from "./components.js";
+import {
+    Box,
+    Button,
+    Column,
+    Image,
+    Materials,
+    Row,
+    Spacer,
+    Text,
+    TextField,
+} from "./components.js";
 import type { ActionCallback } from "./context.js";
 import { createRenderer } from "./renderer.js";
 
@@ -332,15 +343,18 @@ describe("custom components", () => {
         });
     });
 
-    describe("Effect", () => {
-        it("serializes the effect prop and wraps its children", async () => {
+    describe("Materials", () => {
+        it("serializes the layers and wraps its children", async () => {
+            const layers: MaterialInstance[] = [
+                { material: `0x${"ab".repeat(32)}`, args: [{ tag: "Float", value: 0 }] },
+            ];
             const { node } = await mount(
-                <Effect effect="Rainbow">
+                <Materials layers={layers}>
                     <Text>shiny</Text>
-                </Effect>,
+                </Materials>,
             );
-            expect(node.tag).toBe("Effect");
-            expect(node.value.props.effect).toBe("Rainbow");
+            expect(node.tag).toBe("Materials");
+            expect(node.value.props.layers).toEqual(layers);
             expect(node.value.children).toHaveLength(1);
             expect(node.value.children[0].tag).toBe("Text");
         });

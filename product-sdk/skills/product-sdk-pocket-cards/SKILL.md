@@ -79,13 +79,30 @@ export function LoyaltyFace({ stamps, goal, onStamp }: LoyaltyFaceProps) {
 }
 ```
 
-The components are `Box`, `Button`, `Column`, `Effect`, `Image`, `Row`, `Spacer`, `Text` and `TextField`.
-Modifiers are plain props on any of them except `Effect`: `padding`, `margin`, `background`, `border`,
-`width`, `height`, `minWidth`, `minHeight`, `fillMaxWidth`, `fillMaxHeight`, `opacity`, `blendingMode`.
+The components are `Box`, `Button`, `Column`, `Image`, `Materials`, `Row`, `Spacer`, `Text` and
+`TextField`. Modifiers are plain props on any of them except `Materials`: `padding`, `margin`,
+`background`, `border`, `width`, `height`, `minWidth`, `minHeight`, `fillMaxWidth`, `fillMaxHeight`,
+`opacity`, `blendingMode`.
 
 The vocabulary is small and closed: 11 node types, 12 modifiers, **9 semantic colour tokens**, 5
-typography presets, one effect. No literal colours, no gradients. Images come from a Bulletin CID, a
-path inside your archive or bytes carried inline as hex (PNG, JPEG or WebP, at most 64 KiB), never a URL.
+typography presets. No literal colours, no gradients. Images come from a Bulletin CID, a path inside your
+archive or bytes carried inline as hex (PNG, JPEG or WebP, at most 64 KiB), never a URL.
+
+**`Materials` replaced `Effect` in truapi 0.32.0.** There is no `Effect` and no `Rainbow`. A `Materials`
+node runs shader layers over its children. Each layer names a material published on Bulletin by its
+32-byte hash and passes one argument per parameter. Numbers are single-precision bit patterns, so write
+`floatBits(0.5)` from `@parity/product-sdk-renderer`, never `0.5`; `validateFace` refuses a bare float.
+A host that cannot draw the layers, or a material that fails to load, draws the children plain, so the
+children are the fallback look:
+
+```tsx
+import { floatBits } from "@parity/product-sdk-renderer";
+import { Materials, Text } from "@parity/product-sdk-react-renderer";
+
+<Materials layers={[{ material: SHIMMER_ID, args: [{ tag: "Float", value: floatBits(0.5) }] }]}>
+    <Text style="HeadlineLarge">12 points</Text>
+</Materials>
+```
 
 **A press is `onClick`, not an action id.** react-renderer mints the id behind `onClick` and routes the
 press back to that handler, so you never name one and never match on one. The same goes for `onValueChange`
