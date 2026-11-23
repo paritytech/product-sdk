@@ -9,8 +9,8 @@ import type {
     BoxProps,
     ButtonProps,
     ColumnProps,
-    EffectProps,
     ImageProps,
+    MaterialsProps,
     RowProps,
     SpacerProps,
     TextFieldProps,
@@ -58,6 +58,11 @@ export function Image(props: ImageProps) {
     return createElement("Image", props);
 }
 
-export function Effect({ children, ...props }: PropsWithChildren<EffectProps>) {
-    return createElement("Effect", props, children);
+/**
+ * Runs shader layers over its children. A host that cannot draw them, or a
+ * material that fails to load, draws the children plain, so the children are
+ * the fallback look.
+ */
+export function Materials({ children, ...props }: PropsWithChildren<MaterialsProps>) {
+    return createElement("Materials", props, children);
 }

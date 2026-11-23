@@ -19,7 +19,7 @@
  * `getHostProvider()` — there's no chain-read fake, by design; the host owns RPC
  * selection — the `system` domain's `info`, and the
  * `chat` / `coinPayment` / `contacts` / `entropy` / `expandedCard` / `game` /
- * `locale` / `notifications` / `payment` / `permissions` / `pocket` /
+ * `locale` / `nftPurse` / `notifications` / `payment` / `permissions` / `pocket` /
  * `renderer` / `resourceAllocation` / `scanner` / `theme` / `worker` domains,
  * and `funding` / `fundingProvider`. A funding provider's worker is tested
  * against `createFakeFundingHost` instead, which models the funding core.
@@ -28,7 +28,13 @@
  *
  * @packageDocumentation
  */
-import type { ObservableLike, Subscription, TrUApiClient } from "@parity/truapi";
+import type {
+    ObservableLike,
+    Observer,
+    ProductId,
+    Subscription,
+    TrUApiClient,
+} from "@parity/truapi";
 import { errAsync, okAsync } from "neverthrow";
 
 import type { HostChainIdentifier } from "./chain-discovery.js";
@@ -296,7 +302,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
             handshake: () => okAsync(undefined),
             featureSupported: () => okAsync({ supported: chainSupported }),
             navigateTo: () => okAsync(undefined),
-            getProductContext: () => okAsync({ productId: "fake-app.dot" }),
+            getProductContext: () => okAsync({ productId: "fake-app.dot" as ProductId }),
         }),
         preimage: {
             lookupSubscribe: ({ request: { key } }) =>
@@ -328,6 +334,7 @@ export function createFakeTruApiClient(options?: CreateFakeTruApiClientOptions):
         expandedCard: notModeled("expandedCard"),
         game: notModeled("game"),
         locale: notModeled("locale"),
+        nftPurse: notModeled("nftPurse"),
         notifications: notModeled("notifications"),
         payment: notModeled("payment"),
         permissions: notModeled("permissions"),

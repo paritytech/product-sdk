@@ -14,62 +14,33 @@
 // limitations under the License.
 
 import { describe, expect, test } from "vitest";
-import {
-    DEFAULT_RESOURCES,
-    summarizeOutcomes,
-    type AllocatableResource,
-    type AllocationOutcome,
-} from "./allocations.js";
+import { DEFAULT_RESOURCES, summarizeOutcomes, type AllocatableResource } from "./allocations.js";
 
 describe("summarizeOutcomes", () => {
     const resources: AllocatableResource[] = [
-        { tag: "BulletInAllowance", value: undefined },
-        { tag: "StatementStoreAllowance", value: undefined },
+        { tag: "BulletinAllowance" },
+        { tag: "StatementStoreAllowance" },
         { tag: "SmartContractAllowance", value: { tag: "Index", value: 0 } },
     ];
 
-    // A minimal valid `Allocated` payload. `summarizeOutcomes` only reads the
-    // outer tag, so the inner resource variant is arbitrary — SmartContract's
-    // `value: undefined` is the least noisy one to spell out.
-    const allocated: AllocationOutcome = {
-        tag: "Allocated",
-        value: { tag: "SmartContractAllowance", value: undefined },
-    };
-
-    test("buckets outcomes by tag, mapping outcomes[i] → resources[i]", () => {
-        const outcomes: AllocationOutcome[] = [
-            allocated,
-            { tag: "Rejected", value: undefined },
-            { tag: "NotAvailable", value: undefined },
-        ];
-        const summary = summarizeOutcomes(outcomes, resources);
-        expect(summary.granted.map((r) => r.tag)).toEqual(["BulletInAllowance"]);
-        expect(summary.rejected.map((r) => r.tag)).toEqual(["StatementStoreAllowance"]);
-        expect(summary.unavailable.map((r) => r.tag)).toEqual(["SmartContractAllowance"]);
+    // The wallet answers positionally, so each outcome belongs to the resource at its index.
+    test("groups each resource under the outcome at its index", () => {
+        expect(summarizeOutcomes(["Allocated", "Rejected", "NotAvailable"], resources)).toEqual({
+            granted: [resources[0]],
+            rejected: [resources[1]],
+            unavailable: [resources[2]],
+        });
     });
 
-    test("all granted", () => {
-        const outcomes: AllocationOutcome[] = resources.map(() => allocated);
-        const summary = summarizeOutcomes(outcomes, resources);
-        expect(summary.granted).toHaveLength(3);
-        expect(summary.rejected).toHaveLength(0);
-        expect(summary.unavailable).toHaveLength(0);
+    test("ignores outcomes past the end of the resources", () => {
+        expect(summarizeOutcomes(["Allocated", "Allocated"], [resources[0]!])).toEqual({
+            granted: [resources[0]],
+            rejected: [],
+            unavailable: [],
+        });
     });
 
-    test("drops outcomes with no matching resource (index past resources)", () => {
-        const outcomes: AllocationOutcome[] = [
-            allocated,
-            allocated, // no resources[1]
-        ];
-        const summary = summarizeOutcomes(outcomes, [resources[0]]);
-        expect(summary.granted).toHaveLength(1);
-    });
-
-    test("DEFAULT_RESOURCES carries the three expected allowances", () => {
-        expect(DEFAULT_RESOURCES.map((r) => r.tag)).toEqual([
-            "BulletInAllowance",
-            "StatementStoreAllowance",
-            "SmartContractAllowance",
-        ]);
+    test("the default set asks for Bulletin, statement-store and PGAS for account 0", () => {
+        expect(DEFAULT_RESOURCES).toEqual(resources);
     });
 });

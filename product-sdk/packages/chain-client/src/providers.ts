@@ -30,19 +30,30 @@ if (import.meta.vitest) {
         hostProviderCalls: [] as unknown[][],
         hostProviderAvailable: true,
         hostProviderError: null as Error | null,
+        /**
+         * Set while this file's own tests run. vitest hoists the mock below into
+         * every test file that imports this module, so outside these tests the
+         * mock hands the call to the real host package.
+         */
+        driving: false,
     }));
 
-    vi.mock("@parity/product-sdk-host", async (importOriginal) => ({
-        ...(await importOriginal<typeof import("@parity/product-sdk-host")>()),
-        getHostProvider: async (...args: unknown[]) => {
-            state.hostProviderCalls.push(args);
-            if (state.hostProviderError) throw state.hostProviderError;
-            if (!state.hostProviderAvailable) return null;
-            return state.fakeProvider;
-        },
-    }));
+    vi.mock("@parity/product-sdk-host", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@parity/product-sdk-host")>();
+        return {
+            ...actual,
+            getHostProvider: async (...args: [`0x${string}`]) => {
+                if (!state.driving) return actual.getHostProvider(...args);
+                state.hostProviderCalls.push(args);
+                if (state.hostProviderError) throw state.hostProviderError;
+                if (!state.hostProviderAvailable) return null;
+                return state.fakeProvider;
+            },
+        };
+    });
 
     beforeEach(() => {
+        state.driving = true;
         state.hostProviderCalls = [];
         state.hostProviderAvailable = true;
         state.hostProviderError = null;

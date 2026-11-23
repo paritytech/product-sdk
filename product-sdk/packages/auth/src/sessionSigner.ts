@@ -14,18 +14,12 @@
 // limitations under the License.
 
 /**
- * Session-backed signing for a product account.
- *
- * All of this lives in `@parity/product-sdk-terminal` — the session signer, the
- * product-account derivation, and the stale-session guard. This module is a
- * thin re-export so auth consumers get one import surface; nothing is
- * implemented twice.
+ * Session-backed signing for a product account. Implemented in
+ * `@parity/product-sdk-terminal`; re-exported so auth consumers have one import.
  */
-
 export {
     createSessionSignerForAccount as createSessionSigner,
     deriveProductPublicKey,
     sessionRootPublicKey,
-    INCOMPLETE_SESSION_MESSAGE,
 } from "@parity/product-sdk-terminal";
 export type { ProductAccountRef } from "@parity/product-sdk-terminal";

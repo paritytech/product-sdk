@@ -23,11 +23,6 @@ describe("renderLoginStatus", () => {
     test("paired", () => {
         expect(renderLoginStatus({ step: "paired" })).toMatch(/finishing/i);
     });
-    test("pending surfaces the stage", () => {
-        expect(renderLoginStatus({ step: "pending", stage: "attestation" })).toContain(
-            "attestation",
-        );
-    });
     test("success surfaces the address", () => {
         expect(
             renderLoginStatus({

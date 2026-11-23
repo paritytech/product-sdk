@@ -16,7 +16,7 @@ export type DotNsErrorReason =
     | "MissingOrigin" // a write was requested without the submitting account
     | "InvalidOrigin" // the submitting account was supplied, but is not a decodable SS58 address
     | "NameUnavailable" // already registered
-    | "NameReserved" // governance-held, or a base stem held by another user
+    | "NameReserved" // governance-held, or under a live reservation that PopRules applies to this owner
     | "OwnerStatusInsufficient" // the owner lacks the personhood tier the label requires
     | "AddressDiscovery" // the gateway walk could not locate the deployment
     | "AddressMismatch" // a discovered address disagrees with the one in use

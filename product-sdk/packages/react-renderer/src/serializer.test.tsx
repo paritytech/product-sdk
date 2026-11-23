@@ -3,15 +3,40 @@
 // @ts-expect-error Untyped
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-import { MODIFIER_SCHEMA, NODE_SCHEMA, validateFace } from "@parity/product-sdk-renderer";
+import {
+    floatBits,
+    MODIFIER_SCHEMA,
+    NODE_SCHEMA,
+    validateFace,
+} from "@parity/product-sdk-renderer";
+import { type MaterialInstance, RendererNode } from "@parity/truapi";
 import type { ReactNode } from "react";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import * as components from "./components.js";
-import { Box, Button, Column, Effect, Image, Row, Spacer, Text, TextField } from "./components.js";
+import {
+    Box,
+    Button,
+    Column,
+    Image,
+    Materials,
+    Row,
+    Spacer,
+    Text,
+    TextField,
+} from "./components.js";
 import { createRenderer } from "./renderer.js";
 import { SERIALIZED_MODIFIERS, SERIALIZED_NODES } from "./serializer.js";
+
+/** A material layer with one float argument and the host's noise image. */
+const shimmer: MaterialInstance = {
+    material: `0x${"ab".repeat(32)}`,
+    args: [
+        { tag: "Float", value: floatBits(0.5) },
+        { tag: "SamplerFloat", value: { tag: "Noise" } },
+    ],
+};
 
 async function serialize(element: ReactNode) {
     const onRender = vi.fn((_node: unknown) => {});
@@ -79,11 +104,11 @@ describe("node fields", () => {
         expect(offenders).toEqual([]);
     });
 
-    it("omits modifiers from Effect, the one node the protocol gives none", async () => {
+    it("omits modifiers from Materials, the one node the protocol gives none", async () => {
         const node = await serialize(
-            <Effect effect="Rainbow">
+            <Materials layers={[shimmer]}>
                 <Text>shiny</Text>
-            </Effect>,
+            </Materials>,
         );
 
         expect("modifiers" in (node as any).value).toBe(false);
@@ -97,9 +122,9 @@ describe("node fields", () => {
                     <Image source={{ tag: "Bulletin", value: "bafy" }} fit="Cover" width={24} />
                 </Row>
                 <Spacer height={8} />
-                <Effect effect="Rainbow">
+                <Materials layers={[shimmer]}>
                     <Text style="HeadlineLarge">12 points</Text>
-                </Effect>
+                </Materials>
                 <Box contentAlignment="Center">
                     <Button text="Redeem" onClick={vi.fn(() => {})} />
                 </Box>
@@ -108,5 +133,32 @@ describe("node fields", () => {
         );
 
         expect(validateFace(node)).toEqual({ ok: true, errors: [], warnings: [] });
+    });
+
+    // validateFace checks the JSON shape; the protocol's own codec is what the
+    // host decodes, so a face it accepts must survive the round trip unchanged.
+    it("serializes a Materials face the protocol codec encodes and decodes unchanged", async () => {
+        const layer: MaterialInstance = {
+            material: `0x${"ab".repeat(32)}`,
+            args: [
+                { tag: "Float", value: floatBits(0.5) },
+                { tag: "Vec2", value: [floatBits(1), floatBits(-1)] },
+                { tag: "Vec3", value: [0, 0, 0] },
+                { tag: "Vec4", value: [0, 0, 0, floatBits(1)] },
+                { tag: "SamplerFloat", value: { tag: "Noise" } },
+                {
+                    tag: "SamplerVec4",
+                    value: { tag: "Source", value: { tag: "Archive", value: "grain.png" } },
+                },
+            ],
+        };
+        const node = await serialize(
+            <Materials layers={[layer]}>
+                <Text>shiny</Text>
+            </Materials>,
+        );
+
+        expect(validateFace(node)).toEqual({ ok: true, errors: [], warnings: [] });
+        expect(RendererNode.dec(RendererNode.enc(node as RendererNode))).toEqual(node);
     });
 });

@@ -1,5 +1,148 @@
 # @parity/product-sdk-terminal
 
+## 0.15.0
+
+### Minor Changes
+
+- 73fbe82: **Pair with a truapi 0.32.0 host.** `@parity/truapi` moves from `^0.31.0` to `^0.32.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `cebcc89a5e45bbd3` to `7c6a3a324db0decd`, so the schema a product speaks no longer matches a host still on 0.31.0. Every host surface has to move in the same window.
+
+  What changed in the truapi surface, and how the SDK absorbs it:
+
+  - **`Materials` replaces `Effect`. Breaking for faces.** The `Effect` node is gone, along with `EffectProps` and its one effect, `Rainbow`. A host on 0.32.0 refuses a tree that still carries it. In its place, a `Materials` node runs shader layers over its children. Each layer names a material published on Bulletin by its 32-byte BLAKE2b-256 hash and passes one argument per parameter. A host that cannot draw the layers, or a material that fails to load, draws the children plain, so the children are the fallback look.
+    - `@parity/product-sdk-react-renderer` replaces the `Effect` component with `<Materials layers={...}>`.
+    - `@parity/product-sdk-renderer` validates the node:
+      - **Errors:** `validateFace` reports `missing-field` for a layer without `args` (an empty list is fine), `material-not-id` for a material that is not `0x` and 64 hex digits, `unknown-parameter` and `unknown-image-ref` for tags outside the protocol, `parameter-wrong-length` for a vector of the wrong arity, and `parameter-not-bits` for a number that is not a 32-bit pattern.
+      - **Warning:** it reports `materials-without-layers` for an empty stack and `parameter-not-finite` for an Infinity or NaN argument, both of which a host draws plain.
+    - **Writing numbers.** The protocol carries a material's numbers as IEEE 754 single-precision bit patterns, so the new `floatBits(0.5)` helper writes them; a bare `0.5` is refused.
+    - **New type re-exports:** the renderer also re-exports `MaterialsProps`, `MaterialInstance`, `Parameter` and `ImageRef`, and no longer re-exports `Effect`.
+    - **Migration:** replace `<Effect effect="Rainbow">…</Effect>` with `<Materials layers={[...]}>…</Materials>`, or drop the wrapper.
+  - **The terminal clears a product's storage on request.** truapi 0.32.0 calls `productStorage.clearProduct(productId)` when the core clears a product's state, and the callback is required.
+    - **New layout:** the terminal now keeps product values in one directory per product under `<storageDir>/product/`, and `clearProduct` empties that directory and tells any open `localStorage` subscription the value is gone.
+    - **Older values:** values an older terminal wrote flat in `product/` are still read, and each moves into its product's directory the next time its key is written. A flat file's name does not say which product owns it, so `clearProduct` leaves those files in place and marks the cleared product so it never reads them again. Another product's values are untouched.
+  - **`renderer.failureSubscribe`** reports the `Materials` nodes a host drew plain, and why (`MaterialFailure`). Not modeled by the SDK; reachable through `getTruApi()`.
+  - **`system.featureSupported` takes a `Materials` question** (format version, features). A product asks before sending materials, and a host built before 0.32.0 answers with an error, which reads as no. The SDK's own `featureSupported` use is chain-only and unchanged.
+  - **`contacts.usernames`** answers the dotNS usernames of the user's unblocked chat contacts, for the game product only; every other product gets `Unsupported`. Not modeled by the SDK.
+  - **`nftPurse.listCheques`** lists the NFT cheques a product created. Not modeled by the SDK yet; reachable through `getTruApi()`.
+  - **Three envelope codecs are renamed** after the payload they carry: `VersionedHostCreateTransactionRequest` is `VersionedProductAccountTxPayload`, `VersionedHostCreateTransactionWithLegacyAccountRequest` is `VersionedLegacyAccountTxPayload`, and `VersionedRemotePreimageSubmitError` is `VersionedPreimageSubmitError`. The bytes are unchanged and the SDK names none of them.
+  - **Inside a native host, a product encodes its own frames** over the `window.__HOST_API_TRANSPORT__` channel the host's container injects, so it speaks the protocol version it was built against. `@parity/truapi` handles the transport.
+    - **One change in reset handling:** when the product's own SDK cannot decode a frame, it resets the work in flight but the host's connection, and so its status, stays `connected`. Before, a reset always came with a lost and regained link.
+    - **Fix in `@parity/product-sdk-host`:** the streams it opens again after a reset (chat and Pocket card actions, NFT purse watches) waited for that status change, so they stopped for good. They now open again after a short wait when the status stays `connected`: 250 ms at first, growing to 30 s while each reopened stream is reset again. An item, a real reconnect, or a minute without a reset starts the waits over.
+  - `@parity/truapi-host` moves to `^0.32.0` alongside.
+
+### Patch Changes
+
+- Updated dependencies [73fbe82]
+- Updated dependencies [73fbe82]
+  - @parity/product-sdk-host@0.35.0
+  - @parity/product-sdk-signer@0.17.11
+  - @parity/product-sdk-keys@0.5.11
+
+## 0.14.0
+
+### Minor Changes
+
+- 705abbd: **The terminal now runs the truapi core instead of `@novasamatech/host-papp`.**
+
+  The core handles pairing, the session, allowances and signing. It is the same Rust core every Polkadot host runs, started here in a Node worker thread through `@parity/truapi-host/node`.
+
+  **What users and data see**
+
+  - **Users pair once more.** Sessions from the earlier backend are not read. Auth's `clearLocalAppStorage` removes their `<appsDir>/<dappId>_*` files; terminal-only users can delete `~/.polkadot-apps/<appId>_*.json`.
+  - **Product addresses and entropy are unchanged for lowercase product ids.** The core lowercases and NFC-normalises `productId` before deriving, so `"My-App.dot"` now gives the account and entropy of `"my-app.dot"`.
+  - **`appId` must be a dotNS id** (ending in `.dot`, `.paseo` or `.testnet`) or `localhost`. The core refuses any other id.
+  - **`storageDir` is now the app's own directory.** It defaults to `~/.polkadot-apps/<appId>/`; the session lives in `core/` and the product's storage in `product/`. It is no longer a parent directory shared by several apps, so do not point two apps at the same `storageDir`.
+  - **Requires Node ≥22.** Do not bundle the package into one file: the core's worker and WASM load from files beside it.
+
+  **`@parity/product-sdk-terminal` API**
+
+  - `createTerminalAdapter` is now `async`. The adapter is no longer a `PappAdapter`: `sso`, `sessions` and `allowance` are gone. Pair with `login()` in place of `sso.authenticate()`, and read the session from `session` and `onAuthStateChange`. The adapter has `appId`, `storageDir`, `runtime`, `session`, `authState`, `onAuthStateChange`, `login`, `logout`, `client` and `destroy`. `storageDir` is always set. `logout` resolves once the wallet has been told, and rejects when it could not be reached within 30 s. `destroy` lets the core finish open operations, for up to 30 s, before it closes the chain connections.
+  - `TerminalAdapterOptions.endpoints` is replaced by `network`. `hostMetadata` is `{ name?, version?, icon? }`. There are new `requestTimeoutMs`, `logLevel` and `approvals` options.
+  - Signers and helpers take the adapter instead of a `UserSession`: `createSessionSigner`, `createSessionSignerForAccount`, `deriveProductPublicKey`, `deriveEntropy`, `getStatementStoreProver` and `requestResourceAllocation`.
+  - `deriveEntropy(adapter, productId, key)` now returns a `Promise<Uint8Array>`.
+  - `getStatementStoreProver(adapter, productId?)` has no `sessionId` parameter, and returns an async `StatementStoreProver`.
+  - `deriveProductPublicKey(adapter, ref)` has no `options` parameter.
+  - `sessionRootPublicKey` takes a `TerminalSession`.
+  - A lapsed session allowance fails signing with `AllowanceExpiredError`, naming `statementStore` or `bulletin`. A PGAS or AutoSigning allowance failure is a plain error, fixed by `requestResourceAllocation`.
+  - `requestResourceAllocation(adapter, resources, { productId? })` returns one outcome per resource: `"Allocated"`, `"Rejected"` or `"NotAvailable"`. It has no `onExisting` option, because the core increases an existing allowance.
+  - New: `submitPreimage`, `submitStatement`, `defaultStorageDir`, `approveAll`, and the types `LoginOptions`, `TerminalSession`, `TerminalApprovalRequest`, `TerminalApprovals`, `TerminalChain`, `TerminalNetwork`, `TerminalNetworkName`, `TerminalStack`, `AllocationOutcome`, `Statement`, `SignedStatement`, `StatementProof`, `StatementStoreProver` and `AuthState`.
+  - `StatementStoreNetworks` is replaced by `TerminalNetworks`, keyed by network. Each carries the network's signed Trinity stack and the genesis hash and endpoint of its People, Bulletin and Asset Hub chains. Only `"paseo-next-v2"` is defined; `previewnet` is gone.
+  - Removed:
+    - `waitForSessions`, `getProductSubtreePublicKey`, `ProductSubtreeOptions` and `INCOMPLETE_SESSION_MESSAGE`.
+    - `getBulletinSigner`, `hasBulletinAllowance`, `hasStatementStoreAllowance`, `ensureSlotAccountSigner`, `createSlotAccountSigner`, `getCachedAllocation` and `sendResourceAllocation`. Use `submitPreimage`, `getStatementStoreProver` and `requestResourceAllocation`; the allowance keys stay in the core.
+    - `createNodeStorageAdapter`, `isBenignTeardownError`, `SS_STABLE_STAGE_ENDPOINTS` and `StatementStoreEnvironment`.
+    - `AllowanceError`, `ApAllocationOutcome`, `OnExistingAllowancePolicy`, `RequestResourceAllocationOptions`, and the re-exported host-papp types (`PappAdapter`, `UserSession`, `PairingStatus` and the rest).
+    - The `./host` and `./testing` subpaths.
+
+  **`@parity/product-sdk-auth` API**
+
+  - `AuthConfig.peopleEndpoints` is replaced by `network`. There are new `storageDir` and `approvals` options.
+  - `AuthConfig.productId` must be a dotNS id. The client acts as it for every call, and keeps its session under `dappId`.
+  - `SessionHandle` now has `adapter` and `session` in place of `userSession`. `ResolvedSigner.userSession` is now `session`.
+  - `LoginHandle.authPromise` is now `session`, and `LogoutHandle.session` is removed.
+  - `requestAllocation(handle, resources?)` takes the `SessionHandle` and has no `onExisting` argument.
+  - The re-exported `createSessionSigner`, `deriveProductPublicKey` and `sessionRootPublicKey` take what the terminal's do: the adapter, or a `TerminalSession` for `sessionRootPublicKey`.
+  - `requestResourceAllocation(adapter, productId, resources?)` takes the adapter, and returns the string outcomes above.
+  - The Bulletin resource tag is `BulletinAllowance` (it was `BulletInAllowance`).
+  - `LoginStatus` has no `pending` step.
+  - `clearLocalAppStorage` removes only the session's `core/` and `product/` folders in `storageDir`, plus the old `<dappId>_*` files.
+  - `INCOMPLETE_SESSION_MESSAGE` and `OnExistingAllowancePolicy` are removed.
+
+### Patch Changes
+
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+  - @parity/product-sdk-host@0.34.0
+  - @parity/product-sdk-signer@0.17.10
+  - @parity/product-sdk-keys@0.5.10
+
+## 0.13.9
+
+### Patch Changes
+
+- Updated dependencies [5dab257]
+  - @parity/product-sdk-host@0.33.0
+  - @parity/product-sdk-signer@0.17.9
+  - @parity/product-sdk-keys@0.5.9
+
+## 0.13.8
+
+### Patch Changes
+
+- Updated dependencies [a708cb6]
+  - @parity/product-sdk-host@0.32.0
+  - @parity/product-sdk-signer@0.17.8
+  - @parity/product-sdk-keys@0.5.8
+
+## 0.13.7
+
+### Patch Changes
+
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+  - @parity/product-sdk-host@0.31.0
+  - @parity/product-sdk-signer@0.17.7
+  - @parity/product-sdk-keys@0.5.7
+
+## 0.13.6
+
+### Patch Changes
+
+- Updated dependencies [f33ca4f]
+- Updated dependencies [f33ca4f]
+  - @parity/product-sdk-host@0.30.1
+  - @parity/product-sdk-signer@0.17.6
+  - @parity/product-sdk-keys@0.5.6
+
+## 0.13.5
+
+### Patch Changes
+
+- Updated dependencies [f508532]
+  - @parity/product-sdk-host@0.30.0
+  - @parity/product-sdk-signer@0.17.5
+  - @parity/product-sdk-keys@0.5.5
+
 ## 0.13.4
 
 ### Patch Changes

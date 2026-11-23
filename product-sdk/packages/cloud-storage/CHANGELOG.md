@@ -1,5 +1,73 @@
 # @parity/product-sdk-bulletin
 
+## 0.13.11
+
+### Patch Changes
+
+- Updated dependencies [73fbe82]
+- Updated dependencies [73fbe82]
+  - @parity/product-sdk-host@0.35.0
+  - @parity/product-sdk-chain-client@0.13.11
+  - @parity/product-sdk-tx@0.5.11
+
+## 0.13.10
+
+### Patch Changes
+
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+  - @parity/product-sdk-chain-client@0.13.10
+  - @parity/product-sdk-host@0.34.0
+  - @parity/product-sdk-tx@0.5.10
+
+## 0.13.9
+
+### Patch Changes
+
+- Updated dependencies [5dab257]
+  - @parity/product-sdk-host@0.33.0
+  - @parity/product-sdk-chain-client@0.13.9
+  - @parity/product-sdk-tx@0.5.9
+
+## 0.13.8
+
+### Patch Changes
+
+- Updated dependencies [a708cb6]
+  - @parity/product-sdk-host@0.32.0
+  - @parity/product-sdk-chain-client@0.13.8
+  - @parity/product-sdk-tx@0.5.8
+
+## 0.13.7
+
+### Patch Changes
+
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+  - @parity/product-sdk-host@0.31.0
+  - @parity/product-sdk-chain-client@0.13.7
+  - @parity/product-sdk-tx@0.5.7
+
+## 0.13.6
+
+### Patch Changes
+
+- Updated dependencies [f33ca4f]
+- Updated dependencies [f33ca4f]
+  - @parity/product-sdk-host@0.30.1
+  - @parity/product-sdk-chain-client@0.13.6
+  - @parity/product-sdk-tx@0.5.6
+
+## 0.13.5
+
+### Patch Changes
+
+- Updated dependencies [f508532]
+  - @parity/product-sdk-host@0.30.0
+  - @parity/product-sdk-chain-client@0.13.5
+  - @parity/product-sdk-tx@0.5.5
+
 ## 0.13.4
 
 ### Patch Changes

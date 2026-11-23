@@ -76,6 +76,17 @@ const FORWARD_RESOLVER = DOTNS_ADDRESSES.resolver;
 const REVERSE_RESOLVER = DOTNS_ADDRESSES.reverseResolver;
 /** classifyName returns two values, so the fake encodes it positionally. */
 const OPEN = [POP_STATUS.NoStatus, "Available to all"];
+/** isBaseNameReserved for a name nobody has reserved. */
+const NOT_RESERVED = [false, ZERO, 0n];
+/** isBaseNameReserved for a name OWNER holds a live reservation for. */
+const RESERVED_BY_OWNER = [true, OWNER, 9_999_999_999n];
+/** PopRules' quote for the reservation's holder, with the given status. */
+const holderQuote = (status: number) => ({
+    price: 0n,
+    status,
+    userStatus: POP_STATUS.NoStatus,
+    message: "",
+});
 
 /** A runtime whose view calls answer from `answers`, keyed by function name. */
 function runtimeWith(answers: Record<string, unknown>) {
@@ -216,17 +227,26 @@ describe("resolveDotNs", () => {
 
 describe("isDotNsAvailable", () => {
     test("asks the registrar controller rather than inferring from resolution", async () => {
-        const runtime = runtimeWith({ available: true, classifyName: OPEN });
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: OPEN,
+            isBaseNameReserved: NOT_RESERVED,
+        });
         const r = await isDotNsAvailable("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: true });
         expect(runtime.calls.map((c) => c.functionName).sort()).toEqual([
             "available",
             "classifyName",
+            "isBaseNameReserved",
         ]);
     });
 
     test("passes the bare label, without the .dot suffix", async () => {
-        const runtime = runtimeWith({ available: true, classifyName: OPEN });
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: OPEN,
+            isBaseNameReserved: NOT_RESERVED,
+        });
         await isDotNsAvailable("alice.dot", { runtime, tld: DOT_TLD });
         expect(runtime.calls[0]?.args).toEqual(["alice"]);
     });
@@ -241,6 +261,71 @@ describe("isDotNsAvailable", () => {
         });
         const r = await isDotNsAvailable("alice.dot", { runtime, tld: DOT_TLD });
         expect(r).toEqual({ ok: true, value: false });
+    });
+
+    // DotNS up to 1.0.0: PopRules' quote lets the reservation's holder register
+    // the name, so someone can still claim it.
+    test("a reserved name its holder may still register is available (DotNS 1.0.0)", async () => {
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: OPEN,
+            isBaseNameReserved: RESERVED_BY_OWNER,
+            priceWithoutCheck: holderQuote(POP_STATUS.NoStatus),
+        });
+        const r = await isDotNsAvailable("alicebob.dot", { runtime, tld: DOT_TLD });
+        expect(r).toEqual({ ok: true, value: true });
+        const priced = runtime.calls.find((c) => c.functionName === "priceWithoutCheck");
+        expect(priced?.args?.slice(0, 2)).toEqual(["alicebob", OWNER]);
+    });
+
+    // DotNS 1.1.0: a live reservation keeps the name off public registration for
+    // every account, its holder included, so nobody can claim it publicly.
+    test("a reserved name PopRules refuses even to its holder is not available (DotNS 1.1.0)", async () => {
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: OPEN,
+            isBaseNameReserved: RESERVED_BY_OWNER,
+            priceWithoutCheck: holderQuote(POP_STATUS.Reserved),
+        });
+        const r = await isDotNsAvailable("alicebob.dot", { runtime, tld: DOT_TLD });
+        expect(r).toEqual({ ok: true, value: false });
+    });
+
+    // PopRules refuses the quote when the name's band is closed to sale, and then
+    // nobody can register it publicly.
+    test("a reserved name whose quote reverts is not available", async () => {
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: OPEN,
+            isBaseNameReserved: RESERVED_BY_OWNER,
+            priceWithoutCheck: fakeDryRunResult({ revert: "Short names are not for sale" }),
+        });
+        const r = await isDotNsAvailable("alicebob.dot", { runtime, tld: DOT_TLD });
+        expect(r).toEqual({ ok: true, value: false });
+    });
+
+    // A quote that fails without the contract refusing it says nothing about the name.
+    test("a reserved name whose quote fails without a revert is an error", async () => {
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: OPEN,
+            isBaseNameReserved: RESERVED_BY_OWNER,
+            priceWithoutCheck: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
+        });
+        const r = await isDotNsAvailable("alicebob.dot", { runtime, tld: DOT_TLD });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
+    });
+
+    test("a failing reservation read is an error", async () => {
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: OPEN,
+            isBaseNameReserved: fakeDryRunResult({ failure: { type: "ContractTrapped" } }),
+        });
+        const r = await isDotNsAvailable("alicebob.dot", { runtime, tld: DOT_TLD });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.reason).toBe("RegistryCall");
     });
 
     test("an invalid name is rejected before the controller call", async () => {
@@ -707,7 +792,11 @@ describe("availability and registration agree", () => {
     });
 
     test("an unminted, unrestricted label is available", async () => {
-        const runtime = runtimeWith({ available: true, classifyName: OPEN_LABEL });
+        const runtime = runtimeWith({
+            available: true,
+            classifyName: OPEN_LABEL,
+            isBaseNameReserved: NOT_RESERVED,
+        });
         expect(await isDotNsAvailable("longenough.dot", { runtime, tld: DOT_TLD })).toEqual({
             ok: true,
             value: true,
@@ -998,12 +1087,14 @@ describe("the deployment's TLD reaches every entry point", () => {
             available: true,
             // Multi-output returns are encoded positionally, as the suites above do.
             classifyName: [POP_STATUS.PopLite, ""],
+            isBaseNameReserved: NOT_RESERVED,
         });
         const r = await isDotNsAvailable("dim2.paseo", { runtime });
         expect(r).toEqual({ ok: true, value: true });
         // `slice(0, -4)` would send "dim2.pa" here.
         expect(nodesFor(runtime, "available")).toEqual(["dim2"]);
         expect(nodesFor(runtime, "classifyName")).toEqual(["dim2"]);
+        expect(nodesFor(runtime, "isBaseNameReserved")).toEqual(["dim2"]);
     });
 
     test("prepareDotNsRegistration sends the whole label too", async () => {
@@ -1260,7 +1351,11 @@ describe("the discovered addresses reach every entry point", () => {
     });
 
     test("isDotNsAvailable reads the discovered controller and pop rules", async () => {
-        const runtime = discoveringRuntime({ available: true, classifyName: OPEN });
+        const runtime = discoveringRuntime({
+            available: true,
+            classifyName: OPEN,
+            isBaseNameReserved: NOT_RESERVED,
+        });
         const r = await isDotNsAvailable("dim2.paseo", {
             runtime,
             gatewayApi,
@@ -1269,6 +1364,7 @@ describe("the discovered addresses reach every entry point", () => {
         expect(r).toEqual({ ok: true, value: true });
         expect(destsFor(runtime, "available")).toEqual([D_CONTROLLER.toLowerCase()]);
         expect(destsFor(runtime, "classifyName")).toEqual([D_POP_RULES.toLowerCase()]);
+        expect(destsFor(runtime, "isBaseNameReserved")).toEqual([D_POP_RULES.toLowerCase()]);
     });
 
     test("setDotNsRecord writes through the discovered registry and resolver", async () => {

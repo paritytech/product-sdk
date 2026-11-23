@@ -8,9 +8,9 @@ import type {
     BlendingMode,
     BorderStyle,
     Dimensions,
-    Effect,
     ImageFit,
     ImageSource,
+    MaterialInstance,
     Modifier,
     Size,
 } from "./types.js";
@@ -45,7 +45,7 @@ export const SERIALIZED_NODES = [
     "Button",
     "TextField",
     "Image",
-    "Effect",
+    "Materials",
 ] as const satisfies readonly RendererNode["tag"][];
 
 /**
@@ -126,7 +126,7 @@ function convertModifiers(props: Record<string, unknown>): Modifier[] {
  * What one widget puts under `value`.
  *
  * The protocol declares each node's fields exactly: `Spacer` carries no
- * `props`, `Spacer`, `TextField` and `Image` carry no `children`, and `Effect`
+ * `props`, `Spacer`, `TextField` and `Image` carry no `children`, and `Materials`
  * carries no `modifiers`. A host ignores every key a node does not declare, so
  * an extra one draws nothing and shows up only as a validator warning.
  */
@@ -197,10 +197,10 @@ const WIDGET_SHAPES: Record<WidgetTag, WidgetShape> = {
             fit: props.fit as ImageFit | undefined,
         }),
     },
-    Effect: {
+    Materials: {
         modifiers: false,
         children: true,
-        props: (props) => ({ effect: props.effect as Effect }),
+        props: (props) => ({ layers: props.layers as MaterialInstance[] }),
     },
 };
 

@@ -1,5 +1,59 @@
 # @parity/product-sdk-statement-store
 
+## 0.7.11
+
+### Patch Changes
+
+- Updated dependencies [73fbe82]
+- Updated dependencies [73fbe82]
+  - @parity/product-sdk-host@0.35.0
+
+## 0.7.10
+
+### Patch Changes
+
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+- Updated dependencies [705abbd]
+  - @parity/product-sdk-host@0.34.0
+
+## 0.7.9
+
+### Patch Changes
+
+- Updated dependencies [5dab257]
+  - @parity/product-sdk-host@0.33.0
+
+## 0.7.8
+
+### Patch Changes
+
+- Updated dependencies [a708cb6]
+  - @parity/product-sdk-host@0.32.0
+
+## 0.7.7
+
+### Patch Changes
+
+- Updated dependencies [a413d28]
+- Updated dependencies [a413d28]
+  - @parity/product-sdk-host@0.31.0
+
+## 0.7.6
+
+### Patch Changes
+
+- Updated dependencies [f33ca4f]
+- Updated dependencies [f33ca4f]
+  - @parity/product-sdk-host@0.30.1
+
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies [f508532]
+  - @parity/product-sdk-host@0.30.0
+
 ## 0.7.4
 
 ### Patch Changes

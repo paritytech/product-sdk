@@ -18,11 +18,12 @@ import type {
     ButtonVariant,
     ColorToken,
     ContentAlignment,
-    Effect,
     HorizontalAlignment,
     ImageFit,
+    ImageRef,
     ImageSource,
     Modifier,
+    Parameter,
     RendererNode,
     Shape,
     TypographyStyle,
@@ -128,7 +129,23 @@ export const CONTENT_ALIGNMENTS = closedSet<ContentAlignment>()([
     "BottomEnd",
 ] as const);
 
-export const EFFECTS = closedSet<Effect>()(["Rainbow"] as const);
+/**
+ * The arguments a material layer takes, mapped to how many numbers each
+ * carries, or `null` for a sampler, which carries an {@link ImageRef}.
+ */
+export const PARAMETER_SCHEMA: Record<Parameter["tag"], number | null> = {
+    Float: 1,
+    Vec2: 2,
+    Vec3: 3,
+    Vec4: 4,
+    SamplerFloat: null,
+    SamplerVec2: null,
+    SamplerVec3: null,
+    SamplerVec4: null,
+};
+
+/** Where a sampler's image comes from: an image source, or the host's noise image. */
+export const IMAGE_REF_TAGS = closedSet<ImageRef["tag"]>()(["Source", "Noise"] as const);
 
 /** What a single field may hold. */
 export type FieldKind =
@@ -140,6 +157,7 @@ export type FieldKind =
     | { kind: "background" }
     | { kind: "border" }
     | { kind: "imageSource" }
+    | { kind: "materialLayers" }
     | { kind: "enum"; members: readonly string[] };
 
 export interface Field {
@@ -229,7 +247,10 @@ export const NODE_SCHEMA: Record<NodeTag, NodeSchema> = {
             fit: { type: enumOf(IMAGE_FITS) },
         },
     },
-    Effect: { children: true, props: { effect: { type: enumOf(EFFECTS), required: true } } },
+    Materials: {
+        children: true,
+        props: { layers: { type: { kind: "materialLayers" }, required: true } },
+    },
 };
 
 /** The modifiers, keyed by their `tag`, each mapped to what its `value` holds. */
@@ -255,8 +276,12 @@ export const SHAPE_SCHEMA: Record<ShapeTag, FieldKind | null> = {
     Square: null,
 };
 
-/** The image sources. Both carry a string. */
-export const IMAGE_SOURCE_TAGS = closedSet<ImageSource["tag"]>()(["Bulletin", "Archive"] as const);
+/** The image sources. `Bulletin` and `Archive` carry a string, `Inline` the image's own bytes as hex. */
+export const IMAGE_SOURCE_TAGS = closedSet<ImageSource["tag"]>()([
+    "Bulletin",
+    "Archive",
+    "Inline",
+] as const);
 
 /*
  * The tables above are object literals, so a plain `TABLE[tag]` lookup reaches
@@ -280,6 +305,16 @@ export function modifierValue(tag: string): FieldKind | undefined {
  */
 export function shapeValue(tag: string): FieldKind | null | undefined {
     return Object.hasOwn(SHAPE_SCHEMA, tag) ? SHAPE_SCHEMA[tag as ShapeTag] : undefined;
+}
+
+/**
+ * How many numbers a material argument carries, `null` for a sampler, or
+ * `undefined` when the vocabulary has no such argument.
+ */
+export function parameterArity(tag: string): number | null | undefined {
+    return Object.hasOwn(PARAMETER_SCHEMA, tag)
+        ? PARAMETER_SCHEMA[tag as Parameter["tag"]]
+        : undefined;
 }
 
 /** Whether the vocabulary has this image source. */

@@ -87,7 +87,8 @@ describe("resolveSigner", () => {
                 productH160: "0xabc" as `0x${string}`,
             },
             signer: {} as never,
-            userSession: {} as never,
+            adapter: {} as never,
+            session: {} as never,
             destroy() {},
         };
         const r = await resolveSigner(stubAuthClient(fakeHandle));

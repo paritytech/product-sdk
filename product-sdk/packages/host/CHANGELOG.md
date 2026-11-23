@@ -1,5 +1,113 @@
 # @parity/product-sdk-host
 
+## 0.35.0
+
+### Minor Changes
+
+- 73fbe82: Adds `getNftPurseManager()`, a manager for the host's NFT purses with all 15 calls of `truApi.nftPurse`. A call returns the host's answer. A call that fails throws an `Error` with the host's error as `cause`, and the new `hostErrorName(error)` returns the name of that error, for example `OperationExists` or `Unsupported`. The subscriptions `observeOperationStatus`, `listenPaymentInbox` and `listenOneTimePayment` are opened again after a host connection reset. `isNftPurseOperationFinished(status)` returns true when an operation is finished. `deriveRevokeIdempotencyKey(chequeId)` and `deriveRefundIdempotencyKey(chequeId)` return the idempotency key to pass to `observeOperationStatus` for a revoke or a refund. The package also exports the purse types of `@parity/truapi` and constants for the main purse id and the host's limits. `getNftPurseManager()` returns `null` outside a host. On a host that has no NFT purses every call fails with `Unsupported`.
+- 73fbe82: **Pair with a truapi 0.32.0 host.** `@parity/truapi` moves from `^0.31.0` to `^0.32.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `cebcc89a5e45bbd3` to `7c6a3a324db0decd`, so the schema a product speaks no longer matches a host still on 0.31.0. Every host surface has to move in the same window.
+
+  What changed in the truapi surface, and how the SDK absorbs it:
+
+  - **`Materials` replaces `Effect`. Breaking for faces.** The `Effect` node is gone, along with `EffectProps` and its one effect, `Rainbow`. A host on 0.32.0 refuses a tree that still carries it. In its place, a `Materials` node runs shader layers over its children. Each layer names a material published on Bulletin by its 32-byte BLAKE2b-256 hash and passes one argument per parameter. A host that cannot draw the layers, or a material that fails to load, draws the children plain, so the children are the fallback look.
+    - `@parity/product-sdk-react-renderer` replaces the `Effect` component with `<Materials layers={...}>`.
+    - `@parity/product-sdk-renderer` validates the node:
+      - **Errors:** `validateFace` reports `missing-field` for a layer without `args` (an empty list is fine), `material-not-id` for a material that is not `0x` and 64 hex digits, `unknown-parameter` and `unknown-image-ref` for tags outside the protocol, `parameter-wrong-length` for a vector of the wrong arity, and `parameter-not-bits` for a number that is not a 32-bit pattern.
+      - **Warning:** it reports `materials-without-layers` for an empty stack and `parameter-not-finite` for an Infinity or NaN argument, both of which a host draws plain.
+    - **Writing numbers.** The protocol carries a material's numbers as IEEE 754 single-precision bit patterns, so the new `floatBits(0.5)` helper writes them; a bare `0.5` is refused.
+    - **New type re-exports:** the renderer also re-exports `MaterialsProps`, `MaterialInstance`, `Parameter` and `ImageRef`, and no longer re-exports `Effect`.
+    - **Migration:** replace `<Effect effect="Rainbow">…</Effect>` with `<Materials layers={[...]}>…</Materials>`, or drop the wrapper.
+  - **The terminal clears a product's storage on request.** truapi 0.32.0 calls `productStorage.clearProduct(productId)` when the core clears a product's state, and the callback is required.
+    - **New layout:** the terminal now keeps product values in one directory per product under `<storageDir>/product/`, and `clearProduct` empties that directory and tells any open `localStorage` subscription the value is gone.
+    - **Older values:** values an older terminal wrote flat in `product/` are still read, and each moves into its product's directory the next time its key is written. A flat file's name does not say which product owns it, so `clearProduct` leaves those files in place and marks the cleared product so it never reads them again. Another product's values are untouched.
+  - **`renderer.failureSubscribe`** reports the `Materials` nodes a host drew plain, and why (`MaterialFailure`). Not modeled by the SDK; reachable through `getTruApi()`.
+  - **`system.featureSupported` takes a `Materials` question** (format version, features). A product asks before sending materials, and a host built before 0.32.0 answers with an error, which reads as no. The SDK's own `featureSupported` use is chain-only and unchanged.
+  - **`contacts.usernames`** answers the dotNS usernames of the user's unblocked chat contacts, for the game product only; every other product gets `Unsupported`. Not modeled by the SDK.
+  - **`nftPurse.listCheques`** lists the NFT cheques a product created. Not modeled by the SDK yet; reachable through `getTruApi()`.
+  - **Three envelope codecs are renamed** after the payload they carry: `VersionedHostCreateTransactionRequest` is `VersionedProductAccountTxPayload`, `VersionedHostCreateTransactionWithLegacyAccountRequest` is `VersionedLegacyAccountTxPayload`, and `VersionedRemotePreimageSubmitError` is `VersionedPreimageSubmitError`. The bytes are unchanged and the SDK names none of them.
+  - **Inside a native host, a product encodes its own frames** over the `window.__HOST_API_TRANSPORT__` channel the host's container injects, so it speaks the protocol version it was built against. `@parity/truapi` handles the transport.
+    - **One change in reset handling:** when the product's own SDK cannot decode a frame, it resets the work in flight but the host's connection, and so its status, stays `connected`. Before, a reset always came with a lost and regained link.
+    - **Fix in `@parity/product-sdk-host`:** the streams it opens again after a reset (chat and Pocket card actions, NFT purse watches) waited for that status change, so they stopped for good. They now open again after a short wait when the status stays `connected`: 250 ms at first, growing to 30 s while each reopened stream is reset again. An item, a real reconnect, or a minute without a reset starts the waits over.
+  - `@parity/truapi-host` moves to `^0.32.0` alongside.
+
+## 0.34.0
+
+### Minor Changes
+
+- 705abbd: **Pair with a truapi 0.31.0 host.** `@parity/truapi` moves from `^0.29.0` to `^0.31.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `22e6584ca33f86cd` to `cebcc89a5e45bbd3`, so the schema a product speaks no longer matches a host still on 0.29.0. Every host surface has to move in the same window.
+
+  What changed in the truapi surface, and how the SDK absorbs it:
+
+  - **An image can be carried in the tree itself.** `ImageSource` gains `Inline`, whose value is the image's own bytes as `0x`-prefixed hex: PNG, JPEG or WebP, at most 64 KiB. `@parity/product-sdk-renderer` accepts the new source and checks it: `validateFace` reports `inline-image-not-hex` for a value that is not whole hex bytes and `inline-image-too-large` for one past the protocol's cap, next to the existing `unknown-image-source`. `@parity/product-sdk-react-renderer`'s `Image` takes `source={{ tag: "Inline", value: "0x..." }}` through the shared type with no change of its own.
+  - **Two more render contexts.** `RenderContext` gains `PocketCardBack`, the back of a card whose definition declares one, and `ChatRoomFooter`, a card a product docks under a room's messages. `getRendererManager().draw()` and `registerRenderContext` accept both tags; the Pocket and chat managers do not route them yet, so a product that draws one claims the context itself.
+  - **A room footer can be a card.** `ChatRoomFooter` is now a tagged union with `TextInput`, `Empty` and `Card`, and the client still takes the plain strings for the first two. `getChatManager()` does not set footers, so this reaches only products calling `chat.setRoomFooter` through `getTruApi()`.
+  - **`createTransaction` can report `ChainUnavailable`** when the chain stayed unreachable and nothing was signed. The SDK's signers forward the error unchanged, as they do every creation error; the protocol says a product may retry it with a bound on the attempts, and the SDK does not retry it for you.
+  - **The funding provider domain grows** with quotes, deposits, payout and refund steps, and progress details. The SDK does not model `fundingProvider`; `createFakeHost()` still lists it as not modeled.
+  - **`expandedCard.setBackShown`** turns the card above a widget. Not modeled by the SDK; reachable through `getTruApi()`.
+  - `@parity/truapi-host` moves to `^0.31.0` alongside, which also ships the `./node` entry the terminal's move onto the truapi core depends on.
+
+### Patch Changes
+
+- 705abbd: A product holds one `chainHead_v1_follow` per chain, however many `createChainClient` calls ask for that chain. `createChainClient` keeps one shared `PolkadotClient` per genesis hash, counted by the callers holding it: a config that includes a chain another config already opened reuses its client, two calls starting at once on the same chain end up with one, calls with the same descriptors share one set of typed APIs and raw clients, and `destroy()` on a `ChainClient` only gives back that call's hold, so the chain stays open for every other caller until the last one is destroyed. `destroy()` is safe to call more than once, a config that fails to start gives back the chains it took without closing them for anyone else, and `client.raw.<name>` is the chain's shared client, so calling `.destroy()` on it directly closes the chain for every other user. While a chain is still connecting, `isConnected` is `false` and `getClient` throws saying to await the `createChainClient` call connecting it; `destroyAll()` during that time rejects the call. A chain the host refuses still gets the stand-in that throws `ChainNotSupportedError` on use and holds no shared client.
+
+  Outside production builds, the host-routed PAPI provider logs an error through the SDK logger when a second connection in the same product opens a follow on a chain another connection already follows: `chain <genesis> now has <n> follows from this product: share one client per chain (createChainClient / getClient) instead of creating another.` It counts connections, not follows, so a client that follows again after a stop is never reported.
+
+- 705abbd: Chain reads made while the host link drops no longer fail with `unknown follow subscription id` or `TrUAPI host connection interrupted`. The host-routed PAPI provider holds a read whose follow has ended until polkadot-api has seen the stop, and polkadot-api then sends it again on its new follow. A read answered with a lost follow now also starts that stop, so a follow the host has dropped recovers without a reload. When the host keeps losing each new follow, the read waits while the provider follows again after a wait that doubles from 250 ms up to 4 s.
+
+## 0.33.0
+
+### Minor Changes
+
+- 5dab257: **Pair with a truapi 0.29.0 host.** `@parity/truapi` moves from `^0.28.0` to `^0.29.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `1ddad8b65de84b98` to `22e6584ca33f86cd`, so the schema a product speaks no longer matches a host still on 0.28.0. Every host surface has to move in the same window.
+
+  What changed in the truapi surface, and how `@parity/product-sdk-host` absorbs it:
+
+  - **Product identifiers are branded.** The wire now types `dotNsIdentifier`, `ProductProofContext.productId`, `listRingVrfKeys`'s `owner`, `getProductContext`'s `productId` and an `NftPurseRead` permission's `Product` owner as `ProductId`, a branded string. The SDK keeps plain strings on its own surface: `ProductAccount`, `ProductAccountLookup` and `ProductProofContext` are now SDK-owned types whose `dotNsIdentifier` / `productId` stay `string`, and the host adapter brands them with `asProductId` at the wire boundary. Nothing changes for callers of `getProductAccount`, `signVrf`, `listRingVrfKeys`, `getProductAccountAlias` or `createRingVRFProof`. The one place the brand reaches product code is a `RemotePermission` built by hand for `requestPermission` with an `NftPurseRead` `Product` owner: brand that value with the newly re-exported `asProductId`; the `ProductId` type is re-exported next to it.
+  - **A `fundingProvider` domain joins the client**, the worker side of the funding modality: host-initiated `onAssign` / `onCancel` / `onSettleCancel` handlers plus `report` and `presentFrame`. The SDK does not model it yet. `createFakeHost()` lists it as not modeled, so touching it in a test throws a descriptive error like the other unmodeled domains.
+  - **`funding.request` answers with the session's `intent`** (`HostFundingResponse`) instead of nothing, and the request no longer carries a caller-chosen `id`. The SDK does not wrap `funding`, so this reaches only products calling it through `getTruApi()`.
+  - **Payments move to `V2`.** `payment.request` and `payment.topUp` gain an optional `funding` intent and the `AlreadyExists` / `FundingNotServed` errors; the `V1` shapes live on as `V01HostPayment*`. `getPaymentManager()` is unchanged: it never sets `funding`, and the generated client picks the version.
+
+## 0.32.0
+
+### Minor Changes
+
+- a708cb6: **Pair with a truapi 0.28.0 host.** `@parity/truapi` moves from `^0.27.0` to `^0.28.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `72bf858138ead26e` to `1ddad8b65de84b98`, so the schema a product speaks no longer matches a host still on 0.27.0. Every host surface has to move in the same window.
+
+## 0.31.0
+
+### Minor Changes
+
+- a413d28: **Pair with a truapi 0.27.0 host.** `@parity/truapi` moves from `^0.26.0` to `^0.27.0`. The codec version stays at 3, but `TRUAPI_WIRE_SCHEMA_HASH` moves from `5f68beddf80f7b9a` to `72bf858138ead26e`, so the schema a product speaks no longer matches a host still on 0.26.0. Every host surface has to move in the same window.
+
+  **Surface changes carried through `@parity/product-sdk-host`.** truapi 0.27 adds an `nftPurse` domain, modeled as not-supported by the testing fake. The change is additive, so nothing the host package already exposed changes.
+
+### Patch Changes
+
+- a413d28: Chat and Pocket streams survive a host connection reset in native hosts, where the container reconnects to the host after the connection drops. The chat action stream, the renderer action streams for chat messages and Pocket cards, and the chat room and Pocket card lists are opened again once the host is connected again, and their listeners are not interrupted. The host holds actions while no stream is open, so presses and messages sent during the reset still arrive. Before this, a reset interrupted the chat action stream and both lists, left buttons in chat messages unresponsive until a message was rendered again, and left buttons in Pocket cards unresponsive until the product restarted. In a sandbox-hosted product, a closed connection still ends these streams and reaches `onInterrupt`. A Pocket card that subscribes after its action stream ended for another reason also opens it again.
+
+## 0.30.1
+
+### Patch Changes
+
+- f33ca4f: A follow whose host connection dies while it is still starting now reports that loss, so PAPI refollows. The interrupt is held until the caller registers for it and is delivered exactly once, and the follow is recorded before that registration so the replay is not read as belonging to a superseded follow. Without this the product kept a follow id the host had already dropped, and every chain read bound to it failed until the product was restarted.
+- f33ca4f: **The host package logs at warn when its link to the host drops and when it comes back, names each host call that a reset of the link rejected, and follows the life of each PAPI chainHead follow subscription.**
+
+  - `[host] host link lost`
+  - `[host] host link back after <ms> ms`
+  - `[host] <call>: the host link was reset mid-call (<close reason>)`
+  - `[host:papi] chainHead follow <id> interrupted (<cause>): up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight, stop in <ms> ms`
+  - `[host:papi] chainHead follow <id> stopped by the host: up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight`
+  - `[host:papi] chainHead follow <id> restarted <ms> ms after the stop`
+  - `[host:papi] chainHead follow <id> unfollowed: up <ms> ms, <n> events, the last <ms> ms ago, <n> operations in flight`
+
+  The first follow of a provider logs `chainHead follow <id> started` at info.
+
+## 0.30.0
+
+### Minor Changes
+
+- f508532: `PaymentManager` follows the host's payments by id. `topUp({ id, amount, source, into? })` and `requestPayment({ id, amount, destination, from? })` take a 32-byte id the product chooses, so starting one again after a restart is answered `AlreadyExists` instead of moving funds twice. `requestPayment` resolves with nothing, `subscribePaymentStatus(id, …)` follows a payment by that id, and the new `subscribeTopUpStatus(id, …)` follows a top-up to `Claimed { finalized: true }`, `ClaimedPartially` or `NotClaimed`. `newPaymentId()` makes a random id for a product with nothing to derive one from. Breaking: the positional `topUp(amount, source, into?)` and `requestPayment(amount, destination, from?)` signatures and the `{ id }` response are gone. Needs the `@parity/truapi` release that carries payments by id; `RemotePermission` gains `BalanceAccess` with it. `subscribeBalance` needs `BalanceAccess`: the balance is the user's, per purse, and a grant revoked while subscribed ends the subscription with `PermissionDenied`.
+
 ## 0.29.0
 
 ### Minor Changes

@@ -30,7 +30,7 @@
  */
 
 import { errAsync, okAsync, ResultAsync } from "neverthrow";
-import { RequestTimeoutError } from "@parity/truapi";
+import { RequestTimeoutError, asProductId } from "@parity/truapi";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { AccountId } from "polkadot-api";
 
@@ -44,7 +44,7 @@ import type {
     LegacyAccount as WireLegacyAccount,
     ProductAccount as WireProductAccount,
     ProductAccountId,
-    ProductProofContext,
+    ProductProofContext as WireProductProofContext,
     RawPayload,
     RegisteredRingVrfKey as WireRegisteredRingVrfKey,
     RingLocation,
@@ -74,28 +74,34 @@ import type { HostSubscription } from "./types.js";
  * Ring VRF request shapes, re-exported from `@parity/truapi`:
  * - `RingLocation` — where the ring lives (`{ chainId, junctions }`; junctions
  *   address the ring via `PalletInstance` / `CollectionId` steps).
- * - `ProductProofContext` — the product-scoped proof context
- *   (`{ productId, suffix }`), expanded by the host into the 32-byte context a
- *   proof or alias is bound to.
  * - `DerivationIndex` — the tagged selector `ProductProofContext.suffix`
  *   carries: `{ tag: "Index", value: number }` for a plain index, or
  *   `{ tag: "Raw", value: HexString }` for a raw 32-byte index.
  */
-export type {
-    DerivationIndex,
-    ProductProofContext,
-    RingLocation,
-    RingVrfKeyDisclosure,
-} from "@parity/truapi";
+export type { DerivationIndex, RingLocation, RingVrfKeyDisclosure } from "@parity/truapi";
+
+/**
+ * The product-scoped proof context (`{ productId, suffix }`), expanded by the
+ * host into the 32-byte context a proof or alias is bound to.
+ *
+ * `productId` is the plain product identifier (e.g. `"myapp.dot"`). The wire
+ * types it as a branded `ProductId`; the adapter brands it at the boundary, so
+ * product code keeps passing strings.
+ */
+export type ProductProofContext = Omit<WireProductProofContext, "productId"> & {
+    /** The product the context is scoped to, e.g. `"myapp.dot"`. */
+    productId: string;
+};
 
 // The account/alias shapes come from `@parity/truapi`'s generated specs; we
 // derive the SDK-facing views from them so the field inventory tracks the
 // protocol automatically, and override only the fields the adapter re-encodes:
 // byte fields decoded from `0x`-prefixed `HexString`s to `Uint8Array`s, and
 // the tagged derivation-index selector kept as a plain `number` (wrapped back
-// into `Index` at the wire boundary). Shapes re-exported verbatim (e.g.
-// `ProductProofContext`) track the wire as-is. Same pattern as
-// `@parity/product-sdk-statement-store`.
+// into `Index` at the wire boundary), and the branded `ProductId` kept as a
+// plain `string` (branded with `asProductId` at the wire boundary). Shapes
+// re-exported verbatim (e.g. `RingLocation`) track the wire as-is. Same
+// pattern as `@parity/product-sdk-statement-store`.
 
 /**
  * One of the user's existing wallet accounts, surfaced through the host and
@@ -118,24 +124,28 @@ export type HostAccount = Omit<WireLegacyAccount, "publicKey"> & {
  *
  * Combines `@parity/truapi`'s `ProductAccountId` (the `{ dotNsIdentifier,
  * derivationIndex }` lookup key) with the `ProductAccount` payload, with
- * `publicKey` decoded to bytes and `derivationIndex` kept as the plain
- * numeric index (the adapter wraps it into the wire's tagged
- * {@link DerivationIndex} selector).
+ * `publicKey` decoded to bytes, `dotNsIdentifier` kept as a plain string
+ * (the adapter brands it as the wire's `ProductId`), and `derivationIndex`
+ * kept as the plain numeric index (the adapter wraps it into the wire's
+ * tagged {@link DerivationIndex} selector).
  */
-export type ProductAccount = Omit<ProductAccountId, "derivationIndex"> &
-    Omit<WireProductAccount, "publicKey"> & {
-        /** Plain account index within the product subtree. */
-        derivationIndex: number;
-        /** Raw public key bytes. */
-        publicKey: Uint8Array;
-    };
+export type ProductAccount = Omit<WireProductAccount, "publicKey"> & {
+    /** The product the account is derived for, e.g. `"myapp.dot"`. */
+    dotNsIdentifier: string;
+    /** Plain account index within the product subtree. */
+    derivationIndex: number;
+    /** Raw public key bytes. */
+    publicKey: Uint8Array;
+};
 
 /**
  * How callers address a product account: app identifier plus an optional index,
  * defaulting to 0. A {@link ProductAccount} satisfies this, so an account from
  * {@link AccountsProvider.getProductAccount} can be passed straight back in.
  */
-export type ProductAccountLookup = Omit<ProductAccountId, "derivationIndex"> & {
+export type ProductAccountLookup = {
+    /** The product the account is derived for, e.g. `"myapp.dot"`. */
+    dotNsIdentifier: string;
     /** Plain account index within the product subtree. Defaults to 0. */
     derivationIndex?: number;
 };
@@ -417,7 +427,8 @@ export interface AccountsProvider {
 }
 
 /**
- * Build the wire `ProductAccountId`: default the index to 0, wrap it as `Index`.
+ * Build the wire `ProductAccountId`: brand the identifier, default the index
+ * to 0, wrap it as `Index`.
  *
  * Destructured rather than spread, so passing a full {@link ProductAccount}
  * cannot leak its `publicKey` onto the wire.
@@ -426,7 +437,15 @@ function toWireProductAccountId({
     dotNsIdentifier,
     derivationIndex = 0,
 }: ProductAccountLookup): ProductAccountId {
-    return { dotNsIdentifier, derivationIndex: { tag: "Index", value: derivationIndex } };
+    return {
+        dotNsIdentifier: asProductId(dotNsIdentifier),
+        derivationIndex: { tag: "Index", value: derivationIndex },
+    };
+}
+
+/** Build the wire `ProductProofContext`: brand the product identifier. */
+function toWireProofContext({ productId, suffix }: ProductProofContext): WireProductProofContext {
+    return { productId: asProductId(productId), suffix };
 }
 
 // The SS58 address the host's raw-signing calls match a legacy (wallet) account
@@ -508,7 +527,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
         listRingVrfKeys(owner, disclosure = "Anonymized") {
             return guardDecode(
                 "listRingVrfKeys",
-                account.listRingVrfKeys({ owner, disclosure }).map((keys) =>
+                account.listRingVrfKeys({ owner: asProductId(owner), disclosure }).map((keys) =>
                     keys.map((key) => ({
                         ...key,
                         handle: key.handle as unknown as RingVrfKeyHandle,
@@ -523,7 +542,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 account
                     .getAccountAlias({
                         keyHandle: keyHandle as unknown as ProductAccountId,
-                        context,
+                        context: toWireProofContext(context),
                         ringLocation: location,
                     })
                     .map((response) => ({
@@ -549,7 +568,7 @@ function adaptAccountsProvider(client: TrUApiClient): AccountsProvider {
                 account
                     .createAccountProof({
                         keyHandle: keyHandle as unknown as ProductAccountId,
-                        context,
+                        context: toWireProofContext(context),
                         ringLocation: location,
                         message: toHex(message),
                     })

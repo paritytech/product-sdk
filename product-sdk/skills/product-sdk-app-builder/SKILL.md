@@ -175,7 +175,7 @@ See [references/chains.md](references/chains.md) for full details.
 2. **Barrel import of descriptors** — Use `@parity/product-sdk-descriptors/paseo-bulletin`, NOT `@parity/product-sdk-descriptors`.
 3. **Using unavailable environments** — Only `"paseo"` works. `"polkadot"` and `"kusama"` throw.
 4. **Forgetting `await`** — `getChainAPI()` and `createChainClient()` return a Promise. Always `await` it.
-5. **Not cleaning up** — Call `client.destroy()` or `destroyAll()` when done to close WebSocket connections.
+5. **Not cleaning up** — Call `client.destroy()` when done to give back its hold on each chain, or `destroyAll()` to close every chain.
 6. **Using `api.contracts`** — There is no `.contracts` property on chain clients. Create ContractRuntime yourself: `createContractRuntime(client.raw.assetHub, { atBest: true })`, or use `ContractManager.fromClient()` for convenience.
 7. **Dev signers in production** — `createDevSigner("Alice")` is testnet-only. Use `SignerManager` for production.
 8. **Wrong signer type**. `CommonSignerTxCreator` (tx), `StatementSignerWithKey` (statement-store), and `SignerManager` (wallet UI) are distinct.

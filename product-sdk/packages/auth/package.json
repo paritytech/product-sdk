@@ -1,6 +1,6 @@
 {
     "name": "@parity/product-sdk-auth",
-    "version": "0.5.4",
+    "version": "0.6.1",
     "description": "Authentication and session signing for Polkadot CLI apps — QR/mobile sign-in",
     "type": "module",
     "sideEffects": false,
@@ -38,5 +38,8 @@
         "typescript": "catalog:",
         "vitest": "catalog:"
     },
-    "license": "Apache-2.0"
+    "license": "Apache-2.0",
+    "engines": {
+        "node": ">=22"
+    }
 }

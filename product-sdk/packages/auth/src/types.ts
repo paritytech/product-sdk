@@ -13,22 +13,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import type {
+    TerminalApprovals,
+    TerminalNetwork,
+    TerminalNetworkName,
+} from "@parity/product-sdk-terminal";
+
 /**
- * Per-product configuration injected into `createAuthClient`. Lifting the
- * sign-in glue out of playground-cli (issue #411) means the env-specific
- * constants playground hard-coded in its `config.ts` (DAPP_ID, product id,
- * People-chain endpoints) become consumer-supplied so the same package serves
- * `playground` and `dot` (and future products) unchanged.
+ * Per-product configuration for `createAuthClient`, so the same sign-in flow
+ * serves every CLI product.
  */
 export interface AuthConfig {
-    /** The dApp identity string. Scopes the on-disk session namespace
-     *  (`~/.polkadot-apps/${dappId}_*`) and the SSO pairing — each product
-     *  gets its own, independently-revocable session. */
+    /** The CLI's own id. Names its storage directory, so each CLI is signed in independently. */
     dappId: string;
-    /** Product id used to derive the product account (`/product/{productId}/{index}`). */
+    /**
+     * The dotNS product id the CLI acts as, e.g. `"my-cli.dot"`. The signing
+     * account is derived under it (`/product/{productId}/{index}`).
+     */
     productId: string;
-    /** Derivation index of the product account (0 = default). */
+    /** Derivation index of the product account; `0` is the default. */
     derivationIndex: number;
-    /** People-parachain RPC endpoints the terminal adapter connects to. */
-    peopleEndpoints: string[];
+    /** Chains to pair and sign over. Defaults to `"paseo-next-v2"`. */
+    network?: TerminalNetworkName | TerminalNetwork;
+    /**
+     * This CLI's own directory, holding the session in `core/` and `product/`.
+     * Defaults to `~/.polkadot-apps/<dappId>`. Logout removes only those two folders.
+     */
+    storageDir?: string;
+    /** Answers the core's reviews and permission requests. Defaults to approving them. */
+    approvals?: TerminalApprovals;
 }

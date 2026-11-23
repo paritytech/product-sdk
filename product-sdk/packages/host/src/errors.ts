@@ -18,7 +18,10 @@
  * @module
  */
 import type { SdkError } from "@parity/product-sdk-errors";
-import { RequestTimeoutError, type scale } from "@parity/truapi";
+import { createLogger } from "@parity/product-sdk-logger";
+import { ConnectionResetError, RequestTimeoutError, type scale } from "@parity/truapi";
+
+const log = createLogger("host");
 
 /**
  * What a `Domain`-tagged call error carries. Widened from truapi's per-domain
@@ -99,6 +102,22 @@ export function formatHostError(error: unknown): string {
     } catch {
         return String(error);
     }
+}
+
+/**
+ * Returns the name of the host's error, for example `OperationExists` or
+ * `Unsupported`. Pass it the error that a host call threw, or the reason that
+ * `onInterrupt` received. Returns `undefined` when the error is not from the
+ * host.
+ */
+export function hostErrorName(error: unknown): string | undefined {
+    const payload = error instanceof Error ? error.cause : error;
+    if (!isTagged(payload)) return undefined;
+    if (payload.tag !== "Domain") return payload.tag;
+
+    const versionedError = payload.value;
+    const domainError = isTagged(versionedError) ? versionedError.value : undefined;
+    return isTagged(domainError) ? domainError.tag : undefined;
 }
 
 /**
@@ -216,6 +235,14 @@ function isRequestTimeout(cause: unknown): cause is RequestTimeout {
     );
 }
 
+/**
+ * Whether `cause` is the {@link ConnectionResetError} of the truapi client,
+ * matched by name for the same reason as {@link isRequestTimeout}.
+ */
+function isConnectionReset(cause: unknown): cause is Error {
+    return cause instanceof Error && cause.name === "ConnectionResetError";
+}
+
 function formatWait(ms: number): string {
     return ms < 1000 ? `${ms}ms` : `${Math.round(ms / 1000)}s`;
 }
@@ -225,10 +252,17 @@ function formatWait(ms: number): string {
  * {@link HostTimeoutError} when the client's deadline passed, otherwise a
  * {@link HostResponseDecodeError}. One already typed passes through.
  *
+ * A call that a reset of the host link rejected is logged at warn, with the
+ * reason the link closed, so the app log shows which calls the drop cost.
+ *
  * @internal
  */
 export function hostRejectionError(call: string, cause: unknown): HostResponseDecodeError {
     if (cause instanceof HostResponseDecodeError) return cause;
+    if (isConnectionReset(cause)) {
+        const closeReason = cause.cause === undefined ? "" : ` (${formatHostError(cause.cause)})`;
+        log.warn(`${call}: the host link was reset mid-call${closeReason}`);
+    }
     return isRequestTimeout(cause)
         ? new HostTimeoutError(call, cause)
         : new HostResponseDecodeError(call, cause);
@@ -240,7 +274,17 @@ export function isHostError(error: unknown): error is HostError {
 }
 
 if (import.meta.vitest) {
-    const { test, expect, describe } = import.meta.vitest;
+    const { test, expect, describe, beforeEach } = import.meta.vitest;
+    const { configure } = await import("@parity/product-sdk-logger");
+
+    const lines: string[] = [];
+    configure({
+        level: "warn",
+        handler: (entry) => lines.push(`${entry.level}: ${entry.message}`),
+    });
+    beforeEach(() => {
+        lines.length = 0;
+    });
 
     describe("host error classes", () => {
         test("HostError is the base class", () => {
@@ -338,6 +382,37 @@ if (import.meta.vitest) {
             ]);
         });
 
+        test("a call the reset rejected is logged at warn with its label and the close reason", () => {
+            const closed = new Error("websocket closed (ws://127.0.0.1:9955)");
+            const reset = new ConnectionResetError({ cause: closed });
+            const bundledReset = Object.assign(new Error("TrUAPI host connection interrupted"), {
+                name: "ConnectionResetError",
+                cause: closed,
+            });
+
+            hostRejectionError("createTransaction failed", reset);
+            hostRejectionError("signRaw failed", bundledReset);
+            hostRejectionError("getUserId", new ConnectionResetError());
+
+            expect(lines).toEqual([
+                "warn: createTransaction failed: the host link was reset mid-call (websocket closed (ws://127.0.0.1:9955))",
+                "warn: signRaw failed: the host link was reset mid-call (websocket closed (ws://127.0.0.1:9955))",
+                "warn: getUserId: the host link was reset mid-call",
+            ]);
+        });
+
+        test("a timeout, a decode failure or an already typed rejection is not logged", () => {
+            const causes = [
+                new RequestTimeoutError("p:1", 12, 0, 120_000),
+                new RangeError("Offset is outside the bounds of the DataView"),
+                new HostResponseDecodeError("getUserId", new ConnectionResetError()),
+            ];
+
+            for (const cause of causes) hostRejectionError("getUserId", cause);
+
+            expect(lines).toEqual([]);
+        });
+
         test("isHostError narrows host errors only", () => {
             expect(isHostError(new HostUnavailableError())).toBe(true);
             expect(isHostError(new HostCallFailedError("x", { tag: "Denied" }))).toBe(true);
@@ -381,6 +456,35 @@ if (import.meta.vitest) {
             expect(formatHostError(new Error("plain"))).toBe("plain");
             expect(formatHostError("string err")).toBe("string err");
             expect(formatHostError({ message: "loose" })).toBe("loose");
+        });
+    });
+
+    describe("hostErrorName", () => {
+        const operationExists = {
+            tag: "Domain",
+            value: { tag: "V1", value: { tag: "OperationExists" } },
+        } as const;
+
+        test("returns the name of a domain error", () => {
+            expect(hostErrorName(operationExists)).toBe("OperationExists");
+        });
+
+        test("returns the name of a call-level error", () => {
+            expect(hostErrorName({ tag: "Unsupported" })).toBe("Unsupported");
+        });
+
+        test("reads the cause of a thrown Error", () => {
+            const thrown = new Error("nftPurse deposit failed", { cause: operationExists });
+            expect(hostErrorName(thrown)).toBe("OperationExists");
+            expect(hostErrorName(new HostCallFailedError("deposit", operationExists))).toBe(
+                "OperationExists",
+            );
+        });
+
+        test("returns undefined for other errors", () => {
+            expect(hostErrorName(new Error("plain"))).toBeUndefined();
+            expect(hostErrorName({ tag: "Domain", value: { tag: "V1" } })).toBeUndefined();
+            expect(hostErrorName("string err")).toBeUndefined();
         });
     });
 }

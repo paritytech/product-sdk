@@ -17,10 +17,12 @@
  * chain connections via the host API - no fallback to direct WebSocket.
  */
 
-import { createChainClient, isConnected, destroyAll } from "@parity/product-sdk-chain-client";
+import { createChainClient, isConnected, destroyAll, getClient } from "@parity/product-sdk-chain-client";
 import type { ChainClient } from "@parity/product-sdk-chain-client";
 import { paseo_asset_hub } from "@parity/product-sdk-descriptors/paseo-asset-hub";
+import { getHostProvider } from "@parity/product-sdk-host";
 import { SignerManager } from "@parity/product-sdk-signer";
+import { createClient } from "polkadot-api";
 
 import { appendLog, getEl } from "./ui.js";
 
@@ -154,6 +156,12 @@ declare global {
     interface Window {
         __CHAIN_CLIENT__: {
             isConnected: typeof isConnected;
+            getClient: typeof getClient;
+            createChainClient: typeof createChainClient;
+            destroyAll: typeof destroyAll;
+            /** For a client built outside `createChainClient`, which the one-follow spec needs. */
+            getHostProvider: typeof getHostProvider;
+            createClient: typeof createClient;
             byodClient: typeof byodClient;
             paseo_asset_hub: typeof paseo_asset_hub;
         };
@@ -162,6 +170,11 @@ declare global {
 
 window.__CHAIN_CLIENT__ = {
     isConnected,
+    getClient,
+    createChainClient,
+    destroyAll,
+    getHostProvider,
+    createClient,
     get byodClient() {
         return byodClient;
     },
