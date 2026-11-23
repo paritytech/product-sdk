@@ -186,7 +186,8 @@ own servers and put their reference in `extra`.
 ## Icons
 
 The host shows a network and a token icon next to each route and quote, read from the provider's own
-product archive. Paths are relative to the archive root:
+worker archive, the executable that declares `includes.funding` (not the app archive). Paths are relative to
+that archive's root:
 
 | Path | Name |
 |---|---|

@@ -17,7 +17,7 @@
  * carries on without moving funds twice. How a provider takes payments,
  * prices and converts stays its own.
  *
- * Network and token icons ship in the provider's product archive, under
+ * Network and token icons ship in the provider's worker archive, under
  * {@link FUNDING_ICONS_DIR}: see {@link fundingNetworkIconPath} and
  * {@link fundingTokenIconPath}.
  *

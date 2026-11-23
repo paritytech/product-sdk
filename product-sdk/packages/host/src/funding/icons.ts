@@ -1,7 +1,8 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Where a provider puts its network and token icons in its product archive.
+ * Where a provider puts its network and token icons: in its worker archive,
+ * the executable that declares `includes.funding`, not its app archive.
  * The host reads them from there to show next to the provider's routes and
  * quotes.
  *
