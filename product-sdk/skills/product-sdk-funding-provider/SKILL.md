@@ -8,7 +8,7 @@ description: >
   widget, saving session state, or testing that a provider resumes after a crash without moving funds
   twice.
   Covers @parity/product-sdk-host/funding-provider (serveFunding, FundingSession, validateAsk, quoteId,
-  screenChannel, deriveEntropyAccount) and @parity/product-sdk-host/testing (createFakeFundingHost,
+  screenChannel, deriveEntropyAccount, fundingNetworkIconPath, fundingTokenIconPath) and @parity/product-sdk-host/testing (createFakeFundingHost,
   resumeAtEveryCheckpoint).
 ---
 
@@ -182,6 +182,23 @@ own servers and put their reference in `extra`.
 - `screenChannel(prefix)` lets an App screen hand the user's choice back to the worker through host
   storage: the worker `show`s a view and waits for an action of a kind; the App reads it with
   `screenSession(prefix, route)` and answers with `submitScreenAction(prefix, intent, action)`.
+
+## Icons
+
+The host shows a network and a token icon next to each route and quote, read from the provider's own
+product archive. Paths are relative to the archive root:
+
+| Path | Name |
+|---|---|
+| `funding/icons/networks/<network>.png` | the network id the provider quotes under, lowercase: `polkadot`, `bitcoin`, `ethereum`, `solana`, `tron` |
+| `funding/icons/tokens/<token>.png` | the token symbol, lowercase: `dot`, `usdc`, `usdt`, `btc`, `eth`, `sol`, `trx`, `dotusd` |
+
+- PNG, square, 96×96 px, transparent background. Not SVG: the hosts cannot render it.
+- Names use only `[a-z0-9-]` after lowercasing. An id with anything else gets no icon.
+- A missing icon is fine: the host shows a monogram. It never uses another provider's icon.
+
+`fundingNetworkIconPath(network)` and `fundingTokenIconPath(symbol)` give the path the host looks up, or
+`undefined` when the id gets no icon. `FUNDING_ICON_SIZE` is the size.
 
 ## Accounts
 

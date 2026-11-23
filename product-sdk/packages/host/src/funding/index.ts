@@ -17,6 +17,10 @@
  * carries on without moving funds twice. How a provider takes payments,
  * prices and converts stays its own.
  *
+ * Network and token icons ship in the provider's product archive, under
+ * {@link FUNDING_ICONS_DIR}: see {@link fundingNetworkIconPath} and
+ * {@link fundingTokenIconPath}.
+ *
  * A subpath of its own, so products that are not funding providers do not
  * carry it.
  *
@@ -46,6 +50,12 @@ export type { Journal, JournalEntry, SavedCancel, SavedStateSpec } from "./state
 export { deriveId } from "./ids.js";
 export { refuse, quoted, validateAsk, quoteId } from "./quotes.js";
 export type { AskPolicy, QuoteTerms } from "./quotes.js";
+export {
+    FUNDING_ICONS_DIR,
+    FUNDING_ICON_SIZE,
+    fundingNetworkIconPath,
+    fundingTokenIconPath,
+} from "./icons.js";
 export { accountContext, deriveEntropyAccount } from "./accounts.js";
 export type { EntropyAccount } from "./accounts.js";
 export { screenChannel, screenSession, submitScreenAction } from "./screen.js";
