@@ -136,6 +136,11 @@ describe("decodeProfileRecord", () => {
         expect(reason(base64(big))).toBe("TooLarge");
     });
 
+    test("refuses an oversized text before decoding it", () => {
+        // Not base64 at all, so only the length check can answer TooLarge.
+        expect(reason("!".repeat(PROFILE_RECORD_MAX_BYTES * 2))).toBe("TooLarge");
+    });
+
     test("refuses a non-minimal compact length in the envelope, as parity-scale-codec does", () => {
         const one = avatar(0);
         // The entry count 1 in the two-byte form, 0x05 0x00, instead of 0x04.

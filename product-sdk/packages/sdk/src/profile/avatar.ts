@@ -200,11 +200,11 @@ export async function submitAvatar(
     if (oversized) return err(oversized);
     let key: string;
     try {
-        key = await manager.submit(bytes);
+        key = (await manager.submit(bytes)).toLowerCase();
     } catch (cause) {
         return err(hostCallFailed("the host did not store the avatar", cause));
     }
-    if (key.toLowerCase() !== digestOf(bytes)) {
+    if (key !== digestOf(bytes)) {
         return err(
             new ProfileError(
                 "Host",

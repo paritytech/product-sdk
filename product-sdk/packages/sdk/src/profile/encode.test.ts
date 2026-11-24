@@ -63,6 +63,7 @@ describe("rewriteProfileRecord", () => {
         expect(rewrite(null, patch)).toBe(expected);
         expect(rewrite("", patch)).toBe(expected);
         expect(rewrite("  AA==\n", patch)).toBe(expected);
+        expect(rewrite(" \n", patch)).toBe(expected);
     });
 
     test("a patch that names nothing carries the record unchanged", () => {

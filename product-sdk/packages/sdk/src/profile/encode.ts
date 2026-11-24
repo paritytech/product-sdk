@@ -80,7 +80,7 @@ export function rewriteProfileRecord(
     live: string | null | undefined,
     patch: ProfilePatch,
 ): Result<string, ProfileError> {
-    const carried = live ? decodeRecordEntries(live) : ok<Uint8Array[]>([]);
+    const carried = live?.trim() ? decodeRecordEntries(live) : ok<Uint8Array[]>([]);
     if (!carried.ok) return carried;
     if (patch.avatar === undefined) return encodeProfileRecord(carried.value);
     if (patch.avatar === null) {

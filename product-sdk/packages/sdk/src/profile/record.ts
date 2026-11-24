@@ -47,6 +47,15 @@ export function encodeBase64(bytes: Uint8Array): string {
     return btoa(binary);
 }
 
+/** The longest base64 text whose bytes can fit {@link PROFILE_RECORD_MAX_BYTES}. */
+const MAX_RECORD_TEXT_LENGTH = 4 * Math.ceil(PROFILE_RECORD_MAX_BYTES / 3);
+
+const recordTooLarge = () =>
+    new ProfileError(
+        "TooLarge",
+        `the profile record is over the ${PROFILE_RECORD_MAX_BYTES}-byte bound`,
+    );
+
 /**
  * The entries of a `profile` text-record value, each as the wrapper carries
  * it: the index byte, then the payload. The outer layer only; what each entry
@@ -56,18 +65,14 @@ export function encodeBase64(bytes: Uint8Array): string {
  * @internal For the module's own files and tests; consumers use the entry points.
  */
 export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileError> {
-    const bytes = decodeBase64Strict(text.trim());
+    const trimmed = text.trim();
+    // The record is someone else's: refuse an oversized one before decoding it.
+    if (trimmed.length > MAX_RECORD_TEXT_LENGTH) return err(recordTooLarge());
+    const bytes = decodeBase64Strict(trimmed);
     if (bytes === null) {
         return err(new ProfileError("NotBase64", "the profile record is not standard base64"));
     }
-    if (bytes.length > PROFILE_RECORD_MAX_BYTES) {
-        return err(
-            new ProfileError(
-                "TooLarge",
-                `the profile record is ${bytes.length} bytes, over the ${PROFILE_RECORD_MAX_BYTES}-byte bound`,
-            ),
-        );
-    }
+    if (bytes.length > PROFILE_RECORD_MAX_BYTES) return err(recordTooLarge());
     const entries = decodeExact(profileRecordCodec, bytes);
     if (entries === null) {
         return err(

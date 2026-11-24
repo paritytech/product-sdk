@@ -174,6 +174,12 @@ describe("submitAvatar", () => {
         expect(r.ok ? null : r.error.reason).toBe("Host");
     });
 
+    test("a key that is not a string is a Host error, not a throw", async () => {
+        const { manager } = managerThatAnswers(async () => undefined as unknown as `0x${string}`);
+        const r = await submitAvatar(BYTES, manager);
+        expect(r.ok ? null : r.error.reason).toBe("Host");
+    });
+
     test("the key comparison ignores hex casing", async () => {
         const { manager } = managerThatAnswers(
             async (bytes) => digestOf(bytes).toUpperCase().replace("0X", "0x") as `0x${string}`,
