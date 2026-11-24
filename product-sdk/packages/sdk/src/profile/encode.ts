@@ -1,14 +1,9 @@
 // Copyright 2026 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Write a `profile` text-record value: the rewrite that applies a change to
- * what a name already holds.
- *
- * The record on chain is one value, so every change is read, change, write
- * back; {@link rewriteProfileRecord} is the change. Setting an avatar follows
- * the core publisher's `set_avatar`: an entry this writer does not read is
- * carried byte for byte, a live record that is not a profile is refused rather
- * than replaced, and a record no reader would accept is never produced.
+ * Write a `profile` text-record value. The record on chain is one value, so
+ * every change is read, change, write back; {@link rewriteProfileRecord} is
+ * the change.
  */
 import { concatBytes } from "@parity/product-sdk-crypto";
 import { type Result, err, ok } from "@parity/result";
@@ -45,7 +40,7 @@ function encodeAvatar(avatar: ProfileAvatar): Result<Uint8Array, ProfileError> {
  * Refuses a record over {@link PROFILE_RECORD_MAX_BYTES}: every reader refuses
  * it too, so writing it would wipe the profile silently.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export function encodeProfileRecord(entries: Uint8Array[]): Result<string, ProfileError> {
     const bytes = profileRecordCodec.enc(entries);
@@ -69,8 +64,7 @@ export function encodeProfileRecord(entries: Uint8Array[]): Result<string, Profi
  * passes `null`.
  *
  *   - A new avatar replaces the avatar readers show, the first that decodes,
- *     and goes first, ahead of every other entry, as the core's `set_avatar`
- *     puts it.
+ *     and goes first, ahead of every other entry.
  *   - `avatar: null` drops every avatar entry, including one in a format this
  *     writer does not know: a kept one would be the avatar a newer reader
  *     shows.

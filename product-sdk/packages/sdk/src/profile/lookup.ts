@@ -29,7 +29,7 @@ const MAX_DNS_LABEL_LEN = 63;
 /** The longest base label the gateway pallet holds, so the longest lite username. */
 const MAX_BASE_LABEL_LEN = 32;
 
-/** One lowercase label with no edge hyphen: `is_dns_label`. */
+/** One lowercase label with no edge hyphen. */
 function isDnsLabel(value: string): boolean {
     return (
         value.length > 0 &&
@@ -43,7 +43,7 @@ function isDnsLabel(value: string): boolean {
 /**
  * A lite name such as `alice.01`: a stem of lowercase letters and exactly two
  * digits after one dot, at most 32 bytes in all, since the gateway pallet keys
- * `LiteLabelOwner` by the dotted label. `is_dotted_lite_username`.
+ * `LiteLabelOwner` by the dotted label.
  */
 function isDottedLiteUsername(value: string): boolean {
     const dot = value.lastIndexOf(".");
@@ -59,11 +59,11 @@ function isDottedLiteUsername(value: string): boolean {
 }
 
 /**
- * The usernames a host resolves a profile for (`validate_username`): a DNS
- * label, or a dotted lite username. The same forms the identity reader
- * returns, and nothing looser: `alice.1` is not a lite name.
+ * The usernames a host resolves a profile for: a DNS label, or a dotted lite
+ * username. The same forms the identity reader returns, and nothing looser:
+ * `alice.1` is not a lite name.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export function isAcceptableProfileLabel(label: string): boolean {
     return isDnsLabel(label) || isDottedLiteUsername(label);
@@ -72,7 +72,7 @@ export function isAcceptableProfileLabel(label: string): boolean {
 /**
  * `label` trimmed, lowercased and without a trailing `.<tld>`.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
     return stripSuffix(label.trim().toLowerCase(), tld.suffix);
@@ -97,7 +97,7 @@ export type ProfileLocation = ProfileName & {
  * name itself points at; `prepareSetProfile` says why the pointer is left
  * alone.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export async function locateProfile(
     label: string,
@@ -125,7 +125,7 @@ export interface ProfileName {
  * normalized and checked, and the node. What every function that takes a
  * label starts from, whether or not it goes on to the content resolver.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export async function resolveProfileName(
     label: string,
@@ -146,7 +146,7 @@ export async function resolveProfileName(
  * for none. The value as written, so a writer can refuse a malformed record
  * without losing it and a verifier can compare bytes.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export async function readProfileText(
     contentResolver: HexString,
@@ -235,7 +235,6 @@ export async function getProfileRecord(
     const located = await locateProfile(label, opts);
     if (!located.ok) return located;
     const { bare, node, contentResolver } = located.value;
-    // A deployment with no content resolver has no text records.
     if (contentResolver === null) return ok("");
     log.debug("profile record", { label: bare, node, resolver: contentResolver });
     return readProfileText(contentResolver, node, opts);
@@ -243,10 +242,9 @@ export async function getProfileRecord(
 
 /**
  * Whether the content resolver now holds exactly `text` for `label`: the
- * check a publisher makes once its write is final, so a
- * write the chain included but did not apply, or one overtaken by another
- * writer, is not reported as published. `""` asks whether the record is
- * cleared.
+ * check a publisher makes once its write is final, so a write the chain
+ * included but did not apply, or one overtaken by another writer, is not
+ * reported as published. `""` asks whether the record is cleared.
  */
 export async function verifyPublishedProfile(
     label: string,

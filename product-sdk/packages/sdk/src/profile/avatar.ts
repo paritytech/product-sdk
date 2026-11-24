@@ -37,7 +37,7 @@ const BLAKE2B_256 = 0xb220;
  * Bulletin preimage CID: raw codec over a blake2b-256 digest. The one rule the
  * reader and the writer share for an acceptable avatar CID.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export function preimageCidAddress(cid: string): ArtworkAddress | null {
     // An empty `hex` makes `artworkAddress` answer from the CID alone, with no
@@ -49,7 +49,7 @@ export function preimageCidAddress(cid: string): ArtworkAddress | null {
 /**
  * The Bulletin preimage CID of a 32-byte digest, the form a record's digest is shown and fetched as.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export function digestCid(digest: `0x${string}`): string {
     // A 32-byte digest always forms a CID.
@@ -60,9 +60,8 @@ const digestOf = (bytes: Uint8Array) => `0x${bytesToHex(blake2b256(bytes))}` as 
 
 /**
  * How long the host's preimage lookup is given before the avatar is reported
- * missing this time, the wait a host's own reader allows. A lookup is a subscription
- * the host answers from its cache or from Bulletin, so a first read can take
- * a while.
+ * missing this time. A lookup is a subscription the host answers from its
+ * cache or from Bulletin, so a first read can take a while.
  */
 const DEFAULT_AVATAR_TIMEOUT_MS = 30_000;
 
@@ -161,13 +160,10 @@ const tooLarge = (bytes: Uint8Array) =>
  * blake2b-256 digest as a Bulletin CID, and the declared format.
  *
  * Pure, so the record can be rewritten and the write prepared before the
- * bytes go to Bulletin: a write that
- * would fail then spends no Bulletin allowance. `submitAvatar` stores the
- * bytes afterwards and holds the host to this same digest. Bytes over
- * {@link PROFILE_AVATAR_MAX_BYTES}, which every reader refuses, are
- * `TooLarge`. The format is the caller's declaration, as it is for the
- * reader; whether the bytes are an image of that format is the product's
- * check to make, with the file in hand.
+ * bytes go to Bulletin, and a write that would fail spends no allowance.
+ * Bytes over {@link PROFILE_AVATAR_MAX_BYTES} are `TooLarge`. The format is
+ * the caller's declaration; whether the bytes are an image of that format is
+ * the product's check to make.
  */
 export function profileAvatar(
     bytes: Uint8Array,

@@ -3,9 +3,8 @@
 /**
  * Prepare the one call that publishes a `profile` record: the owner's
  * `setText` on the deployment's content resolver. Signer-free, like every
- * DotNS write in the identity module: the
- * product submits the prepared call with its own signer, after mapping and
- * funding the account, which the SDK does not do for it.
+ * DotNS write in the identity module: the product submits the prepared call
+ * with its own signer, after mapping and funding the account.
  */
 import type { BatchableCall } from "@parity/product-sdk-tx";
 import { type Result, err, ok } from "@parity/result";
@@ -83,7 +82,6 @@ export async function prepareSetProfile(
 
     try {
         const registry = contractOf(opts.runtime, addrs.value.registry, DOTNS_REGISTRY_ABI);
-        // Independent reads, asked for together.
         const [authorized, original] = await Promise.all([
             registry.isAuthorised.query(node, self, { origin }),
             readProfileText(contentResolver, node, opts),

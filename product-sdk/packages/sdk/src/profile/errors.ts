@@ -30,13 +30,12 @@ export class ProfileError extends Error implements SdkError {
 
 /**
  * A host call that threw, as a {@link ProfileError} with the cause attached:
- * `Timeout` when the host's deadline passed, which the call may still
- * outlive (an avatar stored), and `Host` for any other
- * failure. The deadline is a `HostTimeoutError` from `/host` anywhere on the
- * cause chain, matched by name: this module imports no host code at runtime,
- * and a host may bundle its own copy of the class.
+ * `Timeout` when the host's deadline passed, `Host` for any other failure.
+ * The deadline is a `HostTimeoutError` anywhere on the cause chain, matched
+ * by name: this module imports no host code at runtime, and a host may
+ * bundle its own copy of the class.
  *
- * @internal For the module's own files and tests; consumers use the entry points.
+ * @internal
  */
 export function hostCallFailed(message: string, cause: unknown): ProfileError {
     return new ProfileError(timedOut(cause) ? "Timeout" : "Host", message, { cause });
