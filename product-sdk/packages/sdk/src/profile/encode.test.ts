@@ -29,7 +29,7 @@ const CID = cidOf("avatar");
 const avatar = (seed: string, format: number) =>
     entry(0, profileAvatarCodec.enc({ cid: digestOf(seed), format }));
 /** Entries of kinds this writer does not read, which another writer may have added. */
-const OTHER = new Uint8Array([1, 4, 0x41]);
+const OTHER = new Uint8Array([7, 0xaa]);
 const OPAQUE = new Uint8Array([9, 1, 2, 3]);
 /** An avatar in a format this writer does not know: index 0, but no avatar for this reader. */
 const FUTURE_AVATAR = avatar("avatar", 9);

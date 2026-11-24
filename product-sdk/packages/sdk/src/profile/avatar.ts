@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * The avatar: its bytes through the host's preimage lookup, checked against
- * the CID, and the entry and the upload a publish makes. The fetch, the
- * timeout and the hash check are the nfts package's `getVerifiedArtwork` over
- * `preimageSource`; this module maps a {@link ProfileAvatar} onto them and the
- * declared format onto a MIME type.
+ * the CID, and the entry and the upload a publish makes. The fetch, timeout
+ * and hash check reuse the SDK's verified content-addressed read; this module
+ * maps a {@link ProfileAvatar} onto it and the declared format onto a MIME
+ * type.
  */
 import { blake2b256, bytesToHex } from "@parity/product-sdk-crypto";
 import type { PreimageManager } from "@parity/product-sdk-host";
