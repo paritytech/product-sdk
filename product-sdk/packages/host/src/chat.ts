@@ -13,9 +13,9 @@ import { okAsync } from "neverthrow";
 
 import type {
     ChatBotRegistrationStatus,
-    ChatRoomRegistrationStatus,
     HostChatActionSubscribeItem,
     HostChatCreateRoomRequest,
+    HostChatCreateRoomResponse,
     HostChatRegisterBotRequest,
     HostRendererActionSubscribeItem,
     RendererNode,
@@ -34,8 +34,12 @@ import type { ChatMessageContent, ChatRoom } from "@parity/truapi";
 /** Action received via {@link ChatManager.subscribeAction} (`{ roomId, peer, payload }`). Re-exported from `@parity/truapi`. */
 export type ChatReceivedAction = HostChatActionSubscribeItem;
 
-/** Result of registering a chat room (`"New" | "Exists"`). Re-exported from `@parity/truapi`. */
-export type ChatRoomRegistrationResult = ChatRoomRegistrationStatus;
+/**
+ * Result of registering a chat room: its `status` (`"New" | "Exists"`) and the
+ * `roomId` the host derived from the room's `roomIdSource`. Every later call
+ * names the room with that `roomId`. Re-exported from `@parity/truapi`.
+ */
+export type ChatRoomRegistrationResult = HostChatCreateRoomResponse;
 
 /** Result of registering a bot (`"New" | "Exists"`). Re-exported from `@parity/truapi`. */
 export type ChatBotRegistrationResult = ChatBotRegistrationStatus;
@@ -105,8 +109,8 @@ interface ActionListener {
 /** Build a {@link ChatManager} over a TruAPI client's `chat` domain. */
 function adaptChatManager(client: TrUApiClient): ChatManager {
     const chat = client.chat;
-    // Cache registration status by id so repeat calls don't re-prompt the host.
-    const roomStatus = new Map<string, ChatRoomRegistrationResult>();
+    // Cache registrations so repeat calls don't re-prompt the host.
+    const rooms = new Map<string, ChatRoomRegistrationResult>();
     const botStatus = new Map<string, ChatBotRegistrationResult>();
     const actionListeners = new Set<ActionListener>();
     const rendererActionListeners = new Map<string, Set<RendererActionListener>>();
@@ -183,14 +187,25 @@ function adaptChatManager(client: TrUApiClient): ChatManager {
 
     return {
         async registerRoom(request) {
-            const cached = roomStatus.get(request.roomId);
+            // The host replaces a room's configuration on every registration,
+            // so only an identical request is answered from the cache.
+            const { roomIdSource, name, icon, config } = request;
+            const key = JSON.stringify([
+                roomIdSource,
+                name,
+                icon,
+                config.productSource,
+                config.reactionDetails,
+                config.reportSeen,
+            ]);
+            const cached = rooms.get(key);
             if (cached) return cached;
             const response = await unwrapHostResult(
                 chat.createRoom(request),
                 "chat registerRoom failed",
             );
-            roomStatus.set(request.roomId, response.status);
-            return response.status;
+            rooms.set(key, response);
+            return response;
         },
         async registerBot(request) {
             const cached = botStatus.get(request.botId);
@@ -300,6 +315,24 @@ if (import.meta.vitest) {
 
     test("getChatManager returns null outside a container", async () => {
         expect(await getChatManager()).toBeNull();
+    });
+
+    test("registerRoom returns the host's roomId and caches only an identical request", async () => {
+        const createRoom = vi.fn(() => okAsync({ status: "New" as const, roomId: "0xabc" }));
+        const manager = adaptChatManager({ chat: { createRoom } } as unknown as TrUApiClient);
+        const request: HostChatCreateRoomRequest = {
+            roomIdSource: "lobby",
+            name: "Lobby",
+            icon: "",
+            config: { productSource: false, reactionDetails: false, reportSeen: false },
+        };
+
+        expect(await manager.registerRoom(request)).toEqual({ status: "New", roomId: "0xabc" });
+        await manager.registerRoom({ ...request });
+        expect(createRoom).toHaveBeenCalledTimes(1);
+
+        await manager.registerRoom({ ...request, config: { ...request.config, reportSeen: true } });
+        expect(createRoom).toHaveBeenCalledTimes(2);
     });
 
     test("sendMessage passes the alt to the host", async () => {
