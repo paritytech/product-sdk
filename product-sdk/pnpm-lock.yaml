@@ -47,7 +47,7 @@ catalogs:
       version: 2.52.0
     vite:
       specifier: ^6.4.3
-      version: 6.4.3
+      version: 6.4.5
     vitest:
       specifier: ^3.1.4
       version: 3.2.6
@@ -109,7 +109,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/cloud-storage-demo:
     dependencies:
@@ -140,7 +140,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/contracts-demo:
     dependencies:
@@ -171,7 +171,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/host-demo:
     dependencies:
@@ -193,7 +193,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/keys-demo:
     dependencies:
@@ -221,7 +221,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/nfts-demo:
     dependencies:
@@ -249,7 +249,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/pocket-card-example:
     dependencies:
@@ -340,7 +340,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/statement-store-demo:
     dependencies:
@@ -362,7 +362,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/storage-demo:
     dependencies:
@@ -387,7 +387,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   examples/tx-demo:
     dependencies:
@@ -421,7 +421,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 6.4.3(@types/node@26.6.5)
+        version: 6.4.5(@types/node@26.6.5)
 
   packages/address:
     dependencies:
@@ -3390,8 +3390,8 @@ packages:
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
     hasBin: true
 
-  vite@6.4.3:
-    resolution: {integrity: sha512-NTKlcQjlAK7MlQoyb6LgaqHc8sso/pVyUJYWMws3jg21uTJw/LddqIFPcPqP6PzpgbIcZyKI85sFE4HBrQDA8A==}
+  vite@6.4.5:
+    resolution: {integrity: sha512-4enwjFfi4IwtEh0w+jPzpLVOFQiPHmmzPxcHXQOyEur47o6u0jE573DmGpjA+7irXoMLYRZD5ZaFUEneS3abPg==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
     hasBin: true
     peerDependencies:
@@ -5635,13 +5635,13 @@ snapshots:
       - tsx
       - yaml
 
-  vite@6.4.3(@types/node@26.6.5):
+  vite@6.4.5(@types/node@26.6.5):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
       postcss: 8.5.15
-      rollup: 4.61.1
+      rollup: 4.64.6
       tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 26.6.5
