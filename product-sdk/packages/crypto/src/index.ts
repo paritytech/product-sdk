@@ -17,3 +17,4 @@ export * from "./nacl.js";
 export * from "./encoding.js";
 export * from "./hashing.js";
 export * from "./types.js";
+export * from "./sr25519.js";

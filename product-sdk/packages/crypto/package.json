@@ -1,7 +1,7 @@
 {
     "name": "@parity/product-sdk-crypto",
     "version": "0.1.1",
-    "description": "Cryptographic primitives — symmetric encryption, key derivation, and NaCl operations",
+    "description": "Cryptographic primitives \u2014 symmetric encryption, key derivation, and NaCl operations",
     "type": "module",
     "sideEffects": false,
     "main": "./dist/index.js",
@@ -24,6 +24,7 @@
         "@noble/ciphers": "^1.2.1",
         "@noble/curves": "^1.8.0",
         "@noble/hashes": "^2.2.0",
+        "@scure/sr25519": "^2.2.0",
         "tweetnacl": "^1.0.3"
     },
     "devDependencies": {

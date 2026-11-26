@@ -18,3 +18,5 @@ export { SessionKeyManager } from "./session-key-manager.js";
 export { seedToAccount } from "./seed-to-account.js";
 export { deriveProductAccountPublicKey } from "./product-account.js";
 export type { DerivedAccount, DerivedKeypairs, SessionKeyInfo } from "./types.js";
+export { sr25519KeypairFromSeed, sr25519Sign } from "@parity/product-sdk-crypto";
+export type { Sr25519Keypair } from "@parity/product-sdk-crypto";
