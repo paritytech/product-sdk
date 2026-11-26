@@ -15,6 +15,7 @@ export type DotNsErrorReason =
     | "TldMismatch" // a well-formed name, but rooted at another deployment's TLD
     | "MissingOrigin" // a write was requested without the submitting account
     | "InvalidOrigin" // the submitting account was supplied, but is not a decodable SS58 address
+    | "Unauthorised" // the submitting account is not authorized for the node a write targets, by the registry's `isAuthorised`: not its owner, nor approved by the owner
     | "NameUnavailable" // already registered
     | "NameReserved" // governance-held, or under a live reservation that PopRules applies to this owner
     | "OwnerStatusInsufficient" // the owner lacks the personhood tier the label requires

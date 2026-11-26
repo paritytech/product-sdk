@@ -53,7 +53,7 @@ The `/reload-plugins` step (or restarting Claude Code) is required to load the s
 
 ```bash
 claude plugin list                    # should show product-sdk@paritytech enabled
-claude plugin details product-sdk     # shows all 8 skills + projected token cost
+claude plugin details product-sdk     # shows all 12 skills + projected token cost
 ```
 
 Or open a new Claude Code session and ask "build me a Polkadot app" — the `product-sdk:product-sdk-app-builder` skill should fire automatically.
@@ -71,6 +71,7 @@ Or open a new Claude Code session and ask "build me a Polkadot app" — the `pro
 | `product-sdk-individuality` | Personhood / membership state reads, the account to username read, the game and its prize draws, the account and lite sign-up paths, the two-transaction lite bind flow, full-personhood registration, ring-VRF proof contexts and ring locations, and the person, lite-alias and score-participant origin extensions |
 | `product-sdk-nfts` | Scarcity collections and item catalogues, the claims a player holds with the proof a mint spends, what a claim reveals through `previewClaim`, and verified artwork |
 | `product-sdk-pocket-cards` | Pocket cards: building a face, checking it, and drawing it from a worker |
+| `product-sdk-profile` | The avatar a person publishes under their DotNS name: reading it, loading it from Bulletin through the host, and the read-rewrite-prepare-submit-verify recipe to set or clear it |
 | `product-sdk-utilities` | Addresses, crypto, encoding, token formatting, logging |
 | `migrating-to-product-sdk` | Porting an existing codebase from legacy stacks |
 
