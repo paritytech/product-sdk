@@ -35,56 +35,116 @@ afterEach(() => {
     dispose = null;
 });
 
+/** An `ok` answer that carries no bytes. */
+const answer = (tag: "Missing" | "Mismatch" | "TooLarge" | "Unreadable") => ({
+    ok: true,
+    value: { tag },
+});
+
+/** The avatar a `Loaded` answer carries, or `null` for any other answer. */
+const loadedOf = (result: Awaited<ReturnType<typeof loadAvatar>>) =>
+    result.ok && result.value.tag === "Loaded" ? result.value.avatar : null;
+
+/** Whether `message` is the message of `error` or of a cause under it. */
+function hasCause(error: unknown, message: string): boolean {
+    for (let e = error; e instanceof Error; e = e.cause) if (e.message === message) return true;
+    return false;
+}
+
 describe("loadAvatar", () => {
     test("returns bytes that hash to the CID, with the declared MIME type", async () => {
         const manager = await managerWith({ [DIGEST]: BYTES });
         const loaded = await loadAvatar({ cid: CID, format: "webp" }, manager);
-        expect(loaded).toEqual({ cid: CID, format: "webp", mimeType: "image/webp", bytes: BYTES });
+        expect(loaded).toEqual({
+            ok: true,
+            value: {
+                tag: "Loaded",
+                avatar: { cid: CID, format: "webp", mimeType: "image/webp", bytes: BYTES },
+            },
+        });
     });
 
     test("maps each format to its MIME type without looking at the bytes", async () => {
         const manager = await managerWith({ [DIGEST]: BYTES });
-        expect((await loadAvatar({ cid: CID, format: "png" }, manager))?.mimeType).toBe(
-            "image/png",
-        );
-        expect((await loadAvatar({ cid: CID, format: "jpeg" }, manager))?.mimeType).toBe(
-            "image/jpeg",
-        );
-        expect((await loadAvatar({ cid: CID, format: "gif" }, manager))?.mimeType).toBe(
-            "image/gif",
-        );
+        const mimeOf = async (format: "png" | "jpeg" | "gif") =>
+            loadedOf(await loadAvatar({ cid: CID, format }, manager))?.mimeType;
+        expect(await mimeOf("png")).toBe("image/png");
+        expect(await mimeOf("jpeg")).toBe("image/jpeg");
+        expect(await mimeOf("gif")).toBe("image/gif");
     });
 
-    test("bytes the host does not have are no avatar this time", async () => {
+    test("bytes the host does not have are Missing this time", async () => {
         const manager = await managerWith({});
-        expect(
-            await loadAvatar({ cid: CID, format: "webp" }, manager, { timeoutMs: 20 }),
-        ).toBeNull();
+        expect(await loadAvatar({ cid: CID, format: "webp" }, manager, { timeoutMs: 20 })).toEqual(
+            answer("Missing"),
+        );
     });
 
-    test("bytes over the RFC's bound are no avatar, even when they hash to the CID", async () => {
+    test("bytes over the RFC's bound are TooLarge, even when they hash to the CID", async () => {
         const big = new Uint8Array(PROFILE_AVATAR_MAX_BYTES + 1).fill(0x42);
         const digest = `0x${bytesToHex(blake2b256(big))}` as const;
         const cid = artworkAddress({ hex: digest, text: null })?.cid as string;
         const manager = await managerWith({ [digest]: big });
-        expect(await loadAvatar({ cid, format: "png" }, manager)).toBeNull();
+        expect(await loadAvatar({ cid, format: "png" }, manager)).toEqual(answer("TooLarge"));
         // One byte fewer is within the bound and comes back.
         const fits = big.subarray(0, PROFILE_AVATAR_MAX_BYTES);
         const fitsDigest = `0x${bytesToHex(blake2b256(fits))}` as const;
         const fitsCid = artworkAddress({ hex: fitsDigest, text: null })?.cid as string;
         dispose?.();
         const manager2 = await managerWith({ [fitsDigest]: fits });
-        expect((await loadAvatar({ cid: fitsCid, format: "png" }, manager2))?.bytes).toHaveLength(
-            PROFILE_AVATAR_MAX_BYTES,
-        );
+        const fitted = loadedOf(await loadAvatar({ cid: fitsCid, format: "png" }, manager2));
+        expect(fitted?.bytes).toHaveLength(PROFILE_AVATAR_MAX_BYTES);
     });
 
-    test("bytes that do not hash to the CID are no avatar", async () => {
+    test("bytes that do not hash to the CID are a Mismatch", async () => {
         const manager = await managerWith({ [DIGEST]: new Uint8Array([9, 9, 9]) });
-        expect(await loadAvatar({ cid: CID, format: "webp" }, manager)).toBeNull();
+        expect(await loadAvatar({ cid: CID, format: "webp" }, manager)).toEqual(answer("Mismatch"));
     });
 
-    test("a CID that is not a Bulletin preimage CID is no avatar, and the host is not asked", async () => {
+    test("a host that throws is a Host error with the cause, and its deadline a Timeout", async () => {
+        const throwing = (cause: Error): PreimageManager => ({
+            lookup: () => {
+                throw cause;
+            },
+            submit: async () => "0x00",
+        });
+        const refused = await loadAvatar(
+            { cid: CID, format: "webp" },
+            throwing(new Error("link closed")),
+        );
+        expect(refused.ok ? null : refused.error.reason).toBe("Host");
+        expect(refused.ok ? null : hasCause(refused.error, "link closed")).toBe(true);
+        const late = await loadAvatar(
+            { cid: CID, format: "webp" },
+            throwing(
+                new HostTimeoutError(
+                    "preimage lookup",
+                    Object.assign(new Error("RequestTimeoutError"), { timeoutMs: 30_000 }),
+                ),
+            ),
+        );
+        expect(late.ok ? null : late.error.reason).toBe("Timeout");
+    });
+
+    test("an abort is Aborted, before the lookup or during it, and never Missing", async () => {
+        const manager = await managerWith({});
+        const before = new AbortController();
+        before.abort();
+        const early = await loadAvatar({ cid: CID, format: "webp" }, manager, {
+            signal: before.signal,
+        });
+        expect(early.ok ? null : early.error.reason).toBe("Aborted");
+
+        const during = new AbortController();
+        const pending = loadAvatar({ cid: CID, format: "webp" }, manager, {
+            signal: during.signal,
+        });
+        during.abort();
+        const midway = await pending;
+        expect(midway.ok ? null : midway.error.reason).toBe("Aborted");
+    });
+
+    test("a CID that is not a Bulletin preimage CID is Unreadable, and the host is not asked", async () => {
         let asked = 0;
         const manager: PreimageManager = {
             lookup: () => {
@@ -95,14 +155,16 @@ describe("loadAvatar", () => {
         };
         // dag-pb, sha2-256: a CID of a UnixFS node, not of the bytes themselves.
         const dagPb = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
-        expect(await loadAvatar({ cid: dagPb, format: "png" }, manager)).toBeNull();
+        expect(await loadAvatar({ cid: dagPb, format: "png" }, manager)).toEqual(
+            answer("Unreadable"),
+        );
         expect(
             await loadAvatar(
                 { cid: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG", format: "png" },
                 manager,
             ),
-        ).toBeNull();
-        expect(await loadAvatar({ cid: "", format: "png" }, manager)).toBeNull();
+        ).toEqual(answer("Unreadable"));
+        expect(await loadAvatar({ cid: "", format: "png" }, manager)).toEqual(answer("Unreadable"));
         expect(asked).toBe(0);
     });
 });

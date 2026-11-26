@@ -64,6 +64,22 @@ export type ProfileLookup = { tag: "Found"; profile: PublicProfile } | { tag: "N
 /** The MIME type an avatar's declared format maps to. Never sniffed from the bytes. */
 export type AvatarMimeType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
+/**
+ * What `loadAvatar` answers on the `ok` channel. `Loaded` is the only tag that
+ * carries bytes. `Missing` is a host with nothing under the key within the
+ * timeout. `Mismatch` is bytes that do not hash to the CID, and `TooLarge`
+ * bytes over {@link PROFILE_AVATAR_MAX_BYTES}: both are reported as absent
+ * rather than handed over. `Unreadable` is a CID that is not a raw blake2b-256
+ * Bulletin CID, for which the host is not asked. A host that could not be
+ * asked is on the `err` channel.
+ */
+export type AvatarLookup =
+    | { tag: "Loaded"; avatar: LoadedAvatar }
+    | { tag: "Missing" }
+    | { tag: "Mismatch" }
+    | { tag: "TooLarge" }
+    | { tag: "Unreadable" };
+
 /** An avatar fetched through the host and checked against its CID. */
 export interface LoadedAvatar {
     /** For change detection: a product that keeps bytes by CID can skip the next fetch. */

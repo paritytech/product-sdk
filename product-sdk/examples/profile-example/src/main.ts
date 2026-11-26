@@ -149,11 +149,10 @@ async function main(): Promise<void> {
     assert.ok(avatar);
     console.log(`Avatar of ${LABEL}${TLD.suffix}: ${avatar.format} ${avatar.cid}`);
 
-    const loaded = await loadAvatar(avatar, preimages, { timeoutMs: 1_000 });
-    assert.ok(loaded, "the avatar bytes hash to the CID");
-    console.log(
-        `Loaded it through the preimage lookup: ${loaded.bytes.length} bytes, ${loaded.mimeType}.`,
-    );
+    const loaded = unwrap(await loadAvatar(avatar, preimages, { timeoutMs: 1_000 }));
+    assert.equal(loaded.tag, "Loaded", "the avatar bytes hash to the CID");
+    const { bytes, mimeType } = loaded.avatar;
+    console.log(`Loaded it through the preimage lookup: ${bytes.length} bytes, ${mimeType}.`);
 
     // --- Set a new avatar ---------------------------------------------------
     // The entry is the bytes' digest, with no host call.
@@ -162,7 +161,7 @@ async function main(): Promise<void> {
     const changed = unwrap(await getProfile(LABEL, opts));
     assert.equal(changed.tag, "Found");
     assert.deepEqual(changed.profile.avatar, next);
-    assert.ok(await loadAvatar(next, preimages, { timeoutMs: 1_000 }));
+    assert.equal(unwrap(await loadAvatar(next, preimages, { timeoutMs: 1_000 })).tag, "Loaded");
     console.log(`Verified the new avatar: ${next.cid} (offline fixture).`);
 
     // --- Clear it -----------------------------------------------------------

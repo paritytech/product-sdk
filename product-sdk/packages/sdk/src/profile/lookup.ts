@@ -62,8 +62,6 @@ function isDottedLiteUsername(value: string): boolean {
  * The usernames a host resolves a profile for: a DNS label, or a dotted lite
  * username. The same forms the identity reader returns, and nothing looser:
  * `alice.1` is not a lite name.
- *
- * @internal
  */
 export function isAcceptableProfileLabel(label: string): boolean {
     return isDnsLabel(label) || isDottedLiteUsername(label);
@@ -71,8 +69,6 @@ export function isAcceptableProfileLabel(label: string): boolean {
 
 /**
  * `label` trimmed, lowercased and without a trailing `.<tld>`.
- *
- * @internal
  */
 export function normalizeProfileLabel(label: string, tld: DotNsTld): string {
     return stripSuffix(label.trim().toLowerCase(), tld.suffix);
@@ -96,8 +92,6 @@ export type ProfileLocation = ProfileName & {
  * The record lives on the deployment's content resolver, whatever resolver the
  * name itself points at; `prepareSetProfile` says why the pointer is left
  * alone.
- *
- * @internal
  */
 export async function locateProfile(
     label: string,
@@ -124,8 +118,6 @@ export interface ProfileName {
  * The first half of {@link locateProfile}: the TLD from the chain, the label
  * normalized and checked, and the node. What every function that takes a
  * label starts from, whether or not it goes on to the content resolver.
- *
- * @internal
  */
 export async function resolveProfileName(
     label: string,
@@ -145,8 +137,6 @@ export async function resolveProfileName(
  * The raw `profile` text the content resolver holds for `node`, trimmed, `""`
  * for none. The value as written, so a writer can refuse a malformed record
  * without losing it and a verifier can compare bytes.
- *
- * @internal
  */
 export async function readProfileText(
     contentResolver: HexString,

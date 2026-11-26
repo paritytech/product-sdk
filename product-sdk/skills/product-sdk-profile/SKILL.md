@@ -1,9 +1,9 @@
 ---
 name: product-sdk-profile
 description: >
-  Use when a product shows or changes the avatar a person publishes under their dotNS name.
+  Use when a product shows or changes the avatar a person publishes under their DotNS name.
   Reach for it whenever the user mentions a profile, an avatar or profile picture, or a "card"
-  for a dotNS or People username, wants to show who a contact is, or wants to let a person
+  for a DotNS or People username, wants to show who a contact is, or wants to let a person
   publish or change their avatar, even if they do not say "profile". Covers getProfile and its
   three answers, getProfileRecord for the text as stored, decodeProfileRecord, loadAvatar
   through the host's preimage lookup and never a gateway, the read-rewrite-prepare-submit-verify
@@ -16,7 +16,7 @@ description: >
 # Product SDK Profile
 
 `@parity/product-sdk/profile` reads and prepares writes of the **avatar** a person publishes
-under their dotNS name: one text record, `profile`, under the name they own. Three reads, four
+under their DotNS name: one text record, `profile`, under the name they own. Three reads, four
 write steps, and the product does the signing. Everything fallible returns a `Result`.
 
 The avatar is an image on Bulletin, named in the record by its digest and a declared format. The
@@ -43,8 +43,11 @@ else {
     const { avatar } = result.value.profile;            // null when the record names none
     const manager = await getPreimageManager();
     const loaded = avatar && manager && (await loadAvatar(avatar, manager));
-    // The cast: TS 5.7 types `bytes` over ArrayBufferLike, which Blob's input does not accept.
-    if (loaded) img.src = URL.createObjectURL(new Blob([loaded.bytes as BlobPart], { type: loaded.mimeType }));
+    if (loaded && loaded.ok && loaded.value.tag === "Loaded") {
+        const { bytes, mimeType } = loaded.value.avatar;
+        // The cast: TS 5.7 types `bytes` over ArrayBufferLike, which Blob's input does not accept.
+        img.src = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeType }));
+    }
 }
 ```
 
@@ -62,7 +65,7 @@ lifecycle.
 
 ## What You Must Hand In
 
-Every read and write takes `DotNsClientOptions`, the same options every other dotNS call in
+Every read and write takes `DotNsClientOptions`, the same options every other DotNS call in
 `@parity/product-sdk/identity` takes. Two matter here:
 
 - `runtime`: a `ContractRuntime` over Asset Hub, from `createContractRuntimeFromClient(client.raw.assetHub, descriptor)`.
@@ -119,15 +122,27 @@ when it is not one.
 ```typescript
 const manager = await getPreimageManager();           // null outside a host
 const loaded = await loadAvatar(profile.avatar, manager, { timeoutMs: 30_000 });
+if (loaded.ok && loaded.value.tag === "Loaded") show(loaded.value.avatar); // { cid, format, mimeType, bytes }
 ```
 
 The bytes come from the host's preimage lookup, keyed by the digest inside the CID, so nobody
 outside the host learns whose avatar a viewer looks at. They are kept only if they hash to the
 CID and are within the RFC's 2 MiB bound. The MIME type is the format the record declares; the
-bytes are never sniffed. `null` means "not this time": the host had nothing under that key within
-the timeout, the bytes did not match, or the CID is not a Bulletin preimage CID. The profile is
-not failed by it; show a placeholder and ask again later. Avatar bytes outlive nothing: Bulletin
-drops them after its retention period, and the publisher uploads them again.
+bytes are never sniffed.
+
+It answers a `Result`, and only `Loaded` carries bytes:
+
+| Answer | Meaning |
+| --- | --- |
+| `ok({ tag: "Loaded", avatar })` | the bytes hash to the CID |
+| `ok({ tag: "Missing" })` | the host had nothing under that key within the timeout |
+| `ok({ tag: "Mismatch" })` | the host answered bytes that do not hash to the CID |
+| `ok({ tag: "TooLarge" })` | the bytes are over the 2 MiB bound |
+| `ok({ tag: "Unreadable" })` | the CID is not a Bulletin preimage CID; the host is not asked |
+| `err` | the lookup could not be made: `Host`, `Timeout`, or `Aborted` when `options.signal` fired |
+
+None of these fails the profile: show a placeholder and ask again later. Avatar bytes outlive
+nothing: Bulletin drops them after its retention period, and the publisher uploads them again.
 
 ## Writes: the publish recipe
 
@@ -221,7 +236,7 @@ not confirm in time is `Timeout`, not `Host`: the bytes may still be stored, and
 
 ### `prepareSetProfile(label, text, opts)`
 
-Signer-free, like every dotNS write in the identity module. It checks the text is a record
+Signer-free, like every DotNS write in the identity module. It checks the text is a record
 readers accept, requires `opts.origin`, asks the registry whether that account is authorised for
 the name (its owner, or an address or operator the owner approved, the resolver's own rule), reads
 the current text, dry-runs `setText` as the origin and returns `{ call, text, original }`. A
@@ -230,7 +245,7 @@ fails as `ProfileError` before the chain is asked.
 
 It never calls `setResolver`. Every name is minted pointing at the reverse resolver, and the
 record is still written and read on the deployment's content resolver, because `setText` checks
-the registry's authorisation and not the pointer. That is where dotNS keeps text records, where
+the registry's authorisation and not the pointer. That is where DotNS keeps text records, where
 dotns-sdk reads them, and where the host core's public-profile reader reads a profile (truapi
 `public_profile.rs`). Repointing would buy nothing, and it can cost the name its address: an
 address is read only while the pointer is the forward resolver, which is where `setDotNsRecord`
@@ -253,10 +268,10 @@ puts it.
 
 `ProfileError` reasons: `NotBase64`, `TooLarge`, `Malformed` from the decoder and the rewrite;
 `InvalidEntry` from the rewrite; `TooLarge` from `profileAvatar` and `submitAvatar`; `Host` from
-`submitAvatar`, for a host call that failed or answered something unusable, with the cause
-attached; `Timeout` from the same call when the host's deadline passed, which the upload may
-outlive, so word the retry that way. The dotNS walk reports through `DotNsError`: `InvalidName`,
-`MissingOrigin`, `InvalidOrigin`, `Unauthorised`, `AddressDiscovery` when a write targets a
+`submitAvatar` and `loadAvatar`, for a host call that failed or answered something unusable, with
+the cause attached; `Timeout` from the same calls when the host's deadline passed, which an
+upload may outlive, so word the retry that way; `Aborted` from `loadAvatar` when its signal fired.
+The DotNS walk reports through `DotNsError`: `InvalidName`, `MissingOrigin`, `InvalidOrigin`, `Unauthorised`, `AddressDiscovery` when a write targets a
 deployment with no content resolver (a read answers `NoProfile` there, since there is nothing to
 read), `RegistryCall` for a call that failed, with the cause. Both implement the `SdkError`
 marker, so `isSdkError` recognises them.
@@ -276,8 +291,8 @@ writer erasing it.
 load the avatar, then the publish recipe with the product steps stubbed, then a clear. Start
 from it for a test or a demo. What it shows that the API does not:
 
-- `createFakeContractRuntime` from `@parity/product-sdk/testing` stands in for dotNS. The SDK
-  keeps its dotNS ABIs private, so the fixture declares the three signatures it answers, `text`,
+- `createFakeContractRuntime` from `@parity/product-sdk/testing` stands in for DotNS. The SDK
+  keeps its DotNS ABIs private, so the fixture declares the three signatures it answers, `text`,
   `isAuthorised` and `setText`, as the example does. Pass `tld` and `contentResolverAddress` so
   the walk stops there.
 - Under the fake runtime `prepared.call` is an empty object. Capture what the runtime built

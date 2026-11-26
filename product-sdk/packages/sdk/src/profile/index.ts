@@ -9,7 +9,7 @@
  * resolver: a SCALE `ProfileRecord` in base64, a list of entries each carried
  * as length-prefixed bytes that start with the entry's variant index. Owning
  * the name is the authenticity. The layout and the `Avatar` entry are the
- * core's (`public_profile` in host-rust-core), so what this module reads is
+ * core's (`public_profile` in trinity-user-agents), so what this module reads is
  * what hosts show. A writer carries every entry it does not read unchanged.
  *
  * `getProfile` answers one of three things, and the last two must be kept
@@ -62,6 +62,7 @@ export {
     PROFILE_TEXT_RECORD_KEY,
 } from "./types.js";
 export type {
+    AvatarLookup,
     AvatarMimeType,
     LoadedAvatar,
     ProfileAvatar,

@@ -22,8 +22,6 @@ import {
  * bytes, so missing or surplus padding, set trailing bits, whitespace and the
  * URL alphabet are all refused. `atob` alone accepts most of those; the
  * round-trip through `btoa` is what refuses them.
- *
- * @internal
  */
 export function decodeBase64Strict(text: string): Uint8Array | null {
     let binary: string;
@@ -38,8 +36,6 @@ export function decodeBase64Strict(text: string): Uint8Array | null {
 
 /**
  * Standard base64 with padding: the one form the writer emits, and what {@link decodeBase64Strict} reads back.
- *
- * @internal
  */
 export function encodeBase64(bytes: Uint8Array): string {
     let binary = "";
@@ -61,8 +57,6 @@ const recordTooLarge = () =>
  * it: the index byte, then the payload. The outer layer only; what each entry
  * holds is the reader's or the rewriter's question. The three errors are the
  * ones every reader refuses a record for.
- *
- * @internal
  */
 export function decodeRecordEntries(text: string): Result<Uint8Array[], ProfileError> {
     const trimmed = text.trim();
@@ -117,8 +111,6 @@ export function decodeProfileRecord(text: string): Result<PublicProfile, Profile
  * The avatar an entry holds, or `null` when it is not an `Avatar` entry whose
  * payload is exactly one digest and a format this reader knows. The one rule
  * the reader and the writer share for what counts as an avatar.
- *
- * @internal
  */
 export function readAvatarEntry(entry: Uint8Array): ProfileAvatar | null {
     if (entry[0] !== PROFILE_AVATAR_ENTRY_INDEX) return null;

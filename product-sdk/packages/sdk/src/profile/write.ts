@@ -6,7 +6,7 @@
  * DotNS write in the identity module: the product submits the prepared call
  * with its own signer, after mapping and funding the account.
  */
-import type { BatchableCall } from "@parity/product-sdk-tx";
+import type { BatchableCall } from "@parity/product-sdk-contracts";
 import { type Result, err, ok } from "@parity/result";
 import { DOTNS_CONTENT_RESOLVER_WRITE_ABI, DOTNS_REGISTRY_ABI } from "../identity/dotns-abis.js";
 import { contractOf, resolveDotNsAddresses } from "../identity/dotns-addresses.js";

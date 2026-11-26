@@ -39,8 +39,6 @@ function encodeAvatar(avatar: ProfileAvatar): Result<Uint8Array, ProfileError> {
  * The text-record value holding `entries`, each as the wrapper carries it.
  * Refuses a record over {@link PROFILE_RECORD_MAX_BYTES}: every reader refuses
  * it too, so writing it would wipe the profile silently.
- *
- * @internal
  */
 export function encodeProfileRecord(entries: Uint8Array[]): Result<string, ProfileError> {
     const bytes = profileRecordCodec.enc(entries);

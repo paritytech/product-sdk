@@ -13,7 +13,8 @@ export type ProfileErrorReason =
     | "Malformed" // not exactly one SCALE ProfileRecord
     | "InvalidEntry" // a patch value no entry can carry: a CID that is not a Bulletin preimage CID, or an unknown format
     | "Host" // a host call failed, or answered something unusable, such as an avatar keyed by something other than its digest; the cause is attached
-    | "Timeout"; // a host call ran out of time; an avatar store may still complete, so word a retry as such
+    | "Timeout" // a host call ran out of time; an avatar store may still complete, so word a retry as such
+    | "Aborted"; // the caller's signal ended an avatar lookup
 
 /** An error on the `err` channel of a profile read or write; `reason` says which. Implements the cross-package {@link SdkError} marker. */
 export class ProfileError extends Error implements SdkError {
@@ -34,8 +35,6 @@ export class ProfileError extends Error implements SdkError {
  * The deadline is a `HostTimeoutError` anywhere on the cause chain, matched
  * by name: this module imports no host code at runtime, and a host may
  * bundle its own copy of the class.
- *
- * @internal
  */
 export function hostCallFailed(message: string, cause: unknown): ProfileError {
     return new ProfileError(timedOut(cause) ? "Timeout" : "Host", message, { cause });

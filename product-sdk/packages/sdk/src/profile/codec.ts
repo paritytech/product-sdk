@@ -14,15 +14,11 @@ import { Bytes, type Codec, Hex, Struct, Vector, u8 } from "@polkadot-api/substr
 
 /**
  * `ProfileRecord { entries: Vec<WrapperKeepOpaque<ProfileEntry>> }`: every entry as its bytes.
- *
- * @internal
  */
 export const profileRecordCodec = Vector(Bytes());
 
 /**
  * `ProfileAvatar { cid: BulletinCid, format: ImageFormat }`: the CID as its 32-byte blake2b-256 digest, the format as its index.
- *
- * @internal
  */
 export const profileAvatarCodec = Struct({ cid: Hex(32), format: u8 });
 
@@ -34,8 +30,6 @@ const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
  * `decode_all`. scale-ts decoders ignore trailing bytes and accept a
  * truncated field or a non-minimal compact length, so the value must also
  * re-encode to `bytes`.
- *
- * @internal
  */
 export function decodeExact<T>(codec: Codec<T>, bytes: Uint8Array): T | null {
     try {
