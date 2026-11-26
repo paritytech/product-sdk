@@ -232,9 +232,12 @@ export async function getProfileRecord(
 
 /**
  * Whether the content resolver now holds exactly `text` for `label`: the
- * check a publisher makes once its write is final, so a write the chain
+ * check a publisher makes once its write is included, so a write the chain
  * included but did not apply, or one overtaken by another writer, is not
- * reported as published. `""` asks whether the record is cleared.
+ * reported as published. `""` asks whether the record is cleared. The read
+ * is at the best block: after a best-block inclusion it can run at once, and a
+ * reorg can still drop the write, so a publisher that needs certainty asks
+ * again after finality.
  */
 export async function verifyPublishedProfile(
     label: string,

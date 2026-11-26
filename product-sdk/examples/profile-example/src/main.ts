@@ -130,12 +130,12 @@ async function publish(patch: ProfilePatch, bytes?: Uint8Array): Promise<void> {
     // 5. A last look before submitting: a record another writer changed is not overwritten.
     const again = unwrap(await getProfileRecord(LABEL, opts));
     if (again !== prepared.original) throw new Error("The profile changed; start over.");
-    // A live app submits `prepared.call` with the owner's signer and waits for
-    // finality, through `batchSubmitAndWatch` with `waitFor: "finalized"`. The
-    // fixture chain applies the write directly.
+    // A live app submits `prepared.call` with the owner's signer through
+    // `batchSubmitAndWatch`, and waits for inclusion or finality as it chooses.
+    // The fixture chain applies the write directly.
     records.set(NODE, prepared.text);
 
-    // 6. After finality, the chain holds exactly what was sent.
+    // 6. Once the write is in, the chain holds exactly what was sent.
     assert.equal(unwrap(await verifyPublishedProfile(LABEL, prepared.text, opts)), true);
 }
 

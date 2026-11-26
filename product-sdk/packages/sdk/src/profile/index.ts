@@ -30,7 +30,7 @@
  * const prepared = await prepareSetProfile("alice", text.value, { runtime, origin });
  * await submitAvatar(pngBytes, manager); // after the dry-run, before the submit
  * // Read again and stop unless it is still `prepared.value.original`; submit
- * // `prepared.value.call` with the owner's signer; then, after finality:
+ * // `prepared.value.call` with the owner's signer; then, once it is included:
  * await verifyPublishedProfile("alice", prepared.value.text, { runtime });
  * ```
  *

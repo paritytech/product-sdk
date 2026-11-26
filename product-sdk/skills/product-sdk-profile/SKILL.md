@@ -58,10 +58,10 @@ The profile module exists only on the umbrella, as `@parity/product-sdk/profile`
 contracts, host and identity packages as `@parity/product-sdk/chain`, `/contracts`, `/host` and
 `/identity`. It has **no `/tx` subpath**, so `batchSubmitAndWatch` and `submitAndWatch` come
 from `@parity/product-sdk-tx`, and chain descriptors come from `@parity/product-sdk-descriptors`,
-both installed beside the umbrella. The signer a write needs is a `CommonSignerTxCreator`, which
-`SignerManager` in `@parity/product-sdk-signer` hands out per account; the host package exposes
-the accounts provider, not the signer type. The `product-sdk-transactions` skill covers that
-lifecycle.
+both installed beside the umbrella. The signer a write needs is a `CommonSignerTxCreator` (the
+type is from `@polkadot-api/signers-common`) for the person's identity account; "Who signs"
+below says which account that is and how to get its signer. The `product-sdk-transactions` skill
+covers the signer lifecycle.
 
 ## What You Must Hand In
 
@@ -158,10 +158,11 @@ import {
     submitAvatar, verifyPublishedProfile,
 } from "@parity/product-sdk/profile";
 
-// `owner` is the account the registry authorises for the name, and `signer`
-// its CommonSignerTxCreator, from `SignerManager` over the host accounts
-// provider. Finding it is the product's job: for a person it is the account
-// that owns their username. Reads take no origin; the prepare alone does.
+// `owner` is the account the registry authorises for the name: for a person,
+// their identity account, the product account `peopl.<tld>` at index 0. `signer`
+// is its CommonSignerTxCreator on extension version 1. See "Who signs" below.
+// Fund `owner` before any of this: steps 4 and 6 each cost a fee.
+// Reads take no origin; the prepare alone does.
 const opts = { runtime };
 
 // 1. The live text. "" means none.
@@ -178,7 +179,10 @@ const text = rewriteProfileRecord(live.value, { avatar: avatar.value });
 if (!text.ok) throw text.error;
 
 // 4. The setText call, sized by a dry-run as the owner. The owner must be mapped
-//    in pallet-revive first; `ensureContractAccountMapped` is a no-op once it is.
+//    in pallet-revive first. An identity account usually is already, from when
+//    its username was registered, and then this submits nothing. When it is not,
+//    the mapping is a transaction of its own and fails as `Invalid.Payment` on
+//    an unfunded account.
 await ensureContractAccountMapped(runtime, owner.address, signer);
 const prepared = await prepareSetProfile("alice", text.value, { ...opts, origin: owner.address });
 if (!prepared.ok) throw prepared.error;
@@ -192,11 +196,12 @@ if (!stored.ok) throw stored.error;
 // 6. Submit, after a last look: another writer's record must not be overwritten.
 const again = await getProfileRecord("alice", opts);
 if (!again.ok || again.value !== prepared.value.original) throw new Error("the profile changed; start over");
-const sent = await batchSubmitAndWatch([prepared.value.call], chain.assetHub, signer, { waitFor: "finalized" });
+const sent = await batchSubmitAndWatch([prepared.value.call], chain.assetHub, signer);
 if (!sent.ok) throw sent.error;
 
-// 7. What the chain holds now is what was sent. Only after finality: a
-//    best-block inclusion can still be reorged away.
+// 7. What the chain holds now is what was sent. The read is at the best block,
+//    so it works as soon as the write is included; how long to wait is the
+//    product's choice (see "Submitting").
 const published = await verifyPublishedProfile("alice", prepared.value.text, opts);
 ```
 
@@ -253,16 +258,34 @@ puts it.
 
 ### What the product owns
 
-- **Who signs.** The account the registry authorises for the name. For a person that is the
-  account that owns their username; products find it the way their own identity flow does.
-- **Mapping.** The dry-run and the call run as that account in pallet-revive, so it must be mapped
-  once, and **before `prepareSetProfile`**, since the prepare dry-runs as the origin.
-  `ensureContractAccountMapped` from the contracts package does it and is a no-op after.
-- **Paying.** The call costs a fee and the record's storage deposit, in the chain's fee asset,
-  from the signing account, and the avatar upload spends the product's Bulletin allowance.
-  Funding both is the product's flow, not the SDK's.
-- **Submitting.** `batchSubmitAndWatch([call], api, signer)` or `submitAndWatch`, from
-  `@parity/product-sdk-tx`, with `waitFor: "finalized"` before verifying.
+- **Who signs.** The account the registry authorises for the name. For a person that is their
+  identity account: the product account of `peopl.<tld>` at derivation index 0 (RFC-0028), which
+  owns their username. A product that itself runs as `peopl.<tld>` gets it from the accounts
+  provider with `getProductAccount("peopl.<tld>", 0)`; any other product needs the host to grant
+  it that account. Take the TLD from the network, never a hard-coded one. Build the signer with
+  `getProductAccountSigner(account, { txExtVersion: 1 })`: the default version 0 does not carry
+  the `AsPgas` extension Asset Hub's fee payment needs.
+- **Paying, first.** Fund the identity account before mapping or preparing. Fees on Asset Hub
+  are paid in PGAS, and an unfunded account fails its first transaction as `Invalid.Payment`,
+  which is the mapping when one is needed. `requestResourceAllocation` from
+  `@parity/product-sdk/host` asks the host for the allowance; `Allocated` means the claim was
+  submitted, not that the balance has landed, so read the balance until it has before going on.
+  The call also takes the record's storage deposit, and the avatar upload spends the product's
+  Bulletin allowance. The SDK has no helper for this yet; the `product-sdk-contracts` and
+  `product-sdk-transactions` skills cover `AsPgas` and the signer.
+- **Mapping, only if needed.** The dry-run and the call run as that account in pallet-revive, so
+  it must be mapped **before `prepareSetProfile`**, since the prepare dry-runs as the origin. An
+  identity account is normally mapped when its username is registered.
+  `ensureContractAccountMapped` from the contracts package checks, and submits the mapping
+  transaction only when it is missing.
+- **Submitting.** `batchSubmitAndWatch([call], api, signer)` from `@parity/product-sdk-tx` takes
+  `prepared.call` as it is, and is how to combine the write with others. For the one call,
+  `submitAndWatch(call, signer)` is the plain form; `call` is typed `BatchableCall`, so it needs
+  a cast to `SubmittableTransaction` there.
+- **How long to wait.** Both resolve at best-block inclusion by default, and
+  `verifyPublishedProfile` reads the best block, so the check can run straight away. That is the
+  responsive choice, and a reorg can still drop the write. Pass `{ waitFor: "finalized" }` to
+  wait it out, or show the avatar at inclusion and verify once more after finality.
 
 ## Errors
 
@@ -308,6 +331,10 @@ from it for a test or a demo. What it shows that the API does not:
   `getProfileRecord`, not a `PublicProfile`, because it carries entries it does not decode.
 - **Mapping after preparing.** The prepare dry-run runs as the origin; an unmapped origin fails
   it. Map first.
+- **Mapping or submitting before funding.** Both are transactions; an unfunded identity account
+  fails the first one as `Invalid.Payment`. Fund, wait for the balance, then go on.
+- **Signing on extension version 0.** `getProductAccountSigner(account)` defaults to it; a
+  profile write on Asset Hub needs `{ txExtVersion: 1 }`.
 - **Reading with the origin set.** A read given an origin dry-runs as it, so a first-ever
   publish fails at step 1, before mapping. Reads take `{ runtime }`; the prepare takes the origin.
 - **Skipping the re-read before submitting.** The prepared call stores a value rewritten from
