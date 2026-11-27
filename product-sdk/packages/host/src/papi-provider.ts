@@ -67,19 +67,34 @@ const JSON_RPC_INTERNAL_ERROR = -32603;
 /** JSON-RPC method-not-found code for chainHead methods the host doesn't serve. */
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 
-/** The first wait before a synthetic stop, doubled on each one in a row. */
+/**
+ * The first wait of both backoffs: before a synthetic stop, doubled on each one
+ * in a row, and between a follow and the one replacing it.
+ */
 const SHORTEST_STOP_DELAY_MS = 250;
+/** The longest wait of both backoffs, unless follows keep being refused. */
 const LONGEST_STOP_DELAY_MS = 4000;
 /**
- * The longest wait while follows end before they deliver any event.
- *
- * That is how a node refusing follows (`-32800`) reaches a product: the core
- * ends each refused stream with a plain interrupt and the code never arrives,
- * so retrying every 4 s only asks the full node again (#543).
+ * The longest wait before a synthetic stop once follows keep ending before any
+ * event, which is how a node refusing follows (`-32800`) reaches a product: the
+ * truapi core ends each refused stream with a plain interrupt and the code never
+ * arrives (#543). A chain socket the core is redialling looks the same, so the
+ * wait only grows past {@link LONGEST_STOP_DELAY_MS} after
+ * {@link REFUSALS_BEFORE_LONG_BACKOFF} in a row.
  */
 const LONGEST_REFUSED_STOP_DELAY_MS = 30_000;
-/** How often a connection whose follows keep failing writes a warn line about it. */
+/** Follows in a row that end before any event before the stop wait passes 4 s: about 20 s of them. */
+const REFUSALS_BEFORE_LONG_BACKOFF = 8;
+/**
+ * How long a follow stays up after `Initialized` before it shows the host is
+ * steady, when no read on it has succeeded. `Initialized` alone does not: a host
+ * can end every follow just after it initializes.
+ */
+const STEADY_FOLLOW_MS = 10_000;
+/** The least time between two warn summaries of a connection whose follows keep failing. */
 const FOLLOW_LOOP_SUMMARY_MS = 60_000;
+/** How long a follow lasts before the one replacing it starts a new incident. */
+const REPLACE_RESET_MS = 60_000;
 
 /** A `chainHead_v1_followEvent` payload (loosely typed — consumed by PAPI's substrate-client). */
 type FollowEvent = { event: string } & Record<string, unknown>;
@@ -309,14 +324,17 @@ export function createHostPapiProvider(
         const pendingOperationStarts = new Map<string, number>();
         let disconnected = false;
         // A stop this provider makes up is paced, because PAPI follows again at
-        // once. A Stop from the host is not.
+        // once, and so is a Stop from the host on a follow that is not steady yet.
+        // A Stop on a steady follow is forwarded at once.
         let transportRetryDelay = SHORTEST_STOP_DELAY_MS;
+        /** Follows in a row that ended before any event, not by a lost host link. */
+        let refusedInARow = 0;
         /**
          * Whether a read was answered with a lost follow since a read last succeeded.
          *
          * A follow that reached `Initialized` and then lost a read does not show that
-         * the host is stable, so `Initialized` leaves the refollow delay growing while
-         * this is set, and only a read that succeeds brings the delay back.
+         * the host is stable, so a follow's age does not count as steady while this
+         * is set, and only a read that succeeds brings the delay back.
          */
         let lostReadSinceSuccess = false;
         const interruptedFollows = new Map<string, { timer?: ReturnType<typeof setTimeout> }>();
@@ -330,17 +348,32 @@ export function createHostPapiProvider(
          * keeps abandoning follows is broken while the host is fine, so its new
          * follows initialize and would otherwise end the run each time.
          */
-        const endedRun = { count: 0, since: 0, summarizedAt: 0 };
-        const releasedRun = { count: 0, since: 0, summarizedAt: 0 };
+        type Run = {
+            count: number;
+            since: number;
+            summarizedAt: number;
+            summary: (count: number, seconds: number, backoff: number) => string;
+        };
+        const endedRun: Run = {
+            count: 0,
+            since: 0,
+            summarizedAt: 0,
+            summary: (count, seconds, backoff) =>
+                `chainHead follows on this connection keep failing: ${count} ended in ${seconds} s, the stop backoff is now ${backoff} ms`,
+        };
+        const releasedRun: Run = {
+            count: 0,
+            since: 0,
+            summarizedAt: 0,
+            summary: (count, seconds, backoff) =>
+                `chainHead follows on this connection keep being abandoned by their client: ${count} released in ${seconds} s, the replacement backoff is now ${backoff} ms`,
+        };
         /**
          * Count one more follow in `run`, and say how loud to log it: the first of a
-         * run is a warn line and the rest are debug, with a warn summary at most once
-         * a {@link FOLLOW_LOOP_SUMMARY_MS}.
+         * run is a warn line and the rest are debug, with a warn summary, carrying
+         * the backoff, at most once a {@link FOLLOW_LOOP_SUMMARY_MS}.
          */
-        function noteRun(
-            run: typeof endedRun,
-            summary: (count: number, seconds: number) => string,
-        ): "warn" | "debug" {
+        function noteRun(run: Run, backoff: number): "warn" | "debug" {
             const now = Date.now();
             run.count += 1;
             if (run.count === 1) {
@@ -350,22 +383,10 @@ export function createHostPapiProvider(
             }
             if (now - run.summarizedAt >= FOLLOW_LOOP_SUMMARY_MS) {
                 run.summarizedAt = now;
-                log.warn(summary(run.count, Math.round((now - run.since) / 1000)));
+                log.warn(run.summary(run.count, Math.round((now - run.since) / 1000), backoff));
             }
             return "debug";
         }
-        const noteEnded = (nextDelay: number) =>
-            noteRun(
-                endedRun,
-                (count, seconds) =>
-                    `chainHead follows on this connection keep failing: ${count} ended in ${seconds} s, the next stop waits ${nextDelay} ms`,
-            );
-        const noteReleased = (nextDelay: number) =>
-            noteRun(
-                releasedRun,
-                (count, seconds) =>
-                    `chainHead follows on this connection keep being abandoned by their client: ${count} released in ${seconds} s, the next replacement waits ${nextDelay} ms`,
-            );
         /** The host is steady again: refollows start at the shortest delay. */
         function steady(followSubscriptionId: string): void {
             transportRetryDelay = SHORTEST_STOP_DELAY_MS;
@@ -383,7 +404,38 @@ export function createHostPapiProvider(
             )
                 return;
             lostReadSinceSuccess = false;
+            const age = followAges.get(followSubscriptionId);
+            if (age !== undefined) age.readSucceeded = true;
             steady(followSubscriptionId);
+        }
+        /**
+         * Whether a follow has shown the host is steady: a read on it succeeded, or
+         * it stayed up {@link STEADY_FOLLOW_MS} after `Initialized` with no read lost
+         * since one last succeeded.
+         */
+        function isSteady(followSubscriptionId: string): boolean {
+            const age = followAges.get(followSubscriptionId);
+            if (age === undefined) return false;
+            if (age.readSucceeded) return true;
+            return (
+                age.initializedAt !== undefined &&
+                !lostReadSinceSuccess &&
+                Date.now() - age.initializedAt >= STEADY_FOLLOW_MS
+            );
+        }
+        /** Unsubscribe a follow's host stream, logging rather than throwing if that fails. */
+        function unsubscribeQuietly(
+            followSubscriptionId: string,
+            follow: TransportSubscription,
+            when: string,
+        ): void {
+            try {
+                follow.unsubscribe();
+            } catch (thrown) {
+                log.warn(`chainHead follow ${followSubscriptionId}: unsubscribe failed ${when}`, {
+                    error: formatHostError(thrown),
+                });
+            }
         }
         /**
          * Follows this connection released because their client followed again
@@ -392,7 +444,7 @@ export function createHostPapiProvider(
          * dropped (see {@link releaseFollow}).
          */
         const releasedFollows = new Set<string>();
-        /** A follow request abandoned follows made wait, opened once its delay has passed. */
+        /** The `chainHead_v1_follow` request held back by `replaceDelay`, opened when its timer fires. */
         let waitingFollow:
             | {
                   id: JsonRpcRequest["id"];
@@ -409,10 +461,15 @@ export function createHostPapiProvider(
          * Apart from {@link transportRetryDelay}, because a client that keeps
          * abandoning follows is broken while the host is fine: its new follows
          * initialize and their reads succeed, which would keep resetting that one.
-         * Back to the shortest once the client unfollows, or once a follow lasts a
-         * {@link FOLLOW_LOOP_SUMMARY_MS} before it is replaced.
+         * Back to the shortest once the client unfollows, or once a follow lasts
+         * {@link REPLACE_RESET_MS} before it is replaced.
          */
         let replaceDelay = SHORTEST_STOP_DELAY_MS;
+        /** The client is not abandoning follows: replacements start over. */
+        function resetReplace(): void {
+            replaceDelay = SHORTEST_STOP_DELAY_MS;
+            releasedRun.count = 0;
+        }
         function cancelTransportStop(subscription: string): void {
             const pending = interruptedFollows.get(subscription);
             interruptedFollows.delete(subscription);
@@ -425,7 +482,13 @@ export function createHostPapiProvider(
         const heldReads = new Map<string, JsonRpcRequest["id"][]>();
         const followAges = new Map<
             string,
-            { startedAt: number; events: number; lastEventAt: number; initialized: boolean }
+            {
+                startedAt: number;
+                events: number;
+                lastEventAt: number;
+                initializedAt?: number;
+                readSucceeded: boolean;
+            }
         >();
         let stoppedAt: number | null = null;
 
@@ -605,17 +668,11 @@ export function createHostPapiProvider(
                     return;
                 }
                 holdRead(id, followSubscriptionId);
+                // Set first, so the follow's age does not count as steady.
+                lostReadSinceSuccess = true;
                 // The frame ending this follow may never come, and only a stop ends the hold.
                 interruptFollow(followSubscriptionId, follow, error);
-                lostReadSinceSuccess = true;
-                try {
-                    follow.unsubscribe();
-                } catch (thrown) {
-                    log.warn(
-                        `chainHead follow ${followSubscriptionId}: unsubscribe failed after a lost read`,
-                        { error: formatHostError(thrown) },
-                    );
-                }
+                unsubscribeQuietly(followSubscriptionId, follow, "after a lost read");
             };
 
         function interruptFollow(
@@ -630,26 +687,30 @@ export function createHostPapiProvider(
             )
                 return;
             const state = followState(followSubscriptionId);
-            // Ended before any event, and not by a lost host link: the node most
-            // likely refused it, and asking again soon only meets the same refusal.
-            const refused =
-                (followAges.get(followSubscriptionId)?.events ?? 0) === 0 &&
-                !isConnectionReset(reason);
+            const hostLinkLost = isConnectionReset(reason);
+            // A follow that showed the host steady starts the backoff over.
+            if (isSteady(followSubscriptionId)) steady(followSubscriptionId);
+            // Ended before any event, and not by a lost host link: refused by the
+            // node, or cut while the core redials the chain socket.
+            if ((followAges.get(followSubscriptionId)?.events ?? 0) === 0 && !hostLinkLost)
+                refusedInARow += 1;
             followOperations.delete(followSubscriptionId);
             pendingOperationStarts.delete(followSubscriptionId);
             const pending: { timer?: ReturnType<typeof setTimeout> } = {};
             interruptedFollows.set(followSubscriptionId, pending);
             // A lost host link comes back on its own, so its stop never waits for
             // a refusal run to end.
-            const delay = isConnectionReset(reason)
+            const delay = hostLinkLost
                 ? Math.min(transportRetryDelay, LONGEST_STOP_DELAY_MS)
                 : transportRetryDelay;
             transportRetryDelay = Math.min(
                 delay * 2,
-                refused ? LONGEST_REFUSED_STOP_DELAY_MS : LONGEST_STOP_DELAY_MS,
+                refusedInARow >= REFUSALS_BEFORE_LONG_BACKOFF && !hostLinkLost
+                    ? LONGEST_REFUSED_STOP_DELAY_MS
+                    : LONGEST_STOP_DELAY_MS,
             );
             const cause = reason === undefined ? "ended by the host" : formatHostError(reason);
-            log[noteEnded(transportRetryDelay)](
+            log[noteRun(endedRun, transportRetryDelay)](
                 `chainHead follow ${followSubscriptionId} interrupted (${cause}): ${state}, stop in ${delay} ms`,
             );
             pending.timer = setTimeout(() => {
@@ -676,20 +737,22 @@ export function createHostPapiProvider(
          * Let go of a follow its client abandoned by following again without
          * unfollowing it.
          *
-         * A substrate-client holds one follow, and polkadot-api ends or unfollows
-         * it before following again, so another follow on this connection means
-         * the client dropped the one it had. polkadot-api 0.19 does exactly that
-         * once its pinned blocks break, and keeps the abandoned follower's
-         * callbacks alive (#543). So nothing more is sent for this follow: a stop
-         * would make that follower follow again, and an error answered to any of
-         * its requests reaches the retry polkadot-api shares with the live
-         * follower, which then restarts. Its held reads and late answers stay
-         * unanswered.
+         * A polkadot-api client holds one follow, and ends or unfollows it before
+         * following again, so another follow on this connection means the client
+         * dropped the one it had. It does exactly that once its pinned blocks
+         * break (observable-client 0.19), and keeps the abandoned follower's
+         * callbacks alive (#543). So nothing more is sent for this follow. A stop
+         * would make that follower follow again, and since polkadot-api shares one
+         * follower pointer across its subscriptions, take the live follower's
+         * place. An error to its follow request makes it retry, and an error to its
+         * other requests can reach the `reset` polkadot-api shares with the live
+         * follower. Its held reads and late answers stay unanswered.
          *
-         * The cost is what stays in the client's raw client: the requests this
-         * follow had in flight, and its id here. That is one entry per abandoned
-         * follow, the same order as the follower polkadot-api already keeps for
-         * each one, and rebuilding the client frees both.
+         * The cost: the requests this follow had in flight stay in the client's raw
+         * client until it cancels them or is destroyed, and the id stays here.
+         * polkadot-api already keeps each abandoned follower itself, and rebuilding
+         * the client frees all of it. A raw substrate-client that holds two
+         * follows on one connection is not supported.
          */
         function releaseFollow(
             followSubscriptionId: string,
@@ -704,19 +767,10 @@ export function createHostPapiProvider(
             pendingOperationStarts.delete(followSubscriptionId);
             heldReads.delete(followSubscriptionId);
             releasedFollows.add(followSubscriptionId);
-            log[noteReleased(nextDelay)](
+            log[noteRun(releasedRun, nextDelay)](
                 `chainHead follow ${followSubscriptionId} released, its client followed again without unfollowing it: ${state}`,
             );
-            try {
-                follow.unsubscribe();
-            } catch (thrown) {
-                log.warn(
-                    `chainHead follow ${followSubscriptionId}: unsubscribe failed on release`,
-                    {
-                        error: formatHostError(thrown),
-                    },
-                );
-            }
+            unsubscribeQuietly(followSubscriptionId, follow, "on release");
         }
 
         /** Open a follow request that abandoned follows made wait, once `wait` ms have passed. */
@@ -759,40 +813,35 @@ export function createHostPapiProvider(
                 )
                     return;
                 const age = followAges.get(followSubscriptionId);
-                if (item.tag === "Initialized") {
-                    if (age !== undefined) age.initialized = true;
-                    if (!lostReadSinceSuccess) steady(followSubscriptionId);
-                }
                 if (age !== undefined && item.tag !== "Stop") {
-                    // The node took this follow, so it is not refusing them.
-                    if (age.events === 0)
+                    if (item.tag === "Initialized") age.initializedAt ??= Date.now();
+                    if (age.events === 0) {
+                        // The node took this follow, so it is not refusing them.
                         transportRetryDelay = Math.min(transportRetryDelay, LONGEST_STOP_DELAY_MS);
+                        refusedInARow = 0;
+                    }
                     age.events += 1;
                     age.lastEventAt = Date.now();
                 }
-                if (item.tag === "Stop" && !age?.initialized && ref.handle) {
-                    // polkadot-api follows again as soon as it sees a stop, so a host
-                    // that ends every follow before it initializes would loop as fast
-                    // as it answers. Paced like an interrupt instead (#543).
-                    const follow = ref.handle;
+                if (item.tag === "Stop" && !isSteady(followSubscriptionId)) {
+                    // polkadot-api follows again as soon as it sees a stop, inside the
+                    // call that delivered it, so a host that ends follows before they
+                    // are steady would loop as fast as it answers. Paced like an
+                    // interrupt instead (#543).
+                    // The guard above matched `ref.handle`, so it is set.
+                    const follow = ref.handle as TransportSubscription;
                     interruptFollow(
                         followSubscriptionId,
                         follow,
-                        new Error("stopped by the host before it initialized"),
+                        new Error("stopped by the host before it was steady"),
                     );
-                    try {
-                        follow.unsubscribe();
-                    } catch (thrown) {
-                        log.warn(
-                            `chainHead follow ${followSubscriptionId}: unsubscribe failed after a stop`,
-                            { error: formatHostError(thrown) },
-                        );
-                    }
+                    unsubscribeQuietly(followSubscriptionId, follow, "after a stop");
                     return;
                 }
                 const stopped = item.tag === "Stop" && activeFollows.delete(followSubscriptionId);
                 if (stopped) {
-                    log[noteEnded(transportRetryDelay)](
+                    steady(followSubscriptionId);
+                    log[noteRun(endedRun, transportRetryDelay)](
                         `chainHead follow ${followSubscriptionId} stopped by the host: ${followState(followSubscriptionId)}`,
                     );
                     stoppedAt = Date.now();
@@ -845,7 +894,7 @@ export function createHostPapiProvider(
                 startedAt,
                 events: 0,
                 lastEventAt: startedAt,
-                initialized: false,
+                readSucceeded: false,
             });
             if (stoppedAt === null) {
                 log.info(`chainHead follow ${followSubscriptionId} started`);
@@ -874,21 +923,16 @@ export function createHostPapiProvider(
                 case "chainHead_v1_follow": {
                     const [withRuntime] = params as [boolean];
                     // Any follow this connection still holds was abandoned (see
-                    // `releaseFollow`). The new one is paced like a refollow, so a
-                    // client that keeps abandoning follows cannot open one per read.
-                    const abandoned = [...activeFollows];
-                    if (
-                        abandoned.length > 0 &&
-                        Date.now() - lastFollowAt >= FOLLOW_LOOP_SUMMARY_MS
-                    ) {
-                        // The follow it replaces lasted, so this is a new incident.
-                        replaceDelay = SHORTEST_STOP_DELAY_MS;
-                        releasedRun.count = 0;
-                    }
-                    const gap = replaceDelay;
-                    if (abandoned.length > 0) {
-                        replaceDelay = Math.min(gap * 2, LONGEST_STOP_DELAY_MS);
-                        for (const [subscription, follow] of abandoned)
+                    // `releaseFollow`). The new one waits out `replaceDelay` from the
+                    // last follow's start, so a client that keeps abandoning follows
+                    // cannot open one per read.
+                    let wait = 0;
+                    if (activeFollows.size > 0) {
+                        // A follow that lasted makes this a new incident.
+                        if (Date.now() - lastFollowAt >= REPLACE_RESET_MS) resetReplace();
+                        wait = lastFollowAt + replaceDelay - Date.now();
+                        replaceDelay = Math.min(replaceDelay * 2, LONGEST_STOP_DELAY_MS);
+                        for (const [subscription, follow] of [...activeFollows])
                             releaseFollow(subscription, follow, replaceDelay);
                     }
                     if (waitingFollow) {
@@ -898,7 +942,6 @@ export function createHostPapiProvider(
                         waitingFollow.withRuntime = withRuntime;
                         break;
                     }
-                    const wait = abandoned.length > 0 ? lastFollowAt + gap - Date.now() : 0;
                     if (wait > 0) scheduleFollow(id, withRuntime, wait);
                     else openFollow(id, withRuntime);
                     break;
@@ -913,20 +956,10 @@ export function createHostPapiProvider(
                     }
                     followAges.delete(followSubId);
                     cancelTransportStop(followSubId);
-                    if (activeFollows.delete(followSubId)) {
-                        // The client ended its follow itself, so it is not abandoning them.
-                        replaceDelay = SHORTEST_STOP_DELAY_MS;
-                        releasedRun.count = 0;
-                    }
+                    // The client ended its follow itself, so it is not abandoning them.
+                    if (activeFollows.delete(followSubId)) resetReplace();
                     syncFollower();
-                    try {
-                        follow?.unsubscribe();
-                    } catch (thrown) {
-                        log.warn(
-                            `chainHead follow ${followSubId}: unsubscribe failed on unfollow`,
-                            { error: formatHostError(thrown) },
-                        );
-                    }
+                    if (follow) unsubscribeQuietly(followSubId, follow, "on unfollow");
                     followOperations.delete(followSubId);
                     pendingOperationStarts.delete(followSubId);
                     sendJsonRpcResponse(id, null);
@@ -1656,6 +1689,16 @@ if (import.meta.vitest) {
         });
     });
 
+    /** Answer a header read on `subscription`, which marks the follow steady. */
+    function readOn(conn: JsonRpcConnection, subscription: string, id = 900): void {
+        conn.send({
+            jsonrpc: "2.0",
+            id,
+            method: "chainHead_v1_header",
+            params: [subscription, "0x01"],
+        });
+    }
+
     /** Follows that each get their own subscription id and captured observer. */
     function interruptibleFollows(extra: Parameters<typeof makeFakeClient>[0] = {}) {
         const observers: FollowObserver[] = [];
@@ -1710,7 +1753,7 @@ if (import.meta.vitest) {
         }
     });
 
-    test("an Initialized item resets the backoff; other items do not", () => {
+    test("a read that succeeds resets the backoff; Initialized alone and other items do not", () => {
         vi.useFakeTimers();
         const f = interruptibleFollows();
         f.follow().observer.complete();
@@ -1725,18 +1768,29 @@ if (import.meta.vitest) {
         vi.advanceTimersByTime(1);
         expect(f.stops()).toBe(2);
 
+        // A follow that initializes and then drops does not show the host is steady.
         const third = f.follow();
         third.observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
         third.observer.complete();
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(999);
+        expect(f.stops()).toBe(2);
+        vi.advanceTimersByTime(1);
         expect(f.stops()).toBe(3);
+
+        const fourth = f.follow();
+        fourth.observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+        readOn(f.conn, fourth.subscription);
+        fourth.observer.complete();
+        vi.advanceTimersByTime(250);
+        expect(f.stops()).toBe(4);
     });
 
-    test("a genuine Stop item on an initialized follow is forwarded at once and does not back off", () => {
+    test("a genuine Stop item on a steady follow is forwarded at once and does not back off", () => {
         vi.useFakeTimers();
         const f = interruptibleFollows();
-        const { observer } = f.follow();
+        const { observer, subscription } = f.follow();
         observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+        readOn(f.conn, subscription);
         observer.next({ tag: "Stop" });
         expect(f.stops()).toBe(1);
         expect(f.unsubscribe).toHaveBeenCalledTimes(1);
@@ -1793,6 +1847,7 @@ if (import.meta.vitest) {
         const f = interruptibleFollows();
         const first = f.follow();
         first.observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+        readOn(f.conn, first.subscription);
         vi.advanceTimersByTime(6000);
         first.observer.next({ tag: "Stop" });
         vi.advanceTimersByTime(10);
@@ -1863,7 +1918,8 @@ if (import.meta.vitest) {
     test("a stop or follow callback already queued when disconnect cleared it does nothing", () => {
         const timers = captureTimerCallbacks();
         const f = interruptibleFollows();
-        f.follow().observer.complete();
+        const { observer } = f.follow();
+        observer.complete();
         // Following again releases the interrupted follow and waits to open.
         f.follow();
         const queued = timers.callbacks();
@@ -1872,6 +1928,7 @@ if (import.meta.vitest) {
         expect(vi.getTimerCount()).toBe(0);
         // clearTimeout cannot recall callbacks the event loop already queued: run them anyway.
         for (const callback of queued) callback();
+        observer.complete();
         expect(f.stops()).toBe(0);
         expect(f.observers).toHaveLength(1);
         timers.restore();
@@ -2095,7 +2152,8 @@ if (import.meta.vitest) {
         refollow(f, 5);
         f.observers.at(-1)?.error(new Error("transport closed"));
 
-        expectAfter(f.messages, 250, [stopEvent]);
+        // That refollow only initialized, which does not show the host is steady.
+        expectAfter(f.messages, 500, [stopEvent]);
     });
 
     test("a read the host answers while the stop is pending does not bring the refollow pace back", () => {
@@ -2199,6 +2257,8 @@ if (import.meta.vitest) {
         await vi.advanceTimersByTimeAsync(0);
         expectAfter(f.messages, 250, [stopEvent, heldAnswer(2)]);
         refollow(f, 3);
+        // A follow's age counts as steady only while no read is counted as lost.
+        vi.advanceTimersByTime(STEADY_FOLLOW_MS);
         f.observers.at(-1)?.error(new Error("transport closed"));
 
         expectAfter(f.messages, 250, [stopEvent]);
@@ -2353,7 +2413,12 @@ if (import.meta.vitest) {
                 method: "chainHead_v1_unfollow",
                 params: [subscription],
             });
-        return { conn, follow, unfollow };
+        /** Initialize the follow and answer a read on it, so a Stop on it is forwarded at once. */
+        const steady = (follow: { subscription: string; observer: FollowObserver }) => {
+            follow.observer.next(initialized);
+            readOn(conn, follow.subscription);
+        };
+        return { conn, follow, unfollow, steady };
     }
 
     const followErrors = () => lines.filter((line) => line.startsWith("error: chain "));
@@ -2389,12 +2454,12 @@ if (import.meta.vitest) {
 
     test("one connection that follows again after a Stop is no error", () => {
         const c = connectionOn("0xfeed");
-        const { observer } = c.follow();
-        observer.next(initialized);
-        observer.next({ tag: "Stop" });
-        const next = c.follow().observer;
-        next.next(initialized);
-        next.next({ tag: "Stop" });
+        const first = c.follow();
+        c.steady(first);
+        first.observer.next({ tag: "Stop" });
+        const next = c.follow();
+        c.steady(next);
+        next.observer.next({ tag: "Stop" });
         expect(followErrors()).toEqual([]);
     });
 
@@ -2411,15 +2476,15 @@ if (import.meta.vitest) {
 
     test("a stop on either of two connections, answered with a refollow at once, is not reported again", () => {
         const first = connectionOn("0xfeed", { refollowOnStop: true });
-        const { observer } = first.follow();
+        const one = first.follow();
         const second = connectionOn("0xfeed", { refollowOnStop: true });
-        const other = second.follow().observer;
+        const other = second.follow();
         expect(followErrors()).toEqual([extraFollows(2)]);
 
-        observer.next(initialized);
-        other.next(initialized);
-        observer.next({ tag: "Stop" });
-        other.next({ tag: "Stop" });
+        first.steady(one);
+        second.steady(other);
+        one.observer.next({ tag: "Stop" });
+        other.observer.next({ tag: "Stop" });
         expect(followErrors()).toEqual([extraFollows(2)]);
     });
 
@@ -2437,9 +2502,10 @@ if (import.meta.vitest) {
 
     test("a connection whose only follow stops leaves the chain, so the next connection is no error", () => {
         vi.useFakeTimers();
-        const { observer } = connectionOn("0xfeed").follow();
-        observer.next(initialized);
-        observer.next({ tag: "Stop" });
+        const only = connectionOn("0xfeed");
+        const follow = only.follow();
+        only.steady(follow);
+        follow.observer.next({ tag: "Stop" });
         connectionOn("0xfeed").follow();
         expect(followErrors()).toEqual([]);
 
@@ -2589,24 +2655,44 @@ if (import.meta.vitest) {
         expect(f.unsubscribe).toHaveBeenCalledTimes(3);
     });
 
-    test("follows that end before any event back off past 4 s, up to 30 s", () => {
+    /** Stop waits while follows keep ending before any event: 4 s until 8 in a row, then up to 30 s. */
+    const REFUSED_DELAYS = [
+        250, 500, 1000, 2000, 4000, 4000, 4000, 4000, 8000, 16000, 30000, 30000,
+    ];
+
+    test("follows that keep ending before any event back off past 4 s after 8 in a row, up to 30 s", () => {
         vi.useFakeTimers();
         const f = interruptibleFollows();
-        for (const delay of [250, 500, 1000, 2000, 4000, 8000, 16000, 30000, 30000]) {
+        for (const delay of REFUSED_DELAYS) {
             f.follow().observer.error(refused());
             expectStopAfter(f, delay);
         }
     });
 
-    test("a connection reset keeps the 4 s cap, and a follow the node accepts brings it back", () => {
+    test("a redial that cuts follows before any event keeps the 4 s cap for its first 8", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        // The core redialling a chain socket ends each follow with a plain completion.
+        for (const delay of REFUSED_DELAYS.slice(0, 8)) {
+            f.follow().observer.complete();
+            expectStopAfter(f, delay);
+        }
+    });
+
+    test("a connection reset keeps the 4 s cap", () => {
         vi.useFakeTimers();
         const f = interruptibleFollows();
         const reset = Object.assign(new Error("host link lost"), { name: "ConnectionResetError" });
-        for (const delay of [250, 500, 1000, 2000, 4000, 4000]) {
+        for (const delay of [250, 500, 1000, 2000, 4000, 4000, 4000, 4000, 4000, 4000]) {
             f.follow().observer.error(reset);
             expectStopAfter(f, delay);
         }
-        for (const delay of [4000, 8000]) {
+    });
+
+    test("a follow the node accepts brings the cap back to 4 s and starts the count over", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        for (const delay of REFUSED_DELAYS.slice(0, 10)) {
             f.follow().observer.error(refused());
             expectStopAfter(f, delay);
         }
@@ -2614,8 +2700,12 @@ if (import.meta.vitest) {
         const accepted = f.follow();
         accepted.observer.next({ tag: "BestBlockChanged", value: { bestBlockHash: "0x01" } });
         accepted.observer.error(refused());
-
         expectStopAfter(f, 4000);
+
+        for (const delay of [4000, 4000, 4000]) {
+            f.follow().observer.error(refused());
+            expectStopAfter(f, delay);
+        }
     });
 
     test("a follow loop writes its first interrupt and restart, then a line a minute, and says when it is steady", () => {
@@ -2628,14 +2718,15 @@ if (import.meta.vitest) {
         }
         const steady = f.follow();
         steady.observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+        readOn(f.conn, steady.subscription);
 
         expect(lines).toEqual([
             "warn: chainHead follow p:1 interrupted (Subscription interrupted): up 0 ms, no events, 0 operations in flight, stop in 250 ms",
             "warn: chainHead follow p:2 restarted 29750 ms after the stop",
-            "warn: chainHead follows on this connection keep failing: 3 ended in 60 s, the next stop waits 2000 ms",
-            "warn: chainHead follows on this connection keep failing: 5 ended in 120 s, the next stop waits 8000 ms",
-            "warn: chainHead follows on this connection keep failing: 7 ended in 180 s, the next stop waits 30000 ms",
-            "warn: chainHead follows on this connection keep failing: 9 ended in 240 s, the next stop waits 30000 ms",
+            "warn: chainHead follows on this connection keep failing: 3 ended in 60 s, the stop backoff is now 2000 ms",
+            "warn: chainHead follows on this connection keep failing: 5 ended in 120 s, the stop backoff is now 4000 ms",
+            "warn: chainHead follows on this connection keep failing: 7 ended in 180 s, the stop backoff is now 4000 ms",
+            "warn: chainHead follows on this connection keep failing: 9 ended in 240 s, the stop backoff is now 16000 ms",
             "warn: chainHead follow p:11 is steady after 10 ended follows in 300 s",
         ]);
     });
@@ -2677,7 +2768,7 @@ if (import.meta.vitest) {
     test("a lost host link after a run of refused follows waits at most 4 s for its stop", () => {
         vi.useFakeTimers();
         const f = interruptibleFollows();
-        for (const delay of [250, 500, 1000, 2000, 4000, 8000, 16000]) {
+        for (const delay of REFUSED_DELAYS.slice(0, 10)) {
             f.follow().observer.error(refused());
             expectStopAfter(f, delay);
         }
@@ -2745,5 +2836,138 @@ if (import.meta.vitest) {
         expect(lines).toEqual([
             "warn: chainHead follow p:4 released, its client followed again without unfollowing it: up 62000 ms, no events, 0 operations in flight",
         ]);
+    });
+
+    test("a host that stops every follow just after it initializes is paced, with bounded warn lines", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        for (const delay of [250, 500, 1000, 2000, 4000, 4000, 4000]) {
+            const { observer } = f.follow();
+            observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+            observer.next({ tag: "Stop" });
+            expectStopAfter(f, delay);
+        }
+
+        expect(lines).toEqual([
+            "warn: chainHead follow p:1 interrupted (stopped by the host before it was steady): up 0 ms, 1 event, the last 0 ms ago, 0 operations in flight, stop in 250 ms",
+            "warn: chainHead follow p:2 restarted 0 ms after the stop",
+        ]);
+    });
+
+    test("a follow that initializes and then drops keeps backing off, not 250 ms each time", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        for (const delay of [250, 500, 1000, 2000, 4000, 4000]) {
+            const { observer } = f.follow();
+            observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+            observer.complete();
+            expectStopAfter(f, delay);
+        }
+    });
+
+    test("a follow that stays up 10 s after it initializes shows the host is steady", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        for (const delay of [250, 500, 1000]) {
+            f.follow().observer.complete();
+            expectStopAfter(f, delay);
+        }
+        const lasting = f.follow();
+        lasting.observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+        vi.advanceTimersByTime(10_000);
+
+        lasting.observer.complete();
+
+        expectStopAfter(f, 250);
+    });
+
+    test("a Stop from the host on a follow that stayed up 10 s is forwarded at once", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        const { observer } = f.follow();
+        observer.next({ tag: "Initialized", value: { finalizedBlockHashes: ["0x01"] } });
+        vi.advanceTimersByTime(10_000);
+
+        observer.next({ tag: "Stop" });
+
+        expect(f.stops()).toBe(1);
+    });
+
+    test("a read on an abandoned follow that the host fails is not answered", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows({ errors: { callHead: lostFollow } });
+        f.follow();
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        f.follow();
+        f.messages.length = 0;
+
+        f.conn.send({
+            jsonrpc: "2.0",
+            id: 80,
+            method: "chainHead_v1_call",
+            params: ["p:1", "0xhash", "Core_version", "0x"],
+        });
+        vi.advanceTimersByTime(60_000);
+
+        expect(f.messages).toEqual([]);
+    });
+
+    test.each([
+        ["continue", "chainHead_v1_continue", "continueHead"],
+        ["stopOperation", "chainHead_v1_stopOperation", "stopHeadOperation"],
+    ])("an error for an abandoned follow's %s is not answered", (_label, method, hostMethod) => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows({ errors: { [hostMethod]: lostFollow } });
+        f.follow();
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        f.follow();
+        f.messages.length = 0;
+
+        f.conn.send({ jsonrpc: "2.0", id: 90, method, params: ["p:1", "op1"] });
+
+        expect(f.messages).toEqual([]);
+    });
+
+    test("a clean unfollow starts the replacement pace over", () => {
+        vi.useFakeTimers();
+        const f = interruptibleFollows();
+        f.follow();
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+        const second = f.follow();
+        f.unfollow(second.subscription);
+        f.follow();
+        expect(f.observers).toHaveLength(3);
+
+        f.follow();
+
+        // 250 ms again, not the 500 ms the first replacement doubled it to.
+        vi.advanceTimersByTime(249);
+        expect(f.observers).toHaveLength(3);
+        vi.advanceTimersByTime(1);
+        expect(f.observers).toHaveLength(4);
+    });
+
+    test("a waiting follow whose host subscription throws answers its request with the error", () => {
+        vi.useFakeTimers();
+        const base = makeFakeClient({ subscriptionId: "p:1" });
+        let follows = 0;
+        const subscribe = base.chain.followHeadSubscribe;
+        base.chain.followHeadSubscribe = (args: unknown) => {
+            if (++follows === 2) throw new Error("host gone");
+            return subscribe(args as Parameters<typeof subscribe>[0]);
+        };
+        const messages: JsonRpcMessage[] = [];
+        const conn = createHostPapiProvider(base, "0xfeed")((m) => messages.push(m));
+        conn.send({ jsonrpc: "2.0", id: 1, method: "chainHead_v1_follow", params: [true] });
+        conn.send({ jsonrpc: "2.0", id: 2, method: "chainHead_v1_follow", params: [true] });
+
+        vi.advanceTimersByTime(SHORTEST_STOP_DELAY_MS);
+
+        expect(messages.at(-1)).toEqual({
+            jsonrpc: "2.0",
+            id: 2,
+            error: { code: -32603, message: "host gone" },
+        });
+        expect(lines).toContain("warn: chainHead_v1_follow: opening a waiting follow threw");
     });
 }

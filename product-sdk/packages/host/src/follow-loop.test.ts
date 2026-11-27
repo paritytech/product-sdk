@@ -45,8 +45,8 @@ type Observer = { next: (i: unknown) => void; error: (e: unknown) => void; compl
 type HostFollow = { id: string; observer: Observer; live: boolean };
 
 /** A host whose chain allows `budget` live follows and refuses the rest. */
-function fakeHost(budget: number) {
-    const chain = { head: 10 };
+function fakeHost(initialBudget: number) {
+    const chain = { head: 10, budget: initialBudget };
     const follows: HostFollow[] = [];
     const pendingCalls: Array<{ follow: string; fail: (error: unknown) => void }> = [];
     // How the core answers a call on a follow that has ended.
@@ -84,7 +84,7 @@ function fakeHost(budget: number) {
                         live: true,
                     };
                     follows.push(follow);
-                    if (live().length > budget) {
+                    if (live().length > chain.budget) {
                         // What a phone's product sees for a refused follow.
                         follow.live = false;
                         later(() => observer.error(new Error("Subscription interrupted")));
@@ -195,13 +195,26 @@ function fakeHost(budget: number) {
 /** A polkadot-api client over the provider, the way a product builds one. */
 function product(host: ReturnType<typeof fakeHost>) {
     const client = createClient(createHostPapiProvider(host.client, "0xfeed"));
+    const errors: string[] = [];
+    const seen = { blocks: 0 };
     return {
         client,
+        errors,
+        seen,
         /** A short read, the way an app reads state all the time. */
         query() {
             const subscription = client.finalizedBlock$.subscribe({
                 next: () => queueMicrotask(() => subscription.unsubscribe()),
-                error: () => {},
+                error: (e: unknown) => errors.push(String((e as Error)?.message ?? e)),
+            });
+        },
+        /** A reader that stays, counting the finalized blocks it sees. */
+        watch() {
+            client.finalizedBlock$.subscribe({
+                next: () => {
+                    seen.blocks += 1;
+                },
+                error: (e: unknown) => errors.push(String((e as Error)?.message ?? e)),
             });
         },
     };
@@ -220,6 +233,11 @@ async function breakClient(host: ReturnType<typeof fakeHost>, app: ReturnType<ty
         host.failCalls(new Error("No answer within 30000ms."));
         await vi.advanceTimersByTimeAsync(1500);
     }
+    // The bug these tests stand on (observable-client 0.19): a reader after the
+    // break gets this error. If an upgrade fixes it, these tests must be revisited.
+    app.query();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(app.errors).toContain("Initialized event out of order");
 }
 
 const lines: string[] = [];
@@ -234,6 +252,9 @@ afterEach(() => {
 });
 
 const followLines = () => lines.filter((line) => line.startsWith("chainHead follow"));
+/** Measured on this branch; main asks 79 times and writes 157 lines in the same 5 minutes. */
+const BOUND_REFUSED_FOLLOWS = 19;
+const BOUND_REFUSED_LINES = 6;
 
 describe("a node that refuses every follow (#543)", () => {
     test("is asked again at a falling pace, not every 4 s", async () => {
@@ -243,9 +264,24 @@ describe("a node that refuses every follow (#543)", () => {
 
         await vi.advanceTimersByTimeAsync(5 * 60_000);
 
-        // 250 ms doubling to 30 s: 8 follows in the first 62 s, then one every 30 s.
-        // A 4 s cap asks 79 times.
-        expect(host.follows.length).toBeLessThanOrEqual(16);
+        // 4 s for the first 8 in a row, then doubling to 30 s. A 4 s cap asks 79 times.
+        expect(host.follows.length).toBeLessThanOrEqual(BOUND_REFUSED_FOLLOWS);
+        app.client.destroy();
+    });
+
+    test("recovers within 30 s once the node takes follows again", async () => {
+        const host = fakeHost(0);
+        const app = product(host);
+        app.watch();
+        await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+        host.chain.budget = 4;
+        await vi.advanceTimersByTimeAsync(30_500);
+        host.newBlock();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(app.seen.blocks).toBeGreaterThan(0);
+        expect(host.live()).toHaveLength(1);
         app.client.destroy();
     });
 
@@ -256,9 +292,53 @@ describe("a node that refuses every follow (#543)", () => {
 
         await vi.advanceTimersByTimeAsync(5 * 60_000);
 
-        // The first interrupt and restart, then one summary a minute. Two lines per
-        // attempt is 157.
-        expect(followLines().length).toBeLessThanOrEqual(6);
+        // The first interrupt and restart, then at most one summary a minute. Two
+        // lines per attempt is 157.
+        expect(followLines().length).toBeLessThanOrEqual(BOUND_REFUSED_LINES);
+        app.client.destroy();
+    });
+});
+
+describe("a healthy client (#543 must not slow it down)", () => {
+    test("follows blocks again within 4 s of a redial", async () => {
+        const host = fakeHost(4);
+        const app = product(host);
+        app.watch();
+        await vi.advanceTimersByTimeAsync(500);
+        host.newBlock();
+        await vi.advanceTimersByTimeAsync(100);
+        const before = app.seen.blocks;
+        expect(before).toBeGreaterThan(0);
+
+        host.redial();
+        await vi.advanceTimersByTimeAsync(4000);
+        host.newBlock();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(app.seen.blocks).toBeGreaterThan(before);
+        expect(host.live()).toHaveLength(1);
+        app.client.destroy();
+    });
+
+    test("follows blocks again within 4 s of a 16 s socket outage ending", async () => {
+        const host = fakeHost(4);
+        const app = product(host);
+        app.watch();
+        await vi.advanceTimersByTimeAsync(500);
+        host.newBlock();
+        await vi.advanceTimersByTimeAsync(100);
+        const before = app.seen.blocks;
+
+        // The socket is down: every follow opened meanwhile ends before any event.
+        host.chain.budget = 0;
+        host.redial();
+        await vi.advanceTimersByTimeAsync(16_000);
+        host.chain.budget = 4;
+        await vi.advanceTimersByTimeAsync(4000);
+        host.newBlock();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(app.seen.blocks).toBeGreaterThan(before);
         app.client.destroy();
     });
 });
